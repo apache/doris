@@ -21,8 +21,8 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -229,7 +229,7 @@ public:
     }
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).add(row_num, columns);
     }
 
@@ -237,17 +237,17 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena& arena, UInt8*, UInt8*) const override {
         throw doris::Exception(
                 Status::FatalError("ReaderFunctionData do not support add_range_single_place"));
     }
-    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {
         throw doris::Exception(Status::FatalError("ReaderFunctionData do not support merge"));
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
         throw doris::Exception(Status::FatalError("ReaderFunctionData do not support serialize"));
     }
-    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {
         throw doris::Exception(Status::FatalError("ReaderFunctionData do not support deserialize"));
     }
 
@@ -259,20 +259,150 @@ template <template <typename, bool, bool, bool> class FunctionData, bool result_
           bool arg_is_nullable, bool is_copy = false>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types) {
-    auto type = remove_nullable(argument_types[0]);
-    WhichDataType which(*type);
-
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                        \
-    if (which.idx == TypeIndex::TYPE)                                                      \
-        return std::make_shared<ReaderFunctionData<                                        \
-                FunctionData<COLUMN_TYPE, result_is_nullable, arg_is_nullable, is_copy>>>( \
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnUInt8, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
-    TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
-
-    LOG(WARNING) << "with unknowed type, failed in  create_aggregate_function_" << name
-                 << " and type is: " << argument_types[0]->get_name();
-    return nullptr;
+    }
+    case PrimitiveType::TYPE_TINYINT: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnInt8, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_SMALLINT: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnInt16, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_INT: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnInt32, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_BIGINT: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnInt64, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_LARGEINT: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnInt128, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_FLOAT: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnFloat32, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DOUBLE: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnFloat64, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DECIMAL32: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal32, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DECIMAL64: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal64, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DECIMAL128I: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal128V3, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DECIMALV2: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal128V2, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DECIMAL256: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal256, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_JSONB: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnString, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DATE: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDate, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DATETIME: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDateTime, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DATETIMEV2: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDateTimeV2, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_DATEV2: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDateV2, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_IPV4: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnIPv4, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_IPV6: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnIPv6, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_ARRAY: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnArray, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_MAP: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnMap, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_STRUCT: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnStruct, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_VARIANT: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnVariant, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_BITMAP: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnBitmap, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_HLL: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnHLL, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    case PrimitiveType::TYPE_QUANTILE_STATE: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnQuantileState, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
+    default:
+        LOG(WARNING) << "with unknowed type, failed in  create_aggregate_function_" << name
+                     << " and type is: " << argument_types[0]->get_name();
+        return nullptr;
+    }
 }
 
 #define CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(CREATE_FUNCTION_NAME, FUNCTION_DATA)         \

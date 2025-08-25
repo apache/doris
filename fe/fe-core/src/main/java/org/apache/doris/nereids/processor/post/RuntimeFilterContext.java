@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -125,6 +127,7 @@ public class RuntimeFilterContext {
     private final List<ExpandRF> expandedRF = Lists.newArrayList();
 
     private final Map<Plan, Set<PhysicalRelation>> relationsUsedByPlan = Maps.newHashMap();
+    private final IdGenerator<RuntimeFilterId> runtimeFilterIdGen;
 
     /**
      * info about expand rf by inner join
@@ -149,9 +152,10 @@ public class RuntimeFilterContext {
         }
     }
 
-    public RuntimeFilterContext(SessionVariable sessionVariable) {
+    public RuntimeFilterContext(SessionVariable sessionVariable, IdGenerator<RuntimeFilterId> runtimeFilterIdGen) {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
+        this.runtimeFilterIdGen = runtimeFilterIdGen;
     }
 
     /**
@@ -368,5 +372,9 @@ public class RuntimeFilterContext {
 
     public List<ExpandRF> getExpandedRF() {
         return expandedRF;
+    }
+
+    public IdGenerator<RuntimeFilterId> getRuntimeFilterIdGen() {
+        return runtimeFilterIdGen;
     }
 }

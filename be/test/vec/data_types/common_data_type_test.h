@@ -23,14 +23,14 @@
 #include <iostream>
 
 #include "agent/be_exec_version_manager.h"
-#include "olap/schema.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
+#include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
-#include "vec/io/reader_buffer.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
 // for example DataTypeIPv4 should test this function:
@@ -100,9 +100,9 @@ protected:
 public:
     // we make meta info a default value, so assert should change the struct value to the right value
     struct DataTypeMetaInfo {
-        TypeIndex type_id = TypeIndex::Nothing;
-        TypeDescriptor* type_as_type_descriptor = nullptr;
-        std::string family_name = "";
+        PrimitiveType type_id = PrimitiveType::INVALID_TYPE; // now not useful?
+        DataTypePtr type_as_type_descriptor = nullptr;
+        std::string family_name;
         bool has_subtypes = false;
         doris::FieldType storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_UNKNOWN;
         bool should_align_right_in_pretty_formats = false;
@@ -124,8 +124,8 @@ public:
     void meta_info_assert(DataTypePtr& data_type, DataTypeMetaInfo& meta_info) {
         ASSERT_NE(data_type->get_serde(1), nullptr);
         ASSERT_EQ(IDataType::get_pdata_type(data_type.get()), meta_info.pColumnMeta->type());
-        ASSERT_EQ(data_type->get_type_id(), meta_info.type_id);
-        ASSERT_EQ(data_type->get_type_as_type_descriptor(), *meta_info.type_as_type_descriptor);
+        ASSERT_TRUE(data_type->equals(*meta_info.type_as_type_descriptor))
+                << data_type->get_name() << " " << meta_info.type_as_type_descriptor->get_name();
         ASSERT_EQ(data_type->get_family_name(), meta_info.family_name);
         ASSERT_EQ(data_type->have_subtypes(), meta_info.has_subtypes);
         ASSERT_EQ(data_type->get_storage_field_type(), meta_info.storage_field_type);
@@ -136,19 +136,25 @@ public:
         ASSERT_EQ(data_type->have_maximum_size_of_value(), meta_info.have_maximum_size_of_value);
         ASSERT_EQ(data_type->is_value_unambiguously_represented_in_contiguous_memory_region(),
                   meta_info.is_value_unambiguously_represented_in_contiguous_memory_region);
-        if (is_decimal(data_type) || data_type->is_nullable() || is_struct(data_type) ||
-            is_nothing(data_type) || is_number(data_type) || is_columned_as_number(data_type) ||
-            is_ip(data_type)) {
+        if (is_decimal(data_type->get_primitive_type()) || data_type->is_nullable() ||
+            data_type->get_primitive_type() == TYPE_STRUCT ||
+            data_type->get_primitive_type() == INVALID_TYPE ||
+            is_number(data_type->get_primitive_type()) ||
+            is_int_or_bool(data_type->get_primitive_type()) ||
+            is_float_or_double(data_type->get_primitive_type()) ||
+            is_date_type(data_type->get_primitive_type()) ||
+            is_ip(data_type->get_primitive_type())) {
             ASSERT_EQ(data_type->get_size_of_value_in_memory(), meta_info.size_of_value_in_memory);
         } else {
+            std::cout << "get_size_of_value_in_memory: " << data_type->get_name() << std::endl;
             EXPECT_ANY_THROW(EXPECT_FALSE(data_type->get_size_of_value_in_memory()));
         }
-        if (is_decimal(data_type)) {
+        if (is_decimal(data_type->get_primitive_type())) {
             ASSERT_EQ(data_type->get_precision(), meta_info.precision);
             ASSERT_EQ(data_type->get_scale(), meta_info.scale);
         } else {
-            EXPECT_ANY_THROW(EXPECT_FALSE(data_type->get_precision()));
-            EXPECT_THROW(EXPECT_FALSE(data_type->get_scale()), doris::Exception);
+            EXPECT_EQ(data_type->get_precision(), 0);
+            EXPECT_EQ(data_type->get_scale(), 0);
         }
         ASSERT_EQ(data_type->is_null_literal(), meta_info.is_null_literal);
         ASSERT_EQ(data_type->is_value_represented_by_number(),
@@ -204,7 +210,7 @@ public:
             auto assert_column = data_type->create_column();
             for (int i = 0; i < col_to->size(); ++i) {
                 std::string s = col_to->get_data_at(i).to_string();
-                ReadBuffer rb(s.data(), s.size());
+                StringRef rb(s.data(), s.size());
                 ASSERT_EQ(Status::OK(), data_type->from_string(rb, assert_column.get()));
                 ASSERT_EQ(assert_column->operator[](i), mutableColumn->operator[](i))
                         << "i: " << i << " s: " << s << " datatype: " << data_type->get_name()
@@ -229,7 +235,7 @@ public:
             auto assert_column_1 = data_type->create_column();
             for (int i = 0; i < ser_col->size(); ++i) {
                 std::string s = ser_col->get_data_at(i).to_string();
-                ReadBuffer rb(s.data(), s.size());
+                StringRef rb(s.data(), s.size());
                 ASSERT_EQ(Status::OK(), data_type->from_string(rb, assert_column_1.get()));
                 ASSERT_EQ(assert_column_1->operator[](i), mutableColumn->operator[](i));
             }
@@ -244,9 +250,9 @@ public:
         for (int i = 1; i < columns.size(); ++i) {
             max_row = std::max(max_row, columns[i]->size());
         }
-        for (int i = 0; i < columns.size(); ++i) {
-            if (columns[i]->size() < max_row) {
-                columns[i]->resize(max_row);
+        for (auto& column : columns) {
+            if (column->size() < max_row) {
+                column->resize(max_row);
             }
         }
         // wrap columns into block
@@ -280,7 +286,7 @@ public:
     }
 
     // should all datatype is compare?
-    void assert_compare_behavior(DataTypePtr l_dt, DataTypePtr& r_dt) {
+    void assert_compare_behavior(const DataTypePtr& l_dt, const DataTypePtr& r_dt) {
         ASSERT_TRUE(l_dt->is_comparable());
         ASSERT_TRUE(r_dt->is_comparable());
         // compare

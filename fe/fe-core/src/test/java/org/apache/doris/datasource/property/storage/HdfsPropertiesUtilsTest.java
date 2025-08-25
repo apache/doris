@@ -18,21 +18,26 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 public class HdfsPropertiesUtilsTest {
+
+    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
 
     @Test
     public void testCheckLoadPropsAndReturnUri_success() throws Exception {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "hdfs://localhost:9000/data/file.txt");
 
-        String result = HdfsPropertiesUtils.validateAndGetUri(props);
+        String result = HdfsPropertiesUtils.validateAndGetUri(props, null, null, supportSchema);
         Assertions.assertEquals("hdfs://localhost:9000/data/file.txt", result);
     }
 
@@ -41,7 +46,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
 
         Exception exception = Assertions.assertThrows(UserException.class, () -> {
-            HdfsPropertiesUtils.validateAndGetUri(props);
+            HdfsPropertiesUtils.validateAndGetUri(props, null, null, supportSchema);
         });
         Assertions.assertEquals("errCode = 2, detailMessage = props is empty", exception.getMessage());
     }
@@ -51,16 +56,16 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("path", "xxx");
 
-        Exception exception = Assertions.assertThrows(UserException.class, () -> {
-            HdfsPropertiesUtils.validateAndGetUri(props);
+        Exception exception = Assertions.assertThrows(StoragePropertiesException.class, () -> {
+            HdfsPropertiesUtils.validateAndGetUri(props, "", "", supportSchema);
         });
-        Assertions.assertEquals("errCode = 2, detailMessage = props must contain uri", exception.getMessage());
+        Assertions.assertEquals("props must contain uri", exception.getMessage());
     }
 
     @Test
     public void testConvertUrlToFilePath_valid() throws Exception {
         String uri = "viewfs://cluster/user/test";
-        String result = HdfsPropertiesUtils.convertUrlToFilePath(uri);
+        String result = HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
         Assertions.assertEquals("viewfs://cluster/user/test", result);
     }
 
@@ -69,9 +74,9 @@ public class HdfsPropertiesUtilsTest {
         String uri = "s3://bucket/file.txt";
 
         Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
-            HdfsPropertiesUtils.convertUrlToFilePath(uri);
+            HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
         });
-        Assertions.assertTrue(exception.getMessage().contains("Invalid export path"));
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported schema: s3"));
     }
 
     @Test
@@ -79,9 +84,9 @@ public class HdfsPropertiesUtilsTest {
         String uri = "   ";
 
         Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
-            HdfsPropertiesUtils.convertUrlToFilePath(uri);
+            HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
         });
-        Assertions.assertTrue(exception.getMessage().contains("uri is null"));
+        Assertions.assertTrue(exception.getMessage().contains("Property 'uri' is required"));
     }
 
     @Test
@@ -89,7 +94,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "hdfs://localhost:8020/data");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props, supportSchema);
         Assertions.assertEquals("hdfs://localhost:8020", result);
     }
 
@@ -98,7 +103,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "viewfs://cluster/path");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props, supportSchema);
         Assertions.assertEquals("viewfs://cluster", result);
     }
 
@@ -106,17 +111,13 @@ public class HdfsPropertiesUtilsTest {
     public void testConstructDefaultFsFromUri_invalidSchema() {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "obs://bucket/test");
-
-        Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
-            HdfsPropertiesUtils.constructDefaultFsFromUri(props);
-        });
-        Assertions.assertTrue(exception.getMessage().contains("Invalid export path"));
+        Assertions.assertNull(HdfsPropertiesUtils.extractDefaultFsFromUri(props, supportSchema));
     }
 
     @Test
     public void testConstructDefaultFsFromUri_emptyProps() {
         Map<String, String> props = new HashMap<>();
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props, supportSchema);
         Assertions.assertNull(result);
     }
 
@@ -125,7 +126,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("x", "y");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props, supportSchema);
         Assertions.assertNull(result);
     }
 
@@ -134,14 +135,14 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "  ");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props, supportSchema);
         Assertions.assertNull(result);
     }
 
     @Test
     public void testConvertUrlToFilePath_uppercaseSchema() throws Exception {
         String uri = "HDFS://localhost:9000/test";
-        String result = HdfsPropertiesUtils.convertUrlToFilePath(uri);
+        String result = HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
         Assertions.assertEquals("HDFS://localhost:9000/test", result);
     }
 }

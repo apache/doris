@@ -20,7 +20,7 @@
 
 #pragma once
 
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 namespace common {
 template <typename T>
 inline bool add_overflow(T x, T y, T& res) {
@@ -115,15 +115,49 @@ inline bool mul_overflow(long long x, long long y, long long& res) {
     return __builtin_smulll_overflow(x, y, &res);
 }
 
+// from __muloXi4 in llvm's compiler-rt
+static inline __int128 int128_overflow_mul(__int128 a, __int128 b, int* overflow) {
+    const int N = (int)(sizeof(__int128) * CHAR_BIT);
+    const auto MIN = (__int128)((__uint128_t)1 << (N - 1));
+    const __int128 MAX = ~MIN;
+    *overflow = 0;
+    __int128 result = (__uint128_t)a * b;
+    if (a == MIN) {
+        if (b != 0 && b != 1) {
+            *overflow = 1;
+        }
+        return result;
+    }
+    if (b == MIN) {
+        if (a != 0 && a != 1) {
+            *overflow = 1;
+        }
+        return result;
+    }
+    __int128 sa = a >> (N - 1);
+    __int128 abs_a = (a ^ sa) - sa;
+    __int128 sb = b >> (N - 1);
+    __int128 abs_b = (b ^ sb) - sb;
+    if (abs_a < 2 || abs_b < 2) {
+        return result;
+    }
+    if (sa == sb) {
+        if (abs_a > MAX / abs_b) {
+            *overflow = 1;
+        }
+    } else {
+        if (abs_a > MIN / -abs_b) {
+            *overflow = 1;
+        }
+    }
+    return result;
+}
+
 template <>
 inline bool mul_overflow(__int128 x, __int128 y, __int128& res) {
-    res = static_cast<unsigned __int128>(x) *
-          static_cast<unsigned __int128>(y); /// Avoid signed integer overflow.
-    if (!x || !y) return false;
-
-    unsigned __int128 a = (x > 0) ? x : -x;
-    unsigned __int128 b = (y > 0) ? y : -y;
-    return ((a * b) / b != a) || (x > 0 && y > 0 && res < 0) || (x < 0 && y < 0 && res < 0);
+    int overflow = 0;
+    res = int128_overflow_mul(x, y, &overflow);
+    return overflow != 0;
 }
 
 template <>

@@ -17,16 +17,12 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
-import java.math.BigInteger;
+import com.google.common.collect.ImmutableSet;
+
+import java.util.Set;
 
 /**
  * Logical plan builder assistant for buildIn dialect and other dialect.
@@ -34,6 +30,10 @@ import java.math.BigInteger;
  * can be extracted to here.
  */
 public class LogicalPlanBuilderAssistant {
+
+    // acording to MySQL's dev doc: https://dev.mysql.com/doc/refman/8.4/en/string-literals.html
+    private static final Set<Character> NEED_TRIM_CHARS_FOR_ALIAS
+            = ImmutableSet.of('\0', '\b', '\n', '\r', '\t', '\032', ' ');
 
     private LogicalPlanBuilderAssistant() {
     }
@@ -84,21 +84,22 @@ public class LogicalPlanBuilderAssistant {
     }
 
     /**
-     * Handle Integer literal by BigInteger.
+     * MySQL will trim any inviable char and blank at the beginning of the string,
+     * and stop at the first \0 if it exists. we follow the behavior.
+     *
+     * @param value the StringLikeLiteral value
+     * @return the alias generated from the value
      */
-    public static Literal handleIntegerLiteral(String value) {
-        BigInteger bigInt = new BigInteger(value);
-        if (BigInteger.valueOf(bigInt.byteValue()).equals(bigInt)) {
-            return new TinyIntLiteral(bigInt.byteValue());
-        } else if (BigInteger.valueOf(bigInt.shortValue()).equals(bigInt)) {
-            return new SmallIntLiteral(bigInt.shortValue());
-        } else if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
-            return new IntegerLiteral(bigInt.intValue());
-        } else if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
-            return new BigIntLiteral(bigInt.longValueExact());
-        } else {
-            return new LargeIntLiteral(bigInt);
+    public static String getStringLiteralAlias(String value) {
+        int i = 0;
+        while (i < value.length() && NEED_TRIM_CHARS_FOR_ALIAS.contains(value.charAt(i))) {
+            i++;
         }
+        int j = i;
+        while (j < value.length() && value.charAt(j) != '\0') {
+            j++;
+        }
+        return value.substring(i, j);
     }
 
     /**

@@ -17,12 +17,8 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
-import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.SetReplicaVersionOperationLog;
@@ -72,105 +68,6 @@ public class AdminStmtTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
-    }
-
-    @Test
-    public void testAdminSetReplicaStatus() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
-        Assertions.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
-        Assertions.assertNotNull(tbl);
-        // tablet id, backend id
-        List<Pair<Long, Long>> tabletToBackendList = Lists.newArrayList();
-        for (Partition partition : tbl.getPartitions()) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        tabletToBackendList.add(Pair.of(tablet.getId(), replica.getBackendId()));
-                    }
-                }
-            }
-        }
-        Assertions.assertEquals(3, tabletToBackendList.size());
-        long tabletId = tabletToBackendList.get(0).first;
-        long backendId = tabletToBackendList.get(0).second;
-        Replica replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-        Assertions.assertFalse(replica.isBad());
-
-        // set replica to bad
-        String adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'status' = 'bad');";
-        AdminSetReplicaStatusStmt stmt = (AdminSetReplicaStatusStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaStatus(stmt);
-        replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-        Assertions.assertTrue(replica.isBad());
-
-        // set replica to ok
-        adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'status' = 'ok');";
-        stmt = (AdminSetReplicaStatusStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaStatus(stmt);
-        replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-        Assertions.assertFalse(replica.isBad());
-    }
-
-    @Test
-    public void testAdminSetReplicaVersion() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
-        Assertions.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTableNullable("tbl3");
-        Assertions.assertNotNull(tbl);
-        // tablet id, backend id
-        List<Pair<Long, Long>> tabletToBackendList = Lists.newArrayList();
-        for (Partition partition : tbl.getPartitions()) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        tabletToBackendList.add(Pair.of(tablet.getId(), replica.getBackendId()));
-                    }
-                }
-            }
-        }
-        Assertions.assertEquals(3, tabletToBackendList.size());
-        long tabletId = tabletToBackendList.get(0).first;
-        long backendId = tabletToBackendList.get(0).second;
-        Replica replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-
-        String adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'version' = '10', 'last_failed_version' = '100');";
-        AdminSetReplicaVersionStmt stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaVersion(stmt);
-        Assertions.assertEquals(10L, replica.getVersion());
-        Assertions.assertEquals(10L, replica.getLastSuccessVersion());
-        Assertions.assertEquals(100L, replica.getLastFailedVersion());
-
-        adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'version' = '50');";
-        stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaVersion(stmt);
-        Assertions.assertEquals(50L, replica.getVersion());
-        Assertions.assertEquals(50L, replica.getLastSuccessVersion());
-        Assertions.assertEquals(100L, replica.getLastFailedVersion());
-
-        adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'version' = '200');";
-        stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaVersion(stmt);
-        Assertions.assertEquals(200L, replica.getVersion());
-        Assertions.assertEquals(200L, replica.getLastSuccessVersion());
-        Assertions.assertEquals(-1L, replica.getLastFailedVersion());
-
-        adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'last_failed_version' = '300');";
-        stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaVersion(stmt);
-        Assertions.assertEquals(300L, replica.getLastFailedVersion());
-
-        adminStmt = "admin set replica version properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'last_failed_version' = '-1');";
-        stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaVersion(stmt);
-        Assertions.assertEquals(-1L, replica.getLastFailedVersion());
     }
 
     @Test
@@ -300,39 +197,4 @@ public class AdminStmtTest extends TestWithFeService {
             Files.deleteIfExists(path);
         }
     }
-
-    @Test
-    public void testAdminSetTrimPropertyKey() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
-        Assertions.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTableNullable("tbl3");
-        Assertions.assertNotNull(tbl);
-        // tablet id, backend id
-        List<Pair<Long, Long>> tabletToBackendList = Lists.newArrayList();
-        for (Partition partition : tbl.getPartitions()) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        tabletToBackendList.add(Pair.of(tablet.getId(), replica.getBackendId()));
-                    }
-                }
-            }
-        }
-        Assertions.assertEquals(3, tabletToBackendList.size());
-        long tabletId = tabletToBackendList.get(0).first;
-        long backendId = tabletToBackendList.get(0).second;
-        Replica replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-
-        String adminStmt = "admin set replica version properties ("
-                + "' tablet_id' = '" + tabletId + "', "
-                + "'backend_id ' = '" + backendId + "', "
-                + "' version ' = '10', "
-                + "' last_failed_version ' = '100');";
-        AdminSetReplicaVersionStmt stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaVersion(stmt);
-        Assertions.assertEquals(10L, replica.getVersion());
-        Assertions.assertEquals(10L, replica.getLastSuccessVersion());
-        Assertions.assertEquals(100L, replica.getLastFailedVersion());
-    }
-
 }

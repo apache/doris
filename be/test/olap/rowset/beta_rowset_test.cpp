@@ -295,6 +295,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
                             .sk = "sk",
                             .token = "",
                             .bucket = "",
+                            .role_arn = "",
+                            .external_id = "",
                     }};
     std::string resource_id = "10000";
     auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);

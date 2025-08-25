@@ -175,7 +175,7 @@ struct TReportExecStatusResult {
 
 // Service Protocol Details
 enum FrontendServiceVersion {
-  V1
+  V1 = 0
 }
 
 struct TDetailedReportParams {
@@ -420,6 +420,7 @@ struct TMasterOpResult {
     // transaction load
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
+    11: optional i64 affectedRows;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -554,6 +555,7 @@ struct TStreamLoadPutRequest {
     55: optional i32 stream_per_node;
     56: optional string group_commit_mode
     57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
+    58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
 
     // For cloud
     1000: optional string cloud_cluster
@@ -822,6 +824,7 @@ enum TSchemaTableName {
   TABLE_PROPERTIES = 8,
   CATALOG_META_CACHE_STATS = 9,
   PARTITIONS = 10,
+  VIEW_DEPENDENCY = 11,
 }
 
 struct TMetadataTableRequestParams {
@@ -848,6 +851,7 @@ struct TSchemaTableRequestParams {
     4: optional string catalog  // use for table specific queries
     5: optional i64 dbId         // used for table specific queries
     6: optional string time_zone // used for DATETIME field
+    7: optional string frontend_conjuncts
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1000,6 +1004,7 @@ struct TGetBinlogRequest {
     8: optional string token
     9: optional i64 prev_commit_seq
     10: optional i64 num_acquired // the max num of binlogs in a batch
+    11: optional bool allow_follower_read
 }
 
 enum TBinlogType {
@@ -1028,7 +1033,8 @@ enum TBinlogType {
   RENAME_PARTITION = 22,
   DROP_ROLLUP = 23,
   RECOVER_INFO = 24,
-  MODIFY_DISTRIBUTION_BUCKET_NUM = 25
+  MODIFY_DISTRIBUTION_BUCKET_NUM = 25,
+  MODIFY_DISTRIBUTION_TYPE = 26,
 
   // Keep some IDs for allocation so that when new binlog types are added in the
   // future, the changes can be picked back to the old versions without breaking
@@ -1045,8 +1051,7 @@ enum TBinlogType {
   //    MODIFY_XXX = 17,
   //    MIN_UNKNOWN = 18,
   //    UNKNOWN_3 = 19,
-  MIN_UNKNOWN = 26,
-  UNKNOWN_11 = 27,
+  MIN_UNKNOWN = 27,
   UNKNOWN_12 = 28,
   UNKNOWN_13 = 29,
   UNKNOWN_14 = 30,
@@ -1161,6 +1166,7 @@ struct TGetBinlogResult {
 
 struct TGetTabletReplicaInfosRequest {
     1: required list<i64> tablet_ids
+    2: optional i64 warm_up_job_id
 }
 
 struct TGetTabletReplicaInfosResult {
@@ -1608,6 +1614,40 @@ struct TPlanNodeRuntimeStatsItem {
     12: optional i32 instance_num
 }
 
+enum TEncryptionAlgorithm {
+    AES256 = 0,
+    SM4 = 1
+}
+
+enum TEncryptionKeyType {
+    MASTER_KEY = 0,
+    DATA_KEY = 1,
+}
+
+struct TEncryptionKey {
+    1: optional string id
+    2: optional i32 version
+    3: optional string parent_id
+    4: optional i32 parent_version
+    5: optional TEncryptionKeyType type
+    6: optional TEncryptionAlgorithm algorithm
+    7: optional string ciphertext
+    8: optional binary plaintext
+    9: optional string iv
+    10: optional i64 crc
+    11: optional i64 ctime
+    12: optional i64 mtime
+}
+
+struct TGetEncryptionKeysRequest {
+    2: optional i32 version
+}
+
+struct TGetEncryptionKeysResult {
+    1: optional Status.TStatus status
+    2: optional list<TEncryptionKey> master_keys
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1710,4 +1750,6 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
 }

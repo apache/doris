@@ -242,8 +242,7 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         PlanChecker.from(connectContext)
                 .analyze("select k1 from t1 "
                         + "union all select k2 from t2 "
-                        + "union all select k1 from t3 "
-                        + "limit 10")
+                        + "union all (select k1 from t3 limit 10)")
                 .rewrite()
                 .matches(
                         logicalUnion(

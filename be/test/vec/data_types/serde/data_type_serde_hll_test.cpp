@@ -64,14 +64,16 @@ TEST(HLLSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, &pool, 0, 0);
+    hll_serde->write_one_cell_to_jsonb(*column_hll, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         hll_serde->read_one_cell_from_jsonb(*column_hll, it->value());
@@ -118,7 +120,6 @@ TEST(HLLSerdeTest, serializeOneCellToJson) {
     column_hll->insert_value(hll);
     ASSERT_EQ(column_hll->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = hll_serde->serialize_one_cell_to_json(*column_hll, 0, buffer_writer, formatOptions);
@@ -164,7 +165,6 @@ TEST(HLLSerdeTest, serializeColumnToJson) {
     column_hll->insert_value(hll);
     ASSERT_EQ(column_hll->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = hll_serde->serialize_column_to_json(*column_hll, 0, 2, buffer_writer, formatOptions);

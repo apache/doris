@@ -32,7 +32,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -53,11 +52,11 @@ namespace doris::vectorized {
 struct HLLCardinality {
     static constexpr auto name = "hll_cardinality";
 
-    using ReturnType = DataTypeNumber<Int64>;
+    using ReturnType = DataTypeInt64;
 
     static void vector(const std::vector<HyperLogLog>& data, MutableColumnPtr& col_res) {
-        typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+        typename ColumnInt64::Container& res =
+                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
@@ -67,8 +66,8 @@ struct HLLCardinality {
 
     static void vector_nullable(const std::vector<HyperLogLog>& data, const NullMap& nullmap,
                                 MutableColumnPtr& col_res) {
-        typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+        typename ColumnInt64::Container& res =
+                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
@@ -265,7 +264,7 @@ struct NameHllToBase64 {
 
 struct HllToBase64 {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::HLL;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_HLL;
     using Type = DataTypeHLL::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
@@ -296,8 +295,8 @@ struct HllToBase64 {
                 last_ser_size = cur_ser_size;
                 ser_buff.resize(cur_ser_size);
             }
-            hll_val.serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
-            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
+            size_t real_size = hll_val.serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
+            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), real_size,
                                         chars_data + encoded_offset);
             DCHECK(outlen > 0);
 

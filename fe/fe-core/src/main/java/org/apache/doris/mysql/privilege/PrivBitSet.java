@@ -19,19 +19,11 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.ResourcePattern;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -41,7 +33,7 @@ import java.util.Set;
 //        |     |
 //        |     -- first priv(0)
 //        |--------last priv(7)
-public class PrivBitSet implements Writable {
+public class PrivBitSet {
 
     @SerializedName(value = "set")
     private long set = 0;
@@ -166,21 +158,6 @@ public class PrivBitSet implements Writable {
         } else {
             return res;
         }
-    }
-
-    public static PrivBitSet read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_113) {
-            PrivBitSet privBitSet = new PrivBitSet();
-            privBitSet.set = in.readLong();
-            return privBitSet;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), PrivBitSet.class);
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static void convertResourcePrivToCloudPriv(ResourcePattern resourcePattern, Set<Privilege> privileges) {

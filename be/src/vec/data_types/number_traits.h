@@ -26,8 +26,8 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/uint128.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 
 namespace doris::vectorized {
 
@@ -54,93 +54,93 @@ constexpr size_t next_size(size_t size) {
 
 template <bool is_signed, bool is_floating, size_t size>
 struct Construct {
-    using Type = Error;
+    static constexpr PrimitiveType Type = INVALID_TYPE;
 };
 
 template <>
 struct Construct<false, false, 1> {
-    using Type = Int16;
+    static constexpr PrimitiveType Type = TYPE_SMALLINT;
 };
 template <>
 struct Construct<false, false, 2> {
-    using Type = Int32;
+    static constexpr PrimitiveType Type = TYPE_INT;
 };
 template <>
 struct Construct<false, false, 4> {
-    using Type = Int64;
+    static constexpr PrimitiveType Type = TYPE_BIGINT;
 };
 template <>
 struct Construct<false, false, 8> {
-    using Type = Int128;
+    static constexpr PrimitiveType Type = TYPE_LARGEINT;
 };
 template <>
 struct Construct<false, false, 16> {
-    using Type = Int128;
+    static constexpr PrimitiveType Type = TYPE_LARGEINT;
 };
 template <>
 struct Construct<false, false, 32> {
-    using Type = wide::Int256;
+    static constexpr PrimitiveType Type = TYPE_DECIMAL256;
 };
 template <>
 struct Construct<false, true, 1> {
-    using Type = Float32;
+    static constexpr PrimitiveType Type = TYPE_FLOAT;
 };
 template <>
 struct Construct<false, true, 2> {
-    using Type = Float32;
+    static constexpr PrimitiveType Type = TYPE_FLOAT;
 };
 template <>
 struct Construct<false, true, 4> {
-    using Type = Float32;
+    static constexpr PrimitiveType Type = TYPE_FLOAT;
 };
 template <>
 struct Construct<false, true, 8> {
-    using Type = Float64;
+    static constexpr PrimitiveType Type = TYPE_DOUBLE;
 };
 template <>
 struct Construct<true, false, 1> {
-    using Type = Int8;
+    static constexpr PrimitiveType Type = TYPE_TINYINT;
 };
 template <>
 struct Construct<true, false, 2> {
-    using Type = Int16;
+    static constexpr PrimitiveType Type = TYPE_SMALLINT;
 };
 template <>
 struct Construct<true, false, 4> {
-    using Type = Int32;
+    static constexpr PrimitiveType Type = TYPE_INT;
 };
 template <>
 struct Construct<true, false, 8> {
-    using Type = Int64;
+    static constexpr PrimitiveType Type = TYPE_BIGINT;
 };
 template <>
 struct Construct<true, false, 16> {
-    using Type = Int128;
+    static constexpr PrimitiveType Type = TYPE_LARGEINT;
 };
 template <>
 struct Construct<true, false, 32> {
-    using Type = wide::Int256;
+    static constexpr PrimitiveType Type = TYPE_DECIMAL256;
 };
 template <>
 struct Construct<true, true, 1> {
-    using Type = Float32;
+    static constexpr PrimitiveType Type = TYPE_FLOAT;
 };
 template <>
 struct Construct<true, true, 2> {
-    using Type = Float32;
+    static constexpr PrimitiveType Type = TYPE_FLOAT;
 };
 template <>
 struct Construct<true, true, 4> {
-    using Type = Float32;
+    static constexpr PrimitiveType Type = TYPE_FLOAT;
 };
 template <>
 struct Construct<true, true, 8> {
-    using Type = Float64;
+    static constexpr PrimitiveType Type = TYPE_DOUBLE;
 };
 
 template <>
 struct Construct<true, true, 16> {
-    using Type = Float64;
+    static constexpr PrimitiveType Type = TYPE_DOUBLE;
 };
 
 /** The result of addition or multiplication is calculated according to the following rules:
@@ -151,32 +151,36 @@ struct Construct<true, true, 16> {
     */
 template <typename A, typename B>
 struct ResultOfAdditionMultiplication {
-    using Type = typename Construct<std::is_signed_v<A> || std::is_signed_v<B>,
-                                    std::is_floating_point_v<A> || std::is_floating_point_v<B>,
-                                    next_size(max(sizeof(A), sizeof(B)))>::Type;
+    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>,
+                                   std::is_floating_point_v<A> || std::is_floating_point_v<B>,
+                                   next_size(max(sizeof(A), sizeof(B))) > ::Type;
 };
 
 template <typename A, typename B>
 struct ResultOfSubtraction {
-    using Type =
-            typename Construct<true, std::is_floating_point_v<A> || std::is_floating_point_v<B>,
-                               next_size(max(sizeof(A), sizeof(B)))>::Type;
+    static constexpr PrimitiveType Type = Construct < true,
+                                   std::is_floating_point_v<A> || std::is_floating_point_v<B>,
+                                   next_size(max(sizeof(A), sizeof(B))) > ::Type;
 };
 
 /** When dividing, you always get a floating-point number.
     */
 template <typename A, typename B>
 struct ResultOfFloatingPointDivision {
-    using Type = std::conditional_t<IsDecimalNumber<A>, A,
-                                    std::conditional_t<IsDecimalNumber<B>, B, Float64>>;
+    struct DoubleField {
+        static constexpr PrimitiveType PType = TYPE_DOUBLE;
+    };
+    static constexpr PrimitiveType Type =
+            std::conditional_t<IsDecimalNumber<A>, A,
+                               std::conditional_t<IsDecimalNumber<B>, B, DoubleField>>::PType;
 };
 
 /** For integer division, we get a number with the same number of bits as in divisible.
     */
 template <typename A, typename B>
 struct ResultOfIntegerDivision {
-    using Type =
-            typename Construct<std::is_signed_v<A> || std::is_signed_v<B>, false, sizeof(A)>::Type;
+    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>, false,
+                                   sizeof(A) > ::Type;
 };
 
 /** Division with remainder you get a number with the same number of bits as in divisor.
@@ -197,34 +201,57 @@ struct ResultOfModulo {
         }
         return max_float_size;
     }
-    using Type = typename Construct<std::is_signed_v<A> || std::is_signed_v<B>, has_float,
-                                    result_size()>::Type;
+    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>, has_float,
+                                   result_size() > ::Type;
 };
 
 template <typename A>
 struct ResultOfAbs {
-    using Type = typename Construct<false, std::is_floating_point_v<A>, sizeof(A)>::Type;
+    static constexpr PrimitiveType Type =
+            Construct<false, std::is_floating_point_v<A>, sizeof(A)>::Type;
+};
+
+template <>
+struct ResultOfAbs<Decimal256> {
+    static constexpr PrimitiveType Type = TYPE_DECIMAL256;
+};
+
+template <>
+struct ResultOfAbs<Decimal32> {
+    static constexpr PrimitiveType Type = TYPE_DECIMAL32;
+};
+template <>
+struct ResultOfAbs<Decimal64> {
+    static constexpr PrimitiveType Type = TYPE_DECIMAL64;
+};
+template <>
+struct ResultOfAbs<Decimal128V2> {
+    static constexpr PrimitiveType Type = TYPE_DECIMALV2;
+};
+template <>
+struct ResultOfAbs<Decimal128V3> {
+    static constexpr PrimitiveType Type = TYPE_DECIMAL128I;
 };
 
 /** For bitwise operations, an integer is obtained with number of bits is equal to the maximum of the arguments.
     */
 template <typename A, typename B>
 struct ResultOfBit {
-    using Type = typename Construct<std::is_signed_v<A> || std::is_signed_v<B>, false,
-                                    std::is_floating_point_v<A> || std::is_floating_point_v<B>
-                                            ? 8
-                                            : max(sizeof(A), sizeof(B))>::Type;
+    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>, false,
+                                   std::is_floating_point_v<A> || std::is_floating_point_v<B>
+                                           ? 8
+                                           : max(sizeof(A), sizeof(B)) > ::Type;
 };
 
 template <typename A>
 struct ResultOfBitNot {
-    using Type = typename Construct<std::is_signed_v<A>, false, sizeof(A)>::Type;
+    static constexpr PrimitiveType Type = Construct<IsSignedV<A>, false, sizeof(A)>::Type;
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct BinaryOperatorTraits {
-    using ColumnVectorA = std::conditional_t<IsDecimalNumber<A>, ColumnDecimal<A>, ColumnVector<A>>;
-    using ColumnVectorB = std::conditional_t<IsDecimalNumber<B>, ColumnDecimal<B>, ColumnVector<B>>;
+    using ColumnVectorA = typename PrimitiveTypeTraits<A>::ColumnType;
+    using ColumnVectorB = typename PrimitiveTypeTraits<B>::ColumnType;
     using ArrayA = typename ColumnVectorA::Container;
     using ArrayB = typename ColumnVectorB::Container;
     using ArrayNull = PaddedPODArray<UInt8>;
@@ -233,67 +260,68 @@ struct BinaryOperatorTraits {
 template <typename T>
 /// Returns the maximum ascii string length for this type.
 /// e.g. the max/min int8_t has 3 characters.
-int max_ascii_len() {
+constexpr int max_ascii_len() {
     return 0;
 }
 
+// bool type
 template <>
-inline int max_ascii_len<uint8_t>() {
-    return 3;
+inline constexpr int max_ascii_len<uint8_t>() {
+    return 1;
 }
 
 template <>
-inline int max_ascii_len<uint16_t>() {
+inline constexpr int max_ascii_len<uint16_t>() {
     return 5;
 }
 
 template <>
-inline int max_ascii_len<uint32_t>() {
+inline constexpr int max_ascii_len<uint32_t>() {
     return 10;
 }
 
 template <>
-inline int max_ascii_len<uint64_t>() {
+inline constexpr int max_ascii_len<uint64_t>() {
     return 20;
 }
 
 template <>
-inline int max_ascii_len<int8_t>() {
+inline constexpr int max_ascii_len<int8_t>() {
     return 3;
 }
 
 template <>
-inline int max_ascii_len<int16_t>() {
+inline constexpr int max_ascii_len<int16_t>() {
     return 5;
 }
 
 template <>
-inline int max_ascii_len<int32_t>() {
+inline constexpr int max_ascii_len<int32_t>() {
     return 10;
 }
 
 template <>
-inline int max_ascii_len<int64_t>() {
+inline constexpr int max_ascii_len<int64_t>() {
     return 19;
 }
 
 template <>
-inline int max_ascii_len<__int128>() {
+inline constexpr int max_ascii_len<__int128>() {
     return 39;
 }
 
 template <>
-inline int max_ascii_len<wide::Int256>() {
+inline constexpr int max_ascii_len<wide::Int256>() {
     return 77;
 }
 
 template <>
-inline int max_ascii_len<float>() {
+inline constexpr int max_ascii_len<float>() {
     return INT_MAX;
 }
 
 template <>
-inline int max_ascii_len<double>() {
+inline constexpr int max_ascii_len<double>() {
     return INT_MAX;
 }
 } // namespace NumberTraits

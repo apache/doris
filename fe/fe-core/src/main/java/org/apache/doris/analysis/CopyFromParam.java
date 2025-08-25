@@ -67,6 +67,16 @@ public class CopyFromParam {
         this.fileFilterExpr = whereExpr;
     }
 
+    public CopyFromParam(StageAndPattern stageAndPattern, List<Expr> exprList, Expr fileFilterExpr,
+                         List<String> fileColumns, List<Expr> columnMappingList, List<String> targetColumns) {
+        this.stageAndPattern = stageAndPattern;
+        this.exprList = exprList;
+        this.fileFilterExpr = fileFilterExpr;
+        this.fileColumns = fileColumns;
+        this.columnMappingList = columnMappingList;
+        this.targetColumns = targetColumns;
+    }
+
     public void analyze(String fullDbName, TableName tableName, boolean useDeleteSign, String fileType)
             throws AnalysisException {
         if (exprList == null && fileFilterExpr == null && !useDeleteSign) {

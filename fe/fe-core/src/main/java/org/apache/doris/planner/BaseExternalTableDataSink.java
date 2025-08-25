@@ -20,14 +20,20 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TNetworkAddress;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public abstract class BaseExternalTableDataSink extends DataSink {
 
@@ -52,6 +58,21 @@ public abstract class BaseExternalTableDataSink extends DataSink {
      * File format types supported by the current table
      */
     protected abstract Set<TFileFormatType> supportedFileFormatTypes();
+
+    protected List<TNetworkAddress> getBrokerAddresses(String bindBroker) throws AnalysisException {
+        List<FsBroker> brokers;
+        if (bindBroker != null) {
+            brokers = Env.getCurrentEnv().getBrokerMgr().getBrokers(bindBroker);
+        } else {
+            brokers = Env.getCurrentEnv().getBrokerMgr().getAllBrokers();
+        }
+        if (brokers == null || brokers.isEmpty()) {
+            throw new AnalysisException("No alive broker.");
+        }
+        Collections.shuffle(brokers);
+        return brokers.stream().map(broker -> new TNetworkAddress(broker.host, broker.port))
+                .collect(Collectors.toList());
+    }
 
     protected TFileFormatType getTFileFormatType(String format) throws AnalysisException {
         TFileFormatType fileFormatType = TFileFormatType.FORMAT_UNKNOWN;

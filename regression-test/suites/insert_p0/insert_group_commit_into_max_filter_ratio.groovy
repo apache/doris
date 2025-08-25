@@ -152,7 +152,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
     sql """
         CREATE TABLE ${tableName} (
             `id` int(11) NOT NULL,
-            `type` varchar(1) NULL,
+            `type` varchar(9) NULL,
             `score` int(11) NULL default "-1"
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)

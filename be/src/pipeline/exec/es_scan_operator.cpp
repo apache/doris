@@ -45,9 +45,9 @@ static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& 
 Status EsScanLocalState::_init_profile() {
     RETURN_IF_ERROR(Base::_init_profile());
 
-    _blocks_read_counter = ADD_COUNTER(_runtime_profile, "BlocksRead", TUnit::UNIT);
-    _read_timer = ADD_TIMER(_runtime_profile, "TotalRawReadTime(*)");
-    _materialize_timer = ADD_TIMER(_runtime_profile, "MaterializeTupleTime(*)");
+    _blocks_read_counter = ADD_COUNTER(custom_profile(), "BlocksRead", TUnit::UNIT);
+    _read_timer = ADD_TIMER(custom_profile(), "TotalRawReadTime(*)");
+    _materialize_timer = ADD_TIMER(custom_profile(), "MaterializeTupleTime(*)");
     return Status::OK();
 }
 
@@ -94,7 +94,7 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scan
                 _state, this, p._limit, p._tuple_id, properties, p._docvalue_context,
                 doc_value_mode, _state->runtime_profile());
 
-        RETURN_IF_ERROR(scanner->prepare(_state, Base::_conjuncts));
+        RETURN_IF_ERROR(scanner->init(_state, Base::_conjuncts));
         scanners->push_back(scanner);
     }
 

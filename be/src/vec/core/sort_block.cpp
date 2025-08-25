@@ -23,7 +23,7 @@
 #include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 ColumnsWithSortDescriptions get_columns_with_sort_description(const Block& block,
                                                               const SortDescription& description) {
     size_t size = description.size();

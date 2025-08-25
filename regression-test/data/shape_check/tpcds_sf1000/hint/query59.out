@@ -16,7 +16,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 52)) and (y.s_store_id1 = x.s_store_id2)) otherCondition=() build RFs:RF5 s_store_id2->[s_store_id]
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(cast(d_week_seq2 as BIGINT) - 52)) and (y.s_store_id1 = x.s_store_id2)) otherCondition=() build RFs:RF5 s_store_id2->[s_store_id]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((wss.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF4 s_store_sk->[ss_store_sk]
 ------------------PhysicalProject
@@ -42,6 +42,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 
 Hint log:
 Used: leading(store_sales date_dim ) leading(wss d store ) leading(wss d store ) leading(y x )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

@@ -18,8 +18,7 @@
 #include <arrow/array/builder_base.h>
 #include <gtest/gtest.h>
 
-#include <string>
-
+#include "util/jsonb_writer.h"
 #include "util/slice.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
@@ -63,14 +62,16 @@ TEST(FixedLengthObjectSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    fixed_length_serde->write_one_cell_to_jsonb(*column_fixed_length, jsonb_writer, &pool, 0, 0);
+    fixed_length_serde->write_one_cell_to_jsonb(*column_fixed_length, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         fixed_length_serde->read_one_cell_from_jsonb(*column_fixed_length, it->value());
@@ -115,7 +116,6 @@ TEST(FixedLengthObjectSerdeTest, serializeOneCellToJson) {
     *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
     ASSERT_EQ(column_fixed_length->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = fixed_length_serde->serialize_one_cell_to_json(*column_fixed_length, 0, buffer_writer,
@@ -155,7 +155,6 @@ TEST(FixedLengthObjectSerdeTest, serializeColumnToJson) {
     *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
     ASSERT_EQ(column_fixed_length->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = fixed_length_serde->serialize_column_to_json(*column_fixed_length, 0, 2,
@@ -192,7 +191,6 @@ TEST(FixedLengthObjectSerdeTest, serializeOneCellToHiveText) {
     *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
     ASSERT_EQ(column_fixed_length->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = fixed_length_serde->serialize_one_cell_to_hive_text(*column_fixed_length, 0,

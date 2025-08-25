@@ -52,9 +52,7 @@ suite("test_iceberg_create_table", "p0,external,doris,external_docker,external_d
         String tb1 = db1 + "_tb1"
         String tb2 = db1 + "_tb2"
 
-        sql """ drop table if exists ${db1}.${tb1} """
-        sql """ drop table if exists ${db1}.${tb2} """
-        sql """ drop database if exists ${db1} """
+        sql """ drop database if exists ${db1} force"""
 
         sql """ create database ${db1} """
 

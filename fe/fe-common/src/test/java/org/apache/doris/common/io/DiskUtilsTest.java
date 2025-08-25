@@ -50,7 +50,7 @@ public class DiskUtilsTest {
 
     @Test
     public void testDf() {
-        DiskUtils.Df d = DiskUtils.df("/proc");
+        DiskUtils.Df d = DiskUtils.df("/");
         Assert.assertTrue(d.fileSystem.length() != 0);
     }
 }

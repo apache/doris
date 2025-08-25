@@ -174,6 +174,6 @@ public class PartitionColumnStatisticBuilder {
 
     public ColumnStatistic toColumnStatistics() {
         return new ColumnStatistic(count, ndv.estimateCardinality(), null,
-                avgSizeByte, numNulls, dataSize, minValue, maxValue, minExpr, maxExpr, isUnknown, updatedTime);
+                avgSizeByte, numNulls, dataSize, minValue, maxValue, minExpr, maxExpr, isUnknown, updatedTime, null);
     }
 }

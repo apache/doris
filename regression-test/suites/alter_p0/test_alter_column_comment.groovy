@@ -19,7 +19,7 @@ suite('test_alter_column_comment', 'nonConcurrent') {
     def tbl = 'test_alter_column_comment_tbl'
     def cmt = '0123456789012345678901234567890123456789012345678901234567890123456789'
 
-    sql "ADMIN SET FRONTEND CONFIG ('column_comment_length_limit' = '64')"
+    sql "ADMIN SET ALL FRONTENDS CONFIG ('column_comment_length_limit' = '64')"
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
 
@@ -101,5 +101,5 @@ suite('test_alter_column_comment', 'nonConcurrent') {
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
     // restore column_comment_length_limit
-    sql """ ADMIN SET FRONTEND CONFIG ("column_comment_length_limit" = "-1"); """
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("column_comment_length_limit" = "-1"); """
 }

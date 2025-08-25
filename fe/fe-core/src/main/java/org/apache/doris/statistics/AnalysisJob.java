@@ -122,7 +122,7 @@ public class AnalysisJob {
         // buf could be empty when nothing need to do,r for example user submit an analysis task for table with no data
         // change
         if (!buf.isEmpty())  {
-            String insertStmt = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME + " VALUES ";
+            String insertStmt = StatisticConstants.INSERT_INTO_COLUMN_STATS_PREFIX;
             StringJoiner values = new StringJoiner(",");
             for (ColStatsData data : buf) {
                 values.add(data.toSQL(true));

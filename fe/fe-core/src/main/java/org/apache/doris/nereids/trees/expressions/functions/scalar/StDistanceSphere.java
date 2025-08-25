@@ -48,13 +48,18 @@ public class StDistanceSphere extends ScalarFunction
         super("st_distance_sphere", arg0, arg1, arg2, arg3);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StDistanceSphere(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StDistanceSphere withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 4);
-        return new StDistanceSphere(children.get(0), children.get(1), children.get(2), children.get(3));
+        return new StDistanceSphere(getFunctionParams(children));
     }
 
     @Override

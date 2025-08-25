@@ -17,68 +17,87 @@
 
 #include "conjunction_query.h"
 
+#include "olap/collection_statistics.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
+#include "olap/rowset/segment_v2/inverted_index/util/mock_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
+
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
-ConjunctionQuery::ConjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                                   const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher),
-          _io_ctx(io_ctx),
-          _index_version(_searcher->getReader()->getIndexVersion()),
-          _conjunction_ratio(query_options.inverted_index_conjunction_opt_threshold) {}
-
-ConjunctionQuery::~ConjunctionQuery() {
-    for (auto& term_doc : _term_docs) {
-        if (term_doc) {
-            _CLDELETE(term_doc);
-        }
-    }
-    for (auto& term : _terms) {
-        if (term) {
-            _CLDELETE(term);
-        }
-    }
+ConjunctionQuery::ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context)
+        : _searcher(std::move(searcher)),
+          _context(std::move(context)),
+          _term_query(_searcher, _context) {
+    _index_version = _searcher->getReader()->getIndexVersion();
+    _conjunction_ratio =
+            _context->runtime_state->query_options().inverted_index_conjunction_opt_threshold;
 }
 
-void ConjunctionQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
-    if (terms.empty()) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "ConjunctionQuery::add: terms empty");
+void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
-    std::vector<TermIterator> iterators;
-    for (const auto& term : terms) {
-        std::wstring ws_term = StringUtil::string_to_wstring(term);
-        Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        _terms.push_back(t);
-        TermDocs* term_doc = _searcher->getReader()->termDocs(t, _io_ctx);
-        _term_docs.push_back(term_doc);
-        iterators.emplace_back(term_doc);
+    if (query_info.term_infos.size() == 1) {
+        _term_query.add(query_info);
+        return;
     }
 
-    std::sort(iterators.begin(), iterators.end(), [](const TermIterator& a, const TermIterator& b) {
-        return a.docFreq() < b.docFreq();
-    });
+    bool is_similarity = _context->collection_similarity && query_info.is_similarity_score;
 
-    if (iterators.size() == 1) {
-        _lead1 = iterators[0];
-    } else {
-        _lead1 = iterators[0];
-        _lead2 = iterators[1];
-        for (int32_t i = 2; i < _terms.size(); i++) {
-            _others.push_back(iterators[i]);
+    for (const auto& term_info : query_info.term_infos) {
+        if (term_info.is_multi_terms()) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
+        }
+
+        if (query_info.use_mock_iter) {
+            auto iter = std::make_shared<MockIterator>();
+            iter->set_postings({{0, {0}}, {1, {0}}, {3, {0}}, {5, {0}}});
+            _iterators.emplace_back(iter);
+        } else {
+            auto iter =
+                    TermIterator::create(_context->io_ctx, is_similarity, _searcher->getReader(),
+                                         query_info.field_name, term_info.get_single_term());
+            _iterators.emplace_back(std::move(iter));
         }
     }
 
-    if (_index_version == IndexVersion::kV1 && iterators.size() >= 2) {
-        int32_t little = iterators[0].docFreq();
-        int32_t big = iterators[iterators.size() - 1].docFreq();
-        if (little == 0 || (big / little) > _conjunction_ratio) {
-            _use_skip = true;
+    std::sort(_iterators.begin(), _iterators.end(), [](const TermIterPtr& a, const TermIterPtr& b) {
+        return a->doc_freq() < b->doc_freq();
+    });
+
+    if (_iterators.size() == 1) {
+        _lead1 = _iterators[0];
+    } else {
+        _lead1 = _iterators[0];
+        _lead2 = _iterators[1];
+        for (size_t i = 2; i < _iterators.size(); i++) {
+            _others.emplace_back(_iterators[i]);
+        }
+    }
+
+    if (is_similarity) {
+        _use_skip = true;
+        for (const auto& iter : _iterators) {
+            auto similarity = std::make_unique<BM25Similarity>();
+            similarity->for_one_term(_context, query_info.field_name, iter->term());
+            _similarities.emplace_back(std::move(similarity));
+        }
+    } else {
+        if (_index_version == IndexVersion::kV1 && _iterators.size() >= 2) {
+            int32_t little = _iterators[0]->doc_freq();
+            int32_t big = _iterators[_iterators.size() - 1]->doc_freq();
+            if (little == 0 || (big / little) > _conjunction_ratio) {
+                _use_skip = true;
+            }
         }
     }
 }
 
 void ConjunctionQuery::search(roaring::Roaring& roaring) {
-    if (_lead1.isEmpty()) {
+    if (_lead1 == nullptr) {
+        _term_query.search(roaring);
         return;
     }
 
@@ -91,11 +110,11 @@ void ConjunctionQuery::search(roaring::Roaring& roaring) {
 }
 
 void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
-    // can get a term of all docid
-    auto func = [&roaring](const TermIterator& term_docs, bool first) {
+    // can get a term of all doc_id
+    auto func = [&roaring](const TermIterPtr& iter, bool first) {
         roaring::Roaring result;
         DocRange doc_range;
-        while (term_docs.readRange(&doc_range)) {
+        while (iter->read_range(&doc_range)) {
             if (doc_range.type_ == DocRangeType::kMany) {
                 result.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
             } else {
@@ -109,35 +128,30 @@ void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
         }
     };
 
-    // fill the bitmap for the first time
-    func(_lead1, true);
-
-    // the second inverted list may be empty
-    if (!_lead2.isEmpty()) {
-        func(_lead2, false);
-    }
-
-    // The inverted index iterators contained in the _others array must not be empty
-    for (auto& other : _others) {
-        func(other, false);
+    for (size_t i = 0; i < _iterators.size(); i++) {
+        func(_iterators[i], i == 0);
     }
 }
 
 void ConjunctionQuery::search_by_skiplist(roaring::Roaring& roaring) {
     int32_t doc = 0;
-    while ((doc = do_next(_lead1.nextDoc())) != INT32_MAX) {
+    while ((doc = do_next(_lead1->next_doc())) != INT32_MAX) {
         roaring.add(doc);
+
+        if (!_similarities.empty()) {
+            QueryHelper::collect(_context, _similarities, _iterators, doc);
+        }
     }
 }
 
 int32_t ConjunctionQuery::do_next(int32_t doc) {
     while (true) {
-        assert(doc == _lead1.docID());
+        assert(doc == _lead1->doc_id());
 
         // the skip list is used to find the two smallest inverted lists
-        int32_t next2 = _lead2.advance(doc);
+        int32_t next2 = _lead2->advance(doc);
         if (next2 != doc) {
-            doc = _lead1.advance(next2);
+            doc = _lead1->advance(next2);
             if (next2 != doc) {
                 continue;
             }
@@ -146,14 +160,14 @@ int32_t ConjunctionQuery::do_next(int32_t doc) {
         // if both lead1 and lead2 exist, use skip list to lookup other inverted indexes
         bool advance_head = false;
         for (auto& other : _others) {
-            if (other.isEmpty()) {
+            if (other == nullptr) {
                 continue;
             }
 
-            if (other.docID() < doc) {
-                int32_t next = other.advance(doc);
+            if (other->doc_id() < doc) {
+                int32_t next = other->advance(doc);
                 if (next > doc) {
-                    doc = _lead1.advance(next);
+                    doc = _lead1->advance(next);
                     advance_head = true;
                     break;
                 }
@@ -167,4 +181,5 @@ int32_t ConjunctionQuery::do_next(int32_t doc) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -9,3 +9,4 @@ be/src/util/sse2neon.h
 be/src/util/mustache/mustache.h
 be/src/util/mustache/mustache.cc
 be/src/util/utf8_check.cpp
+cloud/src/common/defer.h

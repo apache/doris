@@ -19,7 +19,9 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The cache value of ExternalSchemaCache.
@@ -36,5 +38,15 @@ public class SchemaCacheValue {
 
     public List<Column> getSchema() {
         return schema;
+    }
+
+    public void validateSchema() throws IllegalArgumentException {
+        Set<String> columnNames = new HashSet<>();
+        for (Column column : schema) {
+            if (!columnNames.add(column.getName().toLowerCase())) {
+                throw new IllegalArgumentException("Duplicate column name found: " + column.getName());
+            }
+            // Add more validation logic if needed
+        }
     }
 }

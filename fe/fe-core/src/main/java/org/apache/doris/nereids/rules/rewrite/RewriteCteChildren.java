@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -58,9 +59,11 @@ import java.util.stream.Collectors;
 public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> implements CustomRewriter {
 
     private final List<RewriteJob> jobs;
+    private final boolean runCboRules;
 
-    public RewriteCteChildren(List<RewriteJob> jobs) {
+    public RewriteCteChildren(List<RewriteJob> jobs, boolean runCboRules) {
         this.jobs = jobs;
+        this.runCboRules = runCboRules;
     }
 
     @Override
@@ -70,7 +73,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
 
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
-        Rewriter.getCteChildrenRewriter(context, jobs).execute();
+        Rewriter.getCteChildrenRewriter(context, jobs, runCboRules).execute();
         return context.getRewritePlan();
     }
 
@@ -84,7 +87,14 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             CascadesContext outerCascadesCtx = CascadesContext.newSubtreeContext(
                     Optional.empty(), cascadesContext, cteAnchor.child(1),
                     cascadesContext.getCurrentJobContext().getRequiredProperties());
-            outer = (LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx);
+            AtomicReference<LogicalPlan> outerResult = new AtomicReference<>();
+            StatsDerive statsDerive = new StatsDerive(false);
+            cteAnchor.child(0).accept(statsDerive, new StatsDerive.DeriveContext());
+            outerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+                outerResult.set((LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx));
+            });
+            outer = outerResult.get();
+            cascadesContext.addPlanProcesses(outerCascadesCtx.getPlanProcesses());
             cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
         }
         Set<LogicalCTEConsumer> cteConsumers = Sets.newHashSet();
@@ -129,7 +139,12 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             }
             CascadesContext rewrittenCtx = CascadesContext.newSubtreeContext(
                     Optional.of(cteProducer.getCteId()), cascadesContext, child, PhysicalProperties.ANY);
-            child = (LogicalPlan) child.accept(this, rewrittenCtx);
+            AtomicReference<LogicalPlan> result = new AtomicReference<>(child);
+            rewrittenCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+                result.set((LogicalPlan) result.get().accept(this, rewrittenCtx));
+            });
+            child = result.get();
+            cascadesContext.addPlanProcesses(rewrittenCtx.getPlanProcesses());
             cascadesContext.getStatementContext().getRewrittenCteProducer().put(cteProducer.getCteId(), child);
         }
         return cteProducer.withChildren(child);
@@ -194,7 +209,12 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             }
         }
         if (!conjuncts.isEmpty()) {
-            LogicalPlan filter = new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.and(conjuncts)), child);
+            // distinct conjuncts
+            ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builderWithExpectedSize(conjuncts.size());
+            for (Expression conjunct : conjuncts) {
+                newConjuncts.addAll(ExpressionUtils.extractConjunction(conjunct));
+            }
+            LogicalPlan filter = new LogicalFilter<>(newConjuncts.build(), child);
             return pushPlanUnderAnchor(filter);
         }
         return child;

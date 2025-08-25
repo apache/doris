@@ -20,6 +20,8 @@ package org.apache.doris.nereids.pattern;
 import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatchRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.SuperClassId;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import org.apache.logging.log4j.LogManager;
@@ -34,9 +36,20 @@ import java.util.Set;
 /** ExpressionPatternMapping */
 public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionPatternMatchRule> {
     private static final Logger LOG = LogManager.getLogger(ExpressionPatternRules.class);
+    public final List<ExpressionPatternMatchRule> allRules;
+    private BitSet typePatternIds;
 
+    /** ExpressionPatternRules */
     public ExpressionPatternRules(List<ExpressionPatternMatchRule> typeMappings) {
         super(typeMappings);
+
+        BitSet typePatternIds = new BitSet();
+        for (ExpressionPatternMatchRule typeMapping : typeMappings) {
+            Class<? extends Expression> topType = typeMapping.getType();
+            typePatternIds.set(SuperClassId.getClassId(topType));
+        }
+        this.typePatternIds = typePatternIds;
+        this.allRules = typeMappings;
     }
 
     @Override
@@ -44,9 +57,17 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
         return org.apache.doris.nereids.pattern.GeneratedExpressionRelations.CHILDREN_CLASS_MAP.get(clazz);
     }
 
+    public boolean hasCurrentAndChildrenRules(TreeNode<?> treeNode) {
+        BitSet classTypes = treeNode.getAllChildrenTypes();
+        if (!typePatternIds.intersects(classTypes)) {
+            return false;
+        }
+        return true;
+    }
+
     /** matchesAndApply */
     public Optional<Expression> matchesAndApply(Expression expr, ExpressionRewriteContext context, Expression parent) {
-        List<ExpressionPatternMatchRule> rules = singleMappings.get(expr.getClass());
+        List<ExpressionPatternMatchRule> rules = getSingleMapping(expr.getClass());
         ExpressionMatchingContext<Expression> matchingContext
                 = new ExpressionMatchingContext<>(expr, parent, context);
         BitSet disableRules = context.cascadesContext.getConnectContext().getSessionVariable()
@@ -59,9 +80,11 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                         Expression newExpr = multiMatchRule.apply(matchingContext);
                         if (!newExpr.equals(expr)) {
                             if (context.cascadesContext.isEnableExprTrace()) {
-                                traceExprChanged(multiMatchRule, expr, newExpr);
+                                traceExprChanged(multiMatchRule, expr, newExpr, true);
                             }
                             return Optional.of(newExpr);
+                        } else if (context.cascadesContext.isEnableExprTrace()) {
+                            traceExprChanged(multiMatchRule, expr, newExpr, false);
                         }
                     }
                 }
@@ -74,9 +97,11 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                     Expression newExpr = rule.apply(matchingContext);
                     if (!newExpr.equals(expr)) {
                         if (context.cascadesContext.isEnableExprTrace()) {
-                            traceExprChanged(rule, expr, newExpr);
+                            traceExprChanged(rule, expr, newExpr, true);
                         }
                         return Optional.of(newExpr);
+                    } else if (context.cascadesContext.isEnableExprTrace()) {
+                        traceExprChanged(rule, expr, newExpr, false);
                     }
                 }
                 return Optional.empty();
@@ -88,9 +113,11 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                         Expression newExpr = rule.apply(matchingContext);
                         if (!expr.equals(newExpr)) {
                             if (context.cascadesContext.isEnableExprTrace()) {
-                                traceExprChanged(rule, expr, newExpr);
+                                traceExprChanged(rule, expr, newExpr, true);
                             }
                             return Optional.of(newExpr);
+                        } else if (context.cascadesContext.isEnableExprTrace()) {
+                            traceExprChanged(rule, expr, newExpr, false);
                         }
                     }
                 }
@@ -99,7 +126,8 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
         }
     }
 
-    private static void traceExprChanged(ExpressionPatternMatchRule rule, Expression expr, Expression newExpr) {
+    private static void traceExprChanged(
+            ExpressionPatternMatchRule rule, Expression expr, Expression newExpr, boolean changed) {
         try {
             Field[] declaredFields = (rule.matchingAction).getClass().getDeclaredFields();
             Class<?> ruleClass;
@@ -110,7 +138,11 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                 field.setAccessible(true);
                 ruleClass = field.get(rule.matchingAction).getClass();
             }
-            LOG.info("RULE: " + ruleClass + "\nbefore: " + expr + "\nafter: " + newExpr);
+            if (changed) {
+                LOG.info("RULE: " + ruleClass + "\nbefore: " + expr + "\nafter: " + newExpr);
+            } else {
+                LOG.info("RULE: " + ruleClass + " not changed\nbefore: " + expr);
+            }
         } catch (Throwable t) {
             LOG.error(t.getMessage(), t);
         }

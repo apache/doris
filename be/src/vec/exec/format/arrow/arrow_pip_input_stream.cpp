@@ -27,7 +27,7 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 ArrowPipInputStream::ArrowPipInputStream(io::FileReaderSPtr file_reader)
-        : _file_reader(std::move(file_reader)), _pos(0), _begin(true), _read_buf(new uint8_t[4]) {
+        : _file_reader(std::move(file_reader)), _pos(0), _begin(true) {
     set_mode(arrow::io::FileMode::READ);
 }
 

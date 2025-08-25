@@ -28,10 +28,11 @@
 #include <string>
 #include <vector>
 
-#include "gutil/port.h"
+#include "common/cast_set.h"
 #include "util/bit_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Return the number of bytes necessary to store the given number of bits.
 inline size_t BitmapSize(size_t num_bits) {
@@ -45,7 +46,8 @@ inline void BitmapSet(uint8_t* bitmap, size_t idx) {
 
 // Switch the given bit to the specified value.
 inline void BitmapChange(uint8_t* bitmap, size_t idx, bool value) {
-    bitmap[idx >> 3] = (bitmap[idx >> 3] & ~(1 << (idx & 7))) | ((!!value) << (idx & 7));
+    bitmap[idx >> 3] =
+            cast_set<uint8_t>((bitmap[idx >> 3] & ~(1 << (idx & 7))) | ((!!value) << (idx & 7)));
 }
 
 // Clear the given bit.
@@ -115,16 +117,9 @@ inline bool BitmapEquals(const uint8_t* bm1, const uint8_t* bm2, size_t bitmap_s
         return true;
     }
     DCHECK_LT(num_remaining_bits, 8);
-    uint8_t mask = (1 << num_remaining_bits) - 1;
+    auto mask = (1 << num_remaining_bits) - 1;
     return (bm1[num_full_bytes] & mask) == (bm2[num_full_bytes] & mask);
 }
-
-// This function will print the bitmap content in a format like the following:
-// eg: 0001110000100010110011001100001100110011
-// output:
-//      0000: 00011100 00100010 11001100 11000011
-//      0016: 00110011
-std::string BitmapToString(const uint8_t* bitmap, size_t num_bits);
 
 // Iterator which yields ranges of set and unset bits.
 // Example usage:
@@ -167,7 +162,9 @@ public:
 private:
     size_t NextWithLimit(bool* value, size_t limit) {
         size_t len = limit - offset_;
-        if (PREDICT_FALSE(len == 0)) return (0);
+        if (len == 0) [[unlikely]] {
+            return (0);
+        }
 
         *value = BitmapTest(map_, offset_);
 
@@ -198,14 +195,14 @@ class Bitmap {
 public:
     Bitmap(int64_t num_bits) {
         DCHECK_GE(num_bits, 0);
-        buffer_.resize(BitUtil::round_up_numi_64(num_bits));
+        buffer_.resize(BitUtil::round_up_numi_64(cast_set<uint32_t>(num_bits)));
         num_bits_ = num_bits;
     }
 
     /// Resize bitmap and set all bits to zero.
     void Reset(int64_t num_bits) {
         DCHECK_GE(num_bits, 0);
-        buffer_.resize(BitUtil::round_up_numi_64(num_bits));
+        buffer_.resize(BitUtil::round_up_numi_64(cast_set<uint32_t>(num_bits)));
         num_bits_ = num_bits;
         SetAllBits(false);
     }
@@ -213,7 +210,7 @@ public:
     /// Compute memory usage of a bitmap, not including the Bitmap object itself.
     static int64_t MemUsage(int64_t num_bits) {
         DCHECK_GE(num_bits, 0);
-        return BitUtil::round_up_numi_64(num_bits) * sizeof(int64_t);
+        return BitUtil::round_up_numi_64(cast_set<uint32_t>(num_bits)) * sizeof(int64_t);
     }
 
     /// Compute memory usage of this bitmap, not including the Bitmap object itself.
@@ -254,5 +251,5 @@ private:
     static const int64_t NUM_OFFSET_BITS = 6;
     static const int64_t BIT_INDEX_MASK = 63;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

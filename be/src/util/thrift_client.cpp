@@ -24,7 +24,7 @@
 #include <string>
 #include <thread>
 
-#include "gutil/strings/substitute.h"
+#include "absl/strings/substitute.h"
 
 namespace doris {
 
@@ -43,8 +43,8 @@ Status ThriftClientImpl::open() {
         // In certain cases in which the remote host is overloaded, this failure can
         // happen quite frequently. Let's print this error message without the stack
         // trace as there aren't many callers of this function.
-        const std::string& err_msg = strings::Substitute("Couldn't open transport for $0:$1 ($2)",
-                                                         ipaddress(), port(), e.what());
+        const std::string& err_msg = absl::Substitute("Couldn't open transport for $0:$1 ($2)",
+                                                      ipaddress(), port(), e.what());
         VLOG_CRITICAL << err_msg;
         return Status::RpcError(err_msg);
     }

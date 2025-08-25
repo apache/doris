@@ -132,6 +132,19 @@ public class AgentTaskQueue {
         }
     }
 
+    public static synchronized boolean contains(AgentTask task) {
+        long backendId = task.getBackendId();
+        TTaskType type = task.getTaskType();
+        long signature = task.getSignature();
+
+        if (!tasks.contains(backendId, type)) {
+            return false;
+        }
+
+        Map<Long, AgentTask> signatureMap = tasks.get(backendId, type);
+        return signatureMap.containsKey(signature);
+    }
+
     public static synchronized AgentTask getTask(long backendId, TTaskType type, long signature) {
         if (!tasks.contains(backendId, type)) {
             return null;

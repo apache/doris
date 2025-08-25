@@ -84,7 +84,11 @@ public class QueryProcessor extends AbstractJobProcessor {
             distinctWorkerJobs.putIfAbsent(topInstance.getAssignedWorker().id(), topInstance);
         }
 
+        boolean regenerateInstanceId = coordinatorContext.connectContext.consumeNeedRegenerateQueryId();
         for (AssignedJob topInstance : distinctWorkerJobs.values()) {
+            if (regenerateInstanceId) {
+                topInstance.resetInstanceId(coordinatorContext.connectContext.nextInstanceId());
+            }
             DistributedPlanWorker topWorker = topInstance.getAssignedWorker();
             TNetworkAddress execBeAddr = new TNetworkAddress(topWorker.host(), topWorker.brpcPort());
             receivers.add(
@@ -138,9 +142,11 @@ public class QueryProcessor extends AbstractJobProcessor {
 
         ConnectContext connectContext = coordinatorContext.connectContext;
         if (connectContext != null && connectContext.getSessionVariable().dryRunQuery) {
-            if (resultBatch.isEos()) {
-                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
-            }
+            // In BE: vmysql_result_writer.cpp:GetResultBatchCtx::on_close()
+            //      statistics->set_returned_rows(returned_rows);
+            // In a multi-mysql_result_writer scenario, since each mysql_result_writer will set this rows, in order
+            // to avoid missing rows when dry_run_query = true, they should all be added up.
+            numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
         }

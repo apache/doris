@@ -17,142 +17,179 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
-import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
-import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.fs.FileSystemCache;
-import org.apache.doris.fs.FileSystemType;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.Status;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
-import mockit.Mock;
-import mockit.MockUp;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
-import org.apache.hadoop.fs.LocalFileSystem;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.hadoop.fs.FileSystem;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.net.URI;
-import java.security.PrivilegedExceptionAction;
-import java.util.ArrayList;
-import java.util.Map;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class RemoteFileSystemTest {
 
+    private RemoteFileSystem remoteFileSystem;
+    private FileSystem mockFileSystem;
+
+    private static class DummyRemoteFileSystem extends RemoteFileSystem {
+        public DummyRemoteFileSystem() {
+            super("dummy", StorageBackend.StorageType.HDFS);
+        }
+
+        @Override
+        public Status exists(String path) {
+            return Status.OK;
+        }
+
+        @Override
+        public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
+            return null;
+        }
+
+        @Override
+        public Status upload(String localPath, String remotePath) {
+            return null;
+        }
+
+        @Override
+        public Status directUpload(String content, String remoteFile) {
+            return null;
+        }
+
+        @Override
+        public Status makeDir(String path) {
+            return Status.OK;
+        }
+
+        @Override
+        public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+            return null;
+        }
+
+        @Override
+        public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+            return null;
+        }
+
+        @Override
+        public Status rename(String src, String dst) {
+            return new Status(Status.ErrCode.OK, "Rename operation not implemented in DummyRemoteFileSystem");
+        }
+
+        @Override
+        public Status delete(String remotePath) {
+            return null;
+        }
+
+        @Override
+        public void close() throws IOException {
+
+        }
+
+        @Override
+        public StorageProperties getStorageProperties() {
+            return null;
+        }
+
+        public Status rename(String path) {
+            return new Status(Status.ErrCode.OK, "Rename operation not implemented in DummyRemoteFileSystem");
+        }
+    }
+
     @Test
-    public void testFilesystemAndAuthType() throws UserException {
+    public void testRenameDir_destExists() {
+        RemoteFileSystem fs = new DummyRemoteFileSystem() {
+            @Override
+            public Status exists(String path) {
+                if (path.equals("s3://bucket/target")) {
+                    return Status.OK;
+                }
+                return new Status(Status.ErrCode.NOT_FOUND, "not found");
+            }
 
-        // These paths should use s3 filesystem, and use simple auth
-        ArrayList<String> s3Paths = new ArrayList<>();
-        s3Paths.add("s3://a/b/c");
-        s3Paths.add("s3a://a/b/c");
-        s3Paths.add("s3n://a/b/c");
-        s3Paths.add("oss://a/b/c");  // default use s3 filesystem
-        s3Paths.add("gs://a/b/c");
-        s3Paths.add("bos://a/b/c");
-        s3Paths.add("cos://a/b/c");
-        s3Paths.add("cosn://a/b/c");
-        s3Paths.add("lakefs://a/b/c");
-        s3Paths.add("obs://a/b/c");
-
-        // These paths should use dfs filesystem, and auth will be changed by configure
-        ArrayList<String> dfsPaths = new ArrayList<>();
-        dfsPaths.add("ofs://a/b/c");
-        dfsPaths.add("gfs://a/b/c");
-        dfsPaths.add("hdfs://a/b/c");
-        dfsPaths.add("oss://a/b/c");  // if endpoint contains 'oss-dls.aliyuncs', will use dfs filesystem
-
-        new MockUp<UserGroupInformation>(UserGroupInformation.class) {
-            @Mock
-            public <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException, InterruptedException {
-                return (T) new LocalFileSystem();
+            @Override
+            public Status rename(String path) {
+                return null;
             }
         };
 
-        new MockUp<HadoopKerberosAuthenticator>(HadoopKerberosAuthenticator.class) {
-            @Mock
-            public synchronized UserGroupInformation getUGI() throws IOException {
-                return UserGroupInformation.getCurrentUser();
+        Status result = fs.renameDir("s3://bucket/src", "s3://bucket/target", () -> {
+        });
+        Assertions.assertFalse(result.ok());
+        Assertions.assertEquals(Status.ErrCode.COMMON_ERROR, result.getErrCode());
+    }
+
+    @Test
+    public void testRenameDir_makeDirSuccess() {
+        AtomicBoolean runFlag = new AtomicBoolean(false);
+
+        RemoteFileSystem fs = new DummyRemoteFileSystem() {
+            @Override
+            public Status exists(String path) {
+                if (path.equals("s3://bucket/target")) {
+                    return new Status(Status.ErrCode.NOT_FOUND, "not found");
+                }
+                if (path.equals("s3://bucket")) {
+                    return new Status(Status.ErrCode.NOT_FOUND, "not found");
+                }
+                return Status.OK;
+            }
+
+            @Override
+            public Status makeDir(String path) {
+                return Status.OK;
+            }
+
+            @Override
+            public Status rename(String src, String dst) {
+                return Status.OK;
+            }
+
+            @Override
+            public Status rename(String path) {
+                return null;
             }
         };
 
-        Configuration confWithoutKerberos = new Configuration();
-
-        Configuration confWithKerberosIncomplete = new Configuration();
-        confWithKerberosIncomplete.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-
-        Configuration confWithKerberos = new Configuration();
-        confWithKerberos.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-        confWithKerberos.set(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL, "principal");
-        confWithKerberos.set(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB, "keytab");
-
-        ImmutableMap<String, String> s3props = ImmutableMap.of("s3.endpoint", "http://127.0.0.1");
-        s3props.forEach(confWithKerberos::set);
-        s3props.forEach(confWithoutKerberos::set);
-        s3props.forEach(confWithKerberosIncomplete::set);
-
-        for (String path : s3Paths) {
-            checkS3Filesystem(path, confWithKerberos, s3props);
-        }
-        for (String path : s3Paths) {
-            checkS3Filesystem(path, confWithKerberosIncomplete, s3props);
-        }
-        for (String path : s3Paths) {
-            checkS3Filesystem(path, confWithoutKerberos, s3props);
-        }
-
-        s3props = ImmutableMap.of("s3.endpoint", "oss://xx-oss-dls.aliyuncs/abc");
-        System.setProperty("java.security.krb5.realm", "realm");
-        System.setProperty("java.security.krb5.kdc", "kdc");
-
-        for (String path : dfsPaths) {
-            checkDFSFilesystem(path, confWithKerberos, HadoopKerberosAuthenticator.class.getName(), s3props);
-        }
-        for (String path : dfsPaths) {
-            checkDFSFilesystem(path, confWithKerberosIncomplete, HadoopSimpleAuthenticator.class.getName(), s3props);
-        }
-        for (String path : dfsPaths) {
-            checkDFSFilesystem(path, confWithoutKerberos, HadoopSimpleAuthenticator.class.getName(), s3props);
-        }
-
+        Status result = fs.renameDir("s3://bucket/src", "s3://bucket/target", () -> runFlag.set(true));
+        Assertions.assertTrue(result.ok());
+        Assertions.assertTrue(runFlag.get());
     }
 
-    private void checkS3Filesystem(String path, Configuration conf, Map<String, String> m) throws UserException {
-        RemoteFileSystem fs = createFs(path, conf, m);
-        Assert.assertTrue(fs instanceof S3FileSystem);
-        HadoopAuthenticator authenticator = ((S3FileSystem) fs).getAuthenticator();
-        Assert.assertTrue(authenticator instanceof HadoopSimpleAuthenticator);
-    }
+    @Test
+    public void testRenameDir_makeDirFails() {
+        RemoteFileSystem fs = new DummyRemoteFileSystem() {
+            @Override
+            public Status exists(String path) {
+                if (path.equals("s3://bucket/target")) {
+                    return new Status(Status.ErrCode.NOT_FOUND, "not found");
+                }
+                if (path.equals("s3://bucket")) {
+                    return new Status(Status.ErrCode.NOT_FOUND, "not found");
+                }
+                return Status.OK;
+            }
 
-    private void checkDFSFilesystem(String path, Configuration conf, String authClass, Map<String, String> m) throws UserException {
-        RemoteFileSystem fs = createFs(path, conf, m);
-        Assert.assertTrue(fs instanceof DFSFileSystem);
-        HadoopAuthenticator authenticator = ((DFSFileSystem) fs).getAuthenticator();
-        Assert.assertEquals(authClass, authenticator.getClass().getName());
-    }
+            @Override
+            public Status rename(String src, String dst) {
+                return new Status(Status.ErrCode.COMMON_ERROR, "mkdir failed");
+            }
 
-    private RemoteFileSystem createFs(String path, Configuration conf, Map<String, String> m) throws UserException {
-        LocationPath locationPath = new LocationPath(path, m);
-        FileSystemType fileSystemType = locationPath.getFileSystemType();
-        URI uri = locationPath.getPath().toUri();
-        String fsIdent = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
-        FileSystemCache fileSystemCache = new FileSystemCache();
-        RemoteFileSystem fs = fileSystemCache.getRemoteFileSystem(
-            new FileSystemCache.FileSystemCacheKey(
-                Pair.of(fileSystemType, fsIdent),
-                ImmutableMap.of(),
-                null,
-                conf));
-        fs.nativeFileSystem(path);
-        return fs;
-    }
+            @Override
+            public Status rename(String path) {
+                return new Status(Status.ErrCode.COMMON_ERROR, "mkdir failed");
+            }
 
+        };
+
+        Status result = fs.renameDir("s3://bucket/src", "s3://bucket/target", () -> {
+            //no-op
+        });
+        Assertions.assertFalse(result.ok());
+        Assertions.assertEquals(Status.ErrCode.COMMON_ERROR, result.getErrCode());
+        Assertions.assertTrue(result.getErrMsg().contains("mkdir failed"));
+    }
 }

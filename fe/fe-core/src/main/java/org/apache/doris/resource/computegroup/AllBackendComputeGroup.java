@@ -18,10 +18,20 @@
 package org.apache.doris.resource.computegroup;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupKey;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
 
 public class AllBackendComputeGroup extends ComputeGroup {
 
@@ -53,6 +63,43 @@ public class AllBackendComputeGroup extends ComputeGroup {
     @Override
     public ImmutableList<Backend> getBackendList() {
         return systemInfoService.getAllClusterBackendsNoException().values().asList();
+    }
+
+    // In non cloud mode, if root or admin user not set resource group name, then will use all
+    // resource groups(This is by design in the past). So we need get all workload groups
+    // from different resource groups and publish the workload group to all backends.
+    // The backend will filter the workload group that is pre-created in its local.
+    @Override
+    public List<WorkloadGroup> getWorkloadGroup(String wgName, WorkloadGroupMgr wgMgr) throws UserException {
+        List<WorkloadGroup> wgList = Lists.newArrayList();
+        Collection<Backend> beList = systemInfoService.getAllClusterBackendsNoException().values();
+        if (beList.size() == 0) {
+            throw new RuntimeException("No backend available for Workload Group " + wgName);
+        }
+        Set<String> cgSet = Sets.newHashSet();
+        for (Backend backend : beList) {
+            // in cloud mode, name is cluster id.
+            // in no-cloud mode, name is resource tag's name
+            String computeGroup = backend.getComputeGroup();
+            if (cgSet.contains(computeGroup)) {
+                continue;
+            }
+            cgSet.add(computeGroup);
+            WorkloadGroup wg = wgMgr.getWorkloadGroupByComputeGroup(
+                    WorkloadGroupKey.get(computeGroup, wgName));
+            if (wg == null) {
+                if (Config.isCloudMode()) {
+                    throw new UserException(
+                            "Can not find workload group " + wgName + " in compute croup "
+                                    + backend.getCloudClusterName());
+                } else {
+                    throw new UserException(
+                            "Can not find workload group " + wgName + " in compute group " + computeGroup);
+                }
+            }
+            wgList.add(wg);
+        }
+        return wgList;
     }
 
     @Override

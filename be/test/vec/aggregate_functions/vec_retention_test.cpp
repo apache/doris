@@ -29,7 +29,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
@@ -64,6 +63,8 @@ public:
     }
 
     void TearDown() {}
+
+    Arena arena;
 };
 
 TEST_F(VRetentionTest, testEmpty) {
@@ -77,13 +78,13 @@ TEST_F(VRetentionTest, testEmpty) {
     buf_writer.commit();
     LOG(INFO) << "buf size : " << buf.size();
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place, buf_reader, nullptr);
+    agg_function->deserialize(place, buf_reader, arena);
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
     agg_function->create(place2);
 
-    agg_function->merge(place, place2, nullptr);
+    agg_function->merge(place, place2, arena);
     auto column_result =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
     agg_function->insert_result_into(place, *column_result);
@@ -112,37 +113,37 @@ TEST_F(VRetentionTest, testEmpty) {
 TEST_F(VRetentionTest, testSample) {
     const int batch_size = 4;
 
-    auto column_event1 = ColumnVector<UInt8>::create();
-    column_event1->insert(0);
-    column_event1->insert(1);
-    column_event1->insert(0);
-    column_event1->insert(0);
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
-    column_event2->insert(0);
-    column_event2->insert(0);
-    column_event2->insert(1);
-    column_event2->insert(0);
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event3 = ColumnVector<UInt8>::create();
-    column_event3->insert(0);
-    column_event3->insert(0);
-    column_event3->insert(0);
-    column_event3->insert(1);
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
     const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
     agg_function->create(place2);
 
-    agg_function->merge(place2, place, nullptr);
+    agg_function->merge(place2, place, arena);
 
     auto column_result2 =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
@@ -162,30 +163,30 @@ TEST_F(VRetentionTest, testSample) {
 TEST_F(VRetentionTest, testNoMerge) {
     const int batch_size = 4;
 
-    auto column_event1 = ColumnVector<UInt8>::create();
-    column_event1->insert(0);
-    column_event1->insert(1);
-    column_event1->insert(0);
-    column_event1->insert(0);
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
-    column_event2->insert(0);
-    column_event2->insert(0);
-    column_event2->insert(1);
-    column_event2->insert(0);
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event3 = ColumnVector<UInt8>::create();
-    column_event3->insert(0);
-    column_event3->insert(0);
-    column_event3->insert(0);
-    column_event3->insert(1);
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
     const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     auto column_result =
@@ -205,24 +206,24 @@ TEST_F(VRetentionTest, testNoMerge) {
 TEST_F(VRetentionTest, testSerialize) {
     const int batch_size = 2;
 
-    auto column_event1 = ColumnVector<UInt8>::create();
-    column_event1->insert(0);
-    column_event1->insert(1);
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
-    column_event2->insert(0);
-    column_event2->insert(0);
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event3 = ColumnVector<UInt8>::create();
-    column_event3->insert(0);
-    column_event3->insert(0);
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
     const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     ColumnString buf;
@@ -236,7 +237,7 @@ TEST_F(VRetentionTest, testSerialize) {
     agg_function->create(place2);
 
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place2, buf_reader, nullptr);
+    agg_function->deserialize(place2, buf_reader, arena);
 
     auto column_result =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
@@ -251,27 +252,27 @@ TEST_F(VRetentionTest, testSerialize) {
         }
     }
 
-    auto column_event4 = ColumnVector<UInt8>::create();
-    column_event4->insert(0);
-    column_event4->insert(0);
+    auto column_event4 = ColumnUInt8::create();
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event5 = ColumnVector<UInt8>::create();
-    column_event5->insert(0);
-    column_event5->insert(1);
+    auto column_event5 = ColumnUInt8::create();
+    column_event5->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event5->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
-    auto column_event6 = ColumnVector<UInt8>::create();
-    column_event6->insert(0);
-    column_event6->insert(0);
+    auto column_event6 = ColumnUInt8::create();
+    column_event6->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event6->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     std::unique_ptr<char[]> memory3(new char[agg_function->size_of_data()]);
     AggregateDataPtr place3 = memory3.get();
     agg_function->create(place3);
     const IColumn* column2[3] = {column_event4.get(), column_event5.get(), column_event6.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place3, column2, i, nullptr);
+        agg_function->add(place3, column2, i, arena);
     }
 
-    agg_function->merge(place2, place3, nullptr);
+    agg_function->merge(place2, place3, arena);
 
     auto column_result2 =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());

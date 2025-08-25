@@ -29,6 +29,8 @@ public interface AssignedJob {
 
     TUniqueId instanceId();
 
+    void resetInstanceId(TUniqueId instanceId);
+
     UnassignedJob unassignedJob();
 
     DistributedPlanWorker getAssignedWorker();

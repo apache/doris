@@ -27,6 +27,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static constexpr int64_t MAX_LEVEL2_COMPACTION_TIMEOUT = 24 * 60 * 60;
 static constexpr int64_t MAX_LEVEL1_COMPACTION_GOAL_SIZE = 2 * 1024;
@@ -46,8 +47,9 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     }
     int64_t compaction_file_count =
             tablet->tablet_meta()->time_series_compaction_file_count_threshold();
-    int64_t compaction_time_threshold =
+    int64_t compaction_time_threshold_seconds =
             tablet->tablet_meta()->time_series_compaction_time_threshold_seconds();
+    int64_t earliest_rowset_creation_time = INT64_MAX;
 
     int64_t level0_total_size = 0;
     RowsetMetaSharedPtr first_meta;
@@ -79,6 +81,9 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
             } else {
                 checked_rs_metas.push_back(rs_meta);
             }
+            if (rs_meta->creation_time() < earliest_rowset_creation_time) {
+                earliest_rowset_creation_time = rs_meta->creation_time();
+            }
         }
     }
 
@@ -103,24 +108,22 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         return score;
     }
 
-    int64_t now = UnixMillis();
-    int64_t last_cumu = tablet->last_cumu_compaction_success_time();
-    if (last_cumu != 0) {
-        int64_t cumu_interval = now - last_cumu;
+    // current time in seconds
+    int64_t now = time(nullptr);
+
+    if (earliest_rowset_creation_time < now) {
+        int64_t cumu_interval = now - earliest_rowset_creation_time;
 
         // Condition 3: the time interval between compactions exceeds the value specified by parameter _compaction_time_threshold_second
-        if (cumu_interval > (compaction_time_threshold * 1000) && score > 0) {
+        if (cumu_interval > compaction_time_threshold_seconds && score > 0) {
             return score;
         }
-    } else if (score > 0) {
-        // If the compaction process has not been successfully executed,
-        // the condition for triggering compaction based on the last successful compaction time (condition 3) will never be met
-        tablet->set_last_cumu_compaction_success_time(now);
     }
 
     if (compaction_level >= 2) {
         int64_t continuous_size = 0;
         std::vector<RowsetMetaSharedPtr> level1_rowsets;
+        int64_t earliest_level1_rowset_creation_time = INT64_MAX;
         for (const auto& rs_meta : checked_rs_metas) {
             if (rs_meta->compaction_level() == 0) {
                 break;
@@ -134,16 +137,19 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
             // Condition 4: level1 achieve compaction_goal_size
             if (level1_rowsets.size() >= 2) {
                 if (continuous_size >= compaction_goal_size_mbytes * 10 * 1024 * 1024) {
-                    return level1_rowsets.size();
+                    return cast_set<int32_t>(level1_rowsets.size());
                 }
+            }
+            if (rs_meta->creation_time() < earliest_level1_rowset_creation_time) {
+                earliest_level1_rowset_creation_time = rs_meta->creation_time();
             }
         }
 
-        // Condition 5: level1 achieve compaction_time_threshold
-        if (last_cumu != 0 && level1_rowsets.size() >= 2) {
-            int64_t cumu_interval = now - last_cumu;
-            if (cumu_interval > compaction_time_threshold * 10 * 1000) {
-                return level1_rowsets.size();
+        // Condition 5: level1 achieve compaction_time_threshold_seconds
+        if (level1_rowsets.size() >= 2) {
+            int64_t cumu_interval = now - earliest_level1_rowset_creation_time;
+            if (cumu_interval > compaction_time_threshold_seconds * 10) {
+                return cast_set<int32_t>(level1_rowsets.size());
             }
         }
     }
@@ -196,7 +202,9 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
     CHECK((*base_rowset_meta)->start_version() == 0);
 
     int64_t prev_version = -1;
-    int64_t now = UnixSeconds();
+
+    // current time in seconds
+    int64_t now = time(nullptr);
     for (const RowsetMetaSharedPtr& rs : existing_rss) {
         if (rs->version().first > prev_version + 1) {
             // There is a hole, do not continue
@@ -272,7 +280,7 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     }
     int64_t compaction_file_count =
             tablet->tablet_meta()->time_series_compaction_file_count_threshold();
-    int64_t compaction_time_threshold =
+    int64_t compaction_time_threshold_seconds =
             tablet->tablet_meta()->time_series_compaction_time_threshold_seconds();
 
     int transient_size = 0;
@@ -347,10 +355,17 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     }
 
     // Condition 3: the time interval between compactions exceeds the value specified by parameter compaction_time_threshold_second
-    int64_t now = UnixMillis();
-    if (last_cumu != 0) {
-        int64_t cumu_interval = now - last_cumu;
-        if (cumu_interval > (compaction_time_threshold * 1000) && transient_size > 0) {
+    // current time in seconds
+    int64_t now = time(nullptr);
+    if (!input_rowsets->empty()) {
+        LOG_EVERY_N(INFO, 1000) << "tablet is: " << tablet->tablet_id() << ", now: " << now
+                                << ", earliest rowset creation time: "
+                                << input_rowsets->front()->rowset_meta()->creation_time()
+                                << ", compaction_time_threshold_seconds: "
+                                << compaction_time_threshold_seconds
+                                << ", rowset count: " << transient_size;
+        int64_t cumu_interval = now - input_rowsets->front()->rowset_meta()->creation_time();
+        if (cumu_interval > compaction_time_threshold_seconds && transient_size > 0) {
             return transient_size;
         }
     }
@@ -373,7 +388,7 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             if (level1_rowsets.size() >= 2) {
                 if (continuous_size >= compaction_goal_size_mbytes * 10 * 1024 * 1024) {
                     input_rowsets->swap(level1_rowsets);
-                    return input_rowsets->size();
+                    return cast_set<int32_t>(input_rowsets->size());
                 }
             }
         }
@@ -381,16 +396,16 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         DBUG_EXECUTE_IF("time_series_level2_file_count", {
             if (level1_rowsets.size() >= compaction_file_count) {
                 input_rowsets->swap(level1_rowsets);
-                return input_rowsets->size();
+                return cast_set<int32_t>(input_rowsets->size());
             }
         })
 
-        // Condition 5: level1 achieve compaction_time_threshold
-        if (last_cumu != 0 && level1_rowsets.size() >= 2) {
-            int64_t cumu_interval = now - last_cumu;
-            if (cumu_interval > compaction_time_threshold * 10 * 1000) {
+        // Condition 5: level1 achieve compaction_time_threshold_seconds
+        if (level1_rowsets.size() >= 2) {
+            int64_t cumu_interval = now - level1_rowsets.front()->rowset_meta()->creation_time();
+            if (cumu_interval > compaction_time_threshold_seconds * 10) {
                 input_rowsets->swap(level1_rowsets);
-                return input_rowsets->size();
+                return cast_set<int32_t>(input_rowsets->size());
             }
         }
     }
@@ -461,5 +476,6 @@ int64_t TimeSeriesCumulativeCompactionPolicy::get_compaction_level(
 
     return first_level + 1;
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

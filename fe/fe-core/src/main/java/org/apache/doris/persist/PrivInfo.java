@@ -22,9 +22,7 @@ import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
@@ -202,49 +200,12 @@ public class PrivInfo implements Writable, GsonPostProcessable {
     }
 
     public static PrivInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_113) {
-            PrivInfo info = new PrivInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), PrivInfo.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), PrivInfo.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            userIdent = UserIdentity.read(in);
-        }
-
-        if (in.readBoolean()) {
-            tblPattern = TablePattern.read(in);
-        }
-
-        if (in.readBoolean()) {
-            resourcePattern = ResourcePattern.read(in);
-        }
-
-        if (in.readBoolean()) {
-            privs = PrivBitSet.read(in);
-        }
-
-        if (in.readBoolean()) {
-            int passwordLen = in.readInt();
-            passwd = new byte[passwordLen];
-            in.readFully(passwd);
-        }
-
-        if (in.readBoolean()) {
-            role = Text.readString(in);
-        }
-
-        passwordOptions = PasswordOptions.UNSET_OPTION;
     }
 
     @Override

@@ -35,7 +35,10 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -280,16 +283,32 @@ public class NereidsParser {
         return parseMultiple(sql, null);
     }
 
+    /**
+     * parse multiple sql statements.
+     *
+     * @param sql sql string
+     * @param logicalPlanBuilder logical plan builder
+     * @return logical plan
+     */
     public List<Pair<LogicalPlan, StatementContext>> parseMultiple(String sql,
                                                                    @Nullable LogicalPlanBuilder logicalPlanBuilder) {
-        return parse(sql, logicalPlanBuilder, DorisParser::multiStatements);
+        List<Pair<LogicalPlan, StatementContext>> result = parse(sql, logicalPlanBuilder, DorisParser::multiStatements);
+        // ensure each StatementContext has complete OriginStatement information
+        for (int i = 0; i < result.size(); i++) {
+            Pair<LogicalPlan, StatementContext> pair = result.get(i);
+            StatementContext statementContext = pair.second;
+            if (statementContext.getOriginStatement() == null) {
+                statementContext.setOriginStatement(new OriginStatement(sql, i));
+            }
+        }
+        return result;
     }
 
     public Expression parseExpression(String expression) {
         if (isSimpleIdentifier(expression)) {
             return new UnboundSlot(expression);
         }
-        return parse(expression, DorisParser::expression);
+        return parse(expression, DorisParser::expressionWithEof);
     }
 
     private static boolean isSimpleIdentifier(String expression) {
@@ -392,7 +411,7 @@ public class NereidsParser {
     public static ParserRuleContext toAst(
             CommonTokenStream tokenStream, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisParser parser = new DorisParser(tokenStream);
-
+        parser.ansiSQLSyntax = GlobalVariable.enable_ansi_query_organization_behavior;
         parser.addParseListener(POST_PROCESSOR);
         parser.removeErrorListeners();
         parser.addErrorListener(PARSE_ERROR_LISTENER);
@@ -451,6 +470,7 @@ public class NereidsParser {
 
     private static CommonTokenStream parseAllTokens(String sql) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        lexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         tokenStream.fill();
         return tokenStream;

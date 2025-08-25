@@ -30,7 +30,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
 #include "vec/sink/varrow_flight_result_writer.h"
@@ -53,7 +52,8 @@ class GetResultBatchCtx;
 class Block;
 } // namespace vectorized
 
-// manage all result buffer control block in one backend
+// manage all result buffer control block in one backend. here we use uniform id `unique_id` to identify buffer slots.
+// for parallel result sink, it's `instance_id`, for non-parallel sink, it's `query_id`.
 class ResultBufferMgr {
 public:
     ResultBufferMgr();
@@ -63,27 +63,25 @@ public:
 
     void stop();
 
-    // create one result sender for this query_id
-    // the returned sender do not need release
-    // sender is not used when call cancel or unregister
-    Status create_sender(const TUniqueId& query_id, int buffer_size,
+    // for non-parallel sink, use query_id. but for parallel sink, use instance id.
+    Status create_sender(const TUniqueId& unique_id, int buffer_size,
                          std::shared_ptr<ResultBlockBufferBase>* sender, RuntimeState* state,
                          bool arrow_flight, std::shared_ptr<arrow::Schema> schema = nullptr);
 
     template <typename ResultBlockBufferType>
-    Status find_buffer(const TUniqueId& finst_id, std::shared_ptr<ResultBlockBufferType>& buffer);
+    Status find_buffer(const TUniqueId& unique_id, std::shared_ptr<ResultBlockBufferType>& buffer);
     // cancel
-    bool cancel(const TUniqueId& query_id, const Status& reason);
+    bool cancel(const TUniqueId& unique_id, const Status& reason);
 
     // cancel one query at a future time.
-    void cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
+    void cancel_at_time(time_t cancel_time, const TUniqueId& unique_id);
 
 private:
     using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<ResultBlockBufferBase>>;
     using TimeoutMap = std::map<time_t, std::vector<TUniqueId>>;
 
     template <typename ResultBlockBufferType>
-    std::shared_ptr<ResultBlockBufferType> _find_control_block(const TUniqueId& query_id);
+    std::shared_ptr<ResultBlockBufferType> _find_control_block(const TUniqueId& unique_id);
 
     // used to erase the buffer that fe not clears
     // when fe crush, this thread clear the buffer avoid memory leak in this backend
@@ -102,7 +100,7 @@ private:
     TimeoutMap _timeout_map;
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _clean_thread;
+    std::shared_ptr<Thread> _clean_thread;
 };
 
 } // namespace doris

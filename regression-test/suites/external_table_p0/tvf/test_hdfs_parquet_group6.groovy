@@ -214,7 +214,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "Duplicated field name: col1"
+                exception "Repeated lowercase column names: col1"
             }
 
 
@@ -427,7 +427,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'time_millis' is not supported: INT32 => TimeV2"
+                exception "The column type of 'time_millis' is not supported: INT32 => Nullable(timev2), is_dict_filter: false, src_logical_type: Nullable(timev2), dst_logical_type: Nullable(timev2)"
             }
 
 
@@ -655,7 +655,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'c2' is not supported: INT64 => TimeV2"
+                exception "The column type of 'c2' is not supported: INT64 => Nullable(timev2), is_dict_filter: false, src_logical_type: Nullable(timev2), dst_logical_type: Nullable(timev2)"
             }
 
 
@@ -745,7 +745,7 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'time_micros' is not supported: INT64 => TimeV2"
+                exception "The column type of 'time_micros' is not supported: INT64 => Nullable(timev2), is_dict_filter: false, src_logical_type: Nullable(timev2), dst_logical_type: Nullable(timev2)"
             }
 
 

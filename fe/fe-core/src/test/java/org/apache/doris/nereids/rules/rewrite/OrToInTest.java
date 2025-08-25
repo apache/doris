@@ -56,8 +56,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals("AND[col1 IN (1, 2, 3),OR[col1 IN (1, 2),AND[(col1 = 3),(col2 = 4)]]]",
                 rewritten.toSql());
         Expression rewritten2 = OrToIn.REPLACE_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("OR[col1 IN (1, 2),AND[(col1 = 3),(col2 = 4)]]",
-                rewritten2.toSql());
+        Assertions.assertEquals("OR[col1 IN (1, 2),AND[(col1 = 3),(col2 = 4)]]", rewritten2.toSql());
     }
 
     @Test
@@ -65,8 +64,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "col1 = 1 and col1 = 3 and col2 = 3 or col2 = 4";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("(col2 = 4)",
-                rewritten.toSql());
+        Assertions.assertEquals("(col2 = 4)", rewritten.toSql());
     }
 
     @Test
@@ -74,8 +72,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "(A = 1 or A = 2) and  (B = 3 or B = 4)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("AND[A IN (1, 2),B IN (3, 4)]",
-                rewritten.toSql());
+        Assertions.assertEquals("AND[A IN (1, 2),B IN (3, 4)]", rewritten.toSql());
     }
 
     @Test
@@ -93,8 +90,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "col = 1 or (col = 2 and (col = 3 or col = 4 or col = 5))";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("(col = 1)",
-                rewritten.toSql());
+        Assertions.assertEquals("(col = 1)", rewritten.toSql());
     }
 
     @Test
@@ -120,8 +116,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "col1 IN (1, 2) OR col2 IN (1, 2)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("OR[col1 IN (1, 2),col2 IN (1, 2)]",
-                rewritten.toSql());
+        Assertions.assertEquals("OR[col1 IN (1, 2),col2 IN (1, 2)]", rewritten.toSql());
     }
 
     @Test
@@ -129,8 +124,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "col1=1 and (col2=1 or col2=2)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("AND[(col1 = 1),col2 IN (1, 2)]",
-                rewritten.toSql());
+        Assertions.assertEquals("AND[(col1 = 1),col2 IN (1, 2)]", rewritten.toSql());
     }
 
     @Test
@@ -139,8 +133,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "col1=1 or (col2 = 2 and (col3=4 or col3=5))";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("OR[(col1 = 1),AND[(col2 = 2),col3 IN (4, 5)]]",
-                rewritten.toSql());
+        Assertions.assertEquals("OR[(col1 = 1),AND[(col2 = 2),col3 IN (4, 5)]]", rewritten.toSql());
     }
 
     // replace mode
@@ -160,18 +153,16 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "a in (1, 2) and a in (3, 4)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("FALSE",
-                rewritten.toSql());
+        Assertions.assertEquals("FALSE", rewritten.toSql());
     }
 
     @Test
     void test13() {
         // no rewrite, because of "a like 'xyz'"
-        String expr = "a like 'xyz% or a=1 or a=2': no extract";
+        String expr = "a like 'xyz% or a=1 or a=2'";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("(a like 'xyz% or a=1 or a=2')",
-                rewritten.toSql());
+        Assertions.assertEquals("(a like 'xyz% or a=1 or a=2')", rewritten.toSql());
     }
 
     @Test
@@ -180,8 +171,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "(a=1 and f(a)=2) or a=3";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("OR[AND[(a = 1),(f(a) = 2)],(a = 3)]",
-                rewritten.toSql());
+        Assertions.assertEquals("OR[AND[(a = 1),(f(a) = 2)],(a = 3)]", rewritten.toSql());
     }
 
     @Test
@@ -190,8 +180,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "x=1 or (a=1 and b=2) or (a=2 and c=3)";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("OR[(x = 1),AND[(a = 1),(b = 2)],AND[(a = 2),(c = 3)]]",
-                rewritten.toSql());
+        Assertions.assertEquals("OR[(x = 1),AND[(a = 1),(b = 2)],AND[(a = 2),(c = 3)]]", rewritten.toSql());
     }
 
     @Test
@@ -199,8 +188,7 @@ class OrToInTest extends ExpressionRewriteTestHelper {
         String expr = "a=1 or a=1 or a=1";
         Expression expression = PARSER.parseExpression(expr);
         Expression rewritten = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(expression, context);
-        Assertions.assertEquals("(a = 1)",
-                rewritten.toSql());
+        Assertions.assertEquals("(a = 1)", rewritten.toSql());
     }
 
     //replace mode

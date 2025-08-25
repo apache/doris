@@ -72,11 +72,6 @@ public class DropDbInfo implements Writable, GsonPostProcessable {
         return  recycleTime;
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        dbName = Text.readString(in);
-    }
-
     public static DropDbInfo read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, DropDbInfo.class);

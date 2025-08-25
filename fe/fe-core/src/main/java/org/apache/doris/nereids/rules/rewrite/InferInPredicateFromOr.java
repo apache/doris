@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -46,9 +47,15 @@ public class InferInPredicateFromOr implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalFilter().then(this::rewriteFilterExpression).toRule(RuleType.EXTRACT_IN_PREDICATE_FROM_OR),
-                logicalProject().then(this::rewriteProject).toRule(RuleType.EXTRACT_IN_PREDICATE_FROM_OR),
-                logicalJoin().whenNot(LogicalJoin::isMarkJoin)
+                logicalFilter()
+                        .when(InferInPredicateFromOr::containsOr)
+                        .then(this::rewriteFilterExpression).toRule(RuleType.EXTRACT_IN_PREDICATE_FROM_OR),
+                logicalProject()
+                        .when(InferInPredicateFromOr::containsOr)
+                        .then(this::rewriteProject).toRule(RuleType.EXTRACT_IN_PREDICATE_FROM_OR),
+                logicalJoin()
+                        .whenNot(LogicalJoin::isMarkJoin)
+                        .when(InferInPredicateFromOr::containsOr)
                         .then(this::rewriteJoin).toRule(RuleType.EXTRACT_IN_PREDICATE_FROM_OR)
         );
     }
@@ -87,5 +94,14 @@ public class InferInPredicateFromOr implements RewriteRuleFactory {
                     join.getJoinReorderContext());
         }
         return join;
+    }
+
+    private static boolean containsOr(Plan plan) {
+        for (Expression expression : plan.getExpressions()) {
+            if (expression.containsType(Or.class)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

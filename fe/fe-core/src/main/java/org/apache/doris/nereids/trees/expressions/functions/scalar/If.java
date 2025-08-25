@@ -43,7 +43,6 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -88,8 +87,6 @@ public class If extends ScalarFunction
                     .args(BooleanType.INSTANCE, DateTimeType.INSTANCE, DateTimeType.INSTANCE),
             FunctionSignature.ret(DateType.INSTANCE).args(BooleanType.INSTANCE, DateType.INSTANCE,
                     DateType.INSTANCE),
-            FunctionSignature.ret(TimeType.INSTANCE).args(BooleanType.INSTANCE, TimeType.INSTANCE,
-                    TimeType.INSTANCE),
             FunctionSignature.ret(TimeV2Type.INSTANCE).args(BooleanType.INSTANCE, TimeV2Type.INSTANCE,
                     TimeV2Type.INSTANCE),
             FunctionSignature.ret(DecimalV3Type.WILDCARD)
@@ -124,6 +121,11 @@ public class If extends ScalarFunction
                 arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private If(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * custom compute nullable.
      */
@@ -143,7 +145,7 @@ public class If extends ScalarFunction
     @Override
     public If withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new If(children.get(0), children.get(1), children.get(2));
+        return new If(getFunctionParams(children));
     }
 
     @Override

@@ -31,13 +31,14 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 Status KafkaDataConsumerGroup::assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(ctx->kafka_info);
     DCHECK(_consumers.size() >= 1);
 
     // divide partitions
-    int consumer_size = _consumers.size();
+    int consumer_size = doris::cast_set<int>(_consumers.size());
     std::vector<std::map<int32_t, int64_t>> divide_parts(consumer_size);
     int i = 0;
     for (auto& kv : ctx->kafka_info->begin_offset) {
@@ -47,10 +48,10 @@ Status KafkaDataConsumerGroup::assign_topic_partitions(std::shared_ptr<StreamLoa
     }
 
     // assign partitions to consumers equally
-    for (int i = 0; i < consumer_size; ++i) {
+    for (int j = 0; j < consumer_size; ++j) {
         RETURN_IF_ERROR(
-                std::static_pointer_cast<KafkaDataConsumer>(_consumers[i])
-                        ->assign_topic_partitions(divide_parts[i], ctx->kafka_info->topic, ctx));
+                std::static_pointer_cast<KafkaDataConsumer>(_consumers[j])
+                        ->assign_topic_partitions(divide_parts[j], ctx->kafka_info->topic, ctx));
     }
 
     return Status::OK();
@@ -156,7 +157,7 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
         }
 
         RdKafka::Message* msg;
-        bool res = _queue.blocking_get(&msg);
+        bool res = _queue.controlled_blocking_get(&msg, config::blocking_queue_cv_wait_timeout_ms);
         if (res) {
             // conf has to be deleted finally
             Defer delete_msg {[msg]() { delete msg; }};
@@ -207,5 +208,6 @@ void KafkaDataConsumerGroup::actual_consume(std::shared_ptr<DataConsumer> consum
             queue, max_running_time_ms);
     cb(st);
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

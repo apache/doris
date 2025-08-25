@@ -40,7 +40,7 @@ void PipelineTracerContext::record(ScheduleRecord record) {
         return;
     }
 
-    auto map_ptr = std::atomic_load_explicit(&_data, std::memory_order_relaxed);
+    auto map_ptr = _data.load();
     auto it = map_ptr->find({record.query_id});
     if (it != map_ptr->end()) {
         it->second->enqueue(record);
@@ -55,7 +55,7 @@ void PipelineTracerContext::record(ScheduleRecord record) {
 }
 
 void PipelineTracerContext::_update(std::function<void(QueryTracesMap&)>&& handler) {
-    auto map_ptr = std::atomic_load_explicit(&_data, std::memory_order_relaxed);
+    auto map_ptr = _data.load();
     while (true) {
         auto new_map = std::make_shared<QueryTracesMap>(*map_ptr);
         handler(*new_map);
@@ -112,7 +112,7 @@ Status PipelineTracerContext::change_record_params(
 }
 
 void PipelineTracerContext::_dump_query(TUniqueId query_id) {
-    auto map_ptr = std::atomic_load_explicit(&_data, std::memory_order_relaxed);
+    auto map_ptr = _data.load();
     auto path = _log_dir / fmt::format("query{}", to_string(query_id));
     int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
                     S_ISGID | S_ISUID | S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IWOTH | S_IROTH);
@@ -138,7 +138,7 @@ void PipelineTracerContext::_dump_query(TUniqueId query_id) {
 
     _last_dump_time = MonotonicSeconds();
 
-    _update([&](QueryTracesMap& new_map) { _data->erase(QueryID {query_id}); });
+    _update([&](QueryTracesMap& new_map) { _data.load()->erase(QueryID {query_id}); });
 
     {
         std::unique_lock<std::mutex> l(_tg_lock);
@@ -148,7 +148,7 @@ void PipelineTracerContext::_dump_query(TUniqueId query_id) {
 
 void PipelineTracerContext::_dump_timeslice() {
     auto new_map = std::make_shared<QueryTracesMap>();
-    new_map.swap(_data);
+    _data.exchange(new_map);
     //TODO: if long time, per timeslice per file
     auto path = _log_dir /
                 fmt::format("until{}", std::chrono::steady_clock::now().time_since_epoch().count());

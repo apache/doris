@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
@@ -83,9 +84,9 @@ public class IndexDef {
         }
     }
 
-    public IndexDef(String indexName, PartitionNames partitionNames, boolean isBuildDeferred) {
+    public IndexDef(String indexName, PartitionNames partitionNames, IndexType indexType, boolean isBuildDeferred) {
         this.indexName = indexName;
-        this.indexType = IndexType.INVERTED;
+        this.indexType = indexType;
         this.partitionNames = partitionNames;
         this.isBuildDeferred = isBuildDeferred;
     }
@@ -160,7 +161,7 @@ public class IndexDef {
             sb.append(")");
         }
         if (comment != null) {
-            sb.append(" COMMENT '" + comment + "'");
+            sb.append(" COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
         }
         return sb.toString();
     }
@@ -220,6 +221,9 @@ public class IndexDef {
     public boolean isSupportIdxType(Type colType) {
         if (colType.isArrayType()) {
             Type itemType = ((ArrayType) colType).getItemType();
+            if (itemType.isArrayType()) {
+                return false;
+            }
             return isSupportIdxType(itemType);
         }
         PrimitiveType primitiveType = colType.getPrimitiveType();
@@ -305,5 +309,12 @@ public class IndexDef {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid value for '" + key + "': " + valueStr, e);
         }
+    }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+            && properties != null
+            && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

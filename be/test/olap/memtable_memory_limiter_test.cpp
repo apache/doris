@@ -152,8 +152,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
     auto columns = block.mutate_columns();
     {
@@ -170,7 +169,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         ASSERT_TRUE(res.ok());
     }
     static_cast<void>(mem_limiter->init(100));
-    mem_limiter->_handle_memtable_flush(nullptr);
+    mem_limiter->handle_memtable_flush(nullptr);
     CHECK_EQ(0, mem_limiter->mem_usage());
 
     res = delta_writer->close();

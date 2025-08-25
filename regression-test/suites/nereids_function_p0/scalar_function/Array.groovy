@@ -1167,41 +1167,41 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_last_DecimalV3_notnull "select array_last(x -> x > 1, kadcml) from fn_test_not_nullable"
 
     // test array_first_index
-    sql "create view v as select array_first_index(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_first_index_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_first_index(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_first_index_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_count
-    sql "create view v as select array_count(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_count_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_count(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_count_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_first
-    sql "create view v as select array_first(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_first_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_first(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_first_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_sortby
-    sql "create view v as select array_sortby(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_sortby_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_sortby(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_sortby_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_filter
-    sql "create view v as select array_filter(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_filter_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_filter(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_filter_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_exists
-    sql "create view v as select array_exists(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_exists_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_exists(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_exists_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_last_index
-    sql "create view v as select array_last_index(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_last_index_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_last_index(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_last_index_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_last
-    sql "create view v as select array_last(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_last_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_last(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_last_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     // test array_map
-    sql "create view v as select array_map(x -> x > 1, kadbl) from fn_test;"
-    order_qt_sql_view_array_map_Double "select * from v;"
-    sql "drop view v"
+    sql "create view v_scalar_fn_array as select array_map(x -> x > 1, kadbl) from fn_test;"
+    order_qt_sql_view_array_map_Double "select * from v_scalar_fn_array;"
+    sql "drop view v_scalar_fn_array"
     test {
         sql "select tokenize('arg1','xxx = yyy,zzz');"
         check{result, exception, startTime, endTime ->
@@ -1270,6 +1270,7 @@ suite("nereids_scalar_fn_Array") {
     // array_range with datetime argument, sequence with int and datetime argument
     qt_array_range_datetime1 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 day), interval kint day) from fn_test order by kdtmv2s1;"""
     qt_array_range_datetime2 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 week), interval kint week) from fn_test order by kdtmv2s1;"""
+    qt_array_range_datetime3 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 quarter), interval kint quarter) from fn_test order by kdtmv2s1;"""
     qt_sequence_int_one_para """select sequence(kint) from fn_test order by kint;"""
     qt_sequence_int_two_para """select sequence(kint, kint+2) from fn_test order by kint;"""
     qt_sequence_int_three_para """select sequence(kint-1, kint+2, 1) from fn_test order by kint;"""

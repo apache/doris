@@ -179,7 +179,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size
     const auto* v = (const Slice*)values;
     for (int i = 0; i < count; ++i) {
         Slice new_value;
-        RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, &_arena));
+        RETURN_IF_CATCH_EXCEPTION(_type_info->deep_copy(&new_value, v, _arena));
         _values.push_back(new_value);
         ++v;
     }

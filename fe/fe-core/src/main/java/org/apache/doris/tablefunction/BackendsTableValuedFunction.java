@@ -19,9 +19,11 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -87,10 +89,10 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
         if (params.size() != 0) {
             throw new AnalysisException("backends table-valued-function does not support any params");
         }
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN_OR_NODE)) {
-            String message = ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg(
-                    PrivPredicate.ADMIN_OR_NODE.getPrivs().toString());
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT)) {
+            String message = ErrorCode.ERR_DB_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.SELECT.getPrivs().toString(), InfoSchemaDb.DATABASE_NAME);
             throw new AnalysisException(message);
         }
     }
@@ -101,7 +103,7 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.BACKENDS);
         TBackendsMetadataParams backendsMetadataParams = new TBackendsMetadataParams();

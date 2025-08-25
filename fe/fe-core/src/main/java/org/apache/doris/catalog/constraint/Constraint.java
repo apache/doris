@@ -17,17 +17,9 @@
 
 package org.apache.doris.catalog.constraint;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
-public abstract class Constraint implements Writable {
+public abstract class Constraint {
     public enum ConstraintType {
         FOREIGN_KEY("FOREIGN KEY"),
         PRIMARY_KEY("PRIMARY KEY"),
@@ -61,18 +53,5 @@ public abstract class Constraint implements Writable {
 
     public ConstraintType getType() {
         return type;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    /**
-     * Read Constraint.
-     **/
-    public static Constraint read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Constraint.class);
     }
 }

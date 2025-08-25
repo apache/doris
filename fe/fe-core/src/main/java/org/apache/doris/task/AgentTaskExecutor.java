@@ -21,21 +21,34 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 
 public class AgentTaskExecutor {
 
-    private static final ExecutorService EXECUTOR = ThreadPoolManager.newDaemonCacheThreadPool(
+    private static final ExecutorService EXECUTOR = ThreadPoolManager.newDaemonCacheThreadPoolThrowException(
             Config.max_agent_task_threads_num, "agent-task-pool", true);
 
     public AgentTaskExecutor() {
-
     }
 
     public static void submit(AgentBatchTask task) {
         if (task == null) {
             return;
         }
-        EXECUTOR.submit(task);
+        try {
+            EXECUTOR.submit(task);
+        } catch (RejectedExecutionException e) {
+            String msg = "Task is rejected, because the agent-task-pool is full, "
+                    + "consider increasing the max_agent_task_threads_num config";
+            for (AgentTask t : task.getAllTasks()) {
+                // Skip the task if it is a resend type and already exists in the queue, because it will be
+                // re-submit to the executor later.
+                if (t.isNeedResendType() && AgentTaskQueue.contains(t)) {
+                    continue;
+                }
+                t.failedWithMsg(msg);
+            }
+        }
     }
 
 }

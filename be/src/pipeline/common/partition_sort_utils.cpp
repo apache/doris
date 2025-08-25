@@ -38,7 +38,6 @@ Status PartitionBlocks::append_block_by_selector(const vectorized::Block* input_
         }
         _blocks.back()->set_columns(std::move(mutable_columns));
         _init_rows = _init_rows - selector_rows;
-        _total_rows = _total_rows + selector_rows;
         _current_input_rows = _current_input_rows + selector_rows;
         _selector.clear();
         // maybe better could change by user PARTITION_SORT_ROWS_THRESHOLD
@@ -48,7 +47,6 @@ Status PartitionBlocks::append_block_by_selector(const vectorized::Block* input_
             create_or_reset_sorter_state();
             RETURN_IF_ERROR(do_partition_topn_sort());
             _current_input_rows = 0; // reset record
-            _do_partition_topn_count++;
         }
     }
     return Status::OK();
@@ -77,9 +75,8 @@ Status PartitionBlocks::do_partition_topn_sort() {
         RETURN_IF_ERROR(_partition_topn_sorter->append_block(block.get()));
     }
     _blocks.clear();
-    RETURN_IF_ERROR(_partition_topn_sorter->prepare_for_read());
+    RETURN_IF_ERROR(_partition_topn_sorter->prepare_for_read(false));
     bool current_eos = false;
-    size_t current_output_rows = 0;
     while (!current_eos) {
         // output_block maybe need better way
         auto output_block = vectorized::Block::create_unique(
@@ -88,12 +85,10 @@ Status PartitionBlocks::do_partition_topn_sort() {
                                                          output_block.get(), &current_eos));
         auto rows = output_block->rows();
         if (rows > 0) {
-            current_output_rows += rows;
             _blocks.emplace_back(std::move(output_block));
         }
     }
 
-    _topn_filter_rows += (_current_input_rows - current_output_rows);
     return Status::OK();
 }
 

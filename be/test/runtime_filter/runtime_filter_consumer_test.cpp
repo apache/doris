@@ -186,7 +186,7 @@ TEST_F(RuntimeFilterConsumerTest, bitmap_filter) {
                                             .set_types(
                                                     TTypeNodeBuilder()
                                                             .set_type(TTypeNodeType::SCALAR)
-                                                            .set_scalar_type(TPrimitiveType::OBJECT)
+                                                            .set_scalar_type(TPrimitiveType::BITMAP)
                                                             .build())
                                             .build(),
                                     0)

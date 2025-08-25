@@ -45,8 +45,8 @@ public class ElementAt extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(new FollowToAnyDataType(0))
                     .args(ArrayType.of(new AnyDataType(0)), BigIntType.INSTANCE),
-            FunctionSignature.ret(new VariantType())
-                    .args(new VariantType(), VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VariantType.INSTANCE)
+                    .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(new FollowToAnyDataType(1))
                     .args(MapType.of(new AnyDataType(0), new AnyDataType(1)), new FollowToAnyDataType(0))
     );
@@ -58,13 +58,18 @@ public class ElementAt extends ScalarFunction
         super("element_at", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected ElementAt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ElementAt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ElementAt(children.get(0), children.get(1));
+        return new ElementAt(getFunctionParams(children));
     }
 
     @Override

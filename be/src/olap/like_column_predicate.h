@@ -99,8 +99,9 @@ private:
             auto& null_map_data = nullable_col->get_null_map_column().get_data();
             auto& nested_col = nullable_col->get_nested_column();
             if (nested_col.is_column_dictionary()) {
-                auto* nested_col_ptr = vectorized::check_and_get_column<
-                        vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
+                auto* nested_col_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnDictI32>(nested_col);
+                const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
                 auto& data_array = nested_col_ptr->get_data();
                 for (uint16_t i = 0; i < size; i++) {
                     if (null_map_data[i]) {
@@ -112,18 +113,10 @@ private:
                         continue;
                     }
 
-                    StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
+                    unsigned char flag = dict_res[data_array[i]];
                     if constexpr (is_and) {
-                        unsigned char flag = 0;
-                        static_cast<void>((_state->scalar_function)(
-                                const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag));
                         flags[i] &= _opposite ^ flag;
                     } else {
-                        unsigned char flag = 0;
-                        static_cast<void>((_state->scalar_function)(
-                                const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag));
                         flags[i] = _opposite ^ flag;
                     }
                 }
@@ -133,22 +126,15 @@ private:
             }
         } else {
             if (column.is_column_dictionary()) {
-                auto* nested_col_ptr = vectorized::check_and_get_column<
-                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                auto* nested_col_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 auto& data_array = nested_col_ptr->get_data();
+                const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
                 for (uint16_t i = 0; i < size; i++) {
-                    StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
+                    unsigned char flag = dict_res[data_array[i]];
                     if constexpr (is_and) {
-                        unsigned char flag = 0;
-                        static_cast<void>((_state->scalar_function)(
-                                const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag));
                         flags[i] &= _opposite ^ flag;
                     } else {
-                        unsigned char flag = 0;
-                        static_cast<void>((_state->scalar_function)(
-                                const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag));
                         flags[i] = _opposite ^ flag;
                     }
                 }
@@ -158,6 +144,46 @@ private:
             }
         }
     }
+    std::vector<bool> __attribute__((flatten))
+    _find_code_from_dictionary_column(const vectorized::ColumnDictI32& column) const {
+        std::vector<bool> res;
+        if (_segment_id_to_cached_res_flags.if_contains(
+                    column.get_rowset_segment_id(),
+                    [&res](const auto& pair) { res = pair.second; })) {
+            return res;
+        }
+
+        std::vector<bool> tmp_res(column.dict_size(), false);
+        for (int i = 0; i < column.dict_size(); i++) {
+            StringRef cell_value = column.get_shrink_value(i);
+            unsigned char flag = 0;
+            THROW_IF_ERROR((_state->scalar_function)(
+                    const_cast<vectorized::LikeSearchState*>(&_like_state),
+                    StringRef(cell_value.data, cell_value.size), pattern, &flag));
+            tmp_res[i] = flag;
+        }
+        // Sometimes the dict is not initialized when run comparison predicate here, for example,
+        // the full page is null, then the reader will skip read, so that the dictionary is not
+        // inited. The cached code is wrong during this case, because the following page maybe not
+        // null, and the dict should have items in the future.
+        //
+        // Cached code may have problems, so that add a config here, if not opened, then
+        // we will return the code and not cache it.
+        if (!column.is_dict_empty() && config::enable_low_cardinality_cache_code) {
+            _segment_id_to_cached_res_flags.emplace(
+                    std::pair {column.get_rowset_segment_id(), tmp_res});
+        }
+
+        return tmp_res;
+    }
+
+    mutable phmap::parallel_flat_hash_map<
+            std::pair<RowsetId, uint32_t>, std::vector<bool>,
+            phmap::priv::hash_default_hash<std::pair<RowsetId, uint32_t>>,
+            phmap::priv::hash_default_eq<std::pair<RowsetId, uint32_t>>,
+            std::allocator<std::pair<const std::pair<RowsetId, uint32_t>, int32_t>>, 4,
+            std::shared_mutex>
+            _segment_id_to_cached_res_flags;
 
     std::string _debug_string() const override {
         std::string info = "LikeColumnPredicate";

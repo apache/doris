@@ -51,9 +51,13 @@ public:
 
 #ifdef BE_TEST
     ExchangeSinkLocalState(RuntimeState* state) : Base(nullptr, state) {
-        _profile = state->obj_pool()->add(new RuntimeProfile("mock"));
+        _operator_profile = state->obj_pool()->add(new RuntimeProfile("OperatorProfile"));
+        _custom_profile = state->obj_pool()->add(new RuntimeProfile("CustomCounters"));
+        _common_profile = state->obj_pool()->add(new RuntimeProfile("CommonCounters"));
+        _operator_profile->add_child(_custom_profile, true);
+        _operator_profile->add_child(_common_profile, true);
         _memory_used_counter =
-                _profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+                _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     }
 #endif
 
@@ -189,8 +193,10 @@ public:
                           const std::vector<TUniqueId>& fragment_instance_ids);
     Status init(const TDataSink& tsink) override;
 
-    RuntimeState* state() { return _state; }
-
+    // The state is from pipeline fragment context, it will be saved in ExchangeSinkOperator
+    // and it will be passed to exchange sink buffer. So that exchange sink buffer should not
+    // be used after pipeline fragment ctx. All operations in Exchange Sink Buffer should hold
+    // TaskExecutionContext.
     Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -217,7 +223,8 @@ public:
     // Therefore, a shared sink buffer is used here to limit the number of concurrent RPCs.
     // (Note: This does not reduce the total number of RPCs.)
     // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
-    std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(InstanceLoId sender_ins_id);
+    std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(RuntimeState* state,
+                                                        InstanceLoId sender_ins_id);
     vectorized::VExprContextSPtrs& tablet_sink_expr_ctxs() { return _tablet_sink_expr_ctxs; }
 
 private:
@@ -232,7 +239,7 @@ private:
     // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,
     // or each ExchangeSinkLocalState can have its own sink buffer.
     std::shared_ptr<ExchangeSinkBuffer> _create_buffer(
-            const std::vector<InstanceLoId>& sender_ins_ids);
+            RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
     std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeState* _state = nullptr;
 

@@ -23,9 +23,9 @@
 #include <type_traits>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -58,34 +58,37 @@ inline MutableColumnPtr create_null_map(size_t input_rows_count, bool all_null =
     auto null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (all_null) {
-            null_map->insert(1);
+            null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         } else if (all_not_null) {
-            null_map->insert(0);
+            null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            null_map->insert(rand() % 2);
+            null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(rand() % 2));
         }
     }
     return null_map;
 }
 
-template <typename T>
+template <PrimitiveType T>
 inline MutableColumnPtr create_nested_column(size_t input_rows_count) {
     MutableColumnPtr column;
-    if constexpr (std::is_integral_v<T>) {
-        column = ColumnVector<T>::create();
-    } else if constexpr (std::is_same_v<T, String>) {
+    if constexpr (is_int_or_bool(T)) {
+        column = PrimitiveTypeTraits<T>::ColumnType::create();
+    } else if constexpr (is_string_type(T)) {
         column = ColumnString::create();
-    } else if constexpr (std::is_same_v<T, Decimal64>) {
+    } else if constexpr (T == TYPE_DECIMAL64) {
         column = ColumnDecimal64::create(0, 6);
     }
 
     for (size_t i = 0; i < input_rows_count; ++i) {
-        if constexpr (std::is_integral_v<T>) {
-            column->insert(rand() % std::numeric_limits<T>::max());
-        } else if constexpr (std::is_same_v<T, String>) {
-            column->insert(Field(generate_random_string(rand() % 512)));
-        } else if constexpr (std::is_same_v<T, Decimal64>) {
-            column->insert(Int64(rand() % std::numeric_limits<Int64>::max()));
+        if constexpr (is_int_or_bool(T)) {
+            column->insert(Field::create_field<T>(
+                    rand() %
+                    std::numeric_limits<typename PrimitiveTypeTraits<T>::ColumnItemType>::max()));
+        } else if constexpr (is_string_type(T)) {
+            column->insert(Field::create_field<T>(generate_random_string(rand() % 512)));
+        } else if constexpr (T == TYPE_DECIMAL64) {
+            column->insert(Field::create_field<T>(
+                    DecimalField<Decimal64>(Int64(rand() % std::numeric_limits<Int64>::max()), 6)));
         } else {
             throw std::runtime_error("Unsupported type");
         }
@@ -94,7 +97,7 @@ inline MutableColumnPtr create_nested_column(size_t input_rows_count) {
     return column;
 }
 
-template <typename T>
+template <PrimitiveType T>
 inline ColumnNullable::MutablePtr create_column_nullable(size_t input_rows_count,
                                                          bool all_null = false,
                                                          bool all_not_null = false) {

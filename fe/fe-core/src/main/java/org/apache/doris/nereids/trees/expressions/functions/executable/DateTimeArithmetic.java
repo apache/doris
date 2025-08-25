@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -104,16 +105,6 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function quarters-add.
      */
-    @ExecFunction(name = "quarters_add")
-    public static Expression quartersAdd(DateLiteral date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
-    }
-
-    @ExecFunction(name = "quarters_add")
-    public static Expression quartersAdd(DateTimeLiteral date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
-    }
-
     @ExecFunction(name = "quarters_add")
     public static Expression quartersAdd(DateV2Literal date, IntegerLiteral quarter) {
         return date.plusMonths(3 * quarter.getValue());
@@ -321,16 +312,6 @@ public class DateTimeArithmetic {
      * datetime arithmetic function quarters-sub.
      */
     @ExecFunction(name = "quarters_sub")
-    public static Expression quartersSub(DateLiteral date, IntegerLiteral quarter) {
-        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
-    }
-
-    @ExecFunction(name = "quarters_sub")
-    public static Expression quartersSub(DateTimeLiteral date, IntegerLiteral quarter) {
-        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
-    }
-
-    @ExecFunction(name = "quarters_sub")
     public static Expression quartersSub(DateV2Literal date, IntegerLiteral quarter) {
         return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
     }
@@ -488,5 +469,14 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateV2Literal date) {
         return new IntegerLiteral((int) date.getDay());
+    }
+
+    /**
+     * datetime arithmetic function time.
+     */
+    @ExecFunction(name = "time")
+    public static Expression time(DateTimeV2Literal date) {
+        return new TimeV2Literal((int) date.getHour(), (int) date.getMinute(), (int) date.getSecond(),
+                (int) date.getMicroSecond(), (int) date.getScale(), false);
     }
 }

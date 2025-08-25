@@ -106,7 +106,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
-            } else if (status_lower.contains("e-2000")) {
+            } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")) {
                 // ignore this tablet compaction.
             } else if (ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }) {
                 // ignore this tablet compaction if the error is in the ignored_errors list
@@ -132,7 +132,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             // running is true means compaction is still running
             running = compactionStatus.run_status
 
-            if (!isCloudMode() && !is_time_series_compaction) {
+            if (!is_time_series_compaction) {
                 (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
                 assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
                 def tabletStatus = parseJson(stdout.trim())
@@ -144,9 +144,8 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                     return false
                 }
             } else {
-                // 1. cloud mode doesn't show compaction success time in tablet status for the time being,
-                // 2. time series compaction sometimes doesn't update compaction success time
-                // so we solely check run_status for these two cases
+                // time series compaction sometimes doesn't update compaction success time
+                // so we solely check run_status for it
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}")
                     return false

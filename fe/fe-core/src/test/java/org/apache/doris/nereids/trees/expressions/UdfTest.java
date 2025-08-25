@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.GlobalFunctionMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
@@ -49,6 +51,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.util.List;
 
 public class UdfTest extends TestWithFeService implements PlanPatternMatchSupported {
     @Override
@@ -75,8 +78,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().get(0).child(0).equals(expected))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0).equals(expected))
                 );
 
         connectContext.setDatabase("test_1");
@@ -84,8 +87,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().get(0).child(0).equals(expected1))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0).equals(expected1))
                 );
 
         sql = "select test.f(3)";
@@ -93,8 +96,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().get(0).child(0).equals(expected2))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0).equals(expected2))
                 );
     }
 
@@ -133,9 +136,9 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().size() == 1
-                                        && project.getProjects().get(0).child(0).equals(expected))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().size() == 1
+                                        && oneRow.getProjects().get(0).child(0).equals(expected))
                 );
     }
 
@@ -176,9 +179,9 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
-                        logicalProject()
-                                .when(project -> project.getProjects().size() == 1
-                                        && project.getProjects().get(0).child(0).equals(expected))
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().size() == 1
+                                        && oneRow.getProjects().get(0).child(0).equals(expected))
                 );
     }
 
@@ -192,8 +195,13 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         Env.getCurrentEnv().getGlobalFunctionMgr().write(new DataOutputStream(outputStream));
         byte[] buffer = outputStream.toByteArray();
         ByteArrayInputStream inputStream = new ByteArrayInputStream(buffer);
-        Env.getCurrentEnv().getGlobalFunctionMgr().readFields(new DataInputStream(inputStream));
+        GlobalFunctionMgr newMgr = GlobalFunctionMgr.read(new DataInputStream(inputStream));
 
+        List<Function> functions = newMgr.getFunctions();
+        Assertions.assertEquals(1, functions.stream()
+                .map(f -> f.getFunctionName().getFunction())
+                .filter(name -> name.equals("f8"))
+                .count());
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
                 .findUdfBuilder(connectContext.getDatabase(), "f8").size());
     }

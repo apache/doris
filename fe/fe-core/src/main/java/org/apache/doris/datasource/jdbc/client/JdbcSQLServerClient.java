@@ -32,7 +32,14 @@ public class JdbcSQLServerClient extends JdbcClient {
         String originSqlserverType = fieldSchema.getDataTypeName().orElse("unknown");
         // For sqlserver IDENTITY type, such as 'INT IDENTITY'
         // originSqlserverType is "int identity", so we only get "int".
+        // For types with parameters like 'decimal(18,0) IDENTITY(1,1)', we need to extract the base type
         String sqlserverType = originSqlserverType.split(" ")[0];
+
+        // Handle types with parentheses like decimal(18,0), varchar(50), etc.
+        if (sqlserverType.contains("(")) {
+            sqlserverType = sqlserverType.substring(0, sqlserverType.indexOf("("));
+        }
+
         switch (sqlserverType) {
             case "bit":
                 return Type.BOOLEAN;
@@ -55,7 +62,7 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "numeric": {
                 int precision = fieldSchema.getColumnSize().orElse(0);
                 int scale = fieldSchema.getDecimalDigits().orElse(0);
-                return ScalarType.createDecimalV3Type(precision, scale);
+                return createDecimalOrStringType(precision, scale);
             }
             case "date":
                 return ScalarType.createDateV2Type();

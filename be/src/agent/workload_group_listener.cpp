@@ -27,16 +27,17 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topic_info_list) {
     std::set<uint64_t> current_wg_ids;
     bool is_set_workload_group_info = false;
-    int list_size = topic_info_list.size();
+    auto list_size = topic_info_list.size();
     for (const TopicInfo& topic_info : topic_info_list) {
         if (!topic_info.__isset.workload_group_info) {
             continue;
         }
-        VLOG_DEBUG << "Received publish workload group info request: "
-                   << apache::thrift::ThriftDebugString(topic_info).c_str();
+
         is_set_workload_group_info = true;
 
         // 1 parse topic info to group info
@@ -59,23 +60,20 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         auto wg =
                 _exec_env->workload_group_mgr()->get_or_create_workload_group(workload_group_info);
 
-        // 3 set cpu soft hard limit switch
-        _exec_env->workload_group_mgr()->_enable_cpu_hard_limit.store(
-                workload_group_info.enable_cpu_hard_limit);
+        // 3 create and update task scheduler
+        static_cast<void>(wg->upsert_task_scheduler(&workload_group_info));
 
-        // 4 create and update task scheduler
-        wg->upsert_task_scheduler(&workload_group_info);
-
-        // 5 upsert io throttle
+        // 4 upsert io throttle
         wg->upsert_scan_io_throttle(&workload_group_info);
 
-        VLOG_DEBUG << "[topic_publish_wg]update workload group finish, wg info="
-                   << wg->debug_string() << ", enable_cpu_hard_limit="
-                   << (_exec_env->workload_group_mgr()->enable_cpu_hard_limit() ? "true" : "false")
-                   << ", cgroup cpu_shares=" << workload_group_info.cgroup_cpu_shares
-                   << ", cgroup cpu_hard_limit=" << workload_group_info.cgroup_cpu_hard_limit
-                   << ", cgroup home path=" << config::doris_cgroup_cpu_path
-                   << ", list size=" << list_size << ", thread info=" << wg->thread_debug_info();
+        LOG_EVERY_T(INFO, 180) << "[topic_publish_wg]update workload group finish, wg info="
+                               << wg->debug_string()
+                               << ", cgroup cpu_shares=" << workload_group_info.cgroup_cpu_shares
+                               << ", cgroup cpu_hard_limit="
+                               << workload_group_info.cgroup_cpu_hard_limit
+                               << ", cgroup home path=" << config::doris_cgroup_cpu_path
+                               << ", list size=" << list_size
+                               << ", thread info=" << wg->thread_debug_info();
     }
 
     // NOTE(wb) when is_set_workload_group_info=false, it means FE send a empty workload group list
@@ -88,4 +86,6 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
     }
     _exec_env->workload_group_mgr()->delete_workload_group_by_ids(current_wg_ids);
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris

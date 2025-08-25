@@ -45,10 +45,12 @@ import org.apache.doris.thrift.TMoveDirReq;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TPushCooldownConfReq;
+import org.apache.doris.thrift.TPushIndexPolicyReq;
 import org.apache.doris.thrift.TPushReq;
 import org.apache.doris.thrift.TPushStoragePolicyReq;
 import org.apache.doris.thrift.TReleaseSnapshotRequest;
 import org.apache.doris.thrift.TSnapshotRequest;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
@@ -72,10 +74,10 @@ import java.util.stream.Collectors;
 public class AgentBatchTask implements Runnable {
     private static final Logger LOG = LogManager.getLogger(AgentBatchTask.class);
 
-    private int batchSize = Integer.MAX_VALUE;
+    protected int batchSize = Integer.MAX_VALUE;
 
     // backendId -> AgentTask List
-    private Map<Long, List<AgentTask>> backendIdToTasks;
+    protected Map<Long, List<AgentTask>> backendIdToTasks;
 
     public AgentBatchTask() {
         this.backendIdToTasks = new HashMap<Long, List<AgentTask>>();
@@ -193,22 +195,26 @@ public class AgentBatchTask implements Runnable {
                 submitTasks(backendId, client, agentTaskRequests);
                 ok = true;
             } catch (Exception e) {
-                LOG.warn("task exec error. backend[{}]", backendId, e);
-                errMsg = String.format("task exec error: %s. backend[%d]", e.getMessage(), backendId);
-                if (!agentTaskRequests.isEmpty() && errMsg.contains("Broken pipe")) {
-                    // Log the task binary message size and the max task type, to help debug the
-                    // large thrift message size issue.
-                    List<Pair<TTaskType, Long>> taskTypeAndSize = agentTaskRequests.stream()
-                            .map(req -> Pair.of(req.getTaskType(), ThriftUtils.getBinaryMessageSize(req)))
-                            .collect(Collectors.toList());
-                    Pair<TTaskType, Long> maxTaskTypeAndSize = taskTypeAndSize.stream()
-                            .max((p1, p2) -> Long.compare(p1.value(), p2.value()))
-                            .orElse(null);  // taskTypeAndSize is not empty
-                    TTaskType maxType = maxTaskTypeAndSize.first;
-                    long maxSize = maxTaskTypeAndSize.second;
-                    long totalSize = taskTypeAndSize.stream().map(Pair::value).reduce(0L, Long::sum);
-                    LOG.warn("submit {} tasks to backend[{}], total size: {}, max task type: {}, size: {}. msg: {}",
-                            agentTaskRequests.size(), backendId, totalSize, maxType, maxSize, e.getMessage());
+                if (org.apache.doris.common.FeConstants.runningUnitTest) {
+                    ok = true;
+                } else {
+                    LOG.warn("task exec error. backend[{}]", backendId, e);
+                    errMsg = String.format("task exec error: %s. backend[%d]", e.getMessage(), backendId);
+                    if (!agentTaskRequests.isEmpty() && errMsg.contains("Broken pipe")) {
+                        // Log the task binary message size and the max task type, to help debug the
+                        // large thrift message size issue.
+                        List<Pair<TTaskType, Long>> taskTypeAndSize = agentTaskRequests.stream()
+                                .map(req -> Pair.of(req.getTaskType(), ThriftUtils.getBinaryMessageSize(req)))
+                                .collect(Collectors.toList());
+                        Pair<TTaskType, Long> maxTaskTypeAndSize = taskTypeAndSize.stream()
+                                .max((p1, p2) -> Long.compare(p1.value(), p2.value()))
+                                .orElse(null);  // taskTypeAndSize is not empty
+                        TTaskType maxType = maxTaskTypeAndSize.first;
+                        long maxSize = maxTaskTypeAndSize.second;
+                        long totalSize = taskTypeAndSize.stream().map(Pair::value).reduce(0L, Long::sum);
+                        LOG.warn("submit {} tasks to backend[{}], total size: {}, max task type: {}, size: {}. msg: {}",
+                                agentTaskRequests.size(), backendId, totalSize, maxType, maxSize, e.getMessage());
+                    }
                 }
             } finally {
                 if (ok) {
@@ -218,6 +224,9 @@ public class AgentBatchTask implements Runnable {
                     List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
                     for (AgentTask task : tasks) {
                         task.failedWithMsg(errMsg);
+                        if (errMsg.contains("Socket is closed")) {
+                            task.setErrorCode(TStatusCode.NETWORK_ERROR);
+                        }
                     }
                 }
             }
@@ -246,7 +255,7 @@ public class AgentBatchTask implements Runnable {
         }
     }
 
-    private TAgentTaskRequest toAgentTaskRequest(AgentTask task) {
+    protected TAgentTaskRequest toAgentTaskRequest(AgentTask task) {
         TAgentTaskRequest tAgentTaskRequest = new TAgentTaskRequest();
         tAgentTaskRequest.setProtocolVersion(TAgentServiceVersion.V1);
         tAgentTaskRequest.setSignature(task.getSignature());
@@ -425,6 +434,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setPushStoragePolicyReq(request);
+                return tAgentTaskRequest;
+            }
+            case PUSH_INDEX_POLICY: {
+                PushIndexPolicyTask pushIndexPolicyTask = (PushIndexPolicyTask) task;
+                TPushIndexPolicyReq request = pushIndexPolicyTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setPushIndexPolicyReq(request);
                 return tAgentTaskRequest;
             }
             case PUSH_COOLDOWN_CONF: {

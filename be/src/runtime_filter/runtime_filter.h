@@ -106,7 +106,7 @@ protected:
 
     std::string _debug_string() const;
 
-    void _check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states);
+    void _check_wrapper_state(const std::vector<RuntimeFilterWrapper::State>& assumed_states);
 
     // _wrapper is a runtime filter function wrapper
     std::shared_ptr<RuntimeFilterWrapper> _wrapper;

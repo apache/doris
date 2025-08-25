@@ -17,32 +17,32 @@
 
 package org.apache.doris.datasource.jdbc.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
-import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -52,15 +52,13 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
 public class JdbcScanNode extends ExternalScanNode {
-    private static final Logger LOG = LogManager.getLogger(JdbcScanNode.class);
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
@@ -94,10 +92,6 @@ public class JdbcScanNode extends ExternalScanNode {
         tableName = tbl.getExternalTableName();
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-    }
 
     /**
      * Used for Nereids. Should NOT use this function in anywhere else.
@@ -127,7 +121,8 @@ public class JdbcScanNode extends ExternalScanNode {
 
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         List<String> errors = Lists.newArrayList();
-        List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors);
+        List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors,
+                tbl.getExternalFunctionRules());
 
         for (Expr individualConjunct : pushDownConjuncts) {
             String filter = conjunctExprToString(jdbcType, individualConjunct, tbl);
@@ -136,13 +131,15 @@ public class JdbcScanNode extends ExternalScanNode {
         }
     }
 
-    private List<Expr> collectConjunctsToPushDown(List<Expr> conjunctsList, List<String> errors) {
+    private List<Expr> collectConjunctsToPushDown(List<Expr> conjunctsList, List<String> errors,
+            ExternalFunctionRules functionRules) {
         List<Expr> pushDownConjuncts = new ArrayList<>();
         for (Expr p : conjunctsList) {
             if (shouldPushDownConjunct(jdbcType, p)) {
                 List<Expr> individualConjuncts = p.getConjuncts();
                 for (Expr individualConjunct : individualConjuncts) {
-                    Expr newp = JdbcFunctionPushDownRule.processFunctions(jdbcType, individualConjunct, errors);
+                    Expr newp = JdbcFunctionPushDownRule.processFunctions(jdbcType, individualConjunct, errors,
+                            functionRules);
                     if (!errors.isEmpty()) {
                         errors.clear();
                         continue;
@@ -244,14 +241,6 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        // Convert predicates to Jdbc columns and filters.
-        createJdbcColumns();
-        createJdbcFilters();
-        createScanRangeLocations();
-    }
-
-    @Override
     public void finalizeForNereids() throws UserException {
         createJdbcColumns();
         createJdbcFilters();
@@ -261,16 +250,6 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
-        numNodes = numNodes <= 0 ? 1 : numNodes;
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override
@@ -285,6 +264,7 @@ public class JdbcScanNode extends ExternalScanNode {
             msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
         }
         msg.jdbc_scan_node.setTableType(jdbcType);
+        msg.jdbc_scan_node.setIsTvf(isTableValuedFunction);
         super.toThrift(msg);
     }
 
@@ -297,13 +277,6 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     public int getNumInstances() {
         return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-    }
-
-    @Override
-    public StatsDelta genStatsDelta() throws AnalysisException {
-        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
-                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
-                tbl.getId(), -1L);
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
@@ -346,6 +319,25 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     public static String conjunctExprToString(TOdbcTableType tableType, Expr expr, TableIf tbl) {
+        if (expr == null) {
+            return "";
+        }
+        if (expr instanceof CompoundPredicate) {
+            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+            if (compoundPredicate.getOp() == Operator.NOT) {
+                String childString = conjunctExprToString(tableType, compoundPredicate.getChild(0), tbl);
+                return "(NOT " + childString + ")";
+            } else {
+                String leftString = conjunctExprToString(tableType, compoundPredicate.getChild(0), tbl);
+                String rightString = "";
+                if (compoundPredicate.getChildren().size() > 1) {
+                    rightString = conjunctExprToString(tableType, compoundPredicate.getChild(1), tbl);
+                }
+                String opString = compoundPredicate.getOp().toString();
+                return "(" + leftString + " " + opString + " " + rightString + ")";
+            }
+        }
+
         if (expr.contains(DateLiteral.class) && expr instanceof BinaryPredicate) {
             ArrayList<Expr> children = expr.getChildren();
             String filter = children.get(0).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
@@ -362,6 +354,34 @@ public class JdbcScanNode extends ExternalScanNode {
             return filter;
         }
 
+        if (expr.contains(DateLiteral.class) && expr instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) expr;
+            Expr leftChild = inPredicate.getChild(0);
+            String filter = leftChild.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+
+            if (inPredicate.isNotIn()) {
+                filter += " NOT";
+            }
+            filter += " IN (";
+
+            List<String> inItemStrings = new ArrayList<>();
+            for (int i = 1; i < inPredicate.getChildren().size(); i++) {
+                Expr inItem = inPredicate.getChild(i);
+                if (tableType.equals(TOdbcTableType.ORACLE)) {
+                    inItemStrings.add(handleOracleDateFormat(inItem, tbl));
+                } else if (tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO)) {
+                    inItemStrings.add(handleTrinoDateFormat(inItem, tbl));
+                } else {
+                    inItemStrings.add(inItem.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl));
+                }
+            }
+
+            filter += String.join(", ", inItemStrings);
+            filter += ")";
+
+            return filter;
+        }
+
         // Only for old planner
         if (expr.contains(BoolLiteral.class) && "1".equals(expr.getStringValue()) && expr.getChildren().isEmpty()) {
             return "1 = 1";
@@ -373,9 +393,34 @@ public class JdbcScanNode extends ExternalScanNode {
     private static String handleOracleDateFormat(Expr expr, TableIf tbl) {
         if (expr.isConstant()
                 && (expr.getType().isDatetime() || expr.getType().isDatetimeV2())) {
-            return "to_date('" + expr.getStringValue() + "', 'yyyy-mm-dd hh24:mi:ss')";
+            String dateStr = expr.getStringValue();
+            // Check if the date string contains milliseconds/microseconds
+            if (dateStr.contains(".")) {
+                // For Oracle, we need to use to_timestamp for fractional seconds
+                // Extract date part and fractional seconds part
+                String formatModel = getString(dateStr);
+                return "to_timestamp('" + dateStr + "', '" + formatModel + "')";
+            }
+            // Regular datetime without fractional seconds
+            return "to_date('" + dateStr + "', 'yyyy-mm-dd hh24:mi:ss')";
         }
         return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+    }
+
+    @NotNull
+    private static String getString(String dateStr) {
+        String[] parts = dateStr.split("\\.");
+        String fractionPart = parts[1];
+        // Determine the format model based on the length of fractional seconds
+        String formatModel;
+        if (fractionPart.length() <= 3) {
+            // Milliseconds (up to 3 digits)
+            formatModel = "yyyy-mm-dd hh24:mi:ss.FF3";
+        } else {
+            // Microseconds (up to 6 digits)
+            formatModel = "yyyy-mm-dd hh24:mi:ss.FF6";
+        }
+        return formatModel;
     }
 
     private static String handleTrinoDateFormat(Expr expr, TableIf tbl) {

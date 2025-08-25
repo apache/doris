@@ -28,7 +28,7 @@
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
@@ -68,12 +68,20 @@ public:
     }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    InvertedIndexIterator* iterator, uint32_t num_rows,
+                    IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
-            return Status::OK();
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
         }
-        std::string column_name = name_with_type.first;
+
+        if (iterator->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iterator->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
+        }
 
         InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
@@ -99,13 +107,18 @@ public:
             return Status::InvalidArgument("invalid comparison predicate type {}", PT);
         }
 
-        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(
                 InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, query_param->get_value(),
-                                                           query_type, num_rows, roaring));
+
+        InvertedIndexParam param;
+        param.column_name = name_with_type.first;
+        param.column_type = name_with_type.second;
+        param.query_value = query_param->get_value();
+        param.query_type = query_type;
+        param.num_rows = num_rows;
+        param.roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iterator->read_from_index(&param));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
@@ -120,9 +133,9 @@ public:
         }
 
         if constexpr (PT == PredicateType::NE) {
-            *bitmap -= *roaring;
+            *bitmap -= *param.roaring;
         } else {
-            *bitmap &= *roaring;
+            *bitmap &= *param.roaring;
         }
 
         return Status::OK();
@@ -211,7 +224,7 @@ public:
                             sizeof(decimal12_t));
                     // Datev1 using uint24_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
-                    uint24_t date_value(_value.to_olap_date());
+                    uint24_t date_value(uint32_t(_value.to_olap_date()));
                     return bf->test_bytes(
                             const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
                             sizeof(uint24_t));
@@ -255,8 +268,8 @@ public:
     }
 
     template <bool is_and>
-    __attribute__((flatten)) void _evaluate_vec_internal(const vectorized::IColumn& column,
-                                                         uint16_t size, bool* flags) const {
+    void __attribute__((flatten))
+    _evaluate_vec_internal(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
         uint16_t current_evaluated_rows = 0;
         uint16_t current_passed_rows = 0;
         if (_can_ignore()) {
@@ -483,10 +496,9 @@ private:
     }
 
     template <bool is_nullable, bool is_and, typename TArray, typename TValue>
-    __attribute__((flatten)) void _base_loop_vec(uint16_t size, bool* __restrict bflags,
-                                                 const uint8_t* __restrict null_map,
-                                                 const TArray* __restrict data_array,
-                                                 const TValue& value) const {
+    void __attribute__((flatten))
+    _base_loop_vec(uint16_t size, bool* __restrict bflags, const uint8_t* __restrict null_map,
+                   const TArray* __restrict data_array, const TValue& value) const {
         //uint8_t helps compiler to generate vectorized code
         auto* flags = reinterpret_cast<uint8_t*>(bflags);
         if constexpr (is_and) {
@@ -601,8 +613,8 @@ private:
         }
     }
 
-    __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
-            const vectorized::ColumnDictI32& column) const {
+    int32_t __attribute__((flatten))
+    _find_code_from_dictionary_column(const vectorized::ColumnDictI32& column) const {
         int32_t code = 0;
         if (_segment_id_to_cached_code.if_contains(
                     column.get_rowset_segment_id(),
@@ -640,5 +652,5 @@ private:
             _segment_id_to_cached_code;
     T _value;
 };
-
+#include "common/compile_check_end.h"
 } //namespace doris

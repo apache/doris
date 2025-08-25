@@ -17,21 +17,16 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TBinlogConfig;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class BinlogConfig implements Writable {
+public class BinlogConfig {
     @SerializedName("enable")
     private boolean enable;
 
@@ -157,15 +152,6 @@ public class BinlogConfig implements Writable {
             return false;
         }
         return this.maxHistoryNums == other.maxHistoryNums;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static BinlogConfig read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), BinlogConfig.class);
     }
 
     @Override

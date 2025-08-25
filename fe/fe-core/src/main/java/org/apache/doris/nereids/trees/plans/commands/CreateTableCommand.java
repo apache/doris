@@ -17,10 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
@@ -86,13 +83,11 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
-            CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
                         ctx.queryId(), createTableInfo.getTableName());
             }
-
-            Env.getCurrentEnv().createTable(createTableStmt);
+            Env.getCurrentEnv().createTable(this);
             return;
         }
         LogicalPlan query = ctasQuery.get();
@@ -124,8 +119,8 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                         DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
                 if (s.isColumnFromTable()) {
-                    if ((!((SlotReference) s).getTable().isPresent()
-                            || !((SlotReference) s).getTable().get().isManagedTable())) {
+                    if ((!((SlotReference) s).getOriginalTable().isPresent()
+                            || !((SlotReference) s).getOriginalTable().get().isManagedTable())) {
                         if (createTableInfo.getPartitionTableInfo().inIdentifierPartitions(s.getName())
                                 || (createTableInfo.getDistribution() != null
                                 && createTableInfo.getDistribution().inDistributionColumns(s.getName()))) {
@@ -166,13 +161,12 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         }
         List<String> qualifierTableName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
         createTableInfo.validateCreateTableAsSelect(qualifierTableName, columnsOfQuery.build(), ctx);
-        CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
                     ctx.queryId(), createTableInfo.getTableName());
         }
         try {
-            if (Env.getCurrentEnv().createTable(createTableStmt)) {
+            if (Env.getCurrentEnv().createTable(this)) {
                 return;
             }
         } catch (Exception e) {
@@ -183,8 +177,8 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
             if (!FeConstants.runningUnitTest) {
-                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(), Optional.empty()).run(
-                        ctx, executor);
+                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(),
+                        Optional.empty(), true, Optional.empty()).run(ctx, executor);
             }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
@@ -197,9 +191,15 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
 
     void handleFallbackFailedCtas(ConnectContext ctx) {
         try {
-            Env.getCurrentEnv().dropTable(new DropTableStmt(false,
-                    new TableName(createTableInfo.getCtlName(),
-                            createTableInfo.getDbName(), createTableInfo.getTableName()), true));
+            Env.getCurrentEnv().dropTable(
+                    createTableInfo.getCtlName(),
+                    createTableInfo.getDbName(),
+                    createTableInfo.getTableName(),
+                    false,
+                    false,
+                    false,
+                    true
+            );
         } catch (Exception e) {
             // TODO: refactor it with normal error process.
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
@@ -244,7 +244,8 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
 
     @Override
     public boolean needAuditEncryption() {
-        return !createTableInfo.getEngineName().equalsIgnoreCase(CreateTableInfo.ENGINE_OLAP);
+        // ATTN: createTableInfo.getEngineName() may be null
+        return !CreateTableInfo.ENGINE_OLAP.equalsIgnoreCase(createTableInfo.getEngineName());
     }
 }
 

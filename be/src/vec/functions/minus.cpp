@@ -18,44 +18,101 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Minus.cpp
 // and modified by Doris
 
-#include <utility>
-
-#include "runtime/decimalv2_value.h"
-#include "vec/common/arithmetic_overflow.h"
-#include "vec/data_types/number_traits.h"
-#include "vec/functions/function_binary_arithmetic.h"
+#include "vec/functions/binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+template <PrimitiveType TypeA, PrimitiveType TypeB>
+struct MinusDecimalImpl {
+    static_assert(is_decimal(TypeA) && is_decimal(TypeB));
+    static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
+                  (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
 
-template <typename A, typename B>
-struct MinusImpl {
-    using ResultType = typename NumberTraits::ResultOfSubtraction<A, B>::Type;
-    static const constexpr bool allow_decimal = true;
+    static constexpr auto name = "subtract";
+    static constexpr PrimitiveType PTypeA = TypeA;
+    static constexpr PrimitiveType PTypeB = TypeA;
+    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
+    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) - b;
+    template <PrimitiveType Result>
+        requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(ArgNativeTypeA a,
+                                                                            ArgNativeTypeB b) {
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(
+                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) - b);
     }
 
-    template <typename Result = DecimalV2Value>
     static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
         return DecimalV2Value(a.value() - b.value());
     }
 
     /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
-    template <typename Result = ResultType>
-    static inline bool apply(A a, B b, Result& c) {
-        return common::sub_overflow(static_cast<Result>(a), b, c);
+    template <PrimitiveType Result>
+        requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
+    static inline bool apply(ArgNativeTypeA a, ArgNativeTypeB b,
+                             typename PrimitiveTypeTraits<Result>::CppNativeType& c) {
+        return common::sub_overflow(
+                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a),
+                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(b), c);
     }
 };
 
-struct NameMinus {
+template <PrimitiveType Type>
+struct MinusImpl {
     static constexpr auto name = "subtract";
+    static constexpr PrimitiveType PType = Type;
+    using Arg = typename PrimitiveTypeTraits<Type>::ColumnItemType;
+    static inline Arg apply(Arg a, Arg b) { return a - b; }
 };
-using FunctionMinus = FunctionBinaryArithmetic<MinusImpl, NameMinus, false>;
 
 void register_function_minus(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionMinus>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMALV2, TYPE_DECIMALV2>>>>();
+
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL32>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL64>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL128I>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL256>>>>();
+
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL32>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL64>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL128I>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL256>>>>();
+
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL32>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL64>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL128I>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL256>>>>();
+
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL32>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL64>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL128I>>>>();
+    factory.register_function<FunctionPlusMinus<
+            PlusMinusDecimalImpl<MinusDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL256>>>>();
+
+    factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_TINYINT>>>>();
+    factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_SMALLINT>>>>();
+    factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_INT>>>>();
+    factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_BIGINT>>>>();
+    factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_LARGEINT>>>>();
+    factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_DOUBLE>>>>();
+    factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_FLOAT>>>>();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

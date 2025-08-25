@@ -98,6 +98,7 @@ protected:
         column_1.set_unique_id(1);
         column_1.set_name("k1");
         column_1.set_is_key(true);
+        column_1.set_index_length(4);
         tablet_schema->append_column(column_1);
 
         // Create the second key column
@@ -1094,6 +1095,7 @@ TEST_F(IndexBuilderTest, RenameColumnIndexTest) {
     column_1.set_unique_id(1);
     column_1.set_name("k1");
     column_1.set_is_key(true);
+    column_1.set_index_length(4);
     schema->append_column(column_1);
 
     // Create the second key column
@@ -2088,6 +2090,7 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
     column_1.set_unique_id(1);
     column_1.set_is_key(true);
     column_1.set_name("k1");
+    column_1.set_index_length(4);
     tablet_schema->append_column(column_1);
 
     // Array type column
@@ -2167,9 +2170,9 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
             // Add string elements to the array
             for (int j = 0; j < array_size; j++) {
                 std::string val = "item_" + std::to_string(i) + "_" + std::to_string(j);
-                arr.push_back(vectorized::Field(val));
+                arr.push_back(vectorized::Field::create_field<TYPE_STRING>(val));
             }
-            array_col.insert(arr);
+            array_col.insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
         }
 
         // Add block to rowset

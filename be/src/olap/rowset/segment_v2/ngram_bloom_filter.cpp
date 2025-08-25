@@ -20,8 +20,8 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
-#include "gutil/hash/city.h"
-#include "gutil/strings/substitute.h"
+#include "absl/strings/substitute.h"
+#include "util/hash/city.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
@@ -33,12 +33,12 @@ NGramBloomFilter::NGramBloomFilter(size_t size)
 // for read
 Status NGramBloomFilter::init(const char* buf, size_t size, HashStrategyPB strategy) {
     if (size == 0) {
-        return Status::InvalidArgument(strings::Substitute("invalid size:$0", size));
+        return Status::InvalidArgument(absl::Substitute("invalid size:$0", size));
     }
     DCHECK(_size == size);
 
     if (strategy != CITY_HASH_64) {
-        return Status::InvalidArgument(strings::Substitute("invalid strategy:$0", strategy));
+        return Status::InvalidArgument(absl::Substitute("invalid strategy:$0", strategy));
     }
     words = (_size + sizeof(UnderType) - 1) / sizeof(UnderType);
     filter.reserve(words);

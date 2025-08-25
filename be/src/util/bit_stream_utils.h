@@ -20,13 +20,12 @@
 
 #pragma once
 
-#include "gutil/port.h"
 #include "util/bit_packing.h"
 #include "util/bit_util.h"
 #include "util/faststring.h"
 
 using doris::BitUtil;
-
+#include "common/compile_check_begin.h"
 namespace doris {
 
 // Utility class to write bit/byte streams.  This class can write data to either be
@@ -235,16 +234,8 @@ public:
     template <typename UINT_T>
     bool GetUleb128(UINT_T* v);
 
-    /// Read a ZigZag encoded int from the stream. The encoded int must start at the
-    /// beginning of a byte. Return false if there were not enough bytes in the buffer or
-    /// the int is invalid. For more details on ZigZag encoding:
-    /// https://developers.google.com/protocol-buffers/docs/encoding#signed-integers
-    /// INT_T must be a signed integer type.
-    template <typename INT_T>
-    bool GetZigZagInteger(INT_T* v);
-
     /// Returns the number of bytes left in the stream.
-    int bytes_left() { return buffer_end_ - buffer_pos_; }
+    int bytes_left() { return static_cast<int>(buffer_end_ - buffer_pos_); }
 
     /// Maximum byte length of a vlq encoded integer of type T.
     template <typename T>
@@ -262,5 +253,5 @@ private:
     /// Pointer to the byte after the end of the buffer.
     const uint8_t* buffer_end_ = nullptr;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -131,20 +131,6 @@ public:
         _wrapper = wrapper;
     }
 
-    void collect_realtime_profile(RuntimeProfile* parent_operator_profile) {
-        std::unique_lock<std::recursive_mutex> l(_rmtx);
-        DCHECK(parent_operator_profile != nullptr);
-        if (parent_operator_profile == nullptr) {
-            return;
-        }
-        /*
-        RuntimeFilterInfo:
-            - RF0 Info: xxxx
-        */
-        parent_operator_profile->add_description(fmt::format("RF{} Info", _wrapper->filter_id()),
-                                                 debug_string(), "RuntimeFilterInfo");
-    }
-
 private:
     RuntimeFilterProducer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc)
             : RuntimeFilter(desc), _is_broadcast_join(desc->is_broadcast_join) {}

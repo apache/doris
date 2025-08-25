@@ -32,7 +32,7 @@ suite("test_property_session") {
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${userName}""";
     }
     sql """GRANT select_PRIV ON *.*.* TO ${userName}""";
-    connect(user=userName, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(userName, "${pwd}", context.config.jdbcUrl) {
         sql """
               set query_timeout=1;
           """
@@ -46,7 +46,7 @@ suite("test_property_session") {
 
     // the priority of property should be higher than session
     sql """set property for '${userName}' 'query_timeout' = '10';"""
-    connect(user=userName, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(userName, "${pwd}", context.config.jdbcUrl) {
         sql """
             select sleep(3);
         """

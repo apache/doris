@@ -50,13 +50,18 @@ public class SplitByString extends ScalarFunction
         super("split_by_string", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SplitByString(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public SplitByString withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new SplitByString(children.get(0), children.get(1));
+        return new SplitByString(getFunctionParams(children));
     }
 
     @Override

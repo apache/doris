@@ -19,10 +19,10 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.List;
 import java.util.Set;
@@ -95,11 +96,11 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
 
     private void checkAllSlotReferenceFromChildren(Plan plan) {
         Set<Slot> inputSlots = plan.getInputSlots();
-        Set<ExprId> childrenOutput = plan.getChildrenOutputExprIdSet();
+        RoaringBitmap childrenOutput = plan.getChildrenOutputExprIdBitSet();
 
         ImmutableSet.Builder<Slot> notFromChildrenBuilder = ImmutableSet.builderWithExpectedSize(inputSlots.size());
         for (Slot inputSlot : inputSlots) {
-            if (!childrenOutput.contains(inputSlot.getExprId())) {
+            if (!childrenOutput.contains(inputSlot.getExprId().asInt())) {
                 notFromChildrenBuilder.add(inputSlot);
             }
         }
@@ -126,7 +127,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         }
     }
 
-    private Set<Slot> removeValidSlotsNotFromChildren(Set<Slot> slots, Set<ExprId> childrenOutput) {
+    private Set<Slot> removeValidSlotsNotFromChildren(Set<Slot> slots, RoaringBitmap childrenOutput) {
         return slots.stream()
                 .filter(expr -> {
                     if (expr instanceof VirtualSlotReference) {
@@ -138,7 +139,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                         return realExpressions.stream()
                                 .map(Expression::getInputSlots)
                                 .flatMap(Set::stream)
-                                .anyMatch(realUsedExpr -> !childrenOutput.contains(realUsedExpr.getExprId()));
+                                .anyMatch(realUsedExpr -> !childrenOutput.contains(realUsedExpr.getExprId().asInt()));
                     } else {
                         return !(expr instanceof SlotNotFromChildren);
                     }
@@ -148,21 +149,25 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
 
     private void checkMetricTypeIsUsedCorrectly(Plan plan) {
         if (plan instanceof LogicalAggregate) {
-            if (((LogicalAggregate<?>) plan).getGroupByExpressions().stream()
-                    .anyMatch(expression -> expression.getDataType().isOnlyMetricType())) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
+            for (Expression groupBy : agg.getGroupByExpressions()) {
+                if (groupBy.getDataType().isObjectOrVariantType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
             }
         } else if (plan instanceof LogicalSort) {
-            if (((LogicalSort<?>) plan).getOrderKeys().stream().anyMatch((
-                    orderKey -> orderKey.getExpr().getDataType()
-                            .isOnlyMetricType()))) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            LogicalSort<?> sort = (LogicalSort<?>) plan;
+            for (OrderKey orderKey : sort.getOrderKeys()) {
+                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
             }
         } else if (plan instanceof LogicalTopN) {
-            if (((LogicalTopN<?>) plan).getOrderKeys().stream().anyMatch((
-                    orderKey -> orderKey.getExpr().getDataType()
-                            .isOnlyMetricType()))) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            LogicalTopN<?> topN = (LogicalTopN<?>) plan;
+            for (OrderKey orderKey : topN.getOrderKeys()) {
+                if (orderKey.getExpr().getDataType().isObjectOrVariantType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
             }
         } else if (plan instanceof LogicalWindow) {
             ((LogicalWindow<?>) plan).getWindowExpressions().forEach(a -> {
@@ -171,11 +176,11 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 }
                 WindowExpression windowExpression = (WindowExpression) ((Alias) a).child();
                 if (windowExpression.getOrderKeys().stream().anyMatch((
-                        orderKey -> orderKey.getDataType().isOnlyMetricType()))) {
+                        orderKey -> orderKey.getDataType().isObjectOrVariantType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
                 if (windowExpression.getPartitionKeys().stream().anyMatch((
-                        partitionKey -> partitionKey.getDataType().isOnlyMetricType()))) {
+                        partitionKey -> partitionKey.getDataType().isObjectOrVariantType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });

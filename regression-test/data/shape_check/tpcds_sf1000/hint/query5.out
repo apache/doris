@@ -59,10 +59,10 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((salesreturns.date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[wr_returned_date_sk,ws_sold_date_sk]
 ------------------------------------PhysicalUnion
---------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF6 RF7
---------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((web_returns.wr_item_sk = web_sales.ws_item_sk) and (web_returns.wr_order_number = web_sales.ws_order_number)) otherCondition=() build RFs:RF4 wr_item_sk->[ws_item_sk];RF5 wr_order_number->[ws_order_number]
 --------------------------------------------PhysicalProject
@@ -76,7 +76,7 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[web_site]
 
 Hint log:
-Used: leading(salesreturns broadcast date_dim broadcast store )  leading(salesreturns broadcast date_dim broadcast catalog_page )
+Used: leading(salesreturns broadcast date_dim broadcast store ) leading(salesreturns broadcast date_dim broadcast catalog_page )
 UnUsed: leading(salesreturns broadcast date_dim broadcast web_site)
 SyntaxError: leading(web_sales web_returns) Msg:one query block can only have one leading clause
 

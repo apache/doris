@@ -27,15 +27,12 @@
 #include <thread>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "common/exception.h"
 #include "common/logging.h"
-#include "gutil/port.h"
-#include "gutil/strings/substitute.h"
-#include "util/debug/sanitizer_scopes.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 
@@ -55,7 +52,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_count_total, M
 using namespace ErrorCode;
 
 using std::string;
-using strings::Substitute;
 
 class FunctionRunnable : public Runnable {
 public:
@@ -270,7 +266,7 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
 
 ThreadPool::~ThreadPool() {
     // There should only be one live token: the one used in tokenless submission.
-    CHECK_EQ(1, _tokens.size()) << strings::Substitute(
+    CHECK_EQ(1, _tokens.size()) << absl::Substitute(
             "Threadpool $0 destroyed with $1 allocated tokens", _name, _tokens.size());
     shutdown();
 }
@@ -341,7 +337,6 @@ void ThreadPool::shutdown() {
     // The shutdown/destroy of ThreadPool is guaranteed to take place before doris_main exits by
     // ExecEnv::destroy().
     DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     std::unique_lock<std::mutex> l(_lock);
     check_not_pool_thread_unlocked();
 
@@ -411,8 +406,8 @@ std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int m
 
 void ThreadPool::release_token(ThreadPoolToken* t) {
     std::lock_guard<std::mutex> l(_lock);
-    CHECK(!t->is_active()) << strings::Substitute("Token with state $0 may not be released",
-                                                  ThreadPoolToken::state_to_string(t->state()));
+    CHECK(!t->is_active()) << absl::Substitute("Token with state $0 may not be released",
+                                               ThreadPoolToken::state_to_string(t->state()));
     CHECK_EQ(1, _tokens.erase(t));
 }
 
@@ -428,11 +423,11 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     DCHECK(token);
 
     std::unique_lock<std::mutex> l(_lock);
-    if (PREDICT_FALSE(!_pool_status.ok())) {
+    if (!_pool_status.ok()) [[unlikely]] {
         return _pool_status;
     }
 
-    if (PREDICT_FALSE(!token->may_submit_new_tasks())) {
+    if (!token->may_submit_new_tasks()) [[unlikely]] {
         return Status::Error<SERVICE_UNAVAILABLE>("Thread pool({}) token was shut down", _name);
     }
 
@@ -540,7 +535,6 @@ void ThreadPool::wait() {
 
 void ThreadPool::dispatch_thread() {
     std::unique_lock<std::mutex> l(_lock);
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     if (!_threads.insert(Thread::current_thread()).second) {
         throw Exception(Status::InternalError("duplicate token"));
     }
@@ -571,14 +565,14 @@ void ThreadPool::dispatch_thread() {
             //
             // Note: if FIFO behavior is desired, it's as simple as changing this to push_back().
             _idle_threads.push_front(me);
-            SCOPED_CLEANUP({
+            Defer defer = [&] {
                 // For some wake ups (i.e. shutdown or do_submit) this thread is
                 // guaranteed to be unlinked after being awakened. In others (i.e.
                 // spurious wake-up or Wait timeout), it'll still be linked.
                 if (me.is_linked()) {
                     _idle_threads.erase(_idle_threads.iterator_to(me));
                 }
-            });
+            };
             if (me.not_empty.wait_for(l, _idle_timeout) == std::cv_status::timeout) {
                 // After much investigation, it appears that pthread condition variables have
                 // a weird behavior in which they can return ETIMEDOUT from timed_wait even if
@@ -686,7 +680,7 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
-    return Thread::create("thread pool", strings::Substitute("$0 [worker]", _name),
+    return Thread::create("thread pool", absl::Substitute("$0 [worker]", _name),
                           &ThreadPool::dispatch_thread, this, nullptr);
 }
 

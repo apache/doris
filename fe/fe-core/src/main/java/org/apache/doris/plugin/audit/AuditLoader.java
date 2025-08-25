@@ -46,6 +46,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     public static final String AUDIT_LOG_TABLE = "audit_log";
 
+    // the "0x1F" and "0x1E" are used to separate columns and lines in audit log data
+    public static final char AUDIT_TABLE_COL_SEPARATOR = 0x1F;
+    public static final char AUDIT_TABLE_LINE_DELIMITER = 0x1E;
+    // the "\\x1F" and "\\x1E" are used to specified column and line delimiter in stream load request
+    // which is corresponding to the "\\u001F" and "\\u001E" in audit log data.
+    public static final String AUDIT_TABLE_COL_SEPARATOR_STR = "\\x1F";
+    public static final String AUDIT_TABLE_LINE_DELIMITER_STR = "\\x1E";
+
     private StringBuilder auditLogBuffer = new StringBuilder();
     private int auditLogNum = 0;
     private long lastLoadTimeAuditLog = 0;
@@ -139,40 +147,75 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
         // should be same order as InternalSchema.AUDIT_SCHEMA
-        logBuffer.append(event.queryId).append("\t");
-        logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append("\t");
-        logBuffer.append(event.clientIp).append("\t");
-        logBuffer.append(event.user).append("\t");
-        logBuffer.append(event.ctl).append("\t");
-        logBuffer.append(event.db).append("\t");
-        logBuffer.append(event.state).append("\t");
-        logBuffer.append(event.errorCode).append("\t");
-        logBuffer.append(event.errorMessage).append("\t");
-        logBuffer.append(event.queryTime).append("\t");
-        logBuffer.append(event.scanBytes).append("\t");
-        logBuffer.append(event.scanRows).append("\t");
-        logBuffer.append(event.returnRows).append("\t");
-        logBuffer.append(event.shuffleSendRows).append("\t");
-        logBuffer.append(event.shuffleSendBytes).append("\t");
-        logBuffer.append(event.scanBytesFromLocalStorage).append("\t");
-        logBuffer.append(event.scanBytesFromRemoteStorage).append("\t");
-        logBuffer.append(event.stmtId).append("\t");
-        logBuffer.append(event.stmtType).append("\t");
-        logBuffer.append(event.isQuery ? 1 : 0).append("\t");
-        logBuffer.append(event.isNereids ? 1 : 0).append("\t");
-        logBuffer.append(event.feIp).append("\t");
-        logBuffer.append(event.cpuTimeMs).append("\t");
-        logBuffer.append(event.sqlHash).append("\t");
-        logBuffer.append(event.sqlDigest).append("\t");
-        logBuffer.append(event.peakMemoryBytes).append("\t");
-        logBuffer.append(event.workloadGroup).append("\t");
-        logBuffer.append(event.cloudClusterName).append("\t");
+
+        // uuid and time
+        logBuffer.append(event.queryId).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append(AUDIT_TABLE_COL_SEPARATOR);
+
+        // cs info
+        logBuffer.append(event.clientIp).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.user).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.feIp).append(AUDIT_TABLE_COL_SEPARATOR);
+
+        // default ctl and db
+        logBuffer.append(event.ctl).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.db).append(AUDIT_TABLE_COL_SEPARATOR);
+
+        // query state
+        logBuffer.append(event.state).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.errorCode).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.errorMessage).append(AUDIT_TABLE_COL_SEPARATOR);
+
+        // execution info
+        logBuffer.append(event.queryTime).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.cpuTimeMs).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.peakMemoryBytes).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.scanBytes).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.scanRows).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.returnRows).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.shuffleSendRows).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.shuffleSendBytes).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.spillWriteBytesToLocalStorage).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.spillReadBytesFromLocalStorage).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.scanBytesFromLocalStorage).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.scanBytesFromRemoteStorage).append(AUDIT_TABLE_COL_SEPARATOR);
+
+        // plan info
+        logBuffer.append(event.parseTimeMs).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.planTimesMs).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.getMetaTimesMs).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.scheduleTimesMs).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.hitSqlCache ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.isHandledInFe ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
+
+        // queried tables, views and m-views
+        logBuffer.append(event.queriedTablesAndViews).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.chosenMViews).append(AUDIT_TABLE_COL_SEPARATOR);
+
+        // variable and configs
+        logBuffer.append(event.changedVariables).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.sqlMode).append(AUDIT_TABLE_COL_SEPARATOR);
+
+
+        // type and digest
+        logBuffer.append(event.stmtType).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.stmtId).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.sqlHash).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.sqlDigest).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.isQuery ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.isNereids ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.isInternal ? 1 : 0).append(AUDIT_TABLE_COL_SEPARATOR);
+
+        // resource
+        logBuffer.append(event.workloadGroup).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.cloudClusterName).append(AUDIT_TABLE_COL_SEPARATOR);
+
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive audit event with stmt: {}", stmt);
         }
-        logBuffer.append(stmt).append("\n");
+        logBuffer.append(stmt).append(AUDIT_TABLE_LINE_DELIMITER);
     }
 
     // public for external call.

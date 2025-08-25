@@ -1,0 +1,30 @@
+{
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "c1",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "c2",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "BIGINT"
+    }
+  }, {
+    "id" : 2,
+    "name" : "c3",
+    "type" : {
+      "type" : "MAP",
+      "key" : "VARCHAR(10) NOT NULL",
+      "value" : "BOOLEAN"
+    }
+  } ],
+  "highestFieldId" : 2,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "owner" : "hadoop"
+  },
+  "timeMillis" : 1697461534785
+}

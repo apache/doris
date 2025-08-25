@@ -121,8 +121,10 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     @Override
     public LogicalPlan visitTableValuedFunction(DorisParser.TableValuedFunctionContext ctx) {
         DorisParser.PropertyItemListContext properties = ctx.properties;
-        encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
-                properties.stop.getStopIndex());
+        if (properties != null) {
+            encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
+                    properties.stop.getStopIndex());
+        }
         return super.visitTableValuedFunction(ctx);
     }
 

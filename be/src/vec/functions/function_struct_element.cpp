@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/core/block.h"
@@ -51,24 +52,42 @@ public:
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_struct(remove_nullable(arguments[0])))
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        DCHECK(arguments[0].type->get_primitive_type() == TYPE_STRUCT)
                 << "First argument for function: " << name
-                << " should be DataTypeStruct but it has type " << arguments[0]->get_name() << ".";
-        DCHECK(is_integer(arguments[1]) || is_string(arguments[1]))
+                << " should be DataTypeStruct but it has type " << arguments[0].type->get_name()
+                << ".";
+        DCHECK(is_int_or_bool(arguments[1].type->get_primitive_type()) ||
+               is_string_type(arguments[1].type->get_primitive_type()))
                 << "Second argument for function: " << name
-                << " should be Int or String but it has type " << arguments[1]->get_name() << ".";
-        // Due to the inability to get the actual value of the index column
-        // in function's build stage, we directly return nothing here.
-        // Todo(xy): Is there any good way to return right type?
-        return make_nullable(std::make_shared<DataTypeNothing>());
+                << " should be Int or String but it has type " << arguments[1].type->get_name()
+                << ".";
+
+        const auto* struct_type = check_and_get_data_type<DataTypeStruct>(arguments[0].type.get());
+
+        auto index_type = arguments[1].type;
+        const auto& index_column = arguments[1].column;
+        if (!index_column) {
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Function {}: second argument column is nullptr, but it should not be.",
+                    get_name());
+        }
+        size_t index;
+        auto st = get_element_index(*struct_type, index_column, index_type, &index);
+        if (!st.ok()) {
+            // will handle nullptr outside
+            return nullptr;
+        }
+        // The struct_element is marked as AlwaysNullable in fe.
+        return make_nullable(struct_type->get_elements()[index]);
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto struct_type = check_and_get_data_type<DataTypeStruct>(
+        const auto* struct_type = check_and_get_data_type<DataTypeStruct>(
                 block.get_by_position(arguments[0]).type.get());
-        auto struct_col = check_and_get_column<ColumnStruct>(
+        const auto* struct_col = check_and_get_column<ColumnStruct>(
                 block.get_by_position(arguments[0]).column.get());
         if (!struct_col || !struct_type) {
             return Status::RuntimeError(
@@ -80,20 +99,19 @@ public:
         auto index_column = block.get_by_position(arguments[1]).column;
         auto index_type = block.get_by_position(arguments[1]).type;
         size_t index;
-        Status res = get_element_index(*struct_type, index_column, index_type, &index);
-        if (res.ok()) {
-            ColumnPtr res_column = struct_col->get_column_ptr(index);
-            block.replace_by_position(result, res_column->clone_resized(res_column->size()));
-            return res;
-        }
-        return res;
+        RETURN_IF_ERROR(get_element_index(*struct_type, index_column, index_type, &index));
+        ColumnPtr res_column = struct_col->get_column_ptr(index);
+        ColumnPtr ele_column = res_column->clone_resized(res_column->size());
+        //This function must return a ColumnNullable column, so it is necessary to convert the result column into ColumnNullable.
+        block.replace_by_position(result, make_nullable(ele_column));
+        return Status::OK();
     }
 
 private:
     Status get_element_index(const DataTypeStruct& struct_type, const ColumnPtr& index_column,
                              const DataTypePtr& index_type, size_t* result) const {
         size_t index;
-        if (is_integer(index_type)) {
+        if (is_int_or_bool(index_type->get_primitive_type())) {
             index = index_column->get_int(0);
             size_t limit = struct_type.get_elements().size() + 1;
             if (index < 1 || index >= limit) {
@@ -103,7 +121,7 @@ private:
                                     get_name(), index, limit));
             }
             index -= 1; // the index start from 1
-        } else if (is_string(index_type)) {
+        } else if (is_string_type(index_type->get_primitive_type())) {
             std::string field_name = index_column->get_data_at(0).to_string();
             std::optional<size_t> pos = struct_type.try_get_position_by_name(field_name);
             if (!pos.has_value()) {

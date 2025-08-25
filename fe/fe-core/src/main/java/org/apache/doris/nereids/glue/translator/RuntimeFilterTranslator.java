@@ -35,12 +35,15 @@ import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,6 +53,7 @@ import java.util.Map;
  * translate runtime filter
  */
 public class RuntimeFilterTranslator {
+    private static final Logger LOG = LogManager.getLogger(RuntimeFilterTranslator.class);
 
     private final RuntimeFilterContext context;
 
@@ -96,77 +100,85 @@ public class RuntimeFilterTranslator {
                 .getIgnoredRuntimeFilterIds().contains(filter.getId().asInt())) {
             return;
         }
-        Expr src = ExpressionTranslator.translate(filter.getSrcExpr(), ctx);
-        List<Expr> targetExprList = new ArrayList<>();
-        List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
-        List<ScanNode> scanNodeList = new ArrayList<>();
-        boolean hasInvalidTarget = false;
-        for (int i = 0; i < filter.getTargetExpressions().size(); i++) {
-            Slot curTargetSlot = filter.getTargetSlots().get(i);
-            Expression curTargetExpression = filter.getTargetExpressions().get(i);
-            SlotRef targetSlotRef = context.getExprIdToOlapScanNodeSlotRef().get(curTargetSlot.getExprId());
-            if (targetSlotRef == null) {
-                context.setTargetNullCount();
-                hasInvalidTarget = true;
-                break;
-            }
-            ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetSlot);
-            Expr targetExpr;
-            if (curTargetSlot.equals(curTargetExpression)) {
-                targetExpr = targetSlotRef;
-            } else {
-                // map nereids target slot to original planner slot
-                Preconditions.checkArgument(curTargetExpression.getInputSlots().size() == 1,
-                        "target expression is invalid, input slot num > 1; filter :" + filter);
-                Slot slotInTargetExpression = curTargetExpression.getInputSlots().iterator().next();
-                Preconditions.checkArgument(slotInTargetExpression.equals(curTargetSlot)
-                        || curTargetSlot.equals(context.getAliasTransferMap().get(slotInTargetExpression).second));
-                RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(targetSlotRef);
-                targetExpr = curTargetExpression.accept(translator, ctx);
-            }
+        try {
+            Expr src = ExpressionTranslator.translate(filter.getSrcExpr(), ctx);
+            List<Expr> targetExprList = new ArrayList<>();
+            List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
+            List<ScanNode> scanNodeList = new ArrayList<>();
+            boolean hasInvalidTarget = false;
+            for (int i = 0; i < filter.getTargetExpressions().size(); i++) {
+                Slot curTargetSlot = filter.getTargetSlots().get(i);
+                Expression curTargetExpression = filter.getTargetExpressions().get(i);
+                SlotRef targetSlotRef = context.getExprIdToOlapScanNodeSlotRef().get(curTargetSlot.getExprId());
+                if (targetSlotRef == null) {
+                    context.setTargetNullCount();
+                    hasInvalidTarget = true;
+                    break;
+                }
+                ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetSlot);
+                Expr targetExpr;
+                if (curTargetSlot.equals(curTargetExpression)) {
+                    targetExpr = targetSlotRef;
+                } else {
+                    // map nereids target slot to original planner slot
+                    Preconditions.checkArgument(curTargetExpression.getInputSlots().size() == 1,
+                            "target expression is invalid, input slot num > 1; filter :" + filter);
+                    Slot slotInTargetExpression = curTargetExpression.getInputSlots().iterator().next();
+                    Preconditions.checkArgument(slotInTargetExpression.equals(curTargetSlot)
+                            || curTargetSlot.equals(context.getAliasTransferMap().get(slotInTargetExpression).second));
+                    RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(targetSlotRef);
+                    targetExpr = curTargetExpression.accept(translator, ctx);
+                }
 
-            // adjust data type
-            if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
-                targetExpr = new CastExpr(src.getType(), targetExpr);
+                // adjust data type
+                if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
+                    targetExpr = new CastExpr(src.getType(), targetExpr);
+                }
+                TupleId targetTupleId = targetSlotRef.getDesc().getParent().getId();
+                SlotId targetSlotId = targetSlotRef.getSlotId();
+                scanNodeList.add(scanNode);
+                targetExprList.add(targetExpr);
+                targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
             }
-            SlotRef targetSlot = targetSlotRef.getSrcSlotRef();
-            TupleId targetTupleId = targetSlot.getDesc().getParent().getId();
-            SlotId targetSlotId = targetSlot.getSlotId();
-            scanNodeList.add(scanNode);
-            targetExprList.add(targetExpr);
-            targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
-        }
-        if (!hasInvalidTarget) {
-            org.apache.doris.planner.RuntimeFilter origFilter
-                    = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
-                    filter, node, src, targetExprList,
-                    targetTupleIdMapList, context.getLimits());
-            if (node instanceof HashJoinNode) {
-                origFilter.setIsBroadcast(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
-                origFilter.setSingleEq(((HashJoinNode) node).getEqJoinConjuncts().size());
-            } else {
-                // nest loop join
-                origFilter.setIsBroadcast(true);
+            if (!hasInvalidTarget) {
+                org.apache.doris.planner.RuntimeFilter origFilter
+                        = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
+                        filter, node, src, targetExprList,
+                        targetTupleIdMapList, context.getLimits());
+                if (node instanceof HashJoinNode) {
+                    origFilter.setIsBroadcast(
+                            ((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
+                    origFilter.setSingleEq(((HashJoinNode) node).getEqJoinConjuncts().size());
+                } else {
+                    // nest loop join
+                    origFilter.setIsBroadcast(true);
+                }
+                boolean isLocalTarget = scanNodeList.stream().allMatch(e ->
+                        !(e instanceof CTEScanNode) && e.getFragmentId().equals(node.getFragmentId()));
+                for (int i = 0; i < targetExprList.size(); i++) {
+                    ScanNode scanNode = scanNodeList.get(i);
+                    Expr targetExpr = targetExprList.get(i);
+                    origFilter.addTarget(new RuntimeFilterTarget(
+                            scanNode, targetExpr, true, isLocalTarget));
+                }
+                origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
+                origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
+                org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
+                scanNodeList.stream().filter(e -> e.getStatisticalType() == StatisticalType.CTE_SCAN_NODE)
+                        .forEach(f -> {
+                            DataStreamSink sink = context.getPlanNodeIdToCTEDataSinkMap().get(f.getId());
+                            if (sink != null) {
+                                sink.addRuntimeFilter(finalizedFilter);
+                            }
+                        });
+                context.getLegacyFilters().add(finalizedFilter);
             }
-            boolean isLocalTarget = scanNodeList.stream().allMatch(e ->
-                    !(e instanceof CTEScanNode) && e.getFragmentId().equals(node.getFragmentId()));
-            for (int i = 0; i < targetExprList.size(); i++) {
-                ScanNode scanNode = scanNodeList.get(i);
-                Expr targetExpr = targetExprList.get(i);
-                origFilter.addTarget(new RuntimeFilterTarget(
-                        scanNode, targetExpr, true, isLocalTarget));
+        } catch (Exception e) {
+            LOG.info("failed to translate runtime filter: " + e.getMessage());
+            // throw exception in debug mode
+            if (SessionVariable.isFeDebug()) {
+                throw e;
             }
-            origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
-            origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
-            org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
-            scanNodeList.stream().filter(e -> e.getStatisticalType() == StatisticalType.CTE_SCAN_NODE)
-                                 .forEach(f -> {
-                                     DataStreamSink sink = context.getPlanNodeIdToCTEDataSinkMap().get(f.getId());
-                                     if (sink != null) {
-                                         sink.addRuntimeFilter(finalizedFilter);
-                                     }
-                                 });
-            context.getLegacyFilters().add(finalizedFilter);
         }
     }
 

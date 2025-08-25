@@ -33,6 +33,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 
 Hint log:
 Used: leading(inventory date_dim warehouse item ) leading(inv1 inv2 )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

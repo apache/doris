@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -167,10 +168,10 @@ public class OdbcCatalogResource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
+    protected void setProperties(ImmutableMap<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
 
-        configs = properties;
+        configs = Maps.newHashMap(properties);
 
         checkProperties(HOST);
         checkProperties(PORT);

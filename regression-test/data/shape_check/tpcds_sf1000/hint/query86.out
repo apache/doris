@@ -28,6 +28,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(web_sales d1 item )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

@@ -38,8 +38,10 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/common/typeid_cast.h"
-
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 namespace io {
 
 class FileSystem;
@@ -228,9 +230,9 @@ public:
     struct RangeCachedData {
         size_t start_offset;
         size_t end_offset;
-        std::vector<int16> ref_box;
-        std::vector<uint32> box_start_offset;
-        std::vector<uint32> box_end_offset;
+        std::vector<int16_t> ref_box;
+        std::vector<uint32_t> box_start_offset;
+        std::vector<uint32_t> box_end_offset;
         bool has_read = false;
 
         RangeCachedData(size_t start_offset, size_t end_offset)
@@ -250,11 +252,11 @@ public:
             box_end_offset.clear();
         }
 
-        int16 release_last_box() {
+        int16_t release_last_box() {
             // we can only release the last referenced box to ensure sequential read in range
             if (!empty()) {
-                int16 last_box_ref = ref_box.back();
-                uint32 released_size = box_end_offset.back() - box_start_offset.back();
+                int16_t last_box_ref = ref_box.back();
+                uint32_t released_size = box_end_offset.back() - box_start_offset.back();
                 ref_box.pop_back();
                 box_start_offset.pop_back();
                 box_end_offset.pop_back();
@@ -331,7 +333,7 @@ public:
     const std::vector<RangeCachedData>& range_cached_data() const { return _range_cached_data; }
 
     // for test only
-    const std::vector<int16>& box_reference() const { return _box_ref; }
+    const std::vector<int16_t>& box_reference() const { return _box_ref; }
 
     // for test only
     const Statistics& statistics() const { return _statistics; }
@@ -370,7 +372,7 @@ private:
                       size_t* bytes_read);
     Status _fill_box(int range_index, size_t start_offset, size_t to_read, size_t* bytes_read,
                      const IOContext* io_ctx);
-    void _dec_box_ref(int16 box_index);
+    void _dec_box_ref(int16_t box_index);
 
     RuntimeProfile* _profile = nullptr;
     io::FileReaderSPtr _reader;
@@ -382,9 +384,9 @@ private:
 
     std::unique_ptr<OwnedSlice> _read_slice;
     std::vector<OwnedSlice> _boxes;
-    int16 _last_box_ref = -1;
-    uint32 _last_box_usage = 0;
-    std::vector<int16> _box_ref;
+    int16_t _last_box_ref = -1;
+    uint32_t _last_box_usage = 0;
+    std::vector<int16_t> _box_ref;
     bool _is_oss;
     double _max_amplified_ratio;
     size_t _equivalent_io_size;
@@ -552,7 +554,7 @@ private:
     void reset_all_buffer(size_t position) {
         for (int64_t i = 0; i < _pre_buffers.size(); i++) {
             int64_t cur_pos = position + i * s_max_pre_buffer_size;
-            int cur_buf_pos = get_buffer_pos(cur_pos);
+            size_t cur_buf_pos = get_buffer_pos(cur_pos);
             // reset would do all the prefetch work
             _pre_buffers[cur_buf_pos]->reset_offset(get_buffer_offset(cur_pos));
         }
@@ -665,4 +667,7 @@ private:
 };
 
 } // namespace io
+
+#include "common/compile_check_end.h"
+
 } // namespace doris

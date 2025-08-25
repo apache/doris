@@ -18,9 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
@@ -30,9 +28,12 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -43,7 +44,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
-import java.util.List;
 import java.util.UUID;
 
 public class VariableMgrTest {
@@ -60,124 +60,27 @@ public class VariableMgrTest {
         UtFrameUtils.createDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Env.getCurrentEnv().createDb(createDbStmt);
-    }
-
-    @Test
-    public void testNormal() throws Exception {
-        SessionVariable var = VariableMgr.newSessionVariable();
-        long originExecMemLimit = var.getMaxExecMemByte();
-        boolean originEnableProfile = var.enableProfile();
-        long originQueryTimeOut = var.getQueryTimeoutS();
-        final int originInsertTimeout = var.getInsertTimeoutS();
-
-        List<List<String>> rows = VariableMgr.dump(SetType.SESSION, var, null);
-        Assert.assertTrue(rows.size() > 5);
-        for (List<String> row : rows) {
-            if (row.get(0).equalsIgnoreCase("exec_mem_limit")) {
-                Assert.assertEquals(String.valueOf(originExecMemLimit), row.get(1));
-            } else if (row.get(0).equalsIgnoreCase("is_report_success")) {
-                Assert.assertEquals(String.valueOf(originEnableProfile), row.get(1));
-            } else if (row.get(0).equalsIgnoreCase("query_timeout")) {
-                Assert.assertEquals(String.valueOf(originQueryTimeOut), row.get(1));
-            } else if (row.get(0).equalsIgnoreCase("sql_mode")) {
-                Assert.assertEquals("", row.get(1));
-            } else if (row.get(0).equalsIgnoreCase("insert_timeout")) {
-                Assert.assertEquals(String.valueOf(originInsertTimeout), row.get(1));
-            }
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(ctx, stmtExecutor);
         }
-
-        // Set global variable
-        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global exec_mem_limit=1234", ctx);
-        SetExecutor executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals(originExecMemLimit, var.getMaxExecMemByte());
-        var = VariableMgr.newSessionVariable();
-        Assert.assertEquals(1234L, var.getMaxExecMemByte());
-
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global parallel_pipeline_task_num=5", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals(1L, var.getParallelExecInstanceNum());
-        var = VariableMgr.newSessionVariable();
-        Assert.assertEquals(5L, var.getParallelExecInstanceNum());
-
-        // Test checkTimeZoneValidAndStandardize
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global time_zone='+8:00'", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals("+08:00", VariableMgr.newSessionVariable().getTimeZone());
-
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global time_zone='Asia/Shanghai'", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
-        var = VariableMgr.newSessionVariable();
-        Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
-
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global time_zone='CST'", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals("Asia/Shanghai", var.getTimeZone());
-        var = VariableMgr.newSessionVariable();
-        Assert.assertEquals("CST", var.getTimeZone());
-
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global time_zone='8:00'", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals("+08:00", VariableMgr.newSessionVariable().getTimeZone());
-
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global time_zone='-8:00'", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals("-08:00", VariableMgr.newSessionVariable().getTimeZone());
-
-        // Set session variable
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set exec_mem_limit=1234", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals(1234L, ctx.getSessionVariable().getMaxExecMemByte());
-
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set time_zone='Asia/Jakarta'", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals("Asia/Jakarta", ctx.getSessionVariable().getTimeZone());
-
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set sql_mode='PIPES_AS_CONCAT'", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals(2L, ctx.getSessionVariable().getSqlMode());
-
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set runtime_filter_type ='BLOOM_FILTER'", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals(2L, ctx.getSessionVariable().getRuntimeFilterType());
-
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set runtime_filter_type ='IN_OR_BLOOM_FILTER'", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
-        Assert.assertEquals(8L, ctx.getSessionVariable().getRuntimeFilterType());
-
-        // Get from name
-        VariableExpr desc = new VariableExpr("exec_mem_limit");
-        Assert.assertEquals(var.getMaxExecMemByte() + "", VariableMgr.getValue(var, desc));
     }
 
     @Test
     public void testGlobalVariablePersist() throws Exception {
         Config.edit_log_roll_num = 1;
-        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global exec_mem_limit=5678", ctx);
-        SetExecutor executor = new SetExecutor(ctx, stmt);
-        executor.execute();
+        SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                "set global exec_mem_limit=5678", ctx);
+        stmt.run(ctx, null);
         Assert.assertEquals(5678, VariableMgr.newSessionVariable().getMaxExecMemByte());
         // the session var is also changed.
         Assert.assertEquals(5678, ctx.getSessionVariable().getMaxExecMemByte());
 
         Config.edit_log_roll_num = 100;
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global exec_mem_limit=7890", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
+        stmt = (SetOptionsCommand) UtFrameUtils.parseStmt("set global exec_mem_limit=7890", ctx);
+        stmt.run(ctx, null);
         Assert.assertEquals(7890, VariableMgr.newSessionVariable().getMaxExecMemByte());
 
         // Get currentCatalog first
@@ -199,42 +102,6 @@ public class VariableMgrTest {
         Assert.assertEquals(7890, VariableMgr.newSessionVariable().getMaxExecMemByte());
     }
 
-    @Test(expected = UserException.class)
-    public void testInvalidType() throws UserException {
-        // Set global variable
-        SetVar setVar = new SetVar(SetType.SESSION, "exec_mem_limit", new StringLiteral("abc"));
-        try {
-            setVar.analyze(null);
-        } catch (Exception e) {
-            throw e;
-        }
-        Assert.fail("No exception throws.");
-    }
-
-    @Test(expected = UserException.class)
-    public void testInvalidTimeZoneRegion() throws UserException {
-        // Set global variable
-        SetVar setVar = new SetVar(SetType.SESSION, "time_zone", new StringLiteral("Hongkong"));
-        try {
-            setVar.analyze(null);
-        } catch (Exception e) {
-            throw e;
-        }
-        Assert.fail("No exception throws.");
-    }
-
-    @Test(expected = UserException.class)
-    public void testInvalidTimeZoneOffset() throws UserException {
-        // Set global variable
-        SetVar setVar = new SetVar(SetType.SESSION, "time_zone", new StringLiteral("+15:00"));
-        try {
-            setVar.analyze(null);
-        } catch (Exception e) {
-            throw e;
-        }
-        Assert.fail("No exception throws.");
-    }
-
     @Test(expected = DdlException.class)
     public void testReadOnly() throws DdlException {
         // Set global variable
@@ -245,18 +112,18 @@ public class VariableMgrTest {
 
     @Test
     public void testVariableCallback() throws Exception {
-        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set session_context='trace_id:123'", ctx);
-        SetExecutor executor = new SetExecutor(ctx, stmt);
-        executor.execute();
+        SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                "set session_context='trace_id:123'", ctx);
+        stmt.run(ctx, null);
         Assert.assertEquals("123", ctx.traceId());
     }
 
     @Test
     public void testSetGlobalDefault() throws Exception {
         // Set global variable with default value
-        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global enable_profile = default", ctx);
-        SetExecutor executor = new SetExecutor(ctx, stmt);
-        executor.execute();
+        SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                "set global enable_profile = default", ctx);
+        stmt.run(ctx, null);
         SessionVariable defaultSessionVar = new SessionVariable();
         Assert.assertEquals(defaultSessionVar.enableProfile(), VariableMgr.newSessionVariable().enableProfile());
     }
@@ -291,5 +158,37 @@ public class VariableMgrTest {
         SetType setType = SetType.SESSION;
         Literal l = VariableMgr.getLiteral(sv, name, setType);
         Assert.assertEquals(BigIntType.INSTANCE, l.getDataType());
+    }
+
+    @Test
+    public void testCheckSqlConvertorFeatures() throws DdlException {
+        // set wrong var
+        SetVar setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,
+                new StringLiteral("wrong"));
+        SessionVariable var = new SessionVariable();
+        try {
+            VariableMgr.setVar(var, setVar);
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("Unknown sql convertor feature: wrong"));
+        }
+
+        // set one var
+        Assert.assertEquals(new String[] {""}, var.getSqlConvertorFeatures());
+        setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,
+                new StringLiteral("ctas"));
+        VariableMgr.setVar(var, setVar);
+        Assert.assertEquals(new String[] {"ctas"}, var.getSqlConvertorFeatures());
+
+        // set multiple var
+        setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,
+                new StringLiteral("ctas,delete_all_comment"));
+        VariableMgr.setVar(var, setVar);
+        Assert.assertEquals(new String[] {"ctas", "delete_all_comment"}, var.getSqlConvertorFeatures());
+
+        // set to empty
+        setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,
+                new StringLiteral(""));
+        VariableMgr.setVar(var, setVar);
+        Assert.assertEquals(new String[] {""}, var.getSqlConvertorFeatures());
     }
 }

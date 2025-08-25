@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.types.DataType;
@@ -56,15 +58,15 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
         throw new RuntimeException("Do not implement");
     }
 
+    public Slot withOneLevelTableAndColumnAndQualifier(TableIf oneLevelTable, Column column, List<String> qualifier) {
+        throw new RuntimeException("Do not implement");
+    }
+
     public Slot withName(String name) {
         throw new RuntimeException("Do not implement");
     }
 
     public Slot withExprId(ExprId exprId) {
-        throw new RuntimeException("Do not implement");
-    }
-
-    public String getInternalName() {
         throw new RuntimeException("Do not implement");
     }
 

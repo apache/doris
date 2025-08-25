@@ -77,7 +77,7 @@ public:
         json2pb::JsonToProtoMessage(_json_rowset_meta, &rowset_meta_pb);
         rowset_meta_pb.set_start_version(start);
         rowset_meta_pb.set_end_version(end);
-        rowset_meta_pb.set_creation_time(10000);
+        rowset_meta_pb.set_creation_time(time(nullptr));
 
         pb1->init_from_pb(rowset_meta_pb);
         pb1->set_total_disk_size(41);
@@ -536,8 +536,13 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_time_interva
             new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_TIME_SERIES_POLICY));
     static_cast<void>(_tablet->init());
     _tablet->calculate_cumulative_point();
-    int64_t now = UnixMillis();
-    _tablet->set_last_cumu_compaction_success_time(now - 3700 * 1000);
+
+    _tablet->_tablet_meta->set_time_series_compaction_time_threshold_seconds(1);
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    int score =
+            _tablet->_cumulative_compaction_policy->calc_cumulative_compaction_score(_tablet.get());
+    EXPECT_EQ(3, score);
 
     auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
 

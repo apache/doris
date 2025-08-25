@@ -42,10 +42,15 @@ public class JsonbValid extends ScalarFunction
     );
 
     /**
-     * constructor with 1 arguments.
+     * constructor with 1 argument.
      */
     public JsonbValid(Expression arg0) {
         super("json_valid", arg0);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private JsonbValid(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -54,7 +59,7 @@ public class JsonbValid extends ScalarFunction
     @Override
     public JsonbValid withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new JsonbValid(children.get(0));
+        return new JsonbValid(getFunctionParams(children));
     }
 
     @Override

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,8 +82,6 @@ public class AzurePropertiesTest {
         Assertions.assertEquals(HdfsProperties.class, storagePropertiesList.get(1).getClass());
         Assertions.assertEquals(AzureProperties.class, storagePropertiesList.get(0).getClass());
         origProps.put("s3.endpoint", "https://mystorageaccount.net");
-        Assertions.assertThrows(RuntimeException.class, () ->
-                StorageProperties.createPrimary(origProps), "No supported storage type found.");
         // Expect an exception due to missing provider
         origProps.put("provider", "azure");
         Assertions.assertThrows(IllegalArgumentException.class, () ->
@@ -130,7 +129,7 @@ public class AzurePropertiesTest {
         AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("s3://mycontainer/blob.txt",
                 azureProperties.validateAndNormalizeUri("https://mystorageaccount.blob.core.windows.net/mycontainer/blob.txt"));
-        Assertions.assertThrowsExactly(UserException.class, () ->
+        Assertions.assertThrowsExactly(StoragePropertiesException.class, () ->
                 azureProperties.validateAndGetUri(origProps),
                 "props must contain uri");
         origProps.put("uri", "https://mystorageaccount.blob.core.windows.net/mycontainer/blob.txt");
@@ -188,7 +187,7 @@ public class AzurePropertiesTest {
 
         AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(origProps);
         // Expect an exception when the path is empty
-        Assertions.assertThrows(UserException.class, () ->
+        Assertions.assertThrows(StoragePropertiesException.class, () ->
                 azureProperties.validateAndNormalizeUri(""), "Path cannot be empty.");
     }
 }

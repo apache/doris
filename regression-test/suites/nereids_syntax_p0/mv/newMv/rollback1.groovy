@@ -36,7 +36,7 @@ suite ("rollback1") {
     sql "insert into rollback1 select 2,2,2,'b';"
     sql "insert into rollback1 select 3,-3,null,'c';"
 
-    createMV("create materialized view k123p as select k1,k2+k3 from rollback1;")
+    createMV("create materialized view k123p as select k1 as a1,k2+k3 from rollback1;")
 
     sleep(3000)
 

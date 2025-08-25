@@ -74,6 +74,7 @@ public class AlterColumnStatsCommand extends AlterCommand {
             .add(ColumnStatistic.MIN_VALUE)
             .add(ColumnStatistic.MAX_VALUE)
             .add(StatsType.DATA_SIZE)
+            .add(StatsType.HOT_VALUES)
             .build();
     private final TableNameInfo tableNameInfo;
     private final String indexName;

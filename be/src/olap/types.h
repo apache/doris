@@ -19,18 +19,15 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
 
-#include <algorithm>
 #include <cinttypes>
+#include <climits>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
 #include <limits>
 #include <memory>
-#include <new>
-#include <sstream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -39,8 +36,6 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/stringprintf.h"
-#include "gutil/strings/numbers.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -48,18 +43,21 @@
 #include "runtime/collection_value.h"
 #include "runtime/map_value.h"
 #include "runtime/struct_value.h"
+#include "runtime/type_limit.h"
 #include "util/binary_cast.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
+#include "util/to_string.h"
 #include "util/types.h"
 #include "vec/common/arena.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace segment_v2 {
 class ColumnMetaPB;
@@ -81,7 +79,7 @@ public:
     virtual ~TypeInfo() = default;
     virtual int cmp(const void* left, const void* right) const = 0;
 
-    virtual void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const = 0;
+    virtual void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const = 0;
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
@@ -105,7 +103,7 @@ class ScalarTypeInfo : public TypeInfo {
 public:
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
         _deep_copy(dest, src, arena);
     }
 
@@ -144,7 +142,7 @@ public:
 private:
     int (*_cmp)(const void* left, const void* right);
 
-    void (*_deep_copy)(void* dest, const void* src, vectorized::Arena* arena);
+    void (*_deep_copy)(void* dest, const void* src, vectorized::Arena& arena);
     void (*_direct_copy)(void* dest, const void* src);
     void (*_direct_copy_may_cut)(void* dest, const void* src);
 
@@ -212,7 +210,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
@@ -225,7 +223,7 @@ public:
 
         size_t item_size = src_value->length() * _item_size;
         size_t nulls_size = src_value->has_null() ? src_value->length() : 0;
-        dest_value->set_data(arena->alloc(item_size + nulls_size));
+        dest_value->set_data(arena.alloc(item_size + nulls_size));
         dest_value->set_has_null(src_value->has_null());
         dest_value->set_null_signs(src_value->has_null()
                                            ? reinterpret_cast<bool*>(dest_value->mutable_data()) +
@@ -371,7 +369,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
         DCHECK(false);
     }
 
@@ -443,7 +441,7 @@ public:
         auto r_value = reinterpret_cast<const StructValue*>(right);
         uint32_t l_size = l_value->size();
         uint32_t r_size = r_value->size();
-        size_t cur = 0;
+        uint32_t cur = 0;
 
         if (!l_value->has_null() && !r_value->has_null()) {
             while (cur < l_size && cur < r_size) {
@@ -482,7 +480,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena* arena) const override {
+    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
         auto dest_value = reinterpret_cast<StructValue*>(dest);
         auto src_value = reinterpret_cast<const StructValue*>(src);
 
@@ -496,16 +494,16 @@ public:
 
         size_t allocate_size = src_value->size() * sizeof(*src_value->values());
         // allocate memory for children value
-        for (size_t i = 0; i < src_value->size(); ++i) {
+        for (uint32_t i = 0; i < src_value->size(); ++i) {
             if (src_value->is_null_at(i)) continue;
             allocate_size += _type_infos[i]->size();
         }
 
-        dest_value->set_values((void**)arena->alloc(allocate_size));
+        dest_value->set_values((void**)arena.alloc(allocate_size));
         auto ptr = reinterpret_cast<uint8_t*>(dest_value->mutable_values());
         ptr += dest_value->size() * sizeof(*dest_value->values());
 
-        for (size_t i = 0; i < src_value->size(); ++i) {
+        for (uint32_t i = 0; i < src_value->size(); ++i) {
             dest_value->set_child_value(nullptr, i);
             if (src_value->is_null_at(i)) continue;
             dest_value->set_child_value(ptr, i);
@@ -513,7 +511,7 @@ public:
         }
 
         // copy children value
-        for (size_t i = 0; i < src_value->size(); ++i) {
+        for (uint32_t i = 0; i < src_value->size(); ++i) {
             if (src_value->is_null_at(i)) continue;
             _type_infos[i]->deep_copy(dest_value->mutable_child_value(i), src_value->child_value(i),
                                       arena);
@@ -534,14 +532,14 @@ public:
         dest_value->set_has_null(src_value->has_null());
         *base += src_value->size() * sizeof(*src_value->values());
 
-        for (size_t i = 0; i < src_value->size(); ++i) {
+        for (uint32_t i = 0; i < src_value->size(); ++i) {
             dest_value->set_child_value(nullptr, i);
             if (src_value->is_null_at(i)) continue;
             dest_value->set_child_value(*base, i);
             *base += _type_infos[i]->size();
         }
 
-        for (size_t i = 0; i < src_value->size(); ++i) {
+        for (uint32_t i = 0; i < src_value->size(); ++i) {
             if (dest_value->is_null_at(i)) {
                 continue;
             }
@@ -578,7 +576,7 @@ public:
         auto src_value = reinterpret_cast<const StructValue*>(src);
         std::string result = "{";
 
-        for (size_t i = 0; i < src_value->size(); ++i) {
+        for (uint32_t i = 0; i < src_value->size(); ++i) {
             std::string field_value = _type_infos[i]->to_string(src_value->child_value(i));
             result += field_value;
             if (i < src_value->size() - 1) {
@@ -668,10 +666,12 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT> {
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT> {
     using CppType = float;
+    using UnsignedCppType = uint32_t;
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE> {
     using CppType = double;
+    using UnsignedCppType = uint64_t;
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
@@ -758,7 +758,7 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_OBJECT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_BITMAP> {
     using CppType = Slice;
 };
 template <>
@@ -810,7 +810,7 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
         }
     }
 
-    static inline void deep_copy(void* dest, const void* src, vectorized::Arena* arena) {
+    static inline void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
         memcpy(dest, src, sizeof(CppType));
     }
 
@@ -860,9 +860,9 @@ struct NumericFieldTypeTraits<fieldType, false> : public BaseFieldTypeTraits<fie
 template <FieldType fieldType>
 struct FieldTypeTraits
         : public NumericFieldTypeTraits<
-                  fieldType,
-                  std::is_arithmetic_v<typename BaseFieldTypeTraits<fieldType>::CppType> &&
-                          std::is_signed_v<typename BaseFieldTypeTraits<fieldType>::CppType>> {};
+                  fieldType, IsArithmeticV<typename BaseFieldTypeTraits<fieldType>::CppType> &&
+                                     IsSignedV<typename BaseFieldTypeTraits<fieldType>::CppType>> {
+};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
@@ -958,7 +958,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
 
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
-    static void deep_copy(void* dest, const void* src, vectorized::Arena* arena) {
+    static void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void direct_copy(void* dest, const void* src) {
@@ -1047,8 +1047,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
     }
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        int length =
-                FloatToBuffer(*reinterpret_cast<const CppType*>(src), MAX_FLOAT_STR_LENGTH, buf);
+        int length = to_buffer(*reinterpret_cast<const CppType*>(src), MAX_FLOAT_STR_LENGTH, buf);
         DCHECK(length >= 0) << "gcvt float failed, float value="
                             << *reinterpret_cast<const CppType*>(src);
         return std::string(buf);
@@ -1069,8 +1068,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
     }
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        int length =
-                DoubleToBuffer(*reinterpret_cast<const CppType*>(src), MAX_DOUBLE_STR_LENGTH, buf);
+        int length = to_buffer(*reinterpret_cast<const CppType*>(src), MAX_DOUBLE_STR_LENGTH, buf);
         DCHECK(length >= 0) << "gcvt float failed, float value="
                             << *reinterpret_cast<const CppType*>(src);
         return std::string(buf);
@@ -1166,8 +1164,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256>
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
         auto value = StringParser::string_to_decimal<TYPE_DECIMAL256>(
-                scan_key.c_str(), scan_key.size(), BeConsts::MAX_DECIMAL256_PRECISION, scale,
-                &result);
+                scan_key.c_str(), cast_set<int>(scan_key.size()),
+                BeConsts::MAX_DECIMAL256_PRECISION, scale, &result);
         if (result == StringParser::PARSE_FAILURE) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL256>::from_string meet PARSE_FAILURE");
@@ -1275,8 +1273,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
         CppType tmp = *reinterpret_cast<const CppType*>(src);
         DateV2Value<DateTimeV2ValueType> value =
                 binary_cast<CppType, DateV2Value<DateTimeV2ValueType>>(tmp);
-        string format = "%Y-%m-%d %H:%i:%s.%f";
-        string res;
+        std::string format = "%Y-%m-%d %H:%i:%s.%f";
+        std::string res;
         res.resize(30 + SAFE_FORMAT_STRING_MARGIN);
         value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
                                             30 + SAFE_FORMAT_STRING_MARGIN);
@@ -1377,10 +1375,10 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
         return slice->to_string();
     }
 
-    static void deep_copy(void* dest, const void* src, vectorized::Arena* arena) {
+    static void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
-        l_slice->data = arena->alloc(r_slice->size);
+        l_slice->data = arena.alloc(r_slice->size);
         memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
@@ -1499,7 +1497,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <>
-struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_OBJECT>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BITMAP>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <>
@@ -1539,4 +1537,5 @@ inline const TypeInfo* get_collection_type_info<FieldType::OLAP_FIELD_TYPE_ARRAY
     return nullptr;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

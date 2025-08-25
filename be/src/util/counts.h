@@ -59,7 +59,7 @@ public:
         if (!_nums.empty()) {
             pdqsort(_nums.begin(), _nums.end());
             size_t size = _nums.size();
-            write_binary(size, buf);
+            buf.write_binary(size);
             buf.write(reinterpret_cast<const char*>(_nums.data()), sizeof(Ty) * size);
         } else {
             // convert _sorted_nums_vec to _nums and do seiralize again
@@ -70,7 +70,7 @@ public:
 
     void unserialize(vectorized::BufferReadable& buf) {
         size_t size;
-        read_binary(size, buf);
+        buf.read_binary(size);
         _nums.resize(size);
         auto buff = buf.read(sizeof(Ty) * size);
         memcpy(_nums.data(), buff.data, buff.size);

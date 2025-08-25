@@ -34,7 +34,6 @@
 
 #include "common/exception.h"
 #include "cpp/sync_point.h"
-#include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"

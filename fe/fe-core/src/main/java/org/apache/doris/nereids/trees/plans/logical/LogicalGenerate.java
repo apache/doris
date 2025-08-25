@@ -140,9 +140,10 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalGenerate",
+        return Utils.toSqlStringSkipNull("LogicalGenerate",
                 "generators", generators,
-                "generatorOutput", generatorOutput
+                "generatorOutput", generatorOutput,
+                "stats", statistics
         );
     }
 

@@ -17,14 +17,14 @@
 
 #include "vec/json/parse2column.h"
 
-#include <assert.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
-#include <stddef.h>
 
 #include <algorithm>
+#include <cassert>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -37,8 +37,8 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
@@ -99,16 +99,16 @@ public:
 
 SimpleObjectPool<JsonParser> parsers_pool;
 
-using Node = typename ColumnObject::Subcolumns::Node;
+using Node = typename ColumnVariant::Subcolumns::Node;
 /// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
 /// and replaces all scalars or nested arrays to @replacement at that level.
 class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
 public:
     FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
             : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
-    template <typename T>
-    Field operator()(const T& x) const {
-        if constexpr (std::is_same_v<T, Array>) {
+    template <PrimitiveType T>
+    Field operator()(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+        if constexpr (T == TYPE_ARRAY) {
             if (num_dimensions_to_keep == 0) {
                 return replacement;
             }
@@ -118,7 +118,7 @@ public:
                 res[i] = apply_visitor(
                         FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
             }
-            return res;
+            return Field::create_field<TYPE_ARRAY>(res);
         } else {
             return replacement;
         }
@@ -132,7 +132,7 @@ private:
 template <typename ParserImpl>
 void parse_json_to_variant(IColumn& column, const char* src, size_t length,
                            JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
-    auto& column_object = assert_cast<ColumnObject&>(column);
+    auto& column_variant = assert_cast<ColumnVariant&>(column);
     std::optional<ParseResult> result;
     /// Treat empty string as an empty object
     /// for better CAST from String to Object.
@@ -149,29 +149,43 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
         // Treat as string
         PathInData root_path;
-        Field field(String(src, length));
+        Field field = Field::create_field<TYPE_STRING>(String(src, length));
         result = ParseResult {{root_path}, {field}};
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
-    size_t old_num_rows = column_object.size();
+    size_t old_num_rows = column_variant.rows();
+    if (config.enable_flatten_nested) {
+        // here we should check the paths in variant and paths in result,
+        // if two paths which same prefix have different structure, we should throw an exception
+        std::vector<PathInData> check_paths;
+        for (const auto& entry : column_variant.get_subcolumns()) {
+            check_paths.push_back(entry->path);
+        }
+        check_paths.insert(check_paths.end(), paths.begin(), paths.end());
+        THROW_IF_ERROR(vectorized::schema_util::check_variant_has_no_ambiguous_paths(check_paths));
+    }
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
-        get_field_info(values[i], &field_info);
-        if (WhichDataType(field_info.scalar_type_id).is_nothing()) {
+        schema_util::get_field_info(values[i], &field_info);
+        if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
             continue;
         }
-        if (column_object.get_subcolumn(paths[i], i) == nullptr) {
+        if (column_variant.get_subcolumn(paths[i], i) == nullptr) {
             if (paths[i].has_nested_part()) {
-                column_object.add_nested_subcolumn(paths[i], field_info, old_num_rows);
+                column_variant.add_nested_subcolumn(paths[i], field_info, old_num_rows);
             } else {
-                column_object.add_sub_column(paths[i], old_num_rows);
+                column_variant.add_sub_column(paths[i], old_num_rows);
             }
         }
-        auto* subcolumn = column_object.get_subcolumn(paths[i], i);
+        auto* subcolumn = column_variant.get_subcolumn(paths[i], i);
         if (!subcolumn) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
                                    paths[i].get_path());
+        }
+        if (subcolumn->cur_num_of_defaults() > 0) {
+            subcolumn->insert_many_defaults(subcolumn->cur_num_of_defaults());
+            subcolumn->reset_current_num_of_defaults();
         }
         if (subcolumn->size() != old_num_rows) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
@@ -181,16 +195,30 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         subcolumn->insert(std::move(values[i]), std::move(field_info));
     }
     // /// Insert default values to missed subcolumns.
-    const auto& subcolumns = column_object.get_subcolumns();
+    const auto& subcolumns = column_variant.get_subcolumns();
     for (const auto& entry : subcolumns) {
         if (entry->data.size() == old_num_rows) {
-            bool inserted = column_object.try_insert_default_from_nested(entry);
-            if (!inserted) {
-                entry->data.insert_default();
+            // Handle nested paths differently from simple paths
+            if (entry->path.has_nested_part()) {
+                // Try to insert default from nested, if failed, insert regular default
+                bool success = UNLIKELY(column_variant.try_insert_default_from_nested(entry));
+                if (!success) {
+                    entry->data.insert_default();
+                }
+            } else {
+                // For non-nested paths, increment default counter
+                entry->data.increment_default_counter();
             }
         }
     }
-    column_object.incr_num_rows();
+    column_variant.incr_num_rows();
+    auto sparse_column = column_variant.get_sparse_column();
+    if (sparse_column->size() == old_num_rows) {
+        sparse_column->assume_mutable()->insert_default();
+    }
+#ifndef NDEBUG
+    column_variant.check_consistency();
+#endif
 }
 
 // exposed interfaces
@@ -206,6 +234,7 @@ void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
         StringRef raw_json = raw_json_column.get_data_at(i);
         parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get(), config);
     }
+    column.finalize();
 }
 
 } // namespace doris::vectorized

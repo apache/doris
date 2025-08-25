@@ -405,6 +405,17 @@ suite("test_count_on_index_httplogs", "p0") {
             contains "pushAggOp=NONE"
         }
 
+        explain {
+            sql("select COUNT(23) from ${tableName6} where value1 > 20 and value2 > 5")
+            contains "pushAggOp=COUNT_ON_INDEX"
+        }
+
+        sql """ set disable_nereids_rules='COUNT_LITERAL_REWRITE'; """
+        explain {
+            sql("select COUNT(23) from ${tableName6} where value1 > 20 and value2 > 5")
+            contains "pushAggOp=COUNT_ON_INDEX"
+        }
+
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

@@ -107,8 +107,8 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
 
-    _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
-    _extract_probe_data_timer = ADD_TIMER(Base::profile(), "ExtractProbeDataTime");
+    _probe_timer = ADD_TIMER(Base::custom_profile(), "ProbeTime");
+    _extract_probe_data_timer = ADD_TIMER(Base::custom_profile(), "ExtractProbeDataTime");
     Parent& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     _dependency->block();
@@ -131,10 +131,7 @@ Status SetProbeSinkLocalState<is_intersect>::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
 
-    // Add the if check only for compatible with old optimiser
-    if (_shared_state->child_quantity > 1) {
-        _probe_columns.resize(_child_exprs.size());
-    }
+    _probe_columns.resize(_child_exprs.size());
     return Status::OK();
 }
 
@@ -211,8 +208,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     arg.init_iterator();
-                    auto& iter = arg.iterator;
-                    auto iter_end = arg.hash_table->end();
+                    auto& iter = arg.begin;
 
                     constexpr double need_shrink_ratio = 0.25;
                     bool is_need_shrink =
@@ -229,18 +225,18 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                 std::make_shared<typename HashTableCtxType::HashMapType>();
                         tmp_hash_table->reserve(
                                 local_state._shared_state->valid_element_in_hash_tbl);
-                        while (iter != iter_end) {
-                            auto& mapped = iter->get_second();
+                        while (iter != arg.end) {
+                            auto& mapped = iter.get_second();
                             auto* it = &mapped;
 
                             if constexpr (is_intersect) {
                                 if (it->visited) {
                                     it->visited = false;
-                                    tmp_hash_table->insert(iter->get_first(), iter->get_second());
+                                    tmp_hash_table->insert(iter);
                                 }
                             } else {
                                 if (!it->visited) {
-                                    tmp_hash_table->insert(iter->get_first(), iter->get_second());
+                                    tmp_hash_table->insert(iter);
                                 }
                             }
                             ++iter;
@@ -248,15 +244,15 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                         arg.hash_table = std::move(tmp_hash_table);
                     } else if (is_intersect) {
                         DCHECK_EQ(valid_element_in_hash_tbl, arg.hash_table->size());
-                        while (iter != iter_end) {
-                            auto& mapped = iter->get_second();
+                        while (iter != arg.end) {
+                            auto& mapped = iter.get_second();
                             auto* it = &mapped;
                             it->visited = false;
                             ++iter;
                         }
                     }
 
-                    arg.reset();
+                    arg.inited_iterator = false;
                 } else {
                     LOG(WARNING) << "Uninited hash table in Set Probe Sink Operator";
                 }

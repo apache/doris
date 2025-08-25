@@ -53,13 +53,18 @@ public class DecodeAsVarchar extends ScalarFunction
         super("decode_as_varchar", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DecodeAsVarchar(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DecodeAsVarchar withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new DecodeAsVarchar(children.get(0));
+        return new DecodeAsVarchar(getFunctionParams(children));
 
     }
 

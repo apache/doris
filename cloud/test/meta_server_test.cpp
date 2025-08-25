@@ -33,13 +33,15 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
@@ -62,7 +64,8 @@ int main(int argc, char** argv) {
 }
 
 namespace doris::cloud {
-void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id);
+void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                             KVStats* stats);
 } // namespace doris::cloud
 
 TEST(MetaServerTest, FQDNRefreshInstance) {
@@ -136,7 +139,7 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
 
     // Refresh instance with FQDN endpoint.
     config::hostname = "";
-    notify_refresh_instance(txn_kv, "fqdn_instance_id");
+    notify_refresh_instance(txn_kv, "fqdn_instance_id", nullptr);
 
     bool refreshed = false;
     for (size_t i = 0; i < 100; ++i) {
@@ -165,17 +168,16 @@ TEST(MetaServerTest, StartAndStop) {
 
     auto sp = SyncPoint::get_instance();
 
-    std::array<std::string, 3> sps {"MetaServer::start:1", "MetaServer::start:2",
-                                    "MetaServer::start:3"};
+    std::array<std::string, 2> sps {"MetaServer::start:1", "MetaServer::start:2"};
     // use structured binding for point alias (avoid multi lines of declaration)
-    auto [meta_server_start_1, meta_server_start_2, meta_server_start_3] = sps;
+    auto [meta_server_start_1, meta_server_start_2] = sps;
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](...) {
+    DORIS_CLOUD_DEFER {
         for (auto& i : sps) {
             sp->clear_call_back(i);
         } // redundant
         sp->disable_processing();
-    });
+    };
 
     auto foo = [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);
@@ -191,11 +193,6 @@ TEST(MetaServerTest, StartAndStop) {
     sp->set_call_back(meta_server_start_2, foo);
     ASSERT_EQ(server->start(&brpc_server), -1);
     sp->clear_call_back(meta_server_start_2);
-
-    // failed to start fdb metrics exporter
-    sp->set_call_back(meta_server_start_3, foo);
-    ASSERT_EQ(server->start(&brpc_server), -2);
-    sp->clear_call_back(meta_server_start_3);
 
     ASSERT_EQ(server->start(&brpc_server), 0);
     ASSERT_EQ(brpc_server.Start(0, &options), 0);

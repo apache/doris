@@ -52,14 +52,21 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     }
 
     sql """DROP TABLE IF EXISTS ${index_table}"""
+    int seed = Math.floor(Math.random() * 7) 
+    def var_def = "variant"
+    if (seed % 2 == 0) {
+        var_def = "variant<'repo.id' : int, 'repo.name' : string, 'repo.url' : string, 'repo.description' : string, 'repo.created_at' : string>"
+    } else {
+        var_def = "variant<properties(\"variant_max_subcolumns_count\" = \"100\")>"
+    }
     sql """
         CREATE TABLE IF NOT EXISTS ${index_table} (
             k bigint,
-            v variant
+            v ${var_def}
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v");
     """
     load_json_data.call(index_table, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(index_table, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
@@ -73,10 +80,12 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     def tablets = sql_return_maparray """ show tablets from ${index_table}; """
 
 
+    sql """ select count() from ${index_table}; """
+
     for (def tablet in tablets) {
         int beforeSegmentCount = 0
         String tablet_id = tablet.TabletId
-        (code, out, err) = curl("GET", tablet.CompactionStatus)
+        def (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def tabletJson = parseJson(out.trim())
@@ -90,10 +99,12 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     // trigger compactions for all tablets in ${tableName}
     trigger_and_wait_compaction(index_table, "full")
 
+    sql """ select count() from ${index_table}; """
+
     for (def tablet in tablets) {
         int afterSegmentCount = 0
         String tablet_id = tablet.TabletId
-        (code, out, err) = curl("GET", tablet.CompactionStatus)
+        def (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def tabletJson = parseJson(out.trim())

@@ -145,7 +145,7 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getMetaScanRange() start");
         }

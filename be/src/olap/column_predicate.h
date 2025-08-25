@@ -23,7 +23,7 @@
 #include "common/exception.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
@@ -61,10 +61,14 @@ ResultType get_zone_map_value(void* data_ptr) {
         res.from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
     } else if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
         static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        res.from_olap_date(*reinterpret_cast<uint24_t*>(data_ptr));
+        uint24_t date;
+        memcpy(&date, data_ptr, sizeof(uint24_t));
+        res.from_olap_date(date);
     } else if constexpr (primitive_type == PrimitiveType::TYPE_DATETIME) {
         static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        res.from_olap_datetime(*reinterpret_cast<uint64_t*>(data_ptr));
+        uint64_t datetime;
+        memcpy(&datetime, data_ptr, sizeof(uint64_t));
+        res.from_olap_datetime(datetime);
     } else {
         memcpy(reinterpret_cast<void*>(&res), data_ptr, sizeof(ResultType));
     }
@@ -170,7 +174,7 @@ public:
 
     //evaluate predicate on inverted
     virtual Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                            InvertedIndexIterator* iterator, uint32_t num_rows,
+                            IndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* bitmap) const {
         return Status::NotSupported(
                 "Not Implemented evaluate with inverted index, please check the predicate");

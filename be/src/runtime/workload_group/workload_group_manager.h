@@ -27,7 +27,6 @@
 namespace doris {
 
 class CgroupCpuCtl;
-class DummyWorkloadGroup;
 
 namespace vectorized {
 class Block;
@@ -47,11 +46,10 @@ public:
     std::chrono::system_clock::time_point enqueue_at;
     size_t last_mem_usage {0};
     double cache_ratio_ {0.0};
-    bool any_wg_exceed_limit_ {false};
     int64_t reserve_size_ {0};
 
     PausedQuery(std::shared_ptr<ResourceContext> resource_ctx_, double cache_ratio,
-                bool any_wg_exceed_limit, int64_t reserve_size);
+                int64_t reserve_size);
 
     int64_t elapsed_time() const {
         auto now = std::chrono::system_clock::now();
@@ -75,19 +73,17 @@ public:
 
     void delete_workload_group_by_ids(std::set<uint64_t> id_set);
 
-    WorkloadGroupPtr get_group(uint64_t wg_id);
+    WorkloadGroupPtr get_group(std::vector<uint64_t>& id_list);
+
+    // This method is used during workload group listener to update internal workload group's id.
+    // This method does not acquire locks, so it should be called in a locked context.
+    void reset_workload_group_id(std::string workload_group_name, uint64_t new_id);
 
     void do_sweep();
 
     void stop();
 
-    std::atomic<bool> _enable_cpu_hard_limit = false;
-
-    bool enable_cpu_soft_limit() const { return !_enable_cpu_hard_limit.load(); }
-
-    bool enable_cpu_hard_limit() const { return _enable_cpu_hard_limit.load(); }
-
-    void refresh_wg_weighted_memory_limit();
+    void refresh_workload_group_memory_state();
 
     void get_wg_resource_usage(vectorized::Block* block);
 
@@ -98,18 +94,17 @@ public:
 
     void handle_paused_queries();
 
-    std::shared_ptr<WorkloadGroup> dummy_workload_group() { return _dummy_workload_group; }
-
     friend class WorkloadGroupListener;
+    friend class ExecEnv;
 
 private:
+    Status create_internal_wg();
+
     WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
 
-    int64_t flush_memtable_from_group_(WorkloadGroupPtr wg);
     bool handle_single_query_(const std::shared_ptr<ResourceContext>& requestor,
                               size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
-    int64_t revoke_memory_from_other_overcommited_groups_(
-            std::shared_ptr<ResourceContext> requestor, int64_t need_free_mem);
+    int64_t revoke_memory_from_other_groups_();
     void update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit);
 
     std::shared_mutex _group_mutex;
@@ -121,8 +116,9 @@ private:
     // workload group, because we need do some coordinate work globally.
     std::mutex _paused_queries_lock;
     std::map<WorkloadGroupPtr, std::set<PausedQuery>> _paused_queries_list;
-
-    std::shared_ptr<WorkloadGroup> _dummy_workload_group {nullptr};
+    // If any query is cancelled when process memory is not enough, we set this to true.
+    // When there is not query in cancel state, this var is set to false.
+    bool revoking_memory_from_other_query_ = false;
 };
 
 } // namespace doris

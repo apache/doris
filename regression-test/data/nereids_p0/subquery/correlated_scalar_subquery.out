@@ -92,6 +92,15 @@
 22	\N
 24	\N
 
+-- !select_project3 --
+\N
+\N
+\N
+\N
+\N
+2
+2
+
 -- !select_join1 --
 3	4
 
@@ -105,4 +114,27 @@
 -- !select_having2 --
 1
 1
+
+-- !select_agg_project1 --
+3
+4
+
+-- !select_agg_project2 --
+2
+2
+
+-- !select_2_aggs --
+3
+3
+4
+4
+5
+
+-- !select_3_aggs --
+1
+2
+2
+3
+4
+5
 

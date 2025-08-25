@@ -24,7 +24,7 @@ struct MockSorter : public Sorter {
     MockSorter() = default;
     Status append_block(Block* block) override { return Status::OK(); }
 
-    Status prepare_for_read() override { return Status::OK(); }
+    Status prepare_for_read(bool is_spill) override { return Status::OK(); }
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override {
         *eos = true;

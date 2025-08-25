@@ -20,17 +20,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TAggregateExpr;
 import org.apache.doris.thrift.TTypeDesc;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -39,7 +34,7 @@ import java.util.Objects;
  * Return value of the grammar production that parses function
  * parameters. These parameters can be for scalar or aggregate functions.
  */
-public class FunctionParams implements Writable {
+public class FunctionParams {
 
     @SerializedName("isStar")
     private boolean isStar;
@@ -107,39 +102,6 @@ public class FunctionParams implements Writable {
 
     public void setIsDistinct(boolean v) {
         isDistinct = v;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeBoolean(isStar);
-        out.writeBoolean(isDistinct);
-        if (exprs != null) {
-            out.writeBoolean(true);
-            out.writeInt(exprs.size());
-            for (Expr expr : exprs) {
-                Expr.writeTo(expr, out);
-            }
-        } else {
-            out.writeBoolean(false);
-        }
-    }
-
-    private void readFields(DataInput in) throws IOException {
-        isStar = in.readBoolean();
-        isDistinct = in.readBoolean();
-        if (in.readBoolean()) {
-            exprs = Lists.newArrayList();
-            int size = in.readInt();
-            for (int i = 0; i < size; ++i) {
-                exprs.add(Expr.readIn(in));
-            }
-        }
-    }
-
-    public static FunctionParams read(DataInput in) throws IOException {
-        FunctionParams params = new FunctionParams();
-        params.readFields(in);
-        return params;
     }
 
     @Override

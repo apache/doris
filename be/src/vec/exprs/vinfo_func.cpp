@@ -36,19 +36,19 @@ class VExprContext;
 
 VInfoFunc::VInfoFunc(const TExprNode& node) : VExpr(node) {
     Field field;
-    switch (_type.type) {
+    switch (_data_type->get_primitive_type()) {
     case TYPE_BIGINT: {
-        field = Int64(node.info_func.int_value);
+        field = Field::create_field<TYPE_BIGINT>(Int64(node.info_func.int_value));
         break;
     }
     case TYPE_STRING:
     case TYPE_CHAR:
     case TYPE_VARCHAR: {
-        field = node.info_func.str_value;
+        field = Field::create_field<TYPE_STRING>(node.info_func.str_value);
         break;
     }
     default: {
-        DCHECK(false) << "Invalid type: " << _type.type;
+        DCHECK(false) << "Invalid type: " << _data_type->get_name();
         break;
     }
     }

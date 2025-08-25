@@ -18,12 +18,15 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -42,7 +45,12 @@ public class RegexpReplace extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE)
-                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT,
+                            VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
@@ -53,12 +61,44 @@ public class RegexpReplace extends ScalarFunction
     }
 
     /**
+     * constructor with 4 arguments.
+     */
+    public RegexpReplace(Expression arg0, Expression arg1, Expression arg2, Expression arg3) {
+        super("regexp_replace", arg0, arg1, arg2, arg3);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private RegexpReplace(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    /**
      * withChildren.
      */
     @Override
     public RegexpReplace withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 3);
-        return new RegexpReplace(children.get(0), children.get(1), children.get(2));
+        Preconditions.checkArgument(children.size() == 3 || children.size() == 4,
+                "RegexpReplace should have 3 or 4 children, but got: " + children.size());
+        return new RegexpReplace(getFunctionParams(children));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (children().size() == 3) {
+            return;
+        }
+        if (children().size() == 4) {
+            Expression value = child(3);
+            DataType type = value.getDataType();
+            if (!type.isStringLikeType()) {
+                throw new AnalysisException(
+                        "The fourth param of regexp_replace must be a string type: " + this.toSql());
+            }
+            if (!(value instanceof Literal)) {
+                throw new AnalysisException(
+                        "The fourth param of regexp_replace must be a constant value: " + this.toSql());
+            }
+        }
     }
 
     @Override

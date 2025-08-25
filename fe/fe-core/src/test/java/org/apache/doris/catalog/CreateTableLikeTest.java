@@ -17,14 +17,17 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
@@ -53,15 +56,22 @@ public class CreateTableLikeTest {
         UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-        Config.enable_odbc_mysql_broker_table = true;
+        connectContext = TestWithFeService.createDefaultCtx();
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
+
         String createDbStmtStr2 = "create database test2;";
-        CreateDbStmt createDbStmt2 = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr2, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt2);
+        logicalPlan = nereidsParser.parseSingle(createDbStmtStr2);
+        stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr2);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     @AfterClass
@@ -71,14 +81,18 @@ public class CreateTableLikeTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void createTableLike(String sql) throws Exception {
-        CreateTableLikeStmt createTableLikeStmt =
-                (CreateTableLikeStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTableLike(createTableLikeStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateTableLikeCommand command = (CreateTableLikeCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     private static void checkTableEqual(Table newTable, Table existedTable, int rollupSize) {
@@ -135,8 +149,8 @@ public class CreateTableLikeTest {
                 Env.getCurrentInternalCatalog().getDbOrDdlException("" + newDbName);
         Database existedDb = Env.getCurrentInternalCatalog()
                 .getDbOrDdlException("" + existedDbName);
-        MysqlTable newTbl = (MysqlTable) newDb.getTableOrDdlException(newTblName);
-        MysqlTable existedTbl = (MysqlTable) existedDb.getTableOrDdlException(existedTblName);
+        OlapTable newTbl = (OlapTable) newDb.getTableOrDdlException(newTblName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, 0);
     }
 
@@ -251,9 +265,8 @@ public class CreateTableLikeTest {
         // 8. creat non-OLAP table
         String createNonOlapTableSql =
                 "create table test.testMysqlTbl\n" + "(k1 DATE, k2 INT, k3 SMALLINT, k4 VARCHAR(2048), k5 DATETIME)\n"
-                        + "ENGINE=mysql\nPROPERTIES(\n" + "\"host\" = \"127.0.0.1\",\n" + "\"port\" = \"8239\",\n"
-                        + "\"user\" = \"mysql_passwd\",\n" + "\"password\" = \"mysql_passwd\",\n"
-                        + "\"database\" = \"mysql_db_test\",\n" + "\"table\" = \"mysql_table_test\");";
+                        + "ENGINE=OLAP\n" + "DUPLICATE KEY(k1, k2, k3)\n" + " DISTRIBUTED BY HASH(k1) BUCKETS 32\n" + "PROPERTIES (\n"
+                        + "\"replication_num\" = \"1\"\n" + ");";
         String createTableLikeSql8 = "create table test.testMysqlTbl_like like test.testMysqlTbl";
         String newDbName8 = "test";
         String existedDbName8 = "test";

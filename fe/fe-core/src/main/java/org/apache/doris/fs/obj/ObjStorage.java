@@ -29,12 +29,13 @@ import java.io.InputStream;
 
 /**
  * It is just used for reading remote object storage on cloud.
+ *
  * @param <C> cloud SDK Client
  */
-public interface ObjStorage<C> {
+public interface ObjStorage<C> extends AutoCloseable {
 
     // CHUNK_SIZE for multi part upload
-    public static final int CHUNK_SIZE = 5 * 1024 * 1024;
+    int CHUNK_SIZE = 5 * 1024 * 1024;
 
     C getClient() throws UserException;
 

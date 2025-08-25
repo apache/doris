@@ -37,7 +37,6 @@ class SlotDescriptor;
 namespace vectorized {
 class Block;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -49,6 +48,18 @@ public:
             : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {};
 
     ~JniReader() override = default;
+
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
+                       std::unordered_set<std::string>* missing_cols) override {
+        for (const auto& desc : _file_slot_descs) {
+            name_to_type->emplace(desc->col_name(), desc->type());
+        }
+        return Status::OK();
+    }
+
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override {
+        return _jni_connector->get_next_block(block, read_rows, eof);
+    }
 
     Status close() override {
         if (_jni_connector) {
@@ -83,13 +94,8 @@ public:
 
     ~MockJniReader() override = default;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
-
     Status init_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     Status close() override {
         if (_jni_connector) {
@@ -106,7 +112,7 @@ protected:
     }
 
 private:
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
 #include "common/compile_check_end.h"

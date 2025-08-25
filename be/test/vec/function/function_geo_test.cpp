@@ -51,12 +51,13 @@ TEST(VGeoFunctionsTest, function_geo_st_point_test) {
                         {{Null(), (double)5}, Null()},
                         {{(double)5, Null()}, Null()}};
     {
-        InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {Consted {TypeIndex::Float64}, TypeIndex::Float64};
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_DOUBLE},
+                                    PrimitiveType::TYPE_DOUBLE};
 
         for (const auto& line : data_set) {
             DataSet const_dataset = {line};
@@ -65,7 +66,8 @@ TEST(VGeoFunctionsTest, function_geo_st_point_test) {
         }
     }
     {
-        InputTypeSet input_types = {TypeIndex::Float64, Consted {TypeIndex::Float64}};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE,
+                                    Consted {PrimitiveType::TYPE_DOUBLE}};
 
         for (const auto& line : data_set) {
             DataSet const_dataset = {line};
@@ -78,7 +80,7 @@ TEST(VGeoFunctionsTest, function_geo_st_point_test) {
 TEST(VGeoFunctionsTest, function_geo_st_as_text) {
     std::string func_name = "st_astext";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoPoint point;
         auto cur_res = point.from_coord(24.7, 56.7);
@@ -95,7 +97,7 @@ TEST(VGeoFunctionsTest, function_geo_st_as_text) {
 TEST(VGeoFunctionsTest, function_geo_st_as_wkt) {
     std::string func_name = "st_aswkt";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoPoint point;
         auto cur_res = point.from_coord(24.7, 56.7);
@@ -112,7 +114,7 @@ TEST(VGeoFunctionsTest, function_geo_st_as_wkt) {
 TEST(VGeoFunctionsTest, function_geo_st_x) {
     std::string func_name = "st_x";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoPoint point;
         auto cur_res = point.from_coord(24.7, 56.7);
@@ -129,7 +131,7 @@ TEST(VGeoFunctionsTest, function_geo_st_x) {
 TEST(VGeoFunctionsTest, function_geo_st_y) {
     std::string func_name = "st_y";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoPoint point;
         auto cur_res = point.from_coord(24.7, 56.7);
@@ -146,8 +148,8 @@ TEST(VGeoFunctionsTest, function_geo_st_y) {
 TEST(VGeoFunctionsTest, function_geo_st_distance_sphere) {
     std::string func_name = "st_distance_sphere";
     {
-        InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64, TypeIndex::Float64,
-                                    TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE,
+                                    PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
 
         DataSet data_set = {
                 {{(double)116.35620117, (double)39.939093, (double)116.4274406433,
@@ -167,8 +169,8 @@ TEST(VGeoFunctionsTest, function_geo_st_distance_sphere) {
 TEST(VGeoFunctionsTest, function_geo_st_angle_sphere) {
     std::string func_name = "st_angle_sphere";
     {
-        InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64, TypeIndex::Float64,
-                                    TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE,
+                                    PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
 
         DataSet data_set = {
                 {{(double)116.35620117, (double)39.939093, (double)116.4274406433,
@@ -188,7 +190,8 @@ TEST(VGeoFunctionsTest, function_geo_st_angle_sphere) {
 TEST(VGeoFunctionsTest, function_geo_st_angle) {
     std::string func_name = "st_angle";
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         GeoPoint point1;
         auto cur_res1 = point1.from_coord(1, 0);
@@ -233,12 +236,13 @@ TEST(VGeoFunctionsTest, function_geo_st_azimuth) {
                         {{buf1, Null()}, Null()},
                         {{Null(), buf2}, Null()}};
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
 
         for (const auto& line : data_set) {
             DataSet const_dataset = {line};
@@ -247,7 +251,8 @@ TEST(VGeoFunctionsTest, function_geo_st_azimuth) {
         }
     }
     {
-        InputTypeSet input_types = {Consted {TypeIndex::String}, TypeIndex::String};
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                    PrimitiveType::TYPE_VARCHAR};
 
         for (const auto& line : data_set) {
             DataSet const_dataset = {line};
@@ -286,12 +291,13 @@ TEST(VGeoFunctionsTest, function_geo_st_contains) {
                         {{buf1, Null()}, Null()},
                         {{Null(), buf3}, Null()}};
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {Consted {TypeIndex::String}, TypeIndex::String};
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                    PrimitiveType::TYPE_VARCHAR};
 
         for (const auto& line : data_set) {
             DataSet const_dataset = {line};
@@ -300,7 +306,8 @@ TEST(VGeoFunctionsTest, function_geo_st_contains) {
         }
     }
     {
-        InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
 
         for (const auto& line : data_set) {
             DataSet const_dataset = {line};
@@ -313,7 +320,8 @@ TEST(VGeoFunctionsTest, function_geo_st_contains) {
 TEST(VGeoFunctionsTest, function_geo_st_circle) {
     std::string func_name = "st_circle";
     {
-        InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64, TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE,
+                                    PrimitiveType::TYPE_DOUBLE};
 
         GeoCircle circle;
         std::string buf;
@@ -332,7 +340,7 @@ TEST(VGeoFunctionsTest, function_geo_st_circle) {
 TEST(VGeoFunctionsTest, function_geo_st_geometryfromtext) {
     std::string func_name = "st_geometryfromtext";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoParseStatus status;
         std::string buf;
@@ -350,7 +358,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geometryfromtext) {
 TEST(VGeoFunctionsTest, function_geo_st_geomfromtext) {
     std::string func_name = "st_geomfromtext";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoParseStatus status;
         std::string buf;
@@ -368,7 +376,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromtext) {
 TEST(VGeoFunctionsTest, function_geo_st_linefromtext) {
     std::string func_name = "st_linefromtext";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoParseStatus status;
         std::string buf;
@@ -386,7 +394,7 @@ TEST(VGeoFunctionsTest, function_geo_st_linefromtext) {
 TEST(VGeoFunctionsTest, function_geo_st_polygon) {
     std::string func_name = "st_polygon";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoParseStatus status;
         std::string buf;
@@ -405,7 +413,7 @@ TEST(VGeoFunctionsTest, function_geo_st_polygon) {
 TEST(VGeoFunctionsTest, function_geo_st_polygonfromtext) {
     std::string func_name = "st_polygonfromtext";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoParseStatus status;
         std::string buf;
@@ -424,7 +432,7 @@ TEST(VGeoFunctionsTest, function_geo_st_polygonfromtext) {
 TEST(VGeoFunctionsTest, function_geo_st_area_square_meters) {
     std::string func_name = "st_area_square_meters";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoCircle circle;
         auto cur_res = circle.init(0, 0, 1);
@@ -440,7 +448,7 @@ TEST(VGeoFunctionsTest, function_geo_st_area_square_meters) {
 TEST(VGeoFunctionsTest, function_geo_st_area_square_km) {
     std::string func_name = "st_area_square_km";
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         GeoParseStatus status;
         std::string buf;

@@ -74,9 +74,12 @@ public class StringArithmetic {
      * Executable arithmetic functions concat
      */
     @ExecFunction(name = "concat")
-    public static Expression concatVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
-        String result = first.getValue() + second.getValue();
-        return castStringLikeLiteral(first, result);
+    public static Expression concatVarchar(StringLikeLiteral... values) {
+        final StringBuilder sb = new StringBuilder();
+        for (StringLikeLiteral value : values) {
+            sb.append(value.getValue());
+        }
+        return castStringLikeLiteral(values[0], sb.toString());
     }
 
     private static String substringImpl(String first, int second, int third) {
@@ -346,7 +349,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second) {
-        return new IntegerLiteral(second.getValue().indexOf(first.getValue()) + 1);
+        return locate(first, second, new IntegerLiteral(1));
     }
 
     /**
@@ -354,12 +357,40 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
-        int result = second.getValue().indexOf(first.getValue()) + 1;
-        if (third.getValue() <= 0 || !substringImpl(second.getValue(), third.getValue(),
-                second.getValue().codePointCount(0, second.getValue().length())).contains(first.getValue())) {
-            result = 0;
+        String substr = first.getValue();
+        String str = second.getValue();
+        int startPos = third.getValue();
+
+        // Handle empty substring case
+        if (substr.isEmpty() && str.isEmpty() && startPos == 1) {
+            return new IntegerLiteral(1);
         }
-        return new IntegerLiteral(result);
+
+        // Check if start position is invalid
+        int strLength = str.codePointCount(0, str.length());
+        if (startPos <= 0 || startPos > strLength) {
+            return new IntegerLiteral(0);
+        }
+
+        // Handle empty substring case
+        if (substr.isEmpty()) {
+            return new IntegerLiteral(startPos);
+        }
+
+        // Adjust the string based on start position (startPos is 1-indexed)
+        int offset = str.offsetByCodePoints(0, startPos - 1);
+        String adjustedStr = str.substring(offset);
+
+        // Find the match position
+        int matchPos = adjustedStr.indexOf(substr);
+        if (matchPos >= 0) {
+            // Calculate character position (not byte position)
+            int charPos = adjustedStr.codePointCount(0, matchPos);
+            // Return position in the original string (1-indexed)
+            return new IntegerLiteral(startPos + charPos);
+        } else {
+            return new IntegerLiteral(0);
+        }
     }
 
     /**
@@ -1028,5 +1059,4 @@ public class StringArithmetic {
         }
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
     }
-
 }

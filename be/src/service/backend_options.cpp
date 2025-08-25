@@ -17,13 +17,14 @@
 
 #include "service/backend_options.h"
 
+#include <absl/strings/str_split.h>
+
 #include <algorithm>
 #include <ostream>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "util/cidr.h"
 #include "util/network_util.h"
 
@@ -111,7 +112,7 @@ bool BackendOptions::analyze_priority_cidrs(const std::string& priority_networks
     }
     LOG(INFO) << "priority cidrs: " << priority_networks;
 
-    std::vector<std::string> cidr_strs = strings::Split(priority_networks, PRIORITY_CIDR_SEPARATOR);
+    std::vector<std::string> cidr_strs = absl::StrSplit(priority_networks, PRIORITY_CIDR_SEPARATOR);
 
     for (auto& cidr_str : cidr_strs) {
         CIDR cidr;

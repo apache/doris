@@ -18,7 +18,7 @@ under the License.
 =end
 Gem::Specification.new do |s|
   s.name            = 'logstash-output-doris'
-  s.version         = '1.1.0'
+  s.version         = '1.2.0'
   s.author          = 'Apache Doris'
   s.email           = 'dev@doris.apache.org'
   s.homepage        = 'http://doris.apache.org'
@@ -26,6 +26,8 @@ Gem::Specification.new do |s|
   s.summary         = "This output lets you `PUT` messages in a batched fashion to Doris HTTP endpoint"
   s.description     = "This gem is a logstash plugin required to be installed on top of the Logstash core pipeline using $LS_HOME/bin/plugin install gemname. This gem is not a stand-alone program"
   s.require_paths = ["lib"]
+
+  s.platform = 'java'
 
   # Files
   s.files = Dir['lib/**/*','spec/**/*','*.gemspec','*.md','Gemfile','LICENSE' ]
@@ -38,9 +40,11 @@ Gem::Specification.new do |s|
 
   # Gem dependencies
   s.add_runtime_dependency "logstash-core-plugin-api", ">= 1.60", "<= 2.99"
-  s.add_runtime_dependency "rest-client", '~> 2.1'
+  s.add_runtime_dependency 'jar-dependencies', ">= 0.0.2" # depends on logstash version
 
   s.add_development_dependency 'logstash-devutils', '~> 1.3'
   s.add_development_dependency 'sinatra', '~> 1.4'
   s.add_development_dependency 'webrick', '~> 1.9'
+
+  s.requirements << 'jar org.apache.httpcomponents.client5, httpclient5, 5.4.2'
 end

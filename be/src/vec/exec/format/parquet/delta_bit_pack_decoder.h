@@ -30,7 +30,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/port.h"
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/slice.h"
@@ -86,7 +85,7 @@ public:
     Status decode_fixed_byte_array(const std::vector<Slice>& decoded_vals,
                                    MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                    ColumnSelectVector& select_vector) {
-        auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
+        auto& column_data = reinterpret_cast<ColumnInt8&>(*doris_column).get_data();
         size_t data_index = column_data.size();
         column_data.resize(data_index + _type_length * (select_vector.num_values() -
                                                         select_vector.num_filtered()));
@@ -257,7 +256,7 @@ public:
         RETURN_IF_ERROR(_get_internal(_values.data(), cast_set<int32_t>(num_values - null_count),
                                       &num_valid_values));
 
-        if (PREDICT_FALSE(num_values - null_count != num_valid_values)) {
+        if (num_values - null_count != num_valid_values) [[unlikely]] {
             return Status::IOError("Expected to decode {} values, but decoded {} values.",
                                    num_values - null_count, num_valid_values);
         }
@@ -448,7 +447,7 @@ Status DeltaBitPackDecoder<T>::_init_block() {
 
 template <typename T>
 Status DeltaBitPackDecoder<T>::_init_mini_block(int bit_width) {
-    if (PREDICT_FALSE(bit_width > kMaxDeltaBitWidth)) {
+    if (bit_width > kMaxDeltaBitWidth) [[unlikely]] {
         return Status::InvalidArgument("delta bit width larger than integer bit width");
     }
     _delta_bit_width = bit_width;
@@ -466,8 +465,8 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
     }
     uint32_t i = 0;
     while (i < num_values) {
-        if (PREDICT_FALSE(_values_remaining_current_mini_block == 0)) {
-            if (PREDICT_FALSE(!_block_initialized)) {
+        if (_values_remaining_current_mini_block == 0) [[unlikely]] {
+            if (!_block_initialized) [[unlikely]] {
                 buffer[i++] = _last_value;
                 DCHECK_EQ(i, 1); // we're at the beginning of the page
                 if (i == num_values) {
@@ -512,7 +511,7 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
     }
     _total_values_remaining -= num_values;
 
-    if (PREDICT_FALSE(_total_values_remaining == 0)) {
+    if (_total_values_remaining == 0) [[unlikely]] {
         if (!_bit_reader->Advance(_delta_bit_width * _values_remaining_current_mini_block)) {
             return Status::IOError("Skip padding EOF");
         }

@@ -41,14 +41,33 @@
 #include <iostream>
 #include <random>
 
+#include "absl/strings/substitute.h"
 #include "gflags/gflags.h"
-#include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 
-using strings::Substitute;
-
 DEFINE_bool(gen_out, false, "generate expected check data for test");
+DEFINE_bool(
+        gen_regression_case, false,
+        "generate regression test cases corrresponding to ut cases for ut cases that support it");
+
+const std::string kApacheLicenseHeader =
+        R"(// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+)";
 
 namespace doris {
 
@@ -67,7 +86,8 @@ bool GetBooleanEnvironmentVariable(const char* env_var_name) {
     if ((strcasecmp(e, "true") == 0) || (strcasecmp(e, "1") == 0) || (strcasecmp(e, "yes") == 0)) {
         return true;
     }
-    LOG(FATAL) << Substitute("$0: invalid value for environment variable $0", e, env_var_name);
+    LOG(FATAL) << absl::Substitute("$0: invalid value for environment variable $1", e,
+                                   env_var_name);
     return false; // unreachable
 }
 
@@ -119,7 +139,7 @@ char rand_rng_char() {
     return (rand_rng_int(0, 1) ? 'a' : 'A') + rand_rng_int(0, 25);
 }
 std::string rand_rng_string(size_t length) {
-    string s;
+    std::string s;
     while (length--) {
         s += rand_rng_char();
     }

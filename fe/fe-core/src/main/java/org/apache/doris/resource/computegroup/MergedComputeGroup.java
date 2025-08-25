@@ -17,19 +17,25 @@
 
 package org.apache.doris.resource.computegroup;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupKey;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
+import java.util.List;
 import java.util.Set;
 
 public class MergedComputeGroup extends ComputeGroup {
 
     private Set<String> computeGroupSet;
 
-    public MergedComputeGroup(Set<String> computeGroupSet, SystemInfoService systemInfoService) {
-        super(MergedComputeGroup.class.getSimpleName(), MergedComputeGroup.class.getSimpleName(), systemInfoService);
+    public MergedComputeGroup(String mergedName, Set<String> computeGroupSet, SystemInfoService systemInfoService) {
+        super(mergedName, mergedName, systemInfoService);
         this.computeGroupSet = computeGroupSet;
     }
 
@@ -43,24 +49,22 @@ public class MergedComputeGroup extends ComputeGroup {
         return systemInfoService.getBackendListByComputeGroup(computeGroupSet);
     }
 
-    @Override
-    public String getId() {
-        throw new RuntimeException("MergedComputeGroup not implements getId.");
-    }
+    public List<WorkloadGroup> getWorkloadGroup(String wgName, WorkloadGroupMgr wgMgr) throws UserException {
+        List<WorkloadGroup> wgList = Lists.newArrayList();
 
-    @Override
-    public String getName() {
-        throw new RuntimeException("MergedComputeGroup not implements getName.");
-    }
-
-    // current main for UT
-    public Set<String> getComputeGroupNameSet() {
-        return computeGroupSet;
+        for (String cgName : computeGroupSet) {
+            WorkloadGroup wg = wgMgr.getWorkloadGroupByComputeGroup(WorkloadGroupKey.get(cgName, wgName));
+            if (wg == null) {
+                throw new UserException("Can not find workload group " + wgName + " in compute group " + cgName);
+            }
+            wgList.add(wg);
+        }
+        return wgList;
     }
 
     @Override
     public String toString() {
-        return String.format("%s %s", MergedComputeGroup.class.getSimpleName(), String.join(",", computeGroupSet));
+        return String.format("%s name=%s ", MergedComputeGroup.class.getSimpleName(), name);
     }
 
 }

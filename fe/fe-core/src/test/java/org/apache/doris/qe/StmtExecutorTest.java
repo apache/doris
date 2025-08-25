@@ -17,867 +17,263 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateFileStmt;
-import org.apache.doris.analysis.CreateFunctionStmt;
-import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.KillStmt;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.SetStmt;
-import org.apache.doris.analysis.ShowAuthorStmt;
-import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.UseStmt;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.common.profile.Profile;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.planner.OriginalPlanner;
+import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import java_cup.runtime.Symbol;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.IOException;
-import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.List;
-import java.util.SortedMap;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class StmtExecutorTest {
-    private ConnectContext ctx;
-    private QueryState state;
-    private ConnectScheduler scheduler;
-    @Mocked
-    private MysqlChannel channel = null;
+public class StmtExecutorTest extends TestWithFeService {
 
-    @BeforeClass
-    public static void start() {
-        MetricRepo.init();
-        try {
-            FrontendOptions.init();
-        } catch (UnknownHostException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
-    }
-
-    @Before
-    public void setUp() throws IOException {
-        state = new QueryState();
-        scheduler = new ConnectScheduler(10);
-        ctx = new ConnectContext();
-
-        SessionVariable sessionVariable = new SessionVariable();
-        new Expectations(ctx) {
-            {
-                ctx.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                ConnectContext.get().getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-            }
-        };
-
-        MysqlSerializer serializer = MysqlSerializer.newInstance();
-        Env env = AccessTestUtil.fetchAdminCatalog();
-        new Expectations(channel) {
-            {
-                channel.sendOnePacket((ByteBuffer) any);
-                minTimes = 0;
-
-                channel.reset();
-                minTimes = 0;
-
-                channel.getSerializer();
-                minTimes = 0;
-                result = serializer;
-            }
-        };
-
-        new Expectations(ctx) {
-            {
-                ctx.getMysqlChannel();
-                minTimes = 0;
-                result = channel;
-
-                ctx.getEnv();
-                minTimes = 0;
-                result = env;
-
-                ctx.getState();
-                minTimes = 0;
-                result = state;
-
-                ctx.getConnectScheduler();
-                minTimes = 0;
-                result = scheduler;
-
-                ctx.getConnectionId();
-                minTimes = 0;
-                result = 1;
-
-                ctx.getQualifiedUser();
-                minTimes = 0;
-                result = "testUser";
-
-                ctx.getForwardedStmtId();
-                minTimes = 0;
-                result = 123L;
-
-                ctx.setKilled();
-                minTimes = 0;
-
-                ctx.updateReturnRows(anyInt);
-                minTimes = 0;
-
-                ctx.setQueryId((TUniqueId) any);
-                minTimes = 0;
-
-                ctx.queryId();
-                minTimes = 0;
-                result = new TUniqueId();
-
-                ctx.getStartTime();
-                minTimes = 0;
-                result = 0L;
-
-                ctx.getDatabase();
-                minTimes = 0;
-                result = "testDb";
-
-                ctx.setStmtId(anyLong);
-                minTimes = 0;
-
-                ctx.getStmtId();
-                minTimes = 0;
-                result = 1L;
-            }
-        };
-    }
-
-    // For unknown reasons, this test fails after adding TQueryOptions to the 135th field
-    @Disabled
-    public void testSelect(@Mocked QueryStmt queryStmt,
-                           @Mocked SqlParser parser,
-                           @Mocked OriginalPlanner planner,
-                           @Mocked Coordinator coordinator,
-                           @Mocked Profile profile) throws Exception {
-        Env env = Env.getCurrentEnv();
-        Deencapsulation.setField(env, "canRead", new AtomicBoolean(true));
-
-        new Expectations() {
-            {
-                queryStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                queryStmt.getColLabels();
-                minTimes = 0;
-                result = Lists.<String>newArrayList();
-
-                queryStmt.getResultExprs();
-                minTimes = 0;
-                result = Lists.<Expr>newArrayList();
-
-                queryStmt.isExplain();
-                minTimes = 0;
-                result = false;
-
-                queryStmt.getTables((Analyzer) any, anyBoolean, (SortedMap) any, Sets.newHashSet());
-                minTimes = 0;
-
-                queryStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                queryStmt.rewriteExprs((ExprRewriter) any);
-                minTimes = 0;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(queryStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-
-                planner.plan((QueryStmt) any, (TQueryOptions) any);
-                minTimes = 0;
-
-                // mock coordinator
-                coordinator.exec();
-                minTimes = 0;
-
-                coordinator.getNext();
-                minTimes = 0;
-                result = new RowBatch();
-
-                coordinator.getJobId();
-                minTimes = 0;
-                result = -1L;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-            }
-        };
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
-        stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.EOF, state.getStateType());
+    @Override
+    protected void runBeforeAll() throws Exception {
+        Config.allow_replica_on_same_host = true;
+        FeConstants.runningUnitTest = true;
+        InternalSchemaInitializer.createDb();
+        InternalSchemaInitializer.createTbl();
+        createDatabase("testDb");
     }
 
     @Test
-    public void testShow(@Mocked ShowStmt showStmt, @Mocked SqlParser parser,
-            @Mocked ShowExecutor executor) throws Exception {
-        new Expectations() {
-            {
-                showStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                showStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                showStmt.toSelectStmt((Analyzer) any);
-                minTimes = 0;
-                result = null;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(showStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-
-                // mock show
-                List<List<String>> rows = Lists.newArrayList();
-                rows.add(Lists.newArrayList("abc", "bcd"));
-                executor.execute();
-                minTimes = 0;
-                result = new ShowResultSet(new ShowAuthorStmt().getMetaData(), rows);
-            }
-        };
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+    public void testShow() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.EOF, state.getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testShowNull(@Mocked ShowStmt showStmt, @Mocked SqlParser parser,
-            @Mocked ShowExecutor executor) throws Exception {
-        new Expectations() {
-            {
-                showStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                showStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                showStmt.toSelectStmt((Analyzer) any);
-                minTimes = 0;
-                result = null;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(showStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-
-                // mock show
-                List<List<String>> rows = Lists.newArrayList();
-                rows.add(Lists.newArrayList("abc", "bcd"));
-                executor.execute();
-                minTimes = 0;
-                result = null;
-            }
-        };
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+    public void testShowNull() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testKill(@Mocked KillStmt killStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                killStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                killStmt.getConnectionId();
-                minTimes = 0;
-                result = 1L;
-
-                killStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(killStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        new Expectations(scheduler) {
-            {
-                // suicide
-                scheduler.getContext(1);
-                result = ctx;
-            }
-        };
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+    public void testKill() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testKillOtherFail(@Mocked KillStmt killStmt, @Mocked SqlParser parser,
-            @Mocked ConnectContext killCtx) throws Exception {
-        Env killEnv = AccessTestUtil.fetchAdminCatalog();
-
-        new Expectations() {
-            {
-                killStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                killStmt.getConnectionId();
-                minTimes = 0;
-                result = 1L;
-
-                killStmt.isConnectionKill();
-                minTimes = 0;
-                result = true;
-
-                killStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(killStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-
-                killCtx.getEnv();
-                minTimes = 0;
-                result = killEnv;
-
-                killCtx.getQualifiedUser();
-                minTimes = 0;
-                result = "blockUser";
-
-                killCtx.kill(true);
-                minTimes = 0;
-
-                killCtx.getConnectType();
-                minTimes = 0;
-                result = ConnectType.MYSQL;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-            }
-        };
-
-        new Expectations(scheduler) {
-            {
-                // suicide
-                scheduler.getContext(1);
-                result = killCtx;
-            }
-        };
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+    public void testKillOtherFail() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1000");
         stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testKillOther(@Mocked KillStmt killStmt, @Mocked SqlParser parser,
-            @Mocked ConnectContext killCtx) throws Exception {
-        Env killEnv = AccessTestUtil.fetchAdminCatalog();
-        new Expectations() {
-            {
-                killStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                killStmt.getConnectionId();
-                minTimes = 0;
-                result = 1;
-
-                killStmt.isConnectionKill();
-                minTimes = 0;
-                result = true;
-
-                killStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(killStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-
-                killCtx.getEnv();
-                minTimes = 0;
-                result = killEnv;
-
-                killCtx.getQualifiedUser();
-                minTimes = 0;
-                result = "killUser";
-
-                killCtx.kill(true);
-                minTimes = 0;
-
-                killCtx.getConnectType();
-                minTimes = 0;
-                result = ConnectType.MYSQL;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-            }
-        };
-
-        new Expectations(scheduler) {
-            {
-                // suicide
-                scheduler.getContext(1);
-                result = killCtx;
-            }
-        };
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+    public void testKillNoCtx() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1");
         stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testKillNoCtx(@Mocked KillStmt killStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                killStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                killStmt.getConnectionId();
-                minTimes = 0;
-                result = 1;
-
-                killStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(killStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        new Expectations(scheduler) {
-            {
-                scheduler.getContext(1);
-                result = null;
-            }
-        };
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+    public void testSet() throws Exception {
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testSet(@Mocked SetStmt setStmt, @Mocked SqlParser parser,
-            @Mocked SetExecutor executor) throws Exception {
-        new Expectations() {
-            {
-                setStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                setStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(setStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-
-                // Mock set
-                executor.execute();
-                minTimes = 0;
-            }
-        };
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
-        stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
-    }
-
-    @Test
-    public void testSetFail(@Mocked SetStmt setStmt, @Mocked SqlParser parser,
-            @Mocked SetExecutor executor) throws Exception {
-        new Expectations() {
-            {
-                setStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                setStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(setStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-
-                // Mock set
-                executor.execute();
-                minTimes = 0;
-                result = new DdlException("failed");
-            }
-        };
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
-        stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-    }
-
-    @Test
-    public void testDdl(@Mocked DdlStmt ddlStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                ddlStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                ddlStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(ddlStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        DdlExecutor ddlExecutor = new DdlExecutor();
-        new Expectations(ddlExecutor) {
-            {
-                // Mock ddl
-                DdlExecutor.execute((Env) any, (DdlStmt) any);
-                minTimes = 0;
-            }
-        };
-
-        StmtExecutor executor = new StmtExecutor(ctx, "");
+    public void testDdlFail() throws Exception {
+        StmtExecutor executor = new StmtExecutor(connectContext, "CREATE FILE \\\"ca.pem\\\"\\n\"\n"
+                + "                + \"PROPERTIES\\n\"\n"
+                + "                + \"(\\n\"\n"
+                + "                + \"   \\\"url\\\" = \\\"https://test.bj.bcebos.com/kafka-key/ca.pem\\\",\\n\"\n"
+                + "                + \"   \\\"catalog\\\" = \\\"kafka\\\"\\n\"\n"
+                + "                + \");");
         executor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testDdlFail(@Mocked DdlStmt ddlStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                ddlStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                ddlStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(ddlStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        DdlExecutor ddlExecutor = new DdlExecutor();
-        new Expectations(ddlExecutor) {
-            {
-                // Mock ddl
-                DdlExecutor.execute((Env) any, (DdlStmt) any);
-                minTimes = 0;
-                result = new DdlException("ddl fail");
-            }
-        };
-
-        StmtExecutor executor = new StmtExecutor(ctx, "");
+    public void testUse() throws Exception {
+        StmtExecutor executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testDdlFail2(@Mocked DdlStmt ddlStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                ddlStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                ddlStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(ddlStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        DdlExecutor ddlExecutor = new DdlExecutor();
-        new Expectations(ddlExecutor) {
-            {
-                // Mock ddl
-                DdlExecutor.execute((Env) any, (DdlStmt) any);
-                minTimes = 0;
-                result = new Exception("bug");
-            }
-        };
-
-        StmtExecutor executor = new StmtExecutor(ctx, "");
+    public void testUseFail() throws Exception {
+        StmtExecutor executor = new StmtExecutor(connectContext, "use nondb");
         executor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testUse(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                useStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                useStmt.getDatabase();
-                minTimes = 0;
-                result = "testDb";
-
-                useStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        StmtExecutor executor = new StmtExecutor(ctx, "");
+    public void testUseWithCatalog() throws Exception {
+        StmtExecutor executor = new StmtExecutor(connectContext, "use internal.testDb");
         executor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testUseFail(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                useStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                useStmt.getDatabase();
-                minTimes = 0;
-                result = "blockDb";
-
-                useStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        StmtExecutor executor = new StmtExecutor(ctx, "");
+    public void testUseWithCatalogFail() throws Exception {
+        StmtExecutor executor = new StmtExecutor(connectContext, "use internal.nondb");
         executor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
-    public void testUseWithCatalog(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                useStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                useStmt.getDatabase();
-                minTimes = 0;
-                result = "testDb";
-
-                useStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                useStmt.getCatalogName();
-                minTimes = 0;
-                result = InternalCatalog.INTERNAL_CATALOG_NAME;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        StmtExecutor executor = new StmtExecutor(ctx, "");
-        executor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
-    }
-
-    @Test
-    public void testUseWithCatalogFail(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                useStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                useStmt.getDatabase();
-                minTimes = 0;
-                result = "blockDb";
-
-                useStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                useStmt.getCatalogName();
-                minTimes = 0;
-                result = "testcatalog";
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        StmtExecutor executor = new StmtExecutor(ctx, "");
-        executor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-    }
-
-    @Test
-    public void testBlockSqlAst(@Mocked UseStmt useStmt, @Mocked CreateFileStmt createFileStmt,
-            @Mocked CreateFunctionStmt createFunctionStmt, @Mocked SqlParser parser) throws Exception {
-        new Expectations() {
-            {
-                useStmt.analyze((Analyzer) any);
-                minTimes = 0;
-
-                useStmt.getDatabase();
-                minTimes = 0;
-                result = "testDb";
-
-                useStmt.getRedirectStatus();
-                minTimes = 0;
-                result = RedirectStatus.NO_FORWARD;
-
-                useStmt.getCatalogName();
-                minTimes = 0;
-                result = InternalCatalog.INTERNAL_CATALOG_NAME;
-
-                Symbol symbol = new Symbol(0, Lists.newArrayList(createFileStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-
-        Config.block_sql_ast_names = "CreateFileStmt";
+    public void testBlockSqlAst() throws Exception {
+        useDatabase("testDb");
+        Config.block_sql_ast_names = "CreateFileCommand";
         StmtExecutor.initBlockSqlAstNames();
-        StmtExecutor executor = new StmtExecutor(ctx, "");
+        StmtExecutor executor = new StmtExecutor(connectContext, "CREATE FILE \"ca.pem\"\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "   \"url\" = \"https://test.bj.bcebos.com/kafka-key/ca.pem\",\n"
+                + "   \"catalog\" = \"kafka\"\n"
+                + ");");
         try {
             executor.execute();
         } catch (Exception ignore) {
             // do nothing
+            ignore.printStackTrace();
+            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-        Assert.assertTrue(state.getErrorMessage().contains("SQL is blocked with AST name: CreateFileStmt"));
 
-        Config.block_sql_ast_names = "AlterStmt, CreateFileStmt";
+        Config.block_sql_ast_names = "AlterStmt, CreateFileCommand";
         StmtExecutor.initBlockSqlAstNames();
-        executor = new StmtExecutor(ctx, "");
+        executor = new StmtExecutor(connectContext, "CREATE FILE \"ca.pem\"\n"
+                + "PROPERTIES\n"
+                + "(\"file_type\" = \"PEM\")");
         try {
             executor.execute();
         } catch (Exception ignore) {
-            // do nothing
+            ignore.printStackTrace();
+            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-        Assert.assertTrue(state.getErrorMessage().contains("SQL is blocked with AST name: CreateFileStmt"));
 
-        new Expectations() {
-            {
-                Symbol symbol = new Symbol(0, Lists.newArrayList(createFunctionStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-        Config.block_sql_ast_names = "CreateFunctionStmt, CreateFileStmt";
+        Config.block_sql_ast_names = "CreateFunctionStmt, CreateFileCommand";
         StmtExecutor.initBlockSqlAstNames();
-        executor = new StmtExecutor(ctx, "");
+        executor = new StmtExecutor(connectContext, "CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (\n"
+                + "   \"file\"=\"file:///path/to/java-udf-demo-jar-with-dependencies.jar\",\n"
+                + "   \"symbol\"=\"org.apache.doris.udf.AddOne\",\n"
+                + "   \"always_nullable\"=\"true\",\n"
+                + "   \"type\"=\"JAVA_UDF\"\n"
+                + ");");
         try {
             executor.execute();
         } catch (Exception ignore) {
-            // do nothing
+            ignore.printStackTrace();
+            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-        Assert.assertTrue(state.getErrorMessage().contains("SQL is blocked with AST name: CreateFunctionStmt"));
 
-        new Expectations() {
-            {
-                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
-                parser.parse();
-                minTimes = 0;
-                result = symbol;
-            }
-        };
-        executor = new StmtExecutor(ctx, "");
+        executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
 
         Config.block_sql_ast_names = "";
         StmtExecutor.initBlockSqlAstNames();
-        executor = new StmtExecutor(ctx, "");
+        executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testSendTextResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
+        OriginStatement stmt = new OriginStatement("", 1);
+
+        List<List<String>> rows = Lists.newArrayList();
+        List<String> row1 = Lists.newArrayList();
+        row1.add(null);
+        row1.add("row1");
+        List<String> row2 = Lists.newArrayList();
+        row2.add("1234");
+        row2.add("row2");
+        rows.add(row1);
+        rows.add(row2);
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column());
+        columns.add(new Column());
+        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
+        AtomicInteger i = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            byte[] expected0 = new byte[]{-5, 4, 114, 111, 119, 49};
+            byte[] expected1 = new byte[]{4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
+            ByteBuffer buffer = invocation.getArgument(0);
+            if (i.get() == 0) {
+                Assertions.assertArrayEquals(expected0, buffer.array());
+                i.getAndIncrement();
+            } else if (i.get() == 1) {
+                Assertions.assertArrayEquals(expected1, buffer.array());
+                i.getAndIncrement();
+            }
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
+        executor.sendTextResultRow(resultSet);
+    }
+
+    @Test
+    public void testSendBinaryResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
+        OriginStatement stmt = new OriginStatement("", 1);
+
+        List<List<String>> rows = Lists.newArrayList();
+        List<String> row1 = Lists.newArrayList();
+        row1.add(null);
+        row1.add("2025-01-01 01:02:03");
+        List<String> row2 = Lists.newArrayList();
+        row2.add("1234");
+        row2.add("2025-01-01 01:02:03.123456");
+        rows.add(row1);
+        rows.add(row2);
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column("col1", PrimitiveType.BIGINT));
+        columns.add(new Column("col2", PrimitiveType.DATETIMEV2));
+        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
+        AtomicInteger i = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
+            byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3, 64, -30, 1, 0};
+            ByteBuffer buffer = invocation.getArgument(0);
+            if (i.get() == 0) {
+                Assertions.assertArrayEquals(expected0, buffer.array());
+                i.getAndIncrement();
+            } else if (i.get() == 1) {
+                Assertions.assertArrayEquals(expected1, buffer.array());
+                i.getAndIncrement();
+            }
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
+        executor.sendBinaryResultRow(resultSet);
     }
 }

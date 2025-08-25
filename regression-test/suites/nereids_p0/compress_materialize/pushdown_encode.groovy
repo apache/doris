@@ -220,9 +220,9 @@ suite("pushdown_encode") {
             order by v;
            """
         contains("orderKeys=[encode_as_bigint(v)#10 asc null first]")
-        contains("outputs=[k#8, encode_as_bigint(v)#10], regularChildrenOutputs=[[k#4, encode_as_bigint(v)#11], [k#6, encode_as_bigint(v)#12]]")
-        contains("projects=[k1#0 AS `k`#4, encode_as_bigint(v1#1) AS `encode_as_bigint(v)`#11]")
-        contains("projects=[k2#2 AS `k`#6, encode_as_bigint(v2#3) AS `encode_as_bigint(v)`#12]")
+        contains("outputs=[k#8, encode_as_bigint(v)#10], regularChildrenOutputs=[[k#2, encode_as_bigint(v)#11], [k#6, encode_as_bigint(v)#12]]")
+        contains("projects=[k1#0 AS `k`#2, encode_as_bigint(v1#1) AS `encode_as_bigint(v)`#11]")
+        contains("projects=[k2#4 AS `k`#6, encode_as_bigint(v2#5) AS `encode_as_bigint(v)`#12]")
     }
 
     order_qt_union """

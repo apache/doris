@@ -19,23 +19,18 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 // only the following 2 formats are allowed
 // *
 // resource
-public class ResourcePattern implements Writable, GsonPostProcessable {
+public class ResourcePattern implements GsonPostProcessable {
     @SerializedName(value = "resourceName")
     private String resourceName;
 
@@ -115,17 +110,6 @@ public class ResourcePattern implements Writable, GsonPostProcessable {
     @Override
     public String toString() {
         return resourceName;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static ResourcePattern read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ResourcePattern.class);
     }
 
     @Override

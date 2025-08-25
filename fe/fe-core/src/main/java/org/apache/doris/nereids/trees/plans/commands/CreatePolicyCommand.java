@@ -152,7 +152,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 return new RowPolicy(policyId, policyName, tableNameInfo.getCtl(),
                         tableNameInfo.getDb(), tableNameInfo.getTbl(), user, roleName,
                         executor.getOriginStmt().originStmt, executor.getOriginStmt().idx, filterType.get(),
-                        translateToLegacyExpr(wherePredicate.get(), ctx));
+                        wherePredicate.get());
             default:
                 throw new AnalysisException("Unknown policy type: " + policyType);
         }

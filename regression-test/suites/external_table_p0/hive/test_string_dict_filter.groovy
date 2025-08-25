@@ -62,6 +62,24 @@ suite("test_string_dict_filter", "p0,external,hive,external_docker,external_dock
         qt_q15 """
         select count(o_orderpriority) from ( select (case when o_orderpriority = 'x' then '1' when o_orderpriority = 'y' then '2' else '0' end) as o_orderpriority from test_string_dict_filter_parquet ) as A where o_orderpriority = '0';
         """
+        qt_q16 """
+        select * from test_string_dict_filter_parquet where cast(o_orderstatus as string) = 'F';
+        """
+        qt_q17 """
+        select * from test_string_dict_filter_parquet where cast(o_orderstatus as string) = 'O';
+        """
+        qt_q18 """
+        select * from test_string_dict_filter_parquet where cast(o_orderstatus as string) in ('O', 'F');
+        """
+        qt_q19 """
+        select * from test_string_dict_filter_parquet where cast(o_orderpriority as string) is null;
+        """
+        qt_q20 """
+        select * from test_string_dict_filter_parquet where cast(o_orderpriority as string) is not null;
+        """
+        qt_q21 """
+        select * from test_string_dict_filter_parquet where cast(o_orderpriority as string) in ('5-LOW', NULL);
+        """
     }
     def q_orc = {
         qt_q01 """
@@ -108,6 +126,24 @@ suite("test_string_dict_filter", "p0,external,hive,external_docker,external_dock
         """
         qt_q15 """
         select count(o_orderpriority) from ( select (case when o_orderpriority = 'x' then '1' when o_orderpriority = 'y' then '2' else '0' end) as o_orderpriority from test_string_dict_filter_orc ) as A where o_orderpriority = '0';
+        """
+        qt_q16 """
+        select * from test_string_dict_filter_orc where cast(o_orderstatus as string) = 'F';
+        """
+        qt_q17 """
+        select * from test_string_dict_filter_orc where cast(o_orderstatus as string) = 'O';
+        """
+        qt_q18 """
+        select * from test_string_dict_filter_orc where cast(o_orderstatus as string) in ('O', 'F');
+        """
+        qt_q19 """
+        select * from test_string_dict_filter_orc where cast(o_orderpriority as string) is null;
+        """
+        qt_q20 """
+        select * from test_string_dict_filter_orc where cast(o_orderpriority as string) is not null;
+        """
+        qt_q21 """
+        select * from test_string_dict_filter_orc where cast(o_orderpriority as string) in ('5-LOW', NULL);
         """
     }
     String enabled = context.config.otherConfigs.get("enableHiveTest")

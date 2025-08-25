@@ -43,7 +43,7 @@ public class MVStatisticsTest extends TestWithFeService {
                 + "PROPERTIES(\n"
                 + "    \"replication_num\"=\"1\"\n"
                 + ");\n");
-        createMv("CREATE MATERIALIZED VIEW mv1 AS SELECT col3 , SUM(COL2) FROM t1 group by col3");
+        createMv("CREATE MATERIALIZED VIEW mv1 AS SELECT col3 as a1 , SUM(COL2) FROM t1 group by col3");
     }
 
     @Tested

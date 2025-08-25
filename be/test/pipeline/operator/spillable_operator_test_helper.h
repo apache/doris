@@ -27,7 +27,6 @@
 
 #include "common/object_pool.h"
 #include "pipeline/pipeline_task.h"
-#include "runtime/fragment_mgr.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -76,16 +75,6 @@ public:
     }
 };
 
-class MockFragmentManager : public FragmentMgr {
-public:
-    MockFragmentManager(Status& status_, ExecEnv* exec_env)
-            : FragmentMgr(exec_env), status(status_) {}
-    void cancel_query(const TUniqueId query_id, const Status reason) override { status = reason; }
-
-private:
-    Status& status;
-};
-
 class SpillableDebugPointHelper {
 public:
     SpillableDebugPointHelper(const std::string name)
@@ -124,7 +113,10 @@ public:
     std::unique_ptr<MockRuntimeState> runtime_state;
     std::unique_ptr<ObjectPool> obj_pool;
     std::shared_ptr<QueryContext> query_ctx;
-    std::shared_ptr<RuntimeProfile> runtime_profile;
+    std::unique_ptr<RuntimeProfile> operator_profile;
+    std::unique_ptr<RuntimeProfile> custom_profile;
+    std::unique_ptr<RuntimeProfile> common_profile;
+
     std::shared_ptr<PipelineTask> pipeline_task;
     DescriptorTbl* desc_tbl;
     static constexpr uint32_t TEST_PARTITION_COUNT = 8;

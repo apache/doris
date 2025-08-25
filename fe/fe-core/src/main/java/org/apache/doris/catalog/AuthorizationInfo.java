@@ -20,11 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
-import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
@@ -77,19 +75,6 @@ public class AuthorizationInfo implements Writable {
             out.writeInt(tableNameList.size());
             for (String tableName : tableNameList) {
                 Text.writeString(out, tableName);
-            }
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            dbName = Text.readString(in);
-        }
-        if (in.readBoolean()) {
-            tableNameList = Sets.newHashSet();
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                tableNameList.add(Text.readString(in));
             }
         }
     }

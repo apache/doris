@@ -43,4 +43,9 @@ suite("test_timezone") {
     qt_fold1 """ select cast('2020-12-12T12:12:12asia/shanghai' as datetime); """
     qt_fold2 """ select cast('2020-12-12T12:12:12america/los_angeLES' as datetime); """
     qt_fold3 """ select cast('2020-12-12T12:12:12Europe/pARIS' as datetime); """
+
+    qt_nodst "select cast('2010-01-05 08:15:30Europe/London' as datetime);"
+    qt_dst "select cast('2010-08-05 08:15:30Europe/London' as datetime);"
+    testFoldConst ("select cast('2010-01-05 08:15:30Europe/London' as datetime);")
+    testFoldConst ("select cast('2010-08-05 08:15:30Europe/London' as datetime);")
 }

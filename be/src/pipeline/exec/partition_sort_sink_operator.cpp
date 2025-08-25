@@ -41,24 +41,26 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     }
     _topn_phase = p._topn_phase;
     _partition_exprs_num = p._partition_exprs_num;
-    _hash_table_size_counter = ADD_COUNTER(_profile, "HashTableSize", TUnit::UNIT);
-    _serialize_key_arena_memory_usage =
-            _profile->AddHighWaterMarkCounter("MemoryUsageSerializeKeyArena", TUnit::BYTES, "", 1);
+    _hash_table_size_counter = ADD_COUNTER(custom_profile(), "HashTableSize", TUnit::UNIT);
+    _serialize_key_arena_memory_usage = custom_profile()->AddHighWaterMarkCounter(
+            "MemoryUsageSerializeKeyArena", TUnit::BYTES, "", 1);
     _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageHashTable", TUnit::BYTES, 1);
-    _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
-    _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
-    _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
-    _sorted_data_timer = ADD_TIMER(_profile, "SortedDataTime");
-    _passthrough_rows_counter = ADD_COUNTER(_profile, "PassThroughRowsCounter", TUnit::UNIT);
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
+    _build_timer = ADD_TIMER(custom_profile(), "HashTableBuildTime");
+    _selector_block_timer = ADD_TIMER(custom_profile(), "SelectorBlockTime");
+    _emplace_key_timer = ADD_TIMER(custom_profile(), "EmplaceKeyTime");
+    _sorted_data_timer = ADD_TIMER(custom_profile(), "SortedDataTime");
+    _passthrough_rows_counter =
+            ADD_COUNTER(custom_profile(), "PassThroughRowsCounter", TUnit::UNIT);
     _sorted_partition_input_rows_counter =
-            ADD_COUNTER(_profile, "SortedPartitionInputRows", TUnit::UNIT);
+            ADD_COUNTER(custom_profile(), "SortedPartitionInputRows", TUnit::UNIT);
     _partition_sort_info = std::make_shared<PartitionSortInfo>(
             &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
-            p._child->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
-            p._top_n_algorithm, p._topn_phase);
-    _profile->add_info_string("PartitionTopNPhase", to_string(p._topn_phase));
-    _profile->add_info_string("PartitionTopNLimit", std::to_string(p._partition_inner_limit));
+            p._child->row_desc(), state, custom_profile(), p._has_global_limit,
+            p._partition_inner_limit, p._top_n_algorithm, p._topn_phase);
+    custom_profile()->add_info_string("PartitionTopNPhase", to_string(p._topn_phase));
+    custom_profile()->add_info_string("PartitionTopNLimit",
+                                      std::to_string(p._partition_inner_limit));
     RETURN_IF_ERROR(_init_hash_method());
     return Status::OK();
 }
@@ -150,7 +152,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
             local_state._value_places[i]->_blocks.clear();
-            RETURN_IF_ERROR(sorter->prepare_for_read());
+            RETURN_IF_ERROR(sorter->prepare_for_read(false));
             INJECT_MOCK_SLEEP(std::unique_lock<std::mutex> lc(
                     local_state._shared_state->prepared_finish_lock));
             sorter->set_prepared_finish();
@@ -168,8 +170,8 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             // this ready is also need, as source maybe block by self in some case
             local_state._dependency->set_ready_to_read();
         }
-        local_state._profile->add_info_string("HasPassThrough",
-                                              local_state._is_need_passthrough ? "Yes" : "No");
+        local_state.custom_profile()->add_info_string(
+                "HasPassThrough", local_state._is_need_passthrough ? "Yes" : "No");
     }
 
     return Status::OK();
@@ -216,7 +218,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         using AggState = typename HashMethodType::State;
 
                         AggState state(key_columns);
-                        size_t num_rows = input_block->rows();
+                        uint32_t num_rows = (uint32_t)input_block->rows();
                         agg_method.init_serialized_keys(key_columns, num_rows);
 
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {

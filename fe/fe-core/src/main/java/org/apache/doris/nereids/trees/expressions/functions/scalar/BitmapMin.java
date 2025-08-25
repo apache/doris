@@ -49,13 +49,18 @@ public class BitmapMin extends ScalarFunction
         super("bitmap_min", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapMin(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapMin withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapMin(children.get(0));
+        return new BitmapMin(getFunctionParams(children));
     }
 
     @Override

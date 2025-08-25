@@ -1,0 +1,23 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "product_id",
+    "type" : "BIGINT NOT NULL"
+  }, {
+    "id" : 1,
+    "name" : "price",
+    "type" : "DOUBLE"
+  }, {
+    "id" : 2,
+    "name" : "sales",
+    "type" : "BIGINT"
+  } ],
+  "highestFieldId" : 2,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ "product_id" ],
+  "options" : { },
+  "comment" : "",
+  "timeMillis" : 1750669861569
+}

@@ -37,26 +37,24 @@ namespace doris::vectorized {
 
 JdbcScanner::JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* local_state,
                          int64_t limit, const TupleId& tuple_id, const std::string& query_string,
-                         TOdbcTableType::type table_type, RuntimeProfile* profile)
+                         TOdbcTableType::type table_type, bool is_tvf, RuntimeProfile* profile)
         : Scanner(state, local_state, limit, profile),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
           _tuple_desc(nullptr),
-          _table_type(table_type) {
+          _table_type(table_type),
+          _is_tvf(is_tvf) {
     _init_profile(local_state->_scanner_profile);
+    _has_prepared = false;
 }
 
-Status JdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    VLOG_CRITICAL << "JdbcScanner::Prepare";
-    RETURN_IF_ERROR(Scanner::prepare(state, conjuncts));
-
-    if (_is_init) {
-        return Status::OK();
-    }
+Status JdbcScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    VLOG_CRITICAL << "JdbcScanner::init";
+    RETURN_IF_ERROR(Scanner::init(state, conjuncts));
 
     if (state == nullptr) {
-        return Status::InternalError("input pointer is NULL of VJdbcScanNode::prepare.");
+        return Status::InternalError("input pointer is NULL of VJdbcScanNode::init.");
     }
 
     // get tuple desc
@@ -69,7 +67,7 @@ Status JdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjun
     const JdbcTableDescriptor* jdbc_table =
             static_cast<const JdbcTableDescriptor*>(_tuple_desc->table_desc());
     if (jdbc_table == nullptr) {
-        return Status::InternalError("jdbc table pointer is NULL of VJdbcScanNode::prepare.");
+        return Status::InternalError("jdbc table pointer is NULL of VJdbcScanNode::init.");
     }
     _jdbc_param.catalog_id = jdbc_table->jdbc_catalog_id();
     _jdbc_param.driver_class = jdbc_table->jdbc_driver_class();
@@ -83,6 +81,7 @@ Status JdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjun
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.use_transaction = false; // not useful for scanner but only sink.
     _jdbc_param.table_type = _table_type;
+    _jdbc_param.is_tvf = _is_tvf;
     _jdbc_param.connection_pool_min_size = jdbc_table->connection_pool_min_size();
     _jdbc_param.connection_pool_max_size = jdbc_table->connection_pool_max_size();
     _jdbc_param.connection_pool_max_life_time = jdbc_table->connection_pool_max_life_time();
@@ -99,7 +98,6 @@ Status JdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjun
         return Status::InternalError("new a jdbc scanner failed.");
     }
 
-    _is_init = true;
     return Status::OK();
 }
 
@@ -109,7 +107,7 @@ Status JdbcScanner::open(RuntimeState* state) {
         return Status::InternalError("input pointer is NULL of VJdbcScanNode::open.");
     }
 
-    if (!_is_init) {
+    if (!_has_prepared) {
         return Status::InternalError("used before initialize of VJdbcScanNode::open.");
     }
     RETURN_IF_CANCELLED(state);
@@ -125,7 +123,7 @@ Status JdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
         return Status::InternalError("input is NULL pointer");
     }
 
-    if (!_is_init) {
+    if (!_has_prepared) {
         return Status::InternalError("used before initialize of VJdbcScanNode::get_next.");
     }
 
@@ -157,7 +155,6 @@ Status JdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
 }
 
 void JdbcScanner::_init_profile(const std::shared_ptr<RuntimeProfile>& profile) {
-    _is_init = false;
     _load_jar_timer = ADD_TIMER(profile, "LoadJarTime");
     _init_connector_timer = ADD_TIMER(profile, "InitConnectorTime");
     _check_type_timer = ADD_TIMER(profile, "CheckTypeTime");

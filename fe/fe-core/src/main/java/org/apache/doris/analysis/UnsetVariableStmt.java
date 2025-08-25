@@ -66,7 +66,7 @@ public class UnsetVariableStmt extends StatementBase implements NotFallbackInPar
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (StringUtils.isNullOrEmpty(variable) && !applyToAll) {
             throw new AnalysisException("You should specific the unset variable.");
         }

@@ -18,7 +18,6 @@
 package org.apache.doris.load;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -26,9 +25,6 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -116,7 +112,7 @@ import java.util.stream.Collectors;
  *  Although this transformation can be done automatically by system, but it change the "max_filter_ratio".
  *  So we have to let user decide what to do.
  */
-public class BrokerFileGroupAggInfo implements Writable {
+public class BrokerFileGroupAggInfo {
     private static final Logger LOG = LogManager.getLogger(BrokerFileGroupAggInfo.class);
 
     private Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
@@ -228,34 +224,5 @@ public class BrokerFileGroupAggInfo implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append(aggKeyToFileGroups);
         return sb.toString();
-    }
-
-    @Deprecated
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // The pull load source info doesn't need to be persisted.
-        // It will be recreated by origin stmt in prepare of load job.
-        // write 0 just for compatibility
-        out.writeInt(0);
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        int mapSize = in.readInt();
-        // just for compatibility, the following read objects are useless
-        for (int i = 0; i < mapSize; ++i) {
-            long id = in.readLong(); // CHECKSTYLE IGNORE THIS LINE
-            int listSize = in.readInt();
-            for (int j = 0; j < listSize; ++j) {
-                BrokerFileGroup fileGroup = BrokerFileGroup.read(in); // CHECKSTYLE IGNORE THIS LINE
-            }
-        }
-    }
-
-    @Deprecated
-    public static BrokerFileGroupAggInfo read(DataInput in) throws IOException {
-        BrokerFileGroupAggInfo sourceInfo = new BrokerFileGroupAggInfo();
-        sourceInfo.readFields(in);
-        return sourceInfo;
     }
 }

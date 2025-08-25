@@ -26,6 +26,7 @@
 #include "runtime/tablets_channel.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 CloudTabletsChannel::CloudTabletsChannel(CloudStorageEngine& engine, const TabletsChannelKey& key,
                                          const UniqueId& load_id, bool is_high_priority,
@@ -255,7 +256,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         it++;
     }
 
-    tablet_vec->Reserve(writers_to_commit.size());
+    tablet_vec->Reserve(static_cast<int>(writers_to_commit.size()));
     for (auto* writer : writers_to_commit) {
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
@@ -271,4 +272,5 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

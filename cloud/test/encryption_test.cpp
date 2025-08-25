@@ -19,14 +19,15 @@
 #include <gtest/gtest.h>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 using namespace doris;
 
@@ -186,8 +187,9 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
     {
         // mock falied to generate key
         auto sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
         sp->set_call_back("alikms::generate_data_key", [](auto&& args) {
             auto* ret = try_any_cast_ret<int>(args);
             ret->first = -1;
@@ -208,8 +210,9 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
     {
         // mock succ to generate key
         auto sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [&](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
         sp->set_call_back("alikms::generate_data_key", [&](auto&& args) {
             auto* ciphertext = try_any_cast<std::string*>(args[0]);
             *ciphertext = mock_encoded_ciphertext;
@@ -249,8 +252,9 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
 
         // mock abnormal decryption
         auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
         sp->set_call_back("alikms::decrypt", [](auto&& args) {
             auto* ret = try_any_cast_ret<int>(args);
             ret->first = -1;
@@ -267,8 +271,9 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
     // Decryption succeeded
     {
         auto sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
         sp->set_call_back("alikms::decrypt", [&](auto&& args) {
             auto* output = try_any_cast<std::string*>(args[0]);
             *output = mock_encoded_plaintext;
@@ -320,8 +325,9 @@ TEST(EncryptionTest, RootKeyTestWithKms3) {
     std::string mock_encoded_ciphertext = mock_encoded_plaintext;
     // mock succ to generate key
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("alikms::generate_data_key", [&](auto&& args) {
         auto* ciphertext = try_any_cast<std::string*>(args[0]);
         *ciphertext = mock_encoded_ciphertext;

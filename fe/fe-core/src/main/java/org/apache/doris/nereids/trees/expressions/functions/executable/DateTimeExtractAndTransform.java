@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -352,7 +353,8 @@ public class DateTimeExtractAndTransform {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
         return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
-                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
+                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()),
+                        ((int) date.getMicroSecond() * 1000))));
     }
 
     /**
@@ -532,6 +534,11 @@ public class DateTimeExtractAndTransform {
         return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s"));
     }
 
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalLiteral second) {
+        return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f"));
+    }
+
     /**
      * date transformation function: from_unixtime
      */
@@ -539,8 +546,7 @@ public class DateTimeExtractAndTransform {
     public static Expression fromUnixTime(BigIntLiteral second, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
 
-        // 32536771199L is max valid timestamp of mysql from_unix_time
-        if (second.getValue() < 0 || second.getValue() > 32536771199L) {
+        if (second.getValue() < 0) {
             return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
         }
 
@@ -549,9 +555,38 @@ public class DateTimeExtractAndTransform {
                 .atZone(ZoneId.of("UTC+0"))
                 .toOffsetDateTime()
                 .atZoneSameInstant(DateUtils.getTimeZone());
-        return dateFormat(new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(),
-                        dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond()),
-                format);
+        DateTimeV2Literal datetime = new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(),
+                dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
+        if (datetime.checkRange()) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        return dateFormat(datetime, format);
+    }
+
+    /**
+     * date transformation function: from_unixtime
+     */
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalLiteral second, StringLikeLiteral format) {
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
+
+        if (second.getValue().signum() < 0) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+
+        ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
+                .plusSeconds(second.getValue().longValue())
+                .atZone(ZoneId.of("UTC+0"))
+                .toOffsetDateTime()
+                .atZoneSameInstant(DateUtils.getTimeZone());
+        DateTimeV2Literal datetime = new DateTimeV2Literal(DateTimeV2Type.of(6), dateTime.getYear(),
+                dateTime.getMonthValue(),
+                dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                dateTime.getNano() / 1000);
+        if (datetime.checkRange()) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        return dateFormat(datetime, format);
     }
 
     /**
@@ -559,17 +594,17 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "unix_timestamp")
     public static Expression unixTimestamp(DateLiteral date) {
-        return new IntegerLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
+        return new BigIntLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
 
     @ExecFunction(name = "unix_timestamp")
     public static Expression unixTimestamp(DateTimeLiteral date) {
-        return new IntegerLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
+        return new BigIntLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
 
     @ExecFunction(name = "unix_timestamp")
     public static Expression unixTimestamp(DateV2Literal date) {
-        return new IntegerLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
+        return new BigIntLiteral(Integer.parseInt(getTimestamp(date.toJavaDateType())));
     }
 
     /**
@@ -577,12 +612,8 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "unix_timestamp")
     public static Expression unixTimestamp(DateTimeV2Literal date) {
-        if (date.getMicroSecond() == 0) {
-            return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(10, 0),
-                    new BigDecimal(getTimestamp(date.toJavaDateType())));
-        }
         int scale = date.getDataType().getScale();
-        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(10 + scale, scale),
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(12 + scale, scale),
                 new BigDecimal(getTimestamp(date.toJavaDateType())));
     }
 
@@ -600,17 +631,16 @@ public class DateTimeExtractAndTransform {
             // means the date string doesn't contain time fields.
             dateObj = LocalDate.parse(date.getValue(), formatter).atStartOfDay();
         }
-        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(16, 6),
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(18, 6),
                 new BigDecimal(getTimestamp(dateObj)));
     }
 
     private static String getTimestamp(LocalDateTime dateTime) {
-        LocalDateTime specialUpperBound = LocalDateTime.of(2038, 1, 19, 3, 14, 7);
         LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
         dateTime = dateTime.atZone(DateUtils.getTimeZone())
                         .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
                         .toLocalDateTime();
-        if (dateTime.isBefore(specialLowerBound) || dateTime.isAfter(specialUpperBound)) {
+        if (dateTime.isBefore(specialLowerBound)) {
             return "0";
         }
         Duration duration = Duration.between(
@@ -620,7 +650,7 @@ public class DateTimeExtractAndTransform {
         if (duration.getNano() == 0) {
             return String.valueOf(duration.getSeconds());
         } else {
-            return duration.getSeconds() + "." + (duration.getNano() / 1000);
+            return duration.getSeconds() + "." + String.format("%06d", duration.getNano() / 1000);
         }
     }
 
@@ -1196,6 +1226,16 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "quarters_diff")
+    public static Expression quartersDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
+        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+    }
+
+    @ExecFunction(name = "quarters_diff")
+    public static Expression quartersDiff(DateV2Literal t1, DateV2Literal t2) {
+        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
     }
 
     @ExecFunction(name = "years_diff")

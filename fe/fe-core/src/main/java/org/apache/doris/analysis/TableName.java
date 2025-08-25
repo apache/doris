@@ -20,27 +20,22 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Objects;
 import java.util.stream.Stream;
 
-public class TableName implements Writable {
+public class TableName {
     @SerializedName(value = "ctl")
     private String ctl;
     @SerializedName(value = "tbl")
@@ -76,23 +71,28 @@ public class TableName implements Writable {
         this.tbl = tbl;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(ctl)) {
-            ctl = analyzer.getDefaultCatalog();
-            if (Strings.isNullOrEmpty(ctl)) {
-                ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
-            }
+    public TableName(TableIf tableIf) throws AnalysisException {
+        String tableName = tableIf.getName();
+        if (StringUtils.isEmpty(tableName)) {
+            throw new AnalysisException("tableName is empty");
         }
-        if (Strings.isNullOrEmpty(db)) {
-            db = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(db)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
+        DatabaseIf db = tableIf.getDatabase();
+        if (db == null) {
+            throw new AnalysisException("db is null, tableName: " + tableName);
         }
+        CatalogIf catalog = db.getCatalog();
+        if (catalog == null) {
+            throw new AnalysisException("catalog is null, dbName: " + db.getFullName());
+        }
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        this.ctl = catalog.getName();
+        this.db = db.getFullName();
+        this.tbl = tableName;
+    }
 
-        if (Strings.isNullOrEmpty(tbl)) {
-            throw new AnalysisException("Table name is null");
-        }
+    public void analyze() throws AnalysisException {
     }
 
     public String getCtl() {
@@ -187,25 +187,6 @@ public class TableName implements Writable {
         }
         stringBuilder.append("`").append(tbl).append("`");
         return stringBuilder.toString();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
-            TableName fromJson = GsonUtils.GSON.fromJson(Text.readString(in), TableName.class);
-            ctl = fromJson.ctl;
-            db = fromJson.db;
-            tbl = fromJson.tbl;
-        } else {
-            ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
-            db = Text.readString(in);
-            tbl = Text.readString(in);
-        }
     }
 
     public TableName cloneWithoutAnalyze() {

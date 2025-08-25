@@ -24,18 +24,19 @@
 
 #include "common/status.h"
 #include "inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 
 namespace doris {
 class TabletIndex;
 namespace segment_v2 {
-class InvertedIndexFileWriter;
-class InvertedIndexFileReader;
+class IndexFileWriter;
+class IndexFileReader;
 
-Status compact_column(int64_t index_id,
-                      std::vector<std::unique_ptr<DorisCompoundReader>>& src_index_dirs,
-                      std::vector<lucene::store::Directory*>& dest_index_dirs,
-                      std::string_view tmp_path,
-                      const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
-                      const std::vector<uint32_t>& dest_segment_num_rows);
+Status compact_column(
+        int64_t index_id,
+        std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>& src_index_dirs,
+        std::vector<lucene::store::Directory*>& dest_index_dirs, std::string_view tmp_path,
+        const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
+        const std::vector<uint32_t>& dest_segment_num_rows);
 } // namespace segment_v2
 } // namespace doris

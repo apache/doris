@@ -18,12 +18,16 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -74,5 +78,38 @@ public class TableRefInfo {
         if (partitionNamesInfo != null) {
             partitionNamesInfo.validate();
         }
+    }
+
+    public String getTableAlias() {
+        return tableAlias;
+    }
+
+    public boolean hasAlias() {
+        return tableAlias != null;
+    }
+
+    /**
+     * translateToLegacyTableRef
+     */
+    public TableRef translateToLegacyTableRef() {
+        TableName tableName = tableNameInfo != null
+                ? new TableName(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl()) : null;
+        String alias = tableAlias;
+        PartitionNames partitionNames =
+                partitionNamesInfo != null ? partitionNamesInfo.translateToLegacyPartitionNames() : null;
+        ArrayList<Long> sampleTabletIds = tabletIdList != null ? new ArrayList<>(tabletIdList) : new ArrayList<>();
+        org.apache.doris.analysis.TableSample legacyTableSample =
+                tableSample != null ? tableSample.translateToLegacyTableSample() : null;
+        ArrayList<String> commonHints = relationHints != null ? new ArrayList<>(relationHints) : new ArrayList<>();
+        TableSnapshot tableSnapshot = tableSnapShot;
+        TableScanParams tableScanParams = scanParams;
+        return new TableRef(tableName,
+            alias,
+            partitionNames,
+            sampleTabletIds,
+            legacyTableSample,
+            commonHints,
+            tableSnapshot,
+            tableScanParams);
     }
 }

@@ -69,6 +69,7 @@ enum TStatusCode {
     ILLEGAL_STATE       = 37,
     NOT_AUTHORIZED      = 38,
     ABORTED             = 39,
+    DIRECTORY_NOT_EMPTY = 40,
     //REMOTE_ERROR        = 40,
     //SERVICE_UNAVAILABLE = 41, // Not used any more
     UNINITIALIZED       = 42,
@@ -77,6 +78,7 @@ enum TStatusCode {
     OLAP_ERR_VERSION_ALREADY_MERGED = 45,
     DATA_QUALITY_ERROR  = 46,
     INVALID_JSON_PATH   = 47,
+    JNI_ERROR           = 48,
 
     //VEC_EXCEPTION = 50,
     //VEC_LOGIC_ERROR = 51,

@@ -30,7 +30,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class SlotDescriptor;
 
 // Useful utility functions for runtime values (which are passed around as void*).
@@ -56,7 +56,7 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
     case TYPE_HLL:
     case TYPE_STRING:
     case TYPE_CHAR: {
-        return HashUtil::zlib_crc_hash(v, len, seed);
+        return HashUtil::zlib_crc_hash(v, (uint32_t)len, seed);
     }
 
     case TYPE_BOOLEAN:
@@ -78,8 +78,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
     case TYPE_DATETIME: {
         auto* date_val = (const VecDateTimeValue*)v;
         char buf[64];
-        int len = date_val->to_buffer(buf);
-        return HashUtil::zlib_crc_hash(buf, len, seed);
+        int date_len = date_val->to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, date_len, seed);
     }
 
     case TYPE_DATEV2: {
@@ -110,5 +110,5 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return 0;
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

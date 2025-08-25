@@ -80,7 +80,7 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
                 &data.data[BITSHUFFLE_PAGE_HEADER_SIZE],
                 decoded_slice.data + BITSHUFFLE_PAGE_HEADER_SIZE + size_of_dict_header,
                 num_element_after_padding, size_of_element, 0);
-        if (PREDICT_FALSE(bytes < 0)) {
+        if (bytes < 0) [[unlikely]] {
             // Ideally, this should not happen.
             warn_with_bitshuffle_error(bytes);
             return Status::RuntimeError("Unshuffle Process failed");

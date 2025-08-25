@@ -118,13 +118,11 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             return;
         }
 
-        SessionVariable sessionVariable = getSessionVariable();
-
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex == -1) {
-            curNodeCost = Cost.zero(sessionVariable);
-            curTotalCost = Cost.zero(sessionVariable);
+            curNodeCost = Cost.zero();
+            curTotalCost = Cost.zero();
             curChildIndex = 0;
             // List<request property to children>
             // [ child item: [leftProperties, rightProperties]]
@@ -360,8 +358,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         lowestCostChildren.clear();
         prevChildIndex = -1;
         curChildIndex = 0;
-        curTotalCost = Cost.zero(getSessionVariable());
-        curNodeCost = Cost.zero(getSessionVariable());
+        curTotalCost = Cost.zero();
+        curNodeCost = Cost.zero();
     }
 
     /**

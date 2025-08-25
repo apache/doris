@@ -24,6 +24,7 @@
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr_context.h"
@@ -37,11 +38,12 @@ Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
           _limit(limit),
           _profile(profile),
           _output_tuple_desc(_local_state->output_tuple_desc()),
-          _output_row_descriptor(_local_state->_parent->output_row_descriptor()) {
+          _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
+          _has_prepared(false) {
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
-Status Scanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     if (!conjuncts.empty()) {
         _conjuncts.resize(conjuncts.size());
         for (size_t i = 0; i != conjuncts.size(); ++i) {
@@ -76,11 +78,11 @@ Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block*
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-        auto status = get_block(state, &_origin_block, eos);
-        if (UNLIKELY(!status.ok())) return status;
+        RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
         return _do_projections(&_origin_block, block);
+    } else {
+        return get_block(state, block, eos);
     }
-    return get_block(state, block, eos);
 }
 
 Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
@@ -101,10 +103,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
         }
     }
 
-#ifndef BE_TEST
-    int64_t old_scan_rows = _num_rows_read;
-    int64_t old_scan_bytes = _num_byte_read;
-#endif
     {
         do {
             // if step 2 filter all rows of block, and block will be reused to get next rows,
@@ -135,13 +133,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
         } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
-
-#ifndef BE_TEST
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(_num_rows_read -
-                                                                            old_scan_rows);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(_num_byte_read -
-                                                                             old_scan_bytes);
-#endif
 
     if (state->is_cancelled()) {
         // TODO: Should return the specific ErrorStatus instead of just Cancelled.

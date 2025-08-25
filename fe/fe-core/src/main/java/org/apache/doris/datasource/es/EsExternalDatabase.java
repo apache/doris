@@ -45,9 +45,4 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
         return new EsExternalTable(tblId, localTableName, remoteTableName, (EsExternalCatalog) extCatalog,
                 (EsExternalDatabase) db);
     }
-
-    public void addTableForTest(EsExternalTable tbl) {
-        idToTbl.put(tbl.getId(), tbl);
-        tableNameToId.put(tbl.getName(), tbl.getId());
-    }
 }

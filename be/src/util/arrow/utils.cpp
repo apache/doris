@@ -20,8 +20,6 @@
 #include <arrow/pretty_print.h>
 #include <arrow/status.h>
 
-#include "gutil/strings/substitute.h"
-
 namespace doris {
 
 Status to_doris_status(const arrow::Status& status) {

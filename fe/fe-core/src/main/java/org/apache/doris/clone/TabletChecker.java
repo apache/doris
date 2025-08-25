@@ -17,8 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AdminCancelRepairTableStmt;
-import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -41,6 +39,8 @@ import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
@@ -491,25 +491,25 @@ public class TabletChecker extends MasterDaemon {
     }
 
     /*
-     * handle ADMIN REPAIR TABLE stmt send by user.
+     * handle ADMIN REPAIR TABLE command send by user.
      * This operation will add specified tables into 'prios', and tablets of this table will be set VERY_HIGH
      * when being scheduled.
      */
-    public void repairTable(AdminRepairTableStmt stmt) throws DdlException {
+    public void repairTable(AdminRepairTableCommand command) throws DdlException {
         RepairTabletInfo repairTabletInfo = getRepairTabletInfo(
-                stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
-        addPrios(repairTabletInfo, stmt.getTimeoutS() * 1000);
+                command.getDbName(), command.getTblName(), command.getPartitions());
+        addPrios(repairTabletInfo, command.getTimeoutS() * 1000);
         LOG.info("repair database: {}, table: {}, partition: {}",
                 repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     /*
-     * handle ADMIN CANCEL REPAIR TABLE stmt send by user.
+     * handle ADMIN CANCEL REPAIR TABLE command send by user.
      * This operation will remove the specified partitions from 'prios'
      */
-    public void cancelRepairTable(AdminCancelRepairTableStmt stmt) throws DdlException {
+    public void cancelRepairTable(AdminCancelRepairTableCommand command) throws DdlException {
         RepairTabletInfo repairTabletInfo
-                = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+                = getRepairTabletInfo(command.getDbName(), command.getTblName(), command.getPartitions());
         removePrios(repairTabletInfo);
         LOG.info("cancel repair database: {}, table: {}, partition: {}",
                 repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);

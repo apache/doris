@@ -17,9 +17,9 @@
 
 package org.apache.doris.external.iceberg;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
@@ -51,8 +51,8 @@ public class IcebergHadoopCatalogTest {
         properties.put("cos.region", "ap-beijing");
         Map<String, String> hadoopProps = PropertyConverter.convertToHadoopFSProperties(properties);
         String pathStr = "cosn://bucket1/namespace";
-        DFSFileSystem fs = (DFSFileSystem) FileSystemFactory.get("", StorageBackend.StorageType.HDFS, hadoopProps);
-        nativeFs = fs.nativeFileSystem(pathStr);
+        DFSFileSystem fs = (DFSFileSystem) FileSystemFactory.get(StorageProperties.createPrimary(hadoopProps));
+        nativeFs = fs.nativeFileSystem(new Path(pathStr));
 
         RemoteIterator<FileStatus> it = nativeFs.listStatusIterator(new Path(pathStr));
         while (it.hasNext()) {

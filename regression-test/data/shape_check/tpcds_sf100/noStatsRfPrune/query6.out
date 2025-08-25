@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((j.i_category = i.i_category)) otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4))))))
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((j.i_category = i.i_category)) otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(j.i_current_price))))
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((d.d_month_seq = date_dim.d_month_seq)) otherCondition=() build RFs:RF4 d_month_seq->[d_month_seq]
 --------------------------PhysicalProject

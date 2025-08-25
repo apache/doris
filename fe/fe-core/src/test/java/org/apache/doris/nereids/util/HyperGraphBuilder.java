@@ -370,7 +370,7 @@ public class HyperGraphBuilder {
             slotIdToColumnStats.put(slot,
                     new ColumnStatistic(count, count, null, 1, 0, 0, 0,
                             count, null, null, true,
-                            new Date().toString()));
+                            new Date().toString(), null));
         }
         return new Statistics(count, slotIdToColumnStats);
     }

@@ -31,7 +31,6 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -41,6 +40,8 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+
+#include "common/compile_check_begin.h"
 class Random : public IFunction {
 public:
     static constexpr auto name = "random";
@@ -73,7 +74,7 @@ public:
                 }
                 uint32_t seed = 0;
                 if (!context->get_constant_col(0)->column_ptr->is_null_at(0)) {
-                    seed = (*context->get_constant_col(0)->column_ptr)[0].get<int64_t>();
+                    seed = (uint32_t)(*context->get_constant_col(0)->column_ptr)[0].get<int64_t>();
                 }
                 generator->seed(seed);
             } else if (context->get_num_args() == 2) {
@@ -95,10 +96,6 @@ public:
             return _execute_int_range(context, block, arguments, result, input_rows_count);
         }
         return _execute_float(context, block, arguments, result, input_rows_count);
-    }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
     }
 
 private:
@@ -166,5 +163,5 @@ void register_function_random(SimpleFunctionFactory& factory) {
     factory.register_function<Random>();
     factory.register_alias(Random::name, "rand");
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

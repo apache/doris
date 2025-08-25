@@ -103,4 +103,72 @@ suite("test_array_map_function") {
         }             
 
         sql "DROP TABLE IF EXISTS ${tableName}"
+        sql "DROP TABLE IF EXISTS array_map_test"
+
+        sql """ CREATE TABLE IF NOT EXISTS array_map_test (
+            id INT,
+            int_array ARRAY<INT>,
+            string_array ARRAY<STRING>,
+            double_array ARRAY<DOUBLE>,
+            nested_array ARRAY<ARRAY<INT>>,
+            nullable_array ARRAY<INT> NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 10
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+        sql """ INSERT INTO array_map_test VALUES
+            (1, [1,2,3], ['a','b','c'], [1.1,2.2,3.3], [[1,2],[3,4]], NULL),
+            (2, [10,20], ['x','y'], [10.5,20.5], [[5,6],[7,8]], [1,2,3]),
+            (3, [], [], [], [], []),
+            (4, [100,200,300], ['one','two','three'], [100.1,200.2,300.3], [[9,10],[11,12]], [4,5,6]),
+            (5, [5], ['single'], [5.5], [[13]], [7]);
+        """
+        qt_select_25 """ 
+            SELECT id, array_map(x -> array_map(y -> y * 10, x), nested_array) FROM array_map_test order by id;
+        """ 
+
+        sql "DROP TABLE IF EXISTS db"
+
+        sql """ CREATE TABLE `db` (
+                `id` VARCHAR(255) NULL COMMENT '主键',
+                `QC_result_list` ARRAY<TEXT> NULL COMMENT '标签预刷'
+                ) ENGINE=OLAP
+                UNIQUE KEY(`id`)
+                DISTRIBUTED BY HASH(`id`) BUCKETS 10
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "is_being_synced" = "false",
+                "storage_medium" = "hdd",
+                "storage_format" = "V2",
+                "enable_unique_key_merge_on_write" = "true",
+                "light_schema_change" = "true",
+                "disable_auto_compaction" = "false",
+                "enable_single_replica_compaction" = "false"
+                );
+        """
+
+        sql """insert into db values(1,null);
+        """
+
+        qt_select_26 """
+            select  array_map(
+                            (x, y, z) -> concat(
+                                '|',
+                                x + "1",
+                                '|',
+                                x + "2",
+                                '|',
+                                x + "3"
+                            ),
+                            QC_result_list,
+                            QC_result_list,
+                            QC_result_list
+                        ) FROM db; 
+        """
+
+        qt_select_27 """ select QC_result_list, array_map(                 x -> concat(                     '|',                     x + "1"                 ),                 QC_result_list             ) FROM db; """
+        qt_select_28 """ select array_map((x,y)->x,[],[]); """
 }

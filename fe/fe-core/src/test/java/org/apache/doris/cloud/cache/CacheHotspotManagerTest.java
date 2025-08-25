@@ -23,11 +23,11 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Triple;
 import org.apache.doris.system.Backend;
 
 import mockit.Mock;
 import mockit.MockUp;
-import org.apache.commons.lang3.tuple.Triple;
 import org.junit.Assert;
 import org.junit.Test;
 

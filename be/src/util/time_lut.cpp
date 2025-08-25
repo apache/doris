@@ -91,35 +91,6 @@ uint8_t calc_weekday(uint64_t day_nr, bool is_sunday_first_day) {
     return (day_nr + 5L + (is_sunday_first_day ? 1L : 0L)) % 7;
 }
 
-uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
-    // date_day_offet_dict range from [1900-01-01, 2039-12-31]
-    if (date_day_offset_dict::can_speed_up_calc_daynr(year) &&
-        LIKELY(date_day_offset_dict::get_dict_init())) {
-        return date_day_offset_dict::get().daynr(year, month, day);
-    }
-
-    uint32_t delsum = 0;
-    int y = year;
-
-    if (year == 0 && month == 0) {
-        return 0;
-    }
-
-    /* Cast to int to be able to handle month == 0 */
-    delsum = 365 * y + 31 * (month - 1) + day;
-    if (month <= 2) {
-        // No leap year
-        y--;
-    } else {
-        // This is great!!!
-        // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
-        // 0, 0, 3, 3, 4, 4, 5, 5, 5,  6,  7,  8
-        delsum -= (month * 4 + 23) / 10;
-    }
-    // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
-    return delsum + y / 4 - y / 100 + y / 400;
-}
-
 uint32_t year_week(uint16_t yy, uint8_t month, uint8_t day) {
     //not covered by year_week_table, calculate at runtime
     uint16_t to_year = 0;

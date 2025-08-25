@@ -31,6 +31,8 @@
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "vec/common/hex.h"
 
 namespace doris::io {
@@ -101,12 +103,33 @@ size_t FDCache::file_reader_cache_size() {
 }
 
 Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
+    _iterator_dir_retry_cnt = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_fs_storage_iterator_dir_retry_cnt");
     _cache_base_path = _mgr->_cache_base_path;
-    RETURN_IF_ERROR(upgrade_cache_dir_if_necessary());
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
+        auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                            fmt::format("FileCacheVersionReader"));
+        SCOPED_ATTACH_TASK(mem_tracker);
+        Status st = upgrade_cache_dir_if_necessary();
+        if (!st.ok()) {
+            std::string msg = fmt::format(
+                    "file cache {} upgrade done with error. upgrade version failed. st={}",
+                    _cache_base_path, st.to_string());
+            if (doris::config::ignore_file_cache_dir_upgrade_failure) {
+                LOG(WARNING) << msg << " be conf: `ignore_file_cache_dir_upgrade_failure = true`"
+                             << " so we are ignoring the error (unsuccessful cache files will be "
+                                "removed)";
+                remove_old_version_directories();
+            } else {
+                LOG(WARNING) << msg << " please fix error and restart BE or"
+                             << " use be conf: `ignore_file_cache_dir_upgrade_failure = true`"
+                             << " to skip the error (unsuccessful cache files will be removed)";
+                throw doris::Exception(Status::InternalError(msg));
+            }
+        }
         load_cache_info_into_memory(mgr);
         mgr->_async_open_done = true;
-        LOG_INFO("FileCache {} lazy load done.", _cache_base_path);
+        LOG_INFO("file cache {} lazy load done.", _cache_base_path);
     });
     return Status::OK();
 }
@@ -231,8 +254,8 @@ Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const F
         if (!expr) {
             LOG(WARNING) << "TTL type file dose not need to change the suffix"
                          << " key=" << key.hash.to_string() << " offset=" << key.offset
-                         << " old_type=" << BlockFileCache::cache_type_to_string(key.meta.type)
-                         << " new_type=" << BlockFileCache::cache_type_to_string(type);
+                         << " old_type=" << cache_type_to_string(key.meta.type)
+                         << " new_type=" << cache_type_to_string(type);
         }
         DCHECK(expr);
         std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
@@ -265,7 +288,7 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, 
     } else if (type == FileCacheType::TTL) {
         return Path(dir) / std::to_string(offset);
     } else {
-        return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
+        return Path(dir) / (std::to_string(offset) + cache_type_to_surfix(type));
     }
 }
 
@@ -274,7 +297,7 @@ std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std
                                                                        FileCacheType type,
                                                                        bool is_tmp) {
     DCHECK(type == FileCacheType::TTL);
-    return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
+    return Path(dir) / (std::to_string(offset) + cache_type_to_surfix(type));
 }
 
 std::vector<std::string> FSFileCacheStorage::get_path_in_local_cache_all_candidates(
@@ -307,6 +330,99 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& va
     }
 }
 
+void FSFileCacheStorage::remove_old_version_directories() {
+    std::error_code ec;
+    std::filesystem::directory_iterator key_it {_cache_base_path, ec};
+    if (ec) {
+        LOG(WARNING) << "Failed to list directory: " << _cache_base_path
+                     << ", error: " << ec.message();
+        return;
+    }
+
+    std::vector<std::filesystem::path> file_list;
+    // the dir is concurrently accessed, so handle invalid iter with retry
+    bool success = false;
+    size_t retry_count = 0;
+    const size_t max_retry = 5;
+    while (!success && retry_count < max_retry) {
+        try {
+            ++retry_count;
+            for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
+                file_list.push_back(key_it->path());
+            }
+            success = true;
+        } catch (const std::exception& e) {
+            LOG(WARNING) << "Error occurred while iterating directory: " << e.what();
+            file_list.clear();
+        }
+    }
+
+    if (!success) {
+        LOG_WARNING("iteration of cache dir still failed after retry {} times.", max_retry);
+    }
+
+    auto path_itr = file_list.begin();
+    for (; path_itr != file_list.end(); ++path_itr) {
+        if (std::filesystem::is_directory(*path_itr)) {
+            std::string cache_key = path_itr->filename().native();
+            if (cache_key.size() > KEY_PREFIX_LENGTH) {
+                // try our best to delete, not care the return
+                (void)fs->delete_directory(*path_itr);
+            }
+        }
+    }
+    auto s = fs->delete_file(get_version_path());
+    if (!s.ok()) {
+        LOG(WARNING) << "deleted old version file failed: " << s.to_string();
+        return;
+    }
+    s = write_file_cache_version();
+    if (!s.ok()) {
+        LOG(WARNING) << "write new version file failed: " << s.to_string();
+        return;
+    }
+}
+
+Status FSFileCacheStorage::collect_directory_entries(const std::filesystem::path& dir_path,
+                                                     std::vector<std::string>& file_list) const {
+    std::error_code ec;
+    bool success = false;
+    size_t retry_count = 0;
+    const size_t max_retry = 5;
+
+    while (!success && retry_count < max_retry) {
+        try {
+            ++retry_count;
+            std::filesystem::directory_iterator it {dir_path, ec};
+            TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::collect_directory_entries");
+            if (ec) {
+                LOG(WARNING) << "Failed to list directory: " << dir_path
+                             << ", error: " << ec.message();
+                continue;
+            }
+
+            file_list.clear();
+            for (; it != std::filesystem::directory_iterator(); ++it) {
+                file_list.push_back(it->path().string());
+            }
+            success = true;
+        } catch (const std::exception& e) {
+            LOG(WARNING) << "Error occurred while iterating directory: " << dir_path
+                         << " err: " << e.what();
+            file_list.clear();
+        }
+    }
+
+    *_iterator_dir_retry_cnt << retry_count;
+
+    if (!success) {
+        LOG_WARNING("iteration of cache dir still failed after retry {} times.", max_retry);
+        return Status::InternalError("Failed to iterate directory after retries.");
+    }
+
+    return Status::OK();
+}
+
 Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
     /*
      * If use version2 but was version 1, do upgrade:
@@ -326,101 +442,111 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
     std::string version;
     std::error_code ec;
     int rename_count = 0;
+    int failure_count = 0;
     auto start_time = std::chrono::steady_clock::now();
 
     RETURN_IF_ERROR(read_file_cache_version(&version));
+
     LOG(INFO) << "Checking cache version upgrade. Current version: " << version
               << ", target version: 2.0, need upgrade: "
               << (USE_CACHE_VERSION2 && version != "2.0");
     if (USE_CACHE_VERSION2 && version != "2.0") {
         // move directories format as version 2.0
-        std::filesystem::directory_iterator key_it {_cache_base_path, ec};
-        if (ec) {
-            LOG(WARNING) << "Failed to list directory: " << _cache_base_path
-                         << ", error: " << ec.message();
-            return Status::InternalError("Failed to list dir {}: {}", _cache_base_path,
-                                         ec.message());
-        }
-        for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
-            if (key_it->is_directory()) {
-                std::string cache_key = key_it->path().filename().native();
-                if (cache_key.size() > KEY_PREFIX_LENGTH) {
-                    std::string key_prefix =
-                            Path(_cache_base_path) / cache_key.substr(0, KEY_PREFIX_LENGTH);
-                    bool exists = false;
-                    auto exists_status = fs->exists(key_prefix, &exists);
-                    if (!exists_status.ok()) {
-                        LOG(WARNING) << "Failed to check directory existence: " << key_prefix
-                                     << ", error: " << exists_status.to_string();
-                        return exists_status;
-                    }
-                    if (!exists) {
-                        auto create_status = fs->create_directory(key_prefix);
-                        if (!create_status.ok()) {
-                            LOG(WARNING) << "Failed to create directory: " << key_prefix
-                                         << ", error: " << create_status.to_string();
-                            return create_status;
+        std::vector<std::string> file_list;
+        file_list.reserve(10000);
+        RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, file_list));
+
+        // this directory_iterator should be a problem in concurrent access
+        for (const auto& file_path : file_list) {
+            try {
+                if (std::filesystem::is_directory(file_path)) {
+                    std::string cache_key = std::filesystem::path(file_path).filename().native();
+                    if (cache_key.size() > KEY_PREFIX_LENGTH) {
+                        if (cache_key.find('_') == std::string::npos) {
+                            cache_key += "_0";
+                        }
+                        std::string key_prefix =
+                                Path(_cache_base_path) / cache_key.substr(0, KEY_PREFIX_LENGTH);
+                        bool exists = false;
+                        auto exists_status = fs->exists(key_prefix, &exists);
+                        if (!exists_status.ok()) {
+                            LOG(WARNING) << "Failed to check directory existence: " << key_prefix
+                                         << ", error: " << exists_status.to_string();
+                            ++failure_count;
+                            continue;
+                        }
+                        if (!exists) {
+                            auto create_status = fs->create_directory(key_prefix);
+                            if (!create_status.ok() &&
+                                create_status.code() != TStatusCode::type::ALREADY_EXIST) {
+                                LOG(WARNING) << "Failed to create directory: " << key_prefix
+                                             << ", error: " << create_status.to_string();
+                                ++failure_count;
+                                continue;
+                            }
+                        }
+                        auto rename_status = Status::OK();
+                        const std::string new_file_path = key_prefix + "/" + cache_key;
+                        TEST_SYNC_POINT_CALLBACK(
+                                "FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename",
+                                &file_path, &new_file_path);
+                        rename_status = fs->rename(file_path, new_file_path);
+                        if (rename_status.ok() ||
+                            rename_status.code() == TStatusCode::type::DIRECTORY_NOT_EMPTY) {
+                            ++rename_count;
+                        } else {
+                            LOG(WARNING)
+                                    << "Failed to rename directory from " << file_path << " to "
+                                    << new_file_path << ", error: " << rename_status.to_string();
+                            ++failure_count;
+                            continue;
                         }
                     }
-                    auto rename_status = fs->rename(key_it->path(), key_prefix / cache_key);
-                    if (rename_status.ok()) {
-                        ++rename_count;
-                    } else {
-                        LOG(WARNING)
-                                << "Failed to rename directory from " << key_it->path().native()
-                                << " to " << (key_prefix / cache_key).native()
-                                << ", error: " << rename_status.to_string();
-                        return rename_status;
-                    }
                 }
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Error occurred while upgrading file cache directory: " << file_path
+                             << " err: " << e.what();
+                ++failure_count;
             }
         }
 
-        auto rebuild_dir = [&](std::filesystem::directory_iterator& upgrade_key_it) -> Status {
-            for (; upgrade_key_it != std::filesystem::directory_iterator(); ++upgrade_key_it) {
-                if (upgrade_key_it->path().filename().native().find('_') == std::string::npos) {
-                    RETURN_IF_ERROR(fs->delete_directory(upgrade_key_it->path().native() + "_0"));
-                    auto rename_status = fs->rename(upgrade_key_it->path(),
-                                                    upgrade_key_it->path().native() + "_0");
-                    if (rename_status.ok()) {
-                        ++rename_count;
-                    }
-                    RETURN_IF_ERROR(rename_status);
-                }
-            }
-            return Status::OK();
-        };
+        std::vector<std::string> rebuilt_file_list;
+        rebuilt_file_list.reserve(10000);
+        RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, rebuilt_file_list));
 
-        std::filesystem::directory_iterator key_prefix_it {_cache_base_path, ec};
-        if (ec) [[unlikely]] {
-            LOG(WARNING) << ec.message();
-            return Status::IOError(ec.message());
-        }
-        for (; key_prefix_it != std::filesystem::directory_iterator(); ++key_prefix_it) {
-            if (!key_prefix_it->is_directory()) {
+        for (const auto& key_it : rebuilt_file_list) {
+            if (!std::filesystem::is_directory(key_it)) {
                 // maybe version hits file
                 continue;
             }
-            if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
-                LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
-                             << ", try to remove it";
-                RETURN_IF_ERROR(fs->delete_directory(key_prefix_it->path()));
+            try {
+                if (Path(key_it).filename().native().size() != KEY_PREFIX_LENGTH) {
+                    LOG(WARNING) << "Unknown directory " << key_it << ", try to remove it";
+                    auto delete_status = fs->delete_directory(key_it);
+                    if (!delete_status.ok()) {
+                        LOG(WARNING) << "Failed to delete unknown directory: " << key_it
+                                     << ", error: " << delete_status.to_string();
+                        ++failure_count;
+                        continue;
+                    }
+                }
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Error occurred while upgrading file cache directory: " << key_it
+                             << " err: " << e.what();
+                ++failure_count;
             }
-            std::filesystem::directory_iterator key_it {key_prefix_it->path(), ec};
-            if (ec) [[unlikely]] {
-                return Status::IOError(ec.message());
-            }
-            RETURN_IF_ERROR(rebuild_dir(key_it));
         }
-        if (!write_file_cache_version().ok()) {
-            return Status::InternalError("Failed to write version hints for file cache");
+        if (auto st = write_file_cache_version(); !st.ok()) {
+            return Status::InternalError("Failed to write version hints for file cache, err={}",
+                                         st.to_string());
         }
     }
 
     auto end_time = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     LOG(INFO) << "Cache directory upgrade completed. Total files renamed: " << rename_count
-              << ", Time taken: " << duration.count() << "ms";
+              << ", Time taken: " << duration.count() << "ms"
+              << ", Failure count: " << failure_count;
     return Status::OK();
 }
 
@@ -452,7 +578,9 @@ Status FSFileCacheStorage::read_file_cache_version(std::string* buffer) const {
     size_t bytes_read = 0;
     RETURN_IF_ERROR(version_reader->read_at(0, Slice(buffer->data(), file_size), &bytes_read));
     RETURN_IF_ERROR(version_reader->close());
-    return Status::OK();
+    auto st = Status::OK();
+    TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::read_file_cache_version", &st);
+    return st;
 }
 
 std::string FSFileCacheStorage::get_version_path() const {
@@ -479,7 +607,7 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
             if (suffix == "tmp") [[unlikely]] {
                 *is_tmp = true;
             } else {
-                *cache_type = BlockFileCache::string_to_cache_type(suffix);
+                *cache_type = surfix_to_cache_type(suffix);
             }
         }
     } catch (...) {
@@ -535,6 +663,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
+                // TODO(zhengyu): update type&expiration if need
                 return;
             }
             // if the file is tmp, it means it is the old file and it should be removed

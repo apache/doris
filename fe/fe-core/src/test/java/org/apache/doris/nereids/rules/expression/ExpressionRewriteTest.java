@@ -192,15 +192,6 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite("(a and b) or (a and b and c)", "a and b");
         assertRewrite("(a or b) and (a or b or c)", "a or b");
 
-        assertRewrite("a and true", "a");
-        assertRewrite("a or false", "a");
-
-        assertRewrite("a and false", "false");
-        assertRewrite("a or true", "true");
-
-        assertRewrite("a or false or false or false", "a");
-        assertRewrite("a and true and true and true", "a");
-
         assertRewrite("(a and b) or a ", "a");
         assertRewrite("(a or b) and a ", "a");
 
@@ -211,6 +202,17 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         assertRewrite("a and (b or ((a and e) or (a and f))) and (b or d)", "(b or ((a and (e or f)) and d)) and a");
 
+        assertRewrite("a = 1 and (b = 1 and d < 1 or c = 1 and b = 1 and d > 4)",
+                "a  = 1 and b = 1 and (d < 1 or c = 1 and d > 4)");
+
+        assertRewrite("a = 1 and (b = 1 and c = 1 and d < 1 or c = 1 and b = 1 and d > 4)",
+                "a  = 1 and b = 1 and c = 1 and (d < 1 or d > 4)");
+
+        assertRewrite("a = 1 and (b = 1 and c = 1 and d < 1 or c = 1 and b = 1 and d > 4) and (b = 1 and c = 1 and e < 1 or b = 1 and c = 1 and e > 4) ",
+                "a  = 1 and b = 1 and c = 1 and (d < 1 or d > 4) and (e < 1 or e > 4)");
+
+        assertRewrite("((a = 1 and b = 1) or (a = 1 and b = 2) or c < 1) and ((a = 1 and b = 1) or (a = 1 and b = 2) or c > 2)",
+                "a = 1 and (b = 1 or b = 2) or (c < 1 and c > 2)");
     }
 
     @Test
@@ -361,11 +363,11 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("TA >= 8 and TB >= 1 and TA < 8 and TB <= 10",
                 "TA >= 8 and TB >= 1 and TA < 8 and TB <= 10");
         assertRewriteAfterTypeCoercion("(CA >= date '2024-01-01' and CA <= date '2024-01-03') or (CA > date '2024-01-05' and CA < date '2024-01-07')",
-                "(CA <= date '2024-01-03' or CA > date '2024-01-05') and CA >= date '2024-01-01' and CA < date '2024-01-07')");
+                "(CA <= date '2024-01-03' or CA > date '2024-01-05') and CA >= date '2024-01-01' and CA < date '2024-01-07'");
         assertRewriteAfterTypeCoercion("CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01'",
                 "(CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01') AND CA <= date '2024-01-03'");
         assertRewriteAfterTypeCoercion("(AA >= timestamp '2024-01-01 00:00:00' and AA <= timestamp '2024-01-03 00:00:00') or (AA > timestamp '2024-01-05 00:00:00' and AA < timestamp '2024-01-07 00:00:00')",
-                "(AA <= timestamp '2024-01-03 00:00:00' or AA > timestamp '2024-01-05 00:00:00') and AA >= timestamp '2024-01-01 00:00:00' and AA < timestamp '2024-01-07 00:00:00')");
+                "(AA <= timestamp '2024-01-03 00:00:00' or AA > timestamp '2024-01-05 00:00:00') and AA >= timestamp '2024-01-01 00:00:00' and AA < timestamp '2024-01-07 00:00:00'");
         assertRewriteAfterTypeCoercion("AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00'",
                 "(AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00' ) and AA <= timestamp '2024-01-03 02:00:00'");
 

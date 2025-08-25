@@ -30,7 +30,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/string_ref.h"
@@ -146,8 +145,8 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         auto left_data_type = remove_nullable(arguments[0]);
         auto right_data_type = remove_nullable(arguments[1]);
-        DCHECK(is_array(left_data_type)) << arguments[0]->get_name();
-        DCHECK(is_array(right_data_type)) << arguments[1]->get_name();
+        DCHECK(left_data_type->get_primitive_type() == TYPE_ARRAY) << arguments[0]->get_name();
+        DCHECK(right_data_type->get_primitive_type() == TYPE_ARRAY) << arguments[1]->get_name();
         auto left_nested_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*left_data_type).get_nested_type());
         auto right_nested_type = remove_nullable(
@@ -165,7 +164,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -175,10 +174,9 @@ public:
             return Status::OK();
         }
         auto data_type_with_name = data_type_with_names[0];
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "Inverted index evaluate skipped, FULLTEXT reader can not support "
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
                     "array_overlap");
         }
         // in arrays_overlap param is array Field and const Field
@@ -193,12 +191,11 @@ public:
 
         Field param_value;
         arguments[0].column->get(0, param_value);
-        DCHECK(is_array(remove_nullable(arguments[0].type)));
+        DCHECK(arguments[0].type->get_primitive_type() == TYPE_ARRAY);
         auto nested_param_type =
                 check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0].type).get())
                         ->get_nested_type()
-                        ->get_type_as_type_descriptor()
-                        .type;
+                        ->get_primitive_type();
         // The current implementation for the inverted index of arrays cannot handle cases where the array contains null values,
         // meaning an item in the array is null.
         if (param_value.is_null()) {
@@ -213,19 +210,25 @@ public:
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         const Array& query_val = param_value.get<Array>();
+
+        InvertedIndexParam param;
+        param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
+        param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+        param.num_rows = num_rows;
         for (auto nested_query_val : query_val) {
             // any element inside array is NULL, return NULL
             // by current arrays_overlap execute logic.
             if (nested_query_val.is_null()) {
                 return Status::OK();
             }
-            std::shared_ptr<roaring::Roaring> single_res = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     nested_param_type, &nested_query_val, query_param));
-            RETURN_IF_ERROR(iter->read_from_inverted_index(
-                    data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res));
-            *roaring |= *single_res;
+            param.query_value = query_param->get_value();
+            param.roaring = std::make_shared<roaring::Roaring>();
+            ;
+            RETURN_IF_ERROR(iter->read_from_index(&param));
+            *roaring |= *param.roaring;
         }
 
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
@@ -263,8 +266,8 @@ public:
             return ret;
         }
         // prepare return column
-        auto dst_nested_col = ColumnVector<UInt8>::create(input_rows_count, 0);
-        auto dst_null_map = ColumnVector<UInt8>::create(input_rows_count, 0);
+        auto dst_nested_col = ColumnUInt8::create(input_rows_count, 0);
+        auto dst_null_map = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map_data = dst_null_map->get_data().data();
 
         RETURN_IF_ERROR(_execute_nullable(left_exec_data, dst_null_map_data));
@@ -274,73 +277,95 @@ public:
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
         auto left_element_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        WhichDataType left_which_type(left_element_type);
-        if (left_which_type.is_string()) {
+        switch (left_element_type->get_primitive_type()) {
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
             ret = _execute_internal<ColumnString>(left_exec_data, right_exec_data,
                                                   dst_null_map_data,
                                                   dst_nested_col->get_data().data());
-        } else if (left_which_type.is_date()) {
+            break;
+        case TYPE_DATE:
             ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
                                                 dst_nested_col->get_data().data());
-        } else if (left_which_type.is_date_time()) {
+            break;
+        case TYPE_DATETIME:
             ret = _execute_internal<ColumnDateTime>(left_exec_data, right_exec_data,
                                                     dst_null_map_data,
                                                     dst_nested_col->get_data().data());
-        } else if (left_which_type.is_date_v2()) {
+            break;
+        case TYPE_DATEV2:
             ret = _execute_internal<ColumnDateV2>(left_exec_data, right_exec_data,
                                                   dst_null_map_data,
                                                   dst_nested_col->get_data().data());
-        } else if (left_which_type.is_date_time_v2()) {
+            break;
+        case TYPE_DATETIMEV2:
             ret = _execute_internal<ColumnDateTimeV2>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
-        } else if (left_which_type.is_uint8()) {
+            break;
+        case TYPE_BOOLEAN:
             ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data, dst_null_map_data,
                                                  dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int8()) {
+            break;
+        case TYPE_TINYINT:
             ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data, dst_null_map_data,
                                                 dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int16()) {
+            break;
+        case TYPE_SMALLINT:
             ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data, dst_null_map_data,
                                                  dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int32()) {
+            break;
+        case TYPE_INT:
             ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data, dst_null_map_data,
                                                  dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int64()) {
+            break;
+        case TYPE_BIGINT:
             ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data, dst_null_map_data,
                                                  dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int128()) {
+            break;
+        case TYPE_LARGEINT:
             ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
                                                   dst_null_map_data,
                                                   dst_nested_col->get_data().data());
-        } else if (left_which_type.is_float32()) {
+            break;
+        case TYPE_FLOAT:
             ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
                                                    dst_null_map_data,
                                                    dst_nested_col->get_data().data());
-        } else if (left_which_type.is_float64()) {
+            break;
+        case TYPE_DOUBLE:
             ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
                                                    dst_null_map_data,
                                                    dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal32()) {
+            break;
+        case TYPE_DECIMAL32:
             ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
                                                      dst_null_map_data,
                                                      dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal64()) {
+            break;
+        case TYPE_DECIMAL64:
             ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
                                                      dst_null_map_data,
                                                      dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal128v3()) {
+            break;
+        case TYPE_DECIMAL128I:
             ret = _execute_internal<ColumnDecimal128V3>(left_exec_data, right_exec_data,
                                                         dst_null_map_data,
                                                         dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal128v2()) {
+            break;
+        case TYPE_DECIMALV2:
             ret = _execute_internal<ColumnDecimal128V2>(left_exec_data, right_exec_data,
                                                         dst_null_map_data,
                                                         dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal256()) {
+            break;
+        case TYPE_DECIMAL256:
             ret = _execute_internal<ColumnDecimal256>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
+            break;
+        default:
+            break;
         }
 
         if (ret.ok()) {

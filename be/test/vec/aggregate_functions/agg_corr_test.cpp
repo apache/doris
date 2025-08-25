@@ -26,8 +26,8 @@
 namespace doris::vectorized {
 
 struct AggregateFunctionCorrTest : public AggregateFunctiontest {
-    using Corr = CorrMoment<double>;
-    using CorrWelford = CorrMomentWelford<double>;
+    using Corr = CorrMoment<TYPE_DOUBLE>;
+    using CorrWelford = CorrMomentWelford<TYPE_DOUBLE>;
 
     std::vector<double> random_data(size_t n) {
         std::vector<double> data(n);

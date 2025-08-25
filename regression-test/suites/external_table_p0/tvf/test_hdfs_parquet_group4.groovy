@@ -865,7 +865,7 @@ suite("test_hdfs_parquet_group4","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'member0' is not supported: INT64 => TimeV2"
+                exception "The column type of 'member0' is not supported: INT64 => Nullable(timev2), is_dict_filter: false, src_logical_type: Nullable(timev2), dst_logical_type: Nullable(timev2)"
             }
 
 
@@ -2045,7 +2045,7 @@ suite("test_hdfs_parquet_group4","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
-                exception "The column type of 'column1' is not supported: INT32 => TimeV2"
+                exception "The column type of 'COLUMN1' is not supported: INT32 => timev2, is_dict_filter: false, src_logical_type: timev2, dst_logical_type: Nullable(timev2)"
             }
 
 

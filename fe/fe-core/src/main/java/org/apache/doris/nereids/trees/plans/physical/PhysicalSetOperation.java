@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -146,5 +147,18 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
 
     public boolean isDistinct() {
         return qualifier == Qualifier.DISTINCT;
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(this.getClass().getSimpleName());
+        if (!runtimeFiltersV2.isEmpty()) {
+            sb.append(" RFV2:");
+            for (RuntimeFilterV2 rf : runtimeFiltersV2) {
+                sb.append(rf.shapeInfo());
+            }
+        }
+        return sb.toString();
     }
 }

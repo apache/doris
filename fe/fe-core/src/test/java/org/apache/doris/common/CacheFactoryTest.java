@@ -149,7 +149,7 @@ public class CacheFactoryTest {
         FakeTicker ticker = new FakeTicker();
         AtomicLong counter = new AtomicLong(0);
         CacheFactory cacheFactory = new CacheFactory(
-                OptionalLong.of(60L),
+                OptionalLong.of(20L),
                 OptionalLong.of(10),
                 1000,
                 false,
@@ -174,8 +174,8 @@ public class CacheFactoryTest {
         Assertions.assertEquals("value1", value.getValue());
         // refreshed, so counter +1
         Assertions.assertEquals(2, counter.get());
-        // advance 61 seconds to pass the expireAfterWrite
-        ticker.advance(61, TimeUnit.SECONDS);
+        // advance 21 seconds to pass the expireAfterAccess
+        ticker.advance(21, TimeUnit.SECONDS);
         value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         // expired, so counter +1
@@ -187,7 +187,7 @@ public class CacheFactoryTest {
         FakeTicker ticker = new FakeTicker();
         AtomicLong counter = new AtomicLong(0);
         CacheFactory cacheFactory = new CacheFactory(
-                OptionalLong.of(60L),
+                OptionalLong.of(6L),
                 OptionalLong.empty(),
                 1000,
                 false,
@@ -197,13 +197,13 @@ public class CacheFactoryTest {
         CacheValue value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         Assertions.assertEquals(1, counter.get());
-        // advance 30 seconds, key still not expired
-        ticker.advance(30, TimeUnit.SECONDS);
+        // advance 1 seconds, key still not expired
+        ticker.advance(1, TimeUnit.SECONDS);
         value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         Assertions.assertEquals(1, counter.get());
-        // advance 31 seconds to pass the expireAfterWrite
-        ticker.advance(31, TimeUnit.SECONDS);
+        // advance 7 seconds to pass the expireAfterAccess
+        ticker.advance(7, TimeUnit.SECONDS);
         value = loadingCache.get(1);
         Assertions.assertEquals("value1", value.getValue());
         // expired, so counter +1
@@ -243,7 +243,7 @@ public class CacheFactoryTest {
         Assertions.assertEquals("value1", futureValue.get().get().getValue());
         // refreshed, so counter +1
         Assertions.assertEquals(2, counter.get());
-        // advance 61 seconds to pass the expireAfterWrite
+        // advance 61 seconds to pass the expireAfterAccess
         ticker.advance(61, TimeUnit.SECONDS);
         futureValue = loadingCache.get(1);
         Assertions.assertFalse(futureValue.isDone());

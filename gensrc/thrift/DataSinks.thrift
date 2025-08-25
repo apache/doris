@@ -25,79 +25,80 @@ include "Partitions.thrift"
 include "PlanNodes.thrift"
 
 enum TDataSinkType {
-    DATA_STREAM_SINK,
-    RESULT_SINK,
-    DATA_SPLIT_SINK, // deprecated
-    MYSQL_TABLE_SINK,
-    EXPORT_SINK,
-    OLAP_TABLE_SINK,
-    MEMORY_SCRATCH_SINK,
-    ODBC_TABLE_SINK,
-    RESULT_FILE_SINK,
-    JDBC_TABLE_SINK,
-    MULTI_CAST_DATA_STREAM_SINK,
-    GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
-    GROUP_COMMIT_BLOCK_SINK,
-    HIVE_TABLE_SINK,
-    ICEBERG_TABLE_SINK,
+    DATA_STREAM_SINK = 0,
+    RESULT_SINK = 1,
+    DATA_SPLIT_SINK = 2, // deprecated
+    MYSQL_TABLE_SINK = 3,
+    EXPORT_SINK = 4,
+    OLAP_TABLE_SINK = 5,
+    MEMORY_SCRATCH_SINK = 6,
+    ODBC_TABLE_SINK = 7,
+    RESULT_FILE_SINK = 8,
+    JDBC_TABLE_SINK = 9,
+    MULTI_CAST_DATA_STREAM_SINK = 10,
+    GROUP_COMMIT_OLAP_TABLE_SINK = 11, // deprecated
+    GROUP_COMMIT_BLOCK_SINK = 12,
+    HIVE_TABLE_SINK = 13,
+    ICEBERG_TABLE_SINK = 14,
+    DICTIONARY_SINK = 15,
 }
 
 enum TResultSinkType {
-    MYSQL_PROTOCAL,
-    ARROW_FLIGHT_PROTOCAL,
-    FILE,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
+    MYSQL_PROTOCAL = 0,
+    ARROW_FLIGHT_PROTOCAL = 1,
+    FILE = 2,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
 }
 
 enum TParquetCompressionType {
-    SNAPPY,
-    GZIP,
-    BROTLI,
-    ZSTD,
-    LZ4,
-    LZO,
-    BZ2,
-    UNCOMPRESSED,
+    SNAPPY = 0,
+    GZIP = 1,
+    BROTLI = 2,
+    ZSTD = 3,
+    LZ4 = 4,
+    LZO = 5,
+    BZ2 = 6,
+    UNCOMPRESSED = 7,
 }
 
 enum TParquetVersion {
-    PARQUET_1_0,
-    PARQUET_2_LATEST,
+    PARQUET_1_0 = 0,
+    PARQUET_2_LATEST = 1,
 }
 
 enum TParquetDataType {
-    BOOLEAN,
-    INT32,
-    INT64,
-    INT96,
-    BYTE_ARRAY,
-    FLOAT,
-    DOUBLE,
-    FIXED_LEN_BYTE_ARRAY,
+    BOOLEAN = 0,
+    INT32 = 1,
+    INT64 = 2,
+    INT96 = 3,
+    BYTE_ARRAY = 4,
+    FLOAT = 5,
+    DOUBLE = 6,
+    FIXED_LEN_BYTE_ARRAY = 7,
 }
 
 enum TParquetDataLogicalType {
-      UNDEFINED = 0,  // Not a real logical type
-      STRING = 1,
-      MAP,
-      LIST,
-      ENUM,
-      DECIMAL,
-      DATE,
-      TIME,
-      TIMESTAMP,
-      INTERVAL,
-      INT,
-      NIL,  // Thrift NullType: annotates data that is always null
-      JSON,
-      BSON,
-      UUID,
-      NONE  // Not a real logical type; should always be last element
-    }
+    UNDEFINED = 0,  // Not a real logical type
+    STRING = 1,
+    MAP = 2,
+    LIST = 3,
+    ENUM = 4,
+    DECIMAL = 5,
+    DATE = 6,
+    TIME = 7,
+    TIMESTAMP = 8,
+    INTERVAL = 9,
+    INT = 10,
+    NIL = 11,  // Thrift NullType: annotates data that is always null
+    JSON = 12,
+    BSON = 13,
+    UUID = 14,
+    NONE = 15  // Not a real logical type; should always be last element
+}
 
 enum TParquetRepetitionType {
-    REQUIRED,
-    REPEATED,
-    OPTIONAL,
+    REQUIRED = 0,
+    REPEATED = 1,
+    OPTIONAL = 2,
 }
 
 struct TParquetSchema {
@@ -140,6 +141,11 @@ struct TResultFileSinkOptions {
     // orc_writer_version = 1 means doris FE is higher than version 2.1.5
     // orc_writer_version = 0 means doris FE is less than or equal to version 2.1.5
     20: optional i64 orc_writer_version;
+
+    //iceberg write sink use int64
+    //hive write sink use int96
+    //export data to file use by user define properties
+    21: optional bool enable_int96_timestamps
 }
 
 struct TMemoryScratchSink {
@@ -257,9 +263,9 @@ struct TExportSink {
 }
 
 enum TGroupCommitMode {
-    SYNC_MODE,
-    ASYNC_MODE,
-    OFF_MODE
+    SYNC_MODE = 0,
+    ASYNC_MODE = 1,
+    OFF_MODE = 2
 }
 
 struct TOlapTableSink {
@@ -354,6 +360,7 @@ struct THiveTableSink {
     9: optional map<string, string> hadoop_config
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
+    12: optional list<Types.TNetworkAddress> broker_addresses;
 }
 
 enum TUpdateMode {
@@ -414,6 +421,24 @@ struct TIcebergTableSink {
     11: optional Types.TFileType file_type
     12: optional string original_output_path
     13: optional PlanNodes.TFileCompressType compression_type
+    14: optional list<Types.TNetworkAddress> broker_addresses;
+}
+
+enum TDictLayoutType {
+    HASH_MAP = 0,
+    IP_TRIE = 1,
+}
+
+struct TDictionarySink {
+    1: optional i64 dictionary_id
+    2: optional i64 version_id
+    3: optional string dictionary_name
+    4: optional TDictLayoutType layout_type
+    5: optional list<i64> key_output_expr_slots
+    6: optional list<i64> value_output_expr_slots
+    7: optional list<string> value_names
+    8: optional bool skip_null_key
+    9: optional i64 memory_limit
 }
 
 struct TDataSink {
@@ -430,4 +455,5 @@ struct TDataSink {
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
   13: optional THiveTableSink hive_table_sink
   14: optional TIcebergTableSink iceberg_table_sink
+  15: optional TDictionarySink dictionary_sink
 }

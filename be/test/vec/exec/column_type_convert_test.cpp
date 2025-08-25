@@ -45,7 +45,8 @@ public:
 TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
     // Test TINYINT -> SMALLINT
     {
-        TypeDescriptor src_type(TYPE_TINYINT);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_TINYINT, false);
         auto dst_type = std::make_shared<DataTypeInt16>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -78,7 +79,8 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
 
     // Test SMALLINT -> INT
     {
-        TypeDescriptor src_type(TYPE_SMALLINT);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_SMALLINT, false);
         auto dst_type = std::make_shared<DataTypeInt32>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -114,7 +116,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
 TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
     // Test INT -> SMALLINT with values in range
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeInt16>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -145,7 +147,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
 
     // Test INT -> SMALLINT with out of range values
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeInt16>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -171,7 +173,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
 TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
     // TEST INT ->  FLOAT
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeFloat32>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -208,7 +210,8 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
     }
     // TEST STRING -> FLOAT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeFloat32>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -270,7 +273,7 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
 
     // Test FLOAT -> DOUBLE (widening)
     {
-        TypeDescriptor src_type(TYPE_FLOAT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
         auto dst_type = std::make_shared<DataTypeFloat64>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -308,18 +311,17 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
 TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     // Test DECIMAL32 -> DECIMAL64 (widening)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL32);
-        src_type.precision = 9;
-        src_type.scale = 2;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
+                                                                                 false, 9, 2);
 
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(18, 2);
+        auto dst_type = std::make_shared<DataTypeDecimal64>(18, 2);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal32>::create(9, 2);
+        auto src_col = ColumnDecimal32::create(9, 2);
         auto& src_data = src_col->get_data();
         // Test normal values
         src_data.resize(0);
@@ -331,7 +333,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal64>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal64&>(*mutable_dst).get_data();
         ASSERT_EQ(2, dst_data.size());
         EXPECT_EQ(12345, dst_data[0].value);
         EXPECT_EQ(-12345, dst_data[1].value);
@@ -339,18 +341,17 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL32 -> DECIMAL128 (from small decimal to large decimal)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL32);
-        src_type.precision = 9;
-        src_type.scale = 2;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
+                                                                                 false, 9, 2);
 
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal128V3>>(38, 10);
+        auto dst_type = std::make_shared<DataTypeDecimal128>(38, 10);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal32>::create(9, 2);
+        auto src_col = ColumnDecimal32::create(9, 2);
         src_col->resize(0);
         auto& src_data = src_col->get_data();
         // Test normal values
@@ -363,7 +364,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
 
-        auto& dst_data = static_cast<ColumnDecimal<Decimal128V3>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal128V3&>(*mutable_dst).get_data();
         ASSERT_EQ(2, dst_data.size());
         EXPECT_EQ(1234500000000L, dst_data[0].value);  // 12345 scaled to 123.45000000
         EXPECT_EQ(-6789000000000L, dst_data[1].value); // -67890 scaled to -678.90000000
@@ -371,18 +372,17 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL64 -> DECIMAL256 (from medium decimal to large decimal)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL64);
-        src_type.precision = 18;
-        src_type.scale = 4;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64,
+                                                                                 false, 18, 4);
 
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal256>>(76, 35);
+        auto dst_type = std::make_shared<DataTypeDecimal256>(76, 35);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal64>::create(18, 4);
+        auto src_col = ColumnDecimal64::create(18, 4);
         src_col->resize(0);
         auto& src_data = src_col->get_data();
 
@@ -397,7 +397,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
 
-        auto& dst_data = static_cast<ColumnDecimal<Decimal256>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal256&>(*mutable_dst).get_data();
         ASSERT_EQ(2, dst_data.size());
         // Verify data
         EXPECT_EQ("1234567890.12340000000000000000000000000000000",
@@ -407,9 +407,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL -> INT (with potential precision loss)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL32);
-        src_type.precision = 9;
-        src_type.scale = 2;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
+                                                                                 false, 9, 2);
 
         auto dst_type = std::make_shared<DataTypeInt8>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
@@ -419,7 +418,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal32>::create(9, 2);
+        auto src_col = ColumnDecimal32::create(9, 2);
         auto& src_data = src_col->get_data();
         src_data.resize(0);
         src_data.push_back(Decimal32(12345));  // 123.45
@@ -447,9 +446,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL -> INT (with potential precision loss)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL128I);
-        src_type.precision = 36;
-        src_type.scale = 4;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I,
+                                                                                 false, 36, 4);
 
         auto dst_type = std::make_shared<DataTypeInt8>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
@@ -459,7 +457,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal128V3>::create(36, 4);
+        auto src_col = ColumnDecimal128V3::create(36, 4);
         auto& src_data = src_col->get_data();
         src_data.resize(0);
         src_data.push_back(Decimal128V3(102345));
@@ -487,9 +485,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL -> INT (with potential precision loss)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL256);
-        src_type.precision = 70;
-        src_type.scale = 4;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL256,
+                                                                                 false, 70, 4);
 
         auto dst_type = std::make_shared<DataTypeInt16>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
@@ -499,7 +496,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal256>::create(70, 4);
+        auto src_col = ColumnDecimal256::create(70, 4);
         auto& src_data = src_col->get_data();
         src_data.resize(0);
         src_data.push_back(Decimal256(-102345));
@@ -533,8 +530,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST INT -> DECIMAL
     {
-        TypeDescriptor src_type(TYPE_INT);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(10, 2);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+        auto dst_type = std::make_shared<DataTypeDecimal64>(10, 2);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -554,7 +551,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal64>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal64&>(*mutable_dst).get_data();
         ASSERT_EQ(3, dst_data.size());
         EXPECT_EQ(1234500, dst_data[0].value);  // 1234500 represents 123.45
         EXPECT_EQ(-6789000, dst_data[1].value); // -6789000 represents -678.90
@@ -563,8 +560,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST INT -> DECIMAL
     {
-        TypeDescriptor src_type(TYPE_INT);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal128V3>>(18, 5);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+        auto dst_type = std::make_shared<DataTypeDecimal128>(18, 5);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -584,7 +581,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal128V3>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal128V3&>(*mutable_dst).get_data();
         ASSERT_EQ(3, dst_data.size());
         EXPECT_EQ(1234500000, dst_data[0].value);
         EXPECT_EQ(-6789000000, dst_data[1].value);
@@ -592,8 +589,9 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     }
 
     {
-        TypeDescriptor src_type(TYPE_TINYINT);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal256>>(38, 10);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_TINYINT, false);
+        auto dst_type = std::make_shared<DataTypeDecimal256>(38, 10);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -613,7 +611,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal256>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal256&>(*mutable_dst).get_data();
         ASSERT_EQ(3, dst_data.size());
         EXPECT_EQ(1230000000000, dst_data[0].value);
         EXPECT_EQ(-1230000000000, dst_data[1].value);
@@ -621,8 +619,9 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     }
 
     {
-        TypeDescriptor src_type(TYPE_TINYINT);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal256>>(12, 10);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_TINYINT, false);
+        auto dst_type = std::make_shared<DataTypeDecimal256>(12, 10);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -646,8 +645,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         null_map.resize_fill(src_data.size(), 0);
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal256>&>(nullable_col.get_nested_column())
-                                 .get_data();
+        auto& dst_data =
+                static_cast<ColumnDecimal256&>(nullable_col.get_nested_column()).get_data();
         ASSERT_EQ(3, dst_data.size());
         ASSERT_EQ(1, null_map[0]);
         ASSERT_EQ(1, null_map[1]);
@@ -657,11 +656,10 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST DECIMAL64 -> DECIMAL32 (narrowing) (1)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL64);
-        src_type.precision = 18;
-        src_type.scale = 4;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64,
+                                                                                 false, 18, 4);
 
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal32>>(9, 4);
+        auto dst_type = std::make_shared<DataTypeDecimal32>(9, 4);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -669,7 +667,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal64>::create(18, 4);
+        auto src_col = ColumnDecimal64::create(18, 4);
         auto& src_data = src_col->get_data();
         src_data.resize(0);
         // Add test values
@@ -693,11 +691,9 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST DECIMAL64 -> DECIMAL32 (narrowing) (2)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL64);
-        src_type.precision = 18;
-        src_type.scale = 4;
-
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal32>>(9, 4);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64,
+                                                                                 false, 18, 4);
+        auto dst_type = std::make_shared<DataTypeDecimal32>(9, 4);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -705,7 +701,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal64>::create(18, 4);
+        auto src_col = ColumnDecimal64::create(18, 4);
         auto& src_data = src_col->get_data();
         // Add test values
         src_data.resize(0);
@@ -718,7 +714,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto mutable_dst = dst_col->assume_mutable();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
-        auto& nested_col = static_cast<ColumnDecimal<Decimal32>&>(nullable_col.get_nested_column());
+        auto& nested_col = static_cast<ColumnDecimal32&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
         null_map.resize_fill(src_data.size(), 0);
 
@@ -738,8 +734,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST FLOAT -> DECIMAL
     {
-        TypeDescriptor src_type(TYPE_FLOAT);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(10, 2);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
+        auto dst_type = std::make_shared<DataTypeDecimal64>(10, 2);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -763,7 +759,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto mutable_dst = dst_col->assume_mutable();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
-        auto& nested_col = static_cast<ColumnDecimal<Decimal64>&>(nullable_col.get_nested_column());
+        auto& nested_col = static_cast<ColumnDecimal64&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
         null_map.resize_fill(src_data.size(), 0);
 
@@ -786,8 +782,9 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST STRING -> DECIMAL
     {
-        TypeDescriptor src_type(TYPE_STRING);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(10, 2);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
+        auto dst_type = std::make_shared<DataTypeDecimal64>(10, 2);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -811,7 +808,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto mutable_dst = dst_col->assume_mutable();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
-        auto& nested_col = static_cast<ColumnDecimal<Decimal64>&>(nullable_col.get_nested_column());
+        auto& nested_col = static_cast<ColumnDecimal64&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
         null_map.resize_fill(src_col->size(), 0);
 
@@ -838,7 +835,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 TEST_F(ColumnTypeConverterTest, TestStringConversions) {
     // Test numeric to string conversions
     { // INT -> STRING
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeString>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -869,7 +866,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 
     // DOUBLE -> STRING
     {
-        TypeDescriptor src_type(TYPE_DOUBLE);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
         auto dst_type = std::make_shared<DataTypeString>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -895,13 +893,14 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         // Note: Exact string representation may vary by platform
         EXPECT_TRUE(string_col.get_data_at(0).to_string().find("3.14159") == 0);
         EXPECT_TRUE(string_col.get_data_at(1).to_string().find("-2.71828") == 0);
-        EXPECT_TRUE(string_col.get_data_at(2).to_string().find("inf") != std::string::npos);
-        EXPECT_TRUE(string_col.get_data_at(3).to_string().find("nan") != std::string::npos);
+        EXPECT_TRUE(string_col.get_data_at(2).to_string().find("Infinity") != std::string::npos);
+        EXPECT_TRUE(string_col.get_data_at(3).to_string().find("NaN") != std::string::npos);
     }
 
     // Test string to numeric conversions with invalid input
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt32>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -933,9 +932,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
     }
     // TEST DECIMAL -> STRING
     {
-        TypeDescriptor src_type(TYPE_DECIMAL32);
-        src_type.precision = 9;
-        src_type.scale = 2;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
+                                                                                 false, 9, 2);
 
         auto dst_type = std::make_shared<DataTypeString>();
 
@@ -944,7 +942,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal32>::create(9, 2);
+        auto src_col = ColumnDecimal32::create(9, 2);
         auto& src_data = src_col->get_data();
         // Add test values
         src_data.resize(0);
@@ -968,7 +966,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 
     // TEST DATE/TIMESTAMP -> STRING
     {
-        TypeDescriptor src_type(TYPE_DATEV2);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false);
         auto dst_type = std::make_shared<DataTypeString>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -1007,7 +1006,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 
     // TEST BOOLEAN -> STRING
     {
-        TypeDescriptor src_type(TYPE_BOOLEAN);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_BOOLEAN, false);
         auto dst_type = std::make_shared<DataTypeString>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -1040,7 +1040,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 
     // TEST STRING -> BOOLEAN (for ORC file format, Apache Hive behavior)
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeUInt8>(); // BOOLEAN represented as UInt8
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1090,7 +1091,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
     // 1. Test STRING -> TINYINT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt8>(); // TINYINT represented as Int8
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1138,7 +1140,8 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
 
     // 2. Test STRING -> SMALLINT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt16>(); // SMALLINT represented as Int16
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1184,7 +1187,8 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
 
     // 3. Test STRING -> INT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt32>(); // INT represented as Int32
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1229,7 +1233,8 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
 
     // 4. Test STRING -> BIGINT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt64>(); // BIGINT represented as Int64
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1273,7 +1278,8 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
 
     // 5. Test STRING -> LARGEINT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt128>(); // LARGEINT represented as Int128
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1321,118 +1327,69 @@ TEST_F(ColumnTypeConverterTest, TestUnsupportedConversions) {
     {
         std::vector<std::pair<PrimitiveType, PrimitiveType>> unsupported_conversions = {
 
-                {TYPE_BOOLEAN, TYPE_TINYINT},
-                {TYPE_BOOLEAN, TYPE_SMALLINT},
-                {TYPE_BOOLEAN, TYPE_INT},
-                {TYPE_BOOLEAN, TYPE_BIGINT},
-                {TYPE_BOOLEAN, TYPE_FLOAT},
-                {TYPE_BOOLEAN, TYPE_DOUBLE},
-                {TYPE_BOOLEAN, TYPE_DATE},
-                {TYPE_BOOLEAN, TYPE_DATEV2},
-                {TYPE_BOOLEAN, TYPE_TIMEV2},
-                {TYPE_BOOLEAN, TYPE_DATETIME},
+                {TYPE_BOOLEAN, TYPE_TINYINT},    {TYPE_BOOLEAN, TYPE_SMALLINT},
+                {TYPE_BOOLEAN, TYPE_INT},        {TYPE_BOOLEAN, TYPE_BIGINT},
+                {TYPE_BOOLEAN, TYPE_FLOAT},      {TYPE_BOOLEAN, TYPE_DOUBLE},
+                {TYPE_BOOLEAN, TYPE_DATE},       {TYPE_BOOLEAN, TYPE_DATEV2},
+                {TYPE_BOOLEAN, TYPE_TIMEV2},     {TYPE_BOOLEAN, TYPE_DATETIME},
                 {TYPE_BOOLEAN, TYPE_DATETIMEV2},
 
-                {TYPE_TINYINT, TYPE_BOOLEAN},
-                {TYPE_SMALLINT, TYPE_BOOLEAN},
-                {TYPE_INT, TYPE_BOOLEAN},
-                {TYPE_BIGINT, TYPE_BOOLEAN},
+                {TYPE_TINYINT, TYPE_BOOLEAN},    {TYPE_SMALLINT, TYPE_BOOLEAN},
+                {TYPE_INT, TYPE_BOOLEAN},        {TYPE_BIGINT, TYPE_BOOLEAN},
 
-                {TYPE_TINYINT, TYPE_DATE},
-                {TYPE_SMALLINT, TYPE_DATE},
-                {TYPE_INT, TYPE_DATE},
-                {TYPE_BIGINT, TYPE_DATE},
-                {TYPE_TINYINT, TYPE_DATEV2},
-                {TYPE_SMALLINT, TYPE_DATEV2},
-                {TYPE_INT, TYPE_DATEV2},
-                {TYPE_BIGINT, TYPE_DATEV2},
-                {TYPE_TINYINT, TYPE_DATETIME},
-                {TYPE_SMALLINT, TYPE_DATETIME},
-                {TYPE_INT, TYPE_DATETIME},
-                {TYPE_BIGINT, TYPE_DATETIME},
-                {TYPE_TINYINT, TYPE_DATETIMEV2},
-                {TYPE_SMALLINT, TYPE_DATETIMEV2},
-                {TYPE_INT, TYPE_DATETIMEV2},
-                {TYPE_BIGINT, TYPE_DATETIMEV2},
-                {TYPE_TINYINT, TYPE_TIMEV2},
-                {TYPE_SMALLINT, TYPE_TIMEV2},
-                {TYPE_INT, TYPE_TIMEV2},
-                {TYPE_BIGINT, TYPE_TIMEV2},
+                {TYPE_TINYINT, TYPE_DATE},       {TYPE_SMALLINT, TYPE_DATE},
+                {TYPE_INT, TYPE_DATE},           {TYPE_BIGINT, TYPE_DATE},
+                {TYPE_TINYINT, TYPE_DATEV2},     {TYPE_SMALLINT, TYPE_DATEV2},
+                {TYPE_INT, TYPE_DATEV2},         {TYPE_BIGINT, TYPE_DATEV2},
+                {TYPE_TINYINT, TYPE_DATETIME},   {TYPE_SMALLINT, TYPE_DATETIME},
+                {TYPE_INT, TYPE_DATETIME},       {TYPE_BIGINT, TYPE_DATETIME},
+                {TYPE_TINYINT, TYPE_DATETIMEV2}, {TYPE_SMALLINT, TYPE_DATETIMEV2},
+                {TYPE_INT, TYPE_DATETIMEV2},     {TYPE_BIGINT, TYPE_DATETIMEV2},
+                {TYPE_TINYINT, TYPE_TIMEV2},     {TYPE_SMALLINT, TYPE_TIMEV2},
+                {TYPE_INT, TYPE_TIMEV2},         {TYPE_BIGINT, TYPE_TIMEV2},
 
-                {TYPE_FLOAT, TYPE_BOOLEAN},
-                {TYPE_FLOAT, TYPE_INT},
-                {TYPE_FLOAT, TYPE_SMALLINT},
-                {TYPE_FLOAT, TYPE_TINYINT},
-                {TYPE_FLOAT, TYPE_BIGINT},
-                {TYPE_FLOAT, TYPE_DATE},
-                {TYPE_FLOAT, TYPE_DATEV2},
-                {TYPE_FLOAT, TYPE_TIMEV2},
-                {TYPE_FLOAT, TYPE_DATETIME},
-                {TYPE_FLOAT, TYPE_DATETIMEV2},
+                {TYPE_FLOAT, TYPE_BOOLEAN},      {TYPE_FLOAT, TYPE_INT},
+                {TYPE_FLOAT, TYPE_SMALLINT},     {TYPE_FLOAT, TYPE_TINYINT},
+                {TYPE_FLOAT, TYPE_BIGINT},       {TYPE_FLOAT, TYPE_DATE},
+                {TYPE_FLOAT, TYPE_DATEV2},       {TYPE_FLOAT, TYPE_TIMEV2},
+                {TYPE_FLOAT, TYPE_DATETIME},     {TYPE_FLOAT, TYPE_DATETIMEV2},
 
-                {TYPE_DOUBLE, TYPE_BOOLEAN},
-                {TYPE_DOUBLE, TYPE_INT},
-                {TYPE_DOUBLE, TYPE_SMALLINT},
-                {TYPE_DOUBLE, TYPE_TINYINT},
-                {TYPE_DOUBLE, TYPE_BIGINT},
-                {TYPE_DOUBLE, TYPE_DATE},
-                {TYPE_DOUBLE, TYPE_DATEV2},
-                {TYPE_DOUBLE, TYPE_TIMEV2},
-                {TYPE_DOUBLE, TYPE_DATETIME},
-                {TYPE_DOUBLE, TYPE_DATETIMEV2},
+                {TYPE_DOUBLE, TYPE_BOOLEAN},     {TYPE_DOUBLE, TYPE_INT},
+                {TYPE_DOUBLE, TYPE_SMALLINT},    {TYPE_DOUBLE, TYPE_TINYINT},
+                {TYPE_DOUBLE, TYPE_BIGINT},      {TYPE_DOUBLE, TYPE_DATE},
+                {TYPE_DOUBLE, TYPE_DATEV2},      {TYPE_DOUBLE, TYPE_TIMEV2},
+                {TYPE_DOUBLE, TYPE_DATETIME},    {TYPE_DOUBLE, TYPE_DATETIMEV2},
 
                 {TYPE_DOUBLE, TYPE_FLOAT},
 
-                {TYPE_DATE, TYPE_BOOLEAN},
-                {TYPE_DATE, TYPE_TINYINT},
-                {TYPE_DATE, TYPE_SMALLINT},
-                {TYPE_DATE, TYPE_INT},
-                {TYPE_DATE, TYPE_BIGINT},
-                {TYPE_DATE, TYPE_FLOAT},
-                {TYPE_DATE, TYPE_DOUBLE},
-                {TYPE_DATEV2, TYPE_BOOLEAN},
-                {TYPE_DATEV2, TYPE_TINYINT},
-                {TYPE_DATEV2, TYPE_SMALLINT},
-                {TYPE_DATEV2, TYPE_INT},
-                {TYPE_DATEV2, TYPE_BIGINT},
-                {TYPE_DATEV2, TYPE_FLOAT},
-                {TYPE_DATEV2, TYPE_DOUBLE},
-                {TYPE_TIMEV2, TYPE_BOOLEAN},
-                {TYPE_TIMEV2, TYPE_TINYINT},
-                {TYPE_TIMEV2, TYPE_SMALLINT},
-                {TYPE_TIMEV2, TYPE_INT},
-                {TYPE_TIMEV2, TYPE_BIGINT},
-                {TYPE_TIMEV2, TYPE_FLOAT},
-                {TYPE_TIMEV2, TYPE_DOUBLE},
-                {TYPE_DATETIME, TYPE_BOOLEAN},
-                {TYPE_DATETIME, TYPE_TINYINT},
-                {TYPE_DATETIME, TYPE_SMALLINT},
-                {TYPE_DATETIME, TYPE_INT},
-                {TYPE_DATETIME, TYPE_BIGINT},
-                {TYPE_DATETIME, TYPE_FLOAT},
-                {TYPE_DATETIME, TYPE_DOUBLE},
-                {TYPE_DATETIMEV2, TYPE_BOOLEAN},
-                {TYPE_DATETIMEV2, TYPE_TINYINT},
-                {TYPE_DATETIMEV2, TYPE_SMALLINT},
-                {TYPE_DATETIMEV2, TYPE_INT},
-                {TYPE_DATETIMEV2, TYPE_BIGINT},
-                {TYPE_DATETIMEV2, TYPE_FLOAT},
+                {TYPE_DATE, TYPE_BOOLEAN},       {TYPE_DATE, TYPE_TINYINT},
+                {TYPE_DATE, TYPE_SMALLINT},      {TYPE_DATE, TYPE_INT},
+                {TYPE_DATE, TYPE_BIGINT},        {TYPE_DATE, TYPE_FLOAT},
+                {TYPE_DATE, TYPE_DOUBLE},        {TYPE_DATEV2, TYPE_BOOLEAN},
+                {TYPE_DATEV2, TYPE_TINYINT},     {TYPE_DATEV2, TYPE_SMALLINT},
+                {TYPE_DATEV2, TYPE_INT},         {TYPE_DATEV2, TYPE_BIGINT},
+                {TYPE_DATEV2, TYPE_FLOAT},       {TYPE_DATEV2, TYPE_DOUBLE},
+                {TYPE_TIMEV2, TYPE_BOOLEAN},     {TYPE_TIMEV2, TYPE_TINYINT},
+                {TYPE_TIMEV2, TYPE_SMALLINT},    {TYPE_TIMEV2, TYPE_INT},
+                {TYPE_TIMEV2, TYPE_BIGINT},      {TYPE_TIMEV2, TYPE_FLOAT},
+                {TYPE_TIMEV2, TYPE_DOUBLE},      {TYPE_DATETIME, TYPE_BOOLEAN},
+                {TYPE_DATETIME, TYPE_TINYINT},   {TYPE_DATETIME, TYPE_SMALLINT},
+                {TYPE_DATETIME, TYPE_INT},       {TYPE_DATETIME, TYPE_BIGINT},
+                {TYPE_DATETIME, TYPE_FLOAT},     {TYPE_DATETIME, TYPE_DOUBLE},
+                {TYPE_DATETIMEV2, TYPE_BOOLEAN}, {TYPE_DATETIMEV2, TYPE_FLOAT},
                 {TYPE_DATETIMEV2, TYPE_DOUBLE},
         };
 
         for (const auto& [src_type_enum, dst_type_enum] : unsupported_conversions) {
-            TypeDescriptor src_type(src_type_enum);
-            for (auto len : {-1, 1, 2}) {
-                TypeDescriptor dst_type(dst_type_enum);
-                dst_type.len = len;
-                auto converter = converter::ColumnTypeConverter::get_converter(
-                        src_type, DataTypeFactory::instance().create_data_type(dst_type, false),
-                        converter::COMMON);
+            auto src_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(src_type_enum, false);
+            auto dst_type = DataTypeFactory::instance().create_data_type(dst_type_enum, false);
+            auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
+                                                                           converter::COMMON);
 
-                ASSERT_FALSE(converter->support())
-                        << "Conversion from " << src_type.debug_string() << " to "
-                        << dst_type.debug_string() << " should not be supported";
-            }
+            ASSERT_FALSE(converter->support())
+                    << "Conversion from " << src_type->get_name() << " to " << dst_type->get_name()
+                    << " should not be supported";
         }
     }
     //to decimal
@@ -1444,21 +1401,20 @@ TEST_F(ColumnTypeConverterTest, TestUnsupportedConversions) {
         };
 
         for (const auto& [src_type_enum, dst_type_enum] : unsupported_conversions) {
-            TypeDescriptor src_type(src_type_enum);
+            auto src_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(src_type_enum, false);
 
             for (int precision = min_decimal_precision();
                  precision <= BeConsts::MAX_DECIMAL256_PRECISION; precision++) {
                 for (int scale = 0; scale <= precision; scale++) {
-                    TypeDescriptor dst_type(dst_type_enum);
-                    dst_type.precision = precision;
-                    dst_type.scale = scale;
+                    auto dst_type = DataTypeFactory::instance().create_data_type(
+                            dst_type_enum, false, precision, scale);
                     auto converter = converter::ColumnTypeConverter::get_converter(
-                            src_type, DataTypeFactory::instance().create_data_type(dst_type, false),
-                            converter::COMMON);
+                            src_type, dst_type, converter::COMMON);
 
                     ASSERT_FALSE(converter->support())
-                            << "Conversion from " << src_type.debug_string() << " to "
-                            << dst_type.debug_string() << " should not be supported";
+                            << "Conversion from " << src_type->get_name() << " to "
+                            << dst_type->get_name() << " should not be supported";
                 }
             }
         }
@@ -1473,35 +1429,201 @@ TEST_F(ColumnTypeConverterTest, TestUnsupportedConversions) {
         };
 
         for (const auto& [src_type_enum, dst_type_enum] : unsupported_conversions) {
-            TypeDescriptor src_type(src_type_enum);
-
             for (int precision = min_decimal_precision();
                  precision <= BeConsts::MAX_DECIMAL256_PRECISION; precision++) {
                 for (int scale = 0; scale <= precision; scale++) {
-                    src_type.precision = precision;
-                    src_type.scale = scale;
+                    auto src_type = vectorized::DataTypeFactory::instance().create_data_type(
+                            src_type_enum, false, precision, scale);
                     auto decimal_date_type =
-                            DataTypeFactory::instance().create_data_type(src_type, false);
+                            vectorized::DataTypeFactory::instance().create_data_type(
+                                    src_type_enum, false, precision, scale);
 
-                    TypeDescriptor dst_type(dst_type_enum);
+                    auto dst_type =
+                            DataTypeFactory::instance().create_data_type(dst_type_enum, false);
                     auto converter = converter::ColumnTypeConverter::get_converter(
-                            decimal_date_type->get_type_as_type_descriptor(),
-                            DataTypeFactory::instance().create_data_type(dst_type, false),
-                            converter::COMMON);
+                            decimal_date_type, dst_type, converter::COMMON);
 
                     ASSERT_FALSE(converter->support())
-                            << "Conversion from " << src_type.debug_string() << " to "
-                            << dst_type.debug_string() << " should not be supported";
+                            << "Conversion from " << src_type->get_name() << " to "
+                            << dst_type->get_name() << " should not be supported";
                 }
             }
         }
     }
 }
 
+TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
+    using namespace doris::vectorized;
+
+    auto make_datetimev2_col =
+            [](const std::vector<std::tuple<int, int, int, int, int, int, int>>& datetimes) {
+                auto col = ColumnDateTimeV2::create();
+                for (const auto& [y, m, d, h, min, s, micro] : datetimes) {
+                    DateV2Value<DateTimeV2ValueType> v;
+                    v.unchecked_set_time(y, m, d, h, min, s, micro);
+                    col->get_data().push_back(*reinterpret_cast<vectorized::UInt64*>(&v));
+                }
+                return col;
+            };
+
+    auto parse_datetimev2_str = [](const std::string& datetime_str) {
+        UInt64 x = 0;
+        StringRef buf((char*)datetime_str.data(), datetime_str.size());
+        bool ok = read_datetime_v2_text_impl(x, buf, 6);
+        CHECK(ok) << "parse_datetimev2_str failed for: " << datetime_str;
+        return x;
+    };
+
+    // 1. DATETIMEV2 -> BIGINT
+    {
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false);
+        auto dst_type = std::make_shared<DataTypeInt64>();
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
+                                                                       converter::COMMON);
+
+        ASSERT_TRUE(converter->support());
+
+        // 2024-01-01 00:00:00.123456
+        auto src_col = make_datetimev2_col({{2024, 1, 1, 0, 0, 0, 123456}});
+        auto dst_col = dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+
+        auto& dst_data = static_cast<ColumnInt64&>(*mutable_dst).get_data();
+        ASSERT_EQ(1, dst_data.size());
+        EXPECT_EQ(1704067200123, dst_data[0]);
+    }
+
+    // 2. DATETIMEV2 -> INT
+    {
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false);
+        auto dst_type = std::make_shared<DataTypeInt32>();
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+
+        ASSERT_TRUE(converter->support());
+
+        // 1970-01-01 00:00:00.000000
+        // 3000-01-01 00:00:00.000000
+        auto src_col = make_datetimev2_col({{1970, 1, 1, 0, 0, 0, 0}, {3000, 1, 1, 0, 0, 0, 0}});
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+        auto& nested_col = static_cast<ColumnInt32&>(nullable_col.get_nested_column());
+        auto& dst_data = nested_col.get_data();
+
+        ASSERT_EQ(2, nested_col.size());
+        EXPECT_EQ(0, null_map[0]);
+        ASSERT_EQ(0, dst_data[0]);
+        EXPECT_EQ(1, null_map[1]);
+    }
+
+    // 3. DATETIMEV2 -> INT, non-nullable
+    {
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false);
+        auto dst_type = std::make_shared<DataTypeInt32>();
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
+                                                                       converter::COMMON);
+
+        ASSERT_TRUE(converter->support());
+
+        // 3000-01-01 00:00:00.000000（会溢出int32）
+        auto src_col = make_datetimev2_col({{3000, 1, 1, 0, 0, 0, 0}});
+        auto dst_col = dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_FALSE(st.ok());
+    }
+
+    {
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false);
+        auto dst_type = std::make_shared<DataTypeInt64>();
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+
+        ASSERT_TRUE(converter->support());
+
+        auto src_col = ColumnDateTimeV2::create();
+        src_col->get_data().push_back(parse_datetimev2_str("2024-01-01 12:34:56.123456"));
+        src_col->get_data().push_back(parse_datetimev2_str("1970-01-01 00:00:00.000000"));
+        src_col->get_data().push_back(parse_datetimev2_str("3000-01-01 00:00:00.000000"));
+        src_col->get_data().push_back(parse_datetimev2_str("1900-01-01 00:00:00.000000"));
+        src_col->get_data().push_back(parse_datetimev2_str("1999-12-31 23:59:59.999999"));
+        src_col->get_data().push_back(parse_datetimev2_str("2000-01-01 00:00:00.000000"));
+        src_col->get_data().push_back(parse_datetimev2_str("2025-07-08 16:00:00.123456"));
+        src_col->get_data().push_back(parse_datetimev2_str("2100-01-01 00:00:00.000000"));
+        src_col->get_data().push_back(parse_datetimev2_str("9999-12-31 23:59:59.999999"));
+        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 12:00:00.000001"));
+        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 13:00:00.000002"));
+        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 14:00:00.000004"));
+        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 12:00:00"));
+        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 13:00:00"));
+        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 14:00:00"));
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+
+        ASSERT_EQ(15, null_map.size());
+        EXPECT_EQ(0, null_map[0]);
+        EXPECT_EQ(0, null_map[1]);
+        EXPECT_EQ(0, null_map[2]);
+        EXPECT_EQ(0, null_map[3]);
+        EXPECT_EQ(0, null_map[4]);
+        EXPECT_EQ(0, null_map[5]);
+        EXPECT_EQ(0, null_map[6]);
+        EXPECT_EQ(0, null_map[7]);
+        EXPECT_EQ(0, null_map[8]);
+        EXPECT_EQ(0, null_map[9]);
+        EXPECT_EQ(0, null_map[10]);
+        EXPECT_EQ(0, null_map[11]);
+        EXPECT_EQ(0, null_map[12]);
+        EXPECT_EQ(0, null_map[13]);
+        EXPECT_EQ(0, null_map[14]);
+
+        auto& dst_data = static_cast<ColumnInt64&>(nullable_col.get_nested_column()).get_data();
+        ASSERT_EQ(15, dst_data.size());
+        EXPECT_EQ(1704112496123L, dst_data[0]);
+        EXPECT_EQ(0L, dst_data[1]);
+        EXPECT_EQ(32503680000000L, dst_data[2]);
+        EXPECT_EQ(-2208988800000L, dst_data[3]);
+        EXPECT_EQ(946684799999L, dst_data[4]);
+        EXPECT_EQ(946684800000L, dst_data[5]);
+        EXPECT_EQ(1751990400123, dst_data[6]);
+        EXPECT_EQ(4102444800000L, dst_data[7]);
+        EXPECT_EQ(253402300799999, dst_data[8]);
+        EXPECT_EQ(1651406400000, dst_data[9]);
+        EXPECT_EQ(1651410000000, dst_data[10]);
+        EXPECT_EQ(1651413600000, dst_data[11]);
+        EXPECT_EQ(1651406400000, dst_data[12]);
+        EXPECT_EQ(1651410000000, dst_data[13]);
+        EXPECT_EQ(1651413600000, dst_data[14]);
+    }
+}
+
 TEST_F(ColumnTypeConverterTest, TestEmptyColumnConversions) {
     // Test empty column
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeFloat32>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,

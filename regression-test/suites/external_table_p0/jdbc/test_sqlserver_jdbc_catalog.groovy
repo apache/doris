@@ -83,6 +83,8 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
 
         order_qt_all_types_tvf """ select * from query('catalog' = '${catalog_name}', 'query' = 'select * from all_type;') order by 1"""
 
+        order_qt_identity_decimal """ select * from test_identity_decimal order by id; """
+
         sql """ drop catalog if exists ${catalog_name} """
 
         sql """ create catalog if not exists ${catalog_name} properties(

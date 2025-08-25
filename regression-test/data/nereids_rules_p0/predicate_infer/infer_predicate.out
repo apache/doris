@@ -224,7 +224,7 @@ PhysicalResultSink
 
 -- !infer_predicate_join_with_function --
 PhysicalResultSink
---NestedLoopJoin[INNER_JOIN](abs((score - score)) < 40)
+--NestedLoopJoin[INNER_JOIN](abs((cast(score as BIGINT) - cast(score as BIGINT))) < 40)
 ----PhysicalOlapScan[t]
 ----PhysicalOlapScan[t]
 
@@ -318,7 +318,7 @@ PhysicalResultSink
 
 -- !infer3 --
 PhysicalResultSink
---hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.id = 1))
+--hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.id = 1) and (t2.id = 1))
 ----PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
 
@@ -345,7 +345,7 @@ PhysicalResultSink
 
 -- !infer6 --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=((t1.id = 1))
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=((t1.id = 1) and (t1.name = 'bob'))
 ----PhysicalOlapScan[t1]
 ----filter((t2.id = 1) and (t2.name = 'bob'))
 ------PhysicalOlapScan[t2]
@@ -381,14 +381,15 @@ PhysicalResultSink
 
 -- !infer10 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as SMALLINT) = expr_cast(id as SMALLINT))) otherCondition=()
+--NestedLoopJoin[CROSS_JOIN]
 ----filter((t1.id = 12345))
 ------PhysicalOlapScan[t1]
-----PhysicalOlapScan[t2]
+----filter((cast(id as SMALLINT) = 12345))
+------PhysicalOlapScan[t2]
 
 -- !infer11 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as LARGEINT) = expr_cast(id as LARGEINT))) otherCondition=()
+--NestedLoopJoin[CROSS_JOIN]
 ----filter((t1.id = 12345))
 ------PhysicalOlapScan[t1]
 ----filter((t2.id = 12345))

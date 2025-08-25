@@ -41,8 +41,8 @@ DataTypes create_scala_data_types() {
     DataTypePtr dt = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime>());
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDate>());
     DataTypePtr dc = std::make_shared<DataTypeNullable>(vectorized::create_decimal(10, 2, false));
-    DataTypePtr dcv2 = std::make_shared<DataTypeNullable>(
-            std::make_shared<DataTypeDecimal<vectorized::Decimal128V2>>(27, 9));
+    DataTypePtr dcv2 =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimalV2>(27, 9));
     DataTypePtr n3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
     DataTypePtr n1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
     DataTypePtr s1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
@@ -91,9 +91,9 @@ TEST(HashFuncTest, ArraySimpleBenchmarkTest) {
     for (int r = 0; r < r_num; ++r) {
         Array a;
         for (int i = 0; i < 10000; ++i) {
-            a.push_back(Int64(i));
+            a.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(i)));
         }
-        array_mutable_col->insert(a);
+        array_mutable_col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a));
     }
     std::vector<uint32_t> crc_hash_vals(r_num);
     int64_t time_t = 0;
@@ -115,27 +115,27 @@ TEST(HashFuncTest, ArrayNestedArrayTest) {
     MutableColumnPtr array_mutable_col = array_ptr->create_column();
 
     Array a, a1, a2, a3, nested, nested1;
-    nested.push_back(Int64(1));
-    nested1.push_back(Int64(2));
+    nested.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(1)));
+    nested1.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(2)));
 
     // a: [[1], [2]]
-    a.push_back(nested);
-    a.push_back(nested1);
+    a.push_back(vectorized::Field::create_field<TYPE_ARRAY>(nested));
+    a.push_back(vectorized::Field::create_field<TYPE_ARRAY>(nested1));
     // a1: [[2], [1]]
-    a1.push_back(nested1);
-    a1.push_back(nested);
+    a1.push_back(vectorized::Field::create_field<TYPE_ARRAY>(nested1));
+    a1.push_back(vectorized::Field::create_field<TYPE_ARRAY>(nested));
 
     // a2: [[], [1]]
-    a2.push_back(Array());
-    a2.push_back(nested);
+    a2.push_back(vectorized::Field::create_field<TYPE_ARRAY>(Array()));
+    a2.push_back(vectorized::Field::create_field<TYPE_ARRAY>(nested));
     // a3: [[1], []]
-    a3.push_back(nested);
-    a3.push_back(Array());
+    a3.push_back(vectorized::Field::create_field<TYPE_ARRAY>(nested));
+    a3.push_back(vectorized::Field::create_field<TYPE_ARRAY>(Array()));
 
-    array_mutable_col->insert(a);
-    array_mutable_col->insert(a1);
-    array_mutable_col->insert(a2);
-    array_mutable_col->insert(a3);
+    array_mutable_col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a));
+    array_mutable_col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a1));
+    array_mutable_col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
+    array_mutable_col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a3));
 
     auto nested_col =
             reinterpret_cast<vectorized::ColumnArray*>(array_mutable_col.get())->get_data_ptr();
@@ -164,15 +164,15 @@ TEST(HashFuncTest, ArrayCornerCaseTest) {
     DataTypePtr a = std::make_shared<DataTypeArray>(d);
     MutableColumnPtr array_mutable_col = a->create_column();
     Array a1, a2;
-    a1.push_back(Int64(1));
-    a1.push_back(Int64(2));
-    a1.push_back(Int64(3));
-    array_mutable_col->insert(a1);
-    array_mutable_col->insert(a1);
-    a2.push_back(Int64(11));
-    a2.push_back(Int64(12));
-    a2.push_back(Int64(13));
-    array_mutable_col->insert(a2);
+    a1.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(1)));
+    a1.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(2)));
+    a1.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(3)));
+    array_mutable_col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a1));
+    array_mutable_col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a1));
+    a2.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(11)));
+    a2.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(12)));
+    a2.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(13)));
+    array_mutable_col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
 
     EXPECT_EQ(array_mutable_col->size(), 3);
 
@@ -241,13 +241,13 @@ TEST(HashFuncTest, StructTypeTestWithSepcificValueCrcHash) {
     dataTypes.push_back(s1);
 
     Tuple t;
-    t.push_back(Int64(1));
-    t.push_back(Field(String("hello")));
+    t.push_back(vectorized::Field::create_field<TYPE_BIGINT>(Int64(1)));
+    t.push_back(vectorized::Field::create_field<TYPE_STRING>("hello"));
 
     DataTypePtr a = std::make_shared<DataTypeStruct>(dataTypes);
     std::cout << a->get_name() << std::endl;
     MutableColumnPtr struct_mutable_col = a->create_column();
-    struct_mutable_col->insert(t);
+    struct_mutable_col->insert(vectorized::Field::create_field<TYPE_STRUCT>(t));
 
     uint32_t hash_val = 0;
     struct_mutable_col->update_crc_with_value(0, 1, hash_val, nullptr);

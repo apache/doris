@@ -48,10 +48,15 @@ public class StAngleSphere extends ScalarFunction
         super("st_angle_sphere", arg0, arg1, arg2, arg3);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StAngleSphere(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 4);
-        return new StAngleSphere(children.get(0), children.get(1), children.get(2), children.get(3));
+        return new StAngleSphere(getFunctionParams(children));
     }
 
     @Override

@@ -33,14 +33,6 @@ class RuntimeState;
 namespace doris::vectorized {
 
 Status VSortExecExprs::init(const TSortInfo& sort_info, ObjectPool* pool) {
-    if (sort_info.__isset.slot_exprs_nullability_changed_flags) {
-        _need_convert_to_nullable_flags = sort_info.slot_exprs_nullability_changed_flags;
-    } else {
-        _need_convert_to_nullable_flags.resize(sort_info.__isset.sort_tuple_slot_exprs
-                                                       ? sort_info.sort_tuple_slot_exprs.size()
-                                                       : 0,
-                                               false);
-    }
     return init(sort_info.ordering_exprs,
                 sort_info.__isset.sort_tuple_slot_exprs ? &sort_info.sort_tuple_slot_exprs : NULL,
                 pool);
@@ -89,7 +81,6 @@ Status VSortExecExprs::clone(RuntimeState* state, VSortExecExprs& new_exprs) {
                 state, new_exprs._sort_tuple_slot_expr_ctxs[i]));
     }
     new_exprs._materialize_tuple = _materialize_tuple;
-    new_exprs._need_convert_to_nullable_flags = _need_convert_to_nullable_flags;
     return Status::OK();
 }
 

@@ -29,7 +29,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/load_channel.h"
@@ -101,7 +100,7 @@ protected:
 
     CountDownLatch _stop_background_threads_latch;
     // thread to clean timeout load channels
-    scoped_refptr<Thread> _load_channels_clean_thread;
+    std::shared_ptr<Thread> _load_channels_clean_thread;
     Status _start_load_channels_clean();
 };
 

@@ -123,4 +123,9 @@ suite("test_tokenize"){
     qt_tokenize_sql """SELECT TOKENIZE('北京大学计算机科学与技术系', '"parser"="ik","parser_mode"="ik_max_word"');"""
     qt_tokenize_sql """SELECT TOKENIZE('中华人民共和国', '"parser"="ik","parser_mode"="ik_max_word"');"""
 
+    qt_tokenize_sql """SELECT TOKENIZE('😊🚀👍测试特殊符号：@#¥%……&*（）', '"parser"="ik","parser_mode"="ik_max_word"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('High＆Low', '"parser"="ik","parser_mode"="ik_max_word"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('1･2', '"parser"="ik","parser_mode"="ik_max_word"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('abcşīabc', '"parser"="ik","parser_mode"="ik_max_word"');"""
+
 }

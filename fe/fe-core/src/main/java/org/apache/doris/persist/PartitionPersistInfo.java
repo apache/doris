@@ -18,16 +18,12 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.DataProperty;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Range;
@@ -125,35 +121,7 @@ public class PartitionPersistInfo implements Writable {
     }
 
     public static PartitionPersistInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), PartitionPersistInfo.class);
-        } else {
-            PartitionPersistInfo info = new PartitionPersistInfo();
-            info.readFields(in);
-            return info;
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partition = Partition.read(in);
-
-        range = RangeUtils.readRange(in);
-        listPartitionItem = ListPartitionItem.read(in);
-        dataProperty = DataProperty.read(in);
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-            this.replicaAlloc = new ReplicaAllocation(in.readShort());
-        } else {
-            this.replicaAlloc = ReplicaAllocation.read(in);
-        }
-
-        isInMemory = in.readBoolean();
-        isTempPartition = in.readBoolean();
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
-            isMutable = in.readBoolean();
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), PartitionPersistInfo.class);
     }
 
     public String toJson() {

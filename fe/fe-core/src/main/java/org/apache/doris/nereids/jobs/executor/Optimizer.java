@@ -22,6 +22,7 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -44,40 +45,43 @@ public class Optimizer {
      * execute optimize, use dphyp or cascades according to join number and session variables.
      */
     public void execute() {
-        // init memo
-        cascadesContext.toMemo();
-        // stats derive
-        cascadesContext.pushJob(new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                cascadesContext.getCurrentJobContext()));
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        boolean optimizeWithUnknownColStats = false;
-        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
-            if (ConnectContext.get().getStatementContext().isHasUnknownColStats()) {
-                optimizeWithUnknownColStats = true;
+        MoreFieldsThread.keepFunctionSignature(() -> {
+            // init memo
+            cascadesContext.toMemo();
+            // stats derive
+            cascadesContext.pushJob(new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
+                    cascadesContext.getCurrentJobContext()));
+            cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+            boolean optimizeWithUnknownColStats = false;
+            if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
+                if (ConnectContext.get().getStatementContext().isHasUnknownColStats()) {
+                    optimizeWithUnknownColStats = true;
+                }
             }
-        }
-        // DPHyp optimize
-        int maxTableCount = getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
-        if (optimizeWithUnknownColStats) {
-            // if column stats are unknown, 10~20 table-join is optimized by cascading framework
-            maxTableCount = 2 * maxTableCount;
-        }
-        int maxJoinCount = cascadesContext.getMemo().countMaxContinuousJoin();
-        cascadesContext.getStatementContext().setMaxContinuousJoin(maxJoinCount);
-        boolean isDpHyp = getSessionVariable().enableDPHypOptimizer
-                || maxJoinCount > maxTableCount;
-        cascadesContext.getStatementContext().setDpHyp(isDpHyp);
-        if (!getSessionVariable().isDisableJoinReorder() && isDpHyp
-                && !cascadesContext.isLeadingDisableJoinReorder()
-                && maxJoinCount <= getSessionVariable().getMaxJoinNumberOfReorder()) {
-            //RightNow, dphyper can only order 64 join operators
-            dpHypOptimize();
-        }
+            // DPHyp optimize
+            int maxTableCount = getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+            if (optimizeWithUnknownColStats) {
+                // if column stats are unknown, 10~20 table-join is optimized by cascading framework
+                maxTableCount = 2 * maxTableCount;
+            }
+            int maxJoinCount = cascadesContext.getMemo().countMaxContinuousJoin();
+            cascadesContext.getStatementContext().setMaxContinuousJoin(maxJoinCount);
+            boolean isDpHyp = getSessionVariable().enableDPHypOptimizer
+                    || maxJoinCount > maxTableCount;
+            cascadesContext.getStatementContext().setDpHyp(isDpHyp);
+            if (!getSessionVariable().isDisableJoinReorder() && isDpHyp
+                    && !cascadesContext.isLeadingDisableJoinReorder()
+                    && maxJoinCount <= getSessionVariable().getMaxJoinNumberOfReorder()) {
+                //RightNow, dphyper can only order 64 join operators
+                dpHypOptimize();
+            }
 
-        // Cascades optimize
-        cascadesContext.pushJob(
-                new OptimizeGroupJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+            // Cascades optimize
+            cascadesContext.pushJob(
+                    new OptimizeGroupJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
+            cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+            return null;
+        });
     }
 
     private void dpHypOptimize() {

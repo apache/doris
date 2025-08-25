@@ -94,7 +94,11 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
             "metadata_refresh_interval_seconds" = "1",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "external_timing_refresh_catalog"
+            "include_database_list" = "external_timing_refresh_catalog",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -122,7 +126,11 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
                 "metadata_refresh_interval_seconds" = "1",
                 "lower_case_meta_names" = "true",
                 "only_specified_database" = "true",
-                "include_database_list" = "external_timing_refresh_catalog"
+                "include_database_list" = "external_timing_refresh_catalog",
+                "connection_pool_min_size" = "2",
+                "connection_pool_max_size" = "20",
+                "connection_pool_max_wait_time" = "30000",
+                "connection_pool_max_life_time" = "600000"
             )"""
 
         test {
@@ -150,7 +158,11 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             "include_database_list" = "external_timing_refresh_catalog",
-            'meta_names_mapping' = '${mapping}'
+            'meta_names_mapping' = '${mapping}',
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -177,7 +189,11 @@ suite("test_timing_refresh_catalog", "p0,external,doris,external_docker,external
                 "lower_case_meta_names" = "true",
                 "only_specified_database" = "true",
                 "include_database_list" = "external_timing_refresh_catalog",
-                'meta_names_mapping' = '${mapping}'
+                'meta_names_mapping' = '${mapping}',
+                "connection_pool_min_size" = "2",
+                "connection_pool_max_size" = "20",
+                "connection_pool_max_wait_time" = "30000",
+                "connection_pool_max_life_time" = "600000"
             )"""
 
         test {

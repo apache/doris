@@ -90,7 +90,7 @@ class BitmapIndexReader;
 class BloomFilterIndexReader;
 class IndexPageReader;
 class IndexedColumnReader;
-class InvertedIndexReader;
+class IndexReader;
 class OrdinalIndexReader;
 class ZoneMapIndexReader;
 }; // namespace segment_v2
@@ -257,7 +257,7 @@ void MetadataAdder<T>::add_mem_size(int64_t val) {
         g_index_page_reader_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::IndexedColumnReader>) {
         g_indexed_column_reader_mem_bytes << val;
-    } else if constexpr (std::is_same_v<T, segment_v2::InvertedIndexReader>) {
+    } else if constexpr (std::is_same_v<T, segment_v2::IndexReader>) {
         g_inverted_index_reader_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::OrdinalIndexReader>) {
         g_ordinal_index_reader_mem_bytes << val;
@@ -298,7 +298,7 @@ void MetadataAdder<T>::add_num(int64_t val) {
         g_index_page_reader_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::IndexedColumnReader>) {
         g_indexed_column_reader_num << val;
-    } else if constexpr (std::is_same_v<T, segment_v2::InvertedIndexReader>) {
+    } else if constexpr (std::is_same_v<T, segment_v2::IndexReader>) {
         g_inverted_index_reader_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::OrdinalIndexReader>) {
         g_ordinal_index_reader_num << val;

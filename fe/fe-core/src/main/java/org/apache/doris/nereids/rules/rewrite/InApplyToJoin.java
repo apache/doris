@@ -24,7 +24,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -36,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -82,9 +80,9 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 List<NamedExpression> outputExpressions = Lists.newArrayList(alias);
 
                 LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right());
-                Expression compareExpr = ((InSubquery) apply.getSubqueryExpr()).getCompareExpr();
+                Expression compareExpr = apply.getCompareExpr().get();
                 Expression expr = new BitmapContains(agg.getOutput().get(0), compareExpr);
-                if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
+                if (apply.isNot()) {
                     expr = new Not(expr);
                 }
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
@@ -95,19 +93,18 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             }
 
             //in-predicate to equal
-            InSubquery inSubquery = ((InSubquery) apply.getSubqueryExpr());
             Expression predicate;
-            Expression left = inSubquery.getCompareExpr();
+            Expression left = apply.getCompareExpr().get();
             // TODO: trick here, because when deep copy logical plan the apply right child
             //  is not same with query plan in subquery expr, since the scan node copy twice
-            Expression right = inSubquery.getSubqueryOutput((LogicalPlan) apply.right());
+            Expression right = apply.getSubqueryOutput();
             if (apply.isMarkJoin()) {
                 List<Expression> joinConjuncts = apply.getCorrelationFilter().isPresent()
                         ? ExpressionUtils.extractConjunction(apply.getCorrelationFilter().get())
                         : Lists.newArrayList();
                 predicate = new EqualTo(left, right);
                 List<Expression> markConjuncts = Lists.newArrayList(predicate);
-                if (!predicate.nullable() || (apply.isMarkJoinSlotNotNull() && !inSubquery.isNot())) {
+                if (!predicate.nullable() || (apply.isMarkJoinSlotNotNull() && !apply.isNot())) {
                     // we can merge mark conjuncts with hash conjuncts in 2 scenarios
                     // 1. the mark join predicate is not nullable, so no null value would be produced
                     // 2. semi join with non-nullable mark slot.
@@ -117,7 +114,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                     markConjuncts.clear();
                 }
                 return new LogicalJoin<>(
-                        inSubquery.isNot() ? JoinType.LEFT_ANTI_JOIN : JoinType.LEFT_SEMI_JOIN,
+                        apply.isNot() ? JoinType.LEFT_ANTI_JOIN : JoinType.LEFT_SEMI_JOIN,
                         Lists.newArrayList(), joinConjuncts, markConjuncts,
                         new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
                         apply.children(), null);
@@ -127,7 +124,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 // so we need check both correlated slot and correlation filter exists
                 // before creating LogicalJoin node
                 if (apply.isCorrelated() && apply.getCorrelationFilter().isPresent()) {
-                    if (inSubquery.isNot()) {
+                    if (apply.isNot()) {
                         predicate = ExpressionUtils.and(ExpressionUtils.or(new EqualTo(left, right),
                                         new IsNull(left), new IsNull(right)),
                                 apply.getCorrelationFilter().get());
@@ -140,7 +137,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 }
 
                 List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
-                if (inSubquery.isNot()) {
+                if (apply.isNot()) {
                     return new LogicalJoin<>(
                             predicate.nullable() && !apply.isCorrelated()
                                     ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
@@ -159,6 +156,6 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
 
     private boolean needBitmapUnion(LogicalApply<Plan, Plan> apply) {
         return apply.right().getOutput().get(0).getDataType().isBitmapType()
-                && !((InSubquery) apply.getSubqueryExpr()).getCompareExpr().getDataType().isBitmapType();
+                && !apply.getCompareExpr().get().getDataType().isBitmapType();
     }
 }

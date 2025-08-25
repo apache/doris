@@ -23,7 +23,10 @@ namespace doris {
 class MockThreadMemTrackerMgr : public ThreadMemTrackerMgr {
 public:
     MockThreadMemTrackerMgr() : ThreadMemTrackerMgr() {}
-    Status try_reserve(int64_t size, bool only_check_process_memory = false) override {
+    Status try_reserve(
+            int64_t size,
+            TryReserveChecker checker =
+                    TryReserveChecker::CHECK_TASK_AND_WORKLOAD_GROUP_AND_PROCESS) override {
         return _test_low_memory ? Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>("")
                                 : Status::OK();
     }

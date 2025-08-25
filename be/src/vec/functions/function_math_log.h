@@ -18,7 +18,6 @@
 
 #pragma once
 
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
@@ -62,7 +61,7 @@ private:
         auto& dst_data = dst->get_data();
         dst_data.resize(size);
 
-        auto null_column = ColumnVector<UInt8>::create();
+        auto null_column = ColumnUInt8::create();
         auto& null_map = null_column->get_data();
         null_map.resize(size);
 

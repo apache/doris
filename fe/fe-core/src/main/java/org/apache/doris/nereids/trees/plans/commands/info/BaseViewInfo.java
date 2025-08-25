@@ -41,6 +41,7 @@ import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.EliminateLogicalPreAggOnHint;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -49,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -62,9 +64,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -161,8 +168,9 @@ public class BaseViewInfo {
     protected void createFinalCols(List<Slot> outputs) throws org.apache.doris.common.AnalysisException {
         if (simpleColumnDefinitions.isEmpty()) {
             for (Slot output : outputs) {
-                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType(),
-                        output.nullable());
+                DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
+                        TinyIntType.INSTANCE);
+                Column column = new Column(output.getName(), dataType.toCatalogDataType(), output.nullable());
                 finalCols.add(column);
             }
         } else {
@@ -170,8 +178,11 @@ public class BaseViewInfo {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
             }
             for (int i = 0; i < simpleColumnDefinitions.size(); ++i) {
+                Slot output = outputs.get(i);
+                DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
+                        TinyIntType.INSTANCE);
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
-                        outputs.get(i).getDataType().toCatalogDataType(), outputs.get(i).nullable());
+                        dataType.toCatalogDataType(), output.nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());
                 finalCols.add(column);
             }
@@ -249,7 +260,7 @@ public class BaseViewInfo {
 
         public AnalyzerForCreateView(CascadesContext cascadesContext) {
             super(cascadesContext);
-            jobs = buildAnalyzeViewJobsForStar();
+            jobs = buildAnalyzeJobs();
         }
 
         public void analyze() {
@@ -261,15 +272,23 @@ public class BaseViewInfo {
             return jobs;
         }
 
-        private static List<RewriteJob> buildAnalyzeViewJobsForStar() {
+        private static List<RewriteJob> buildAnalyzeJobs() {
+            return notTraverseChildrenOf(
+                ImmutableSet.of(LogicalView.class, LogicalCTEAnchor.class),
+                AnalyzerForCreateView::buildAnalyzerJobs
+            );
+        }
+
+        private static List<RewriteJob> buildAnalyzerJobs() {
             return jobs(
-                    topDown(new EliminateLogicalSelectHint()),
-                    topDown(new AnalyzeCTE()),
-                    bottomUp(
-                            new BindRelation(),
-                            new CheckPolicy(),
-                            new BindExpression()
-                    )
+                topDown(new EliminateLogicalSelectHint(),
+                    new EliminateLogicalPreAggOnHint()),
+                topDown(new AnalyzeCTE()),
+                bottomUp(
+                    new BindRelation(),
+                    new CheckPolicy(),
+                    new BindExpression()
+                )
             );
         }
     }

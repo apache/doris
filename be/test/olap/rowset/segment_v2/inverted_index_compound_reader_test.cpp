@@ -35,9 +35,9 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
@@ -45,7 +45,7 @@
 #include "util/slice.h"
 
 using namespace lucene::index;
-using doris::segment_v2::InvertedIndexFileWriter;
+using doris::segment_v2::IndexFileWriter;
 
 namespace doris::segment_v2 {
 
@@ -200,18 +200,17 @@ public:
         _CLLDELETE(input);
     }
 
-    EntriesType* create_test_entries(const std::vector<std::string>& file_names,
-                                     const std::vector<int64_t>& offsets,
-                                     const std::vector<int64_t>& lengths) {
-        auto* entries = _CLNEW EntriesType(true, true);
+    EntriesType create_test_entries(const std::vector<std::string>& file_names,
+                                    const std::vector<int64_t>& offsets,
+                                    const std::vector<int64_t>& lengths) {
+        EntriesType entries;
 
         for (size_t i = 0; i < file_names.size(); ++i) {
-            auto* entry = _CLNEW ReaderFileEntry();
-            char* aid = strdup(file_names[i].c_str());
+            std::unique_ptr<ReaderFileEntry> entry = std::make_unique<ReaderFileEntry>();
             entry->file_name = file_names[i];
             entry->offset = offsets[i];
             entry->length = lengths[i];
-            entries->put(aid, entry);
+            entries.emplace(file_names[i], std::move(entry));
         }
 
         return entries;
@@ -288,21 +287,20 @@ TEST_F(DorisCompoundReaderTest, CloneCompoundReader) {
     CL_NS(store)::IndexInput* index_input =
             create_mock_index_input(index_path, file_names, lengths);
 
-    EntriesType* entries = create_test_entries(file_names, offsets, lengths);
+    EntriesType entries = create_test_entries(file_names, offsets, lengths);
 
     DorisCompoundReader original_reader(index_input, entries);
 
     CL_NS(store)::IndexInput* cloned_input = original_reader.getDorisIndexInput()->clone();
 
-    auto* cloned_entries = _CLNEW EntriesType(true, true);
-    for (const auto& it : *entries) {
-        auto* origin_entry = it.second;
-        auto* entry = _CLNEW ReaderFileEntry();
-        char* aid = strdup(it.first);
+    EntriesType cloned_entries;
+    for (const auto& it : entries) {
+        auto* origin_entry = it.second.get();
+        std::unique_ptr<ReaderFileEntry> entry = std::make_unique<ReaderFileEntry>();
         entry->file_name = origin_entry->file_name;
         entry->offset = origin_entry->offset;
         entry->length = origin_entry->length;
-        cloned_entries->put(aid, entry);
+        cloned_entries.emplace(it.first, std::move(entry));
     }
 
     DorisCompoundReader cloned_reader(cloned_input, cloned_entries);
@@ -317,8 +315,6 @@ TEST_F(DorisCompoundReaderTest, CloneCompoundReader) {
 
     original_reader.close();
     cloned_reader.close();
-    _CLDELETE(entries);
-    _CLDELETE(cloned_entries);
 }
 
 TEST_F(DorisCompoundReaderTest, ErrorHandling) {
@@ -364,7 +360,7 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         std::string index_path =
                 InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
 
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 io::global_local_filesystem(), index_path_prefix, rowset_id, seg_id,
                 InvertedIndexStorageFormatPB::V1);
 
@@ -382,7 +378,7 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         auto st = index_file_writer->close();
         ASSERT_TRUE(st.ok()) << st;
 
-        auto file_reader = std::make_unique<InvertedIndexFileReader>(
+        auto file_reader = std::make_unique<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V1);
 
         st = file_reader->init();
@@ -411,7 +407,7 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         Status st = io::global_local_filesystem()->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(st.ok()) << st;
 
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 io::global_local_filesystem(), index_path_prefix, rowset_id, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -429,7 +425,7 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         st = index_file_writer->close();
         ASSERT_TRUE(st.ok()) << st;
 
-        auto file_reader = std::make_unique<InvertedIndexFileReader>(
+        auto file_reader = std::make_unique<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         st = file_reader->init();
@@ -455,121 +451,548 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
 TEST_F(DorisCompoundReaderTest, FileCopyCorrectness) {
     std::string index_path = kTestDir + "/test_file_copy.idx";
 
-    char* file_name = strdup("test_copy.dat");
+    std::string file_name = "test_copy.dat";
     std::vector<std::string> file_names = {file_name};
     std::vector<int64_t> lengths = {256};
 
-    auto* entries = _CLNEW EntriesType(true, true);
-    auto* entry = _CLNEW ReaderFileEntry();
+    EntriesType entries;
+    std::unique_ptr<ReaderFileEntry> entry = std::make_unique<ReaderFileEntry>();
     entry->file_name = file_name;
     entry->offset = -1;
     entry->length = lengths[0];
-    entries->put(file_name, entry);
+    entries.emplace(file_name, std::move(entry));
 
     CL_NS(store)::IndexInput* index_input =
             create_mock_index_input(index_path, file_names, lengths);
 
     class TestCompoundReader : public DorisCompoundReader {
     public:
-        TestCompoundReader(CL_NS(store)::IndexInput* stream, EntriesType* entries)
+        TestCompoundReader(CL_NS(store)::IndexInput* stream, const EntriesType& entries)
                 : DorisCompoundReader(stream, entries) {}
 
         using DorisCompoundReader::_copyFile;
 
         bool testFileCopy(const char* file, int32_t file_length) {
-            _ram_dir = new lucene::store::RAMDirectory();
+            _ram_dir = std::make_unique<lucene::store::RAMDirectory>();
             const int32_t buffer_size = 64;
+            uint8_t buffer[4096];
 
             try {
-                int32_t count = _stream->readVInt();
-                ReaderFileEntry* entry = nullptr;
-                TCHAR tid[4096];
-                uint8_t buffer[4096];
-                for (int32_t i = 0; i < count; i++) {
-                    entry = _CLNEW ReaderFileEntry();
-                    _stream->readString(tid, 4096);
-                    char* aid = STRDUP_TtoA(tid);
-                    entry->file_name = aid;
-                    entry->offset = _stream->readLong();
-                    entry->length = _stream->readLong();
-                    //_entries->put(aid, entry);
-                    // read header file data
-                    if (entry->offset < 0) {
-                        _copyFile(entry->file_name.c_str(), static_cast<int32_t>(entry->length),
-                                  buffer, buffer_size);
-                    }
-                    free(aid);
-                    _CLDELETE(entry);
-                }
-                EXPECT_TRUE(_ram_dir->fileExists(file)) << "File should exist after copy";
-
-                lucene::store::IndexInput* input = nullptr;
-                CLuceneError err;
-                bool opened = _ram_dir->openInput(file, input, err);
-                EXPECT_TRUE(opened) << "Failed to open copied file: " << err.what();
-
-                std::unique_ptr<lucene::store::IndexInput,
-                                std::function<void(lucene::store::IndexInput*)>>
-                        input_guard(input, [](lucene::store::IndexInput* p) {
-                            if (p) {
-                                p->close();
-                                _CLLDELETE(p);
-                            }
-                        });
-
-                EXPECT_EQ(input_guard->length(), file_length) << "File length should match";
-                input_guard->seek(0);
-                std::vector<uint8_t> full_buffer(file_length);
-                input_guard->readBytes(full_buffer.data(), file_length);
-                for (int32_t i = 0; i < file_length; ++i) {
-                    EXPECT_EQ(full_buffer[i], 65) << "File content should match";
-                }
-
-                std::vector<std::string> dir_files;
-                _ram_dir->list(&dir_files);
-                EXPECT_EQ(dir_files.size(), 1U) << "RAM directory should contain exactly one file";
-                EXPECT_EQ(dir_files[0], file) << "File name in RAM directory should match";
-
-                bool deleted = _ram_dir->deleteFile(file);
-                EXPECT_TRUE(deleted) << "Failed to delete file: " << err.what();
-                EXPECT_FALSE(_ram_dir->fileExists(file)) << "File should not exist after deletion";
-
-                if (file_length > 0) {
-                    const char* empty_file = "empty_test.dat";
-                    _copyFile(empty_file, 0, buffer, buffer_size);
-                    EXPECT_TRUE(_ram_dir->fileExists(empty_file))
-                            << "Empty file should exist after copy";
-
-                    lucene::store::IndexInput* empty_input = nullptr;
-                    bool empty_opened = _ram_dir->openInput(empty_file, empty_input, err);
-                    EXPECT_TRUE(empty_opened) << "Failed to open empty file: " << err.what();
-
-                    std::unique_ptr<lucene::store::IndexInput,
-                                    std::function<void(lucene::store::IndexInput*)>>
-                            empty_guard(empty_input, [](lucene::store::IndexInput* p) {
-                                if (p) {
-                                    p->close();
-                                    _CLLDELETE(p);
-                                }
-                            });
-
-                    EXPECT_EQ(empty_guard->length(), 0) << "Empty file length should be 0";
-                }
-
-                return true;
+                processFileEntries(buffer, buffer_size);
+                return verifyFileCopy(file, file_length);
             } catch (CLuceneError& error) {
                 ADD_FAILURE() << "Exception during file copy test: " << error.what();
                 return false;
             }
         }
+
+    private:
+        void processFileEntries(uint8_t* buffer, int32_t buffer_size) {
+            int32_t count = _stream->readVInt();
+            for (int32_t i = 0; i < count; i++) {
+                std::unique_ptr<ReaderFileEntry> entry = std::make_unique<ReaderFileEntry>();
+                std::wstring tid;
+                int32_t string_length = _stream->readVInt();
+                tid.resize(string_length);
+                // Read the string characters directly
+                _stream->readChars(tid.data(), 0, string_length);
+                entry->file_name = std::string(tid.begin(), tid.end());
+                entry->offset = _stream->readLong();
+                entry->length = _stream->readLong();
+                if (entry->offset < 0) {
+                    _copyFile(entry->file_name.c_str(), static_cast<int32_t>(entry->length), buffer,
+                              buffer_size);
+                }
+            }
+        }
+
+        bool verifyFileCopy(const char* file, int32_t file_length) {
+            EXPECT_TRUE(_ram_dir->fileExists(file)) << "File should exist after copy";
+
+            lucene::store::IndexInput* input = nullptr;
+            CLuceneError err;
+            bool opened = _ram_dir->openInput(file, input, err);
+            EXPECT_TRUE(opened) << "Failed to open copied file: " << err.what();
+
+            verifyFileContent(input, file_length);
+            verifyDirectoryState(file);
+            testEmptyFile();
+
+            return true;
+        }
+
+        void verifyFileContent(lucene::store::IndexInput* input, int32_t file_length) {
+            std::unique_ptr<lucene::store::IndexInput,
+                            std::function<void(lucene::store::IndexInput*)>>
+                    input_guard(input, [](lucene::store::IndexInput* p) {
+                        if (p) {
+                            p->close();
+                            _CLLDELETE(p);
+                        }
+                    });
+
+            EXPECT_EQ(input_guard->length(), file_length) << "File length should match";
+            input_guard->seek(0);
+            std::vector<uint8_t> full_buffer(file_length);
+            input_guard->readBytes(full_buffer.data(), file_length);
+            for (int32_t i = 0; i < file_length; ++i) {
+                EXPECT_EQ(full_buffer[i], 65) << "File content should match";
+            }
+        }
+
+        void verifyDirectoryState(const char* file) {
+            std::vector<std::string> dir_files;
+            _ram_dir->list(&dir_files);
+            EXPECT_EQ(dir_files.size(), 1U) << "RAM directory should contain exactly one file";
+            EXPECT_EQ(dir_files[0], file) << "File name in RAM directory should match";
+
+            CLuceneError err;
+            bool deleted = _ram_dir->deleteFile(file);
+            EXPECT_TRUE(deleted) << "Failed to delete file: " << err.what();
+            EXPECT_FALSE(_ram_dir->fileExists(file)) << "File should not exist after deletion";
+        }
+
+        void testEmptyFile() {
+            const char* empty_file = "empty_test.dat";
+            const int32_t buffer_size = 64;
+            uint8_t buffer[4096];
+            _copyFile(empty_file, 0, buffer, buffer_size);
+            EXPECT_TRUE(_ram_dir->fileExists(empty_file)) << "Empty file should exist after copy";
+
+            lucene::store::IndexInput* empty_input = nullptr;
+            CLuceneError err;
+            bool empty_opened = _ram_dir->openInput(empty_file, empty_input, err);
+            EXPECT_TRUE(empty_opened) << "Failed to open empty file: " << err.what();
+
+            std::unique_ptr<lucene::store::IndexInput,
+                            std::function<void(lucene::store::IndexInput*)>>
+                    empty_guard(empty_input, [](lucene::store::IndexInput* p) {
+                        if (p) {
+                            p->close();
+                            _CLLDELETE(p);
+                        }
+                    });
+
+            EXPECT_EQ(empty_guard->length(), 0) << "Empty file length should be 0";
+        }
     };
 
     TestCompoundReader test_reader(index_input, entries);
 
-    EXPECT_TRUE(test_reader.testFileCopy(file_name, static_cast<int32_t>(lengths[0])));
+    EXPECT_TRUE(test_reader.testFileCopy(file_name.c_str(), static_cast<int32_t>(lengths[0])));
 
     test_reader.close();
-    _CLDELETE(entries);
+}
+
+TEST_F(DorisCompoundReaderTest, CSIndexInputClone) {
+    std::string index_path = kTestDir + "/test_csinput_clone.idx";
+    std::vector<std::string> file_names = {"clone_test.dat"};
+    std::vector<int64_t> lengths = {17 * 1024 * 1024};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* input = nullptr;
+    EXPECT_TRUE(reader.openInput("clone_test.dat", input, err, 4096));
+
+    // Test CSIndexInput clone functionality
+    lucene::store::IndexInput* cloned_input = input->clone();
+    EXPECT_NE(cloned_input, nullptr);
+    EXPECT_EQ(cloned_input->length(), input->length());
+
+    // Test CSIndexInput methods
+    EXPECT_STREQ(cloned_input->getDirectoryType(), "DorisCompoundReader");
+    EXPECT_STREQ(cloned_input->getObjectName(), "CSIndexInput");
+
+    // Test setIoContext
+    io::IOContext io_ctx;
+    cloned_input->setIoContext(&io_ctx);
+
+    input->close();
+    cloned_input->close();
+    _CLLDELETE(input);
+    _CLLDELETE(cloned_input);
+
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, CSIndexInputReadPastEOF) {
+    std::string index_path = kTestDir + "/test_read_past_eof.idx";
+    std::vector<std::string> file_names = {"small_file.dat"};
+    std::vector<int64_t> lengths = {10};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* input = nullptr;
+    EXPECT_TRUE(reader.openInput("small_file.dat", input, err, 4096));
+
+    // Try to read past EOF - should throw exception
+    uint8_t buffer[20];
+    bool exception_thrown = false;
+    try {
+        input->readBytes(buffer, 15); // Try to read more than file length (10)
+    } catch (CLuceneError& e) {
+        exception_thrown = true;
+        EXPECT_EQ(e.number(), CL_ERR_IO);
+    }
+    EXPECT_TRUE(exception_thrown);
+
+    input->close();
+    _CLLDELETE(input);
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, UnsupportedOperations) {
+    std::string index_path = kTestDir + "/test_unsupported.idx";
+    std::vector<std::string> file_names = {"test.dat"};
+    std::vector<int64_t> lengths = {50};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // Test unsupported operations - all should throw exceptions
+    bool exception_thrown = false;
+
+    // Test doDeleteFile
+    try {
+        reader.doDeleteFile("test.dat");
+    } catch (CLuceneError& e) {
+        exception_thrown = true;
+        EXPECT_EQ(e.number(), CL_ERR_UnsupportedOperation);
+    }
+    EXPECT_TRUE(exception_thrown);
+
+    // Test renameFile
+    exception_thrown = false;
+    try {
+        reader.renameFile("old.dat", "new.dat");
+    } catch (CLuceneError& e) {
+        exception_thrown = true;
+        EXPECT_EQ(e.number(), CL_ERR_UnsupportedOperation);
+    }
+    EXPECT_TRUE(exception_thrown);
+
+    // Test touchFile
+    exception_thrown = false;
+    try {
+        reader.touchFile("test.dat");
+    } catch (CLuceneError& e) {
+        exception_thrown = true;
+        EXPECT_EQ(e.number(), CL_ERR_UnsupportedOperation);
+    }
+    EXPECT_TRUE(exception_thrown);
+
+    // Test createOutput
+    exception_thrown = false;
+    try {
+        reader.createOutput("output.dat");
+    } catch (CLuceneError& e) {
+        exception_thrown = true;
+        EXPECT_EQ(e.number(), CL_ERR_UnsupportedOperation);
+    }
+    EXPECT_TRUE(exception_thrown);
+
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, FileModifiedAndToString) {
+    std::string index_path = kTestDir + "/test_misc_methods.idx";
+    std::vector<std::string> file_names = {"test.dat"};
+    std::vector<int64_t> lengths = {50};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // Test fileModified - should return 0
+    EXPECT_EQ(reader.fileModified("test.dat"), 0);
+
+    // Test toString
+    std::string str_rep = reader.toString();
+    EXPECT_TRUE(str_rep.find("DorisCompoundReader") != std::string::npos);
+
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, OpenInputWithNullStream) {
+    std::string index_path = kTestDir + "/test_null_stream.idx";
+    std::vector<std::string> file_names = {"test.dat"};
+    std::vector<int64_t> lengths = {50};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // Close the reader first to simulate null stream
+    reader.close();
+
+    // Now try to open input - should fail
+    CLuceneError err;
+    lucene::store::IndexInput* input = nullptr;
+    EXPECT_FALSE(reader.openInput("test.dat", input, err));
+    EXPECT_EQ(err.number(), CL_ERR_IO);
+}
+
+TEST_F(DorisCompoundReaderTest, ClosedReaderOperations) {
+    std::string index_path = kTestDir + "/test_closed_reader.idx";
+    std::vector<std::string> file_names = {"test.dat"};
+    std::vector<int64_t> lengths = {50};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+    reader.close();
+
+    // Test operations on closed reader - all should throw exceptions
+    bool exception_thrown = false;
+
+    // Test list
+    try {
+        std::vector<std::string> files;
+        reader.list(&files);
+    } catch (CLuceneError& e) {
+        exception_thrown = true;
+        EXPECT_EQ(e.number(), CL_ERR_IO);
+    }
+    EXPECT_TRUE(exception_thrown);
+
+    // Test fileExists
+    exception_thrown = false;
+    try {
+        reader.fileExists("test.dat");
+    } catch (CLuceneError& e) {
+        exception_thrown = true;
+        EXPECT_EQ(e.number(), CL_ERR_IO);
+    }
+    EXPECT_TRUE(exception_thrown);
+
+    // Test fileLength
+    exception_thrown = false;
+    try {
+        reader.fileLength("test.dat");
+    } catch (CLuceneError& e) {
+        exception_thrown = true;
+        EXPECT_EQ(e.number(), CL_ERR_IO);
+    }
+    EXPECT_TRUE(exception_thrown);
+}
+
+TEST_F(DorisCompoundReaderTest, FileCopyErrorHandling) {
+    std::string index_path = kTestDir + "/test_file_copy_error.idx";
+
+    // Create a compound file with header data that will test _copyFile error paths
+    std::vector<std::string> file_names = {"large_header.dat"};
+    std::vector<int64_t> lengths = {1000}; // Large enough to be in header
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    // Test normal _copyFile operation
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // Verify the file was copied to RAM directory correctly
+    CLuceneError err;
+    lucene::store::IndexInput* input = nullptr;
+    EXPECT_TRUE(reader.openInput("large_header.dat", input, err));
+    EXPECT_EQ(input->length(), 1000);
+
+    input->close();
+    _CLLDELETE(input);
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, OpenInputBufferSizeHandling) {
+    std::string index_path = kTestDir + "/test_buffer_size.idx";
+    std::vector<std::string> file_names = {"test.dat"};
+    std::vector<int64_t> lengths = {50};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // Test openInput with buffer size < 1 (should use default)
+    CLuceneError err;
+    lucene::store::IndexInput* input = nullptr;
+    EXPECT_TRUE(reader.openInput("test.dat", input, err, 0)); // buffer size 0
+    EXPECT_NE(input, nullptr);
+
+    input->close();
+    _CLLDELETE(input);
+
+    // Test openInput with custom buffer size
+    EXPECT_TRUE(reader.openInput("test.dat", input, err, 2048));
+    EXPECT_NE(input, nullptr);
+
+    input->close();
+    _CLLDELETE(input);
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, GetDorisIndexInput) {
+    std::string index_path = kTestDir + "/test_get_doris_input.idx";
+    std::vector<std::string> file_names = {"test.dat"};
+    std::vector<int64_t> lengths = {50};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // Test getDorisIndexInput
+    CL_NS(store)::IndexInput* retrieved_input = reader.getDorisIndexInput();
+    EXPECT_NE(retrieved_input, nullptr);
+    EXPECT_EQ(retrieved_input, index_input);
+
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, UniquePointerOpenInput) {
+    std::string index_path = kTestDir + "/test_unique_ptr.idx";
+    std::vector<std::string> file_names = {"test.dat"};
+    std::vector<int64_t> lengths = {50};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // Test openInput with unique_ptr
+    std::unique_ptr<lucene::store::IndexInput> input_ptr;
+    CLuceneError err;
+    EXPECT_TRUE(reader.openInput("test.dat", input_ptr, err, 4096));
+    EXPECT_NE(input_ptr, nullptr);
+
+    // Test with non-existent file
+    std::unique_ptr<lucene::store::IndexInput> failed_input_ptr;
+    EXPECT_FALSE(reader.openInput("non_existent.dat", failed_input_ptr, err, 4096));
+    EXPECT_EQ(failed_input_ptr, nullptr);
+
+    input_ptr->close();
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, DestructorWithErrorHandling) {
+    std::string index_path = kTestDir + "/test_destructor_error.idx";
+    std::vector<std::string> file_names = {"test.dat"};
+    std::vector<int64_t> lengths = {50};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    {
+        DorisCompoundReader reader(index_input, 4096, nullptr);
+        // Reader will be destroyed when going out of scope
+        // This tests the destructor path with error handling
+    }
+    // No explicit assertions needed - just ensuring no crashes
+}
+
+TEST_F(DorisCompoundReaderTest, FileNotFoundInFileLength) {
+    std::string index_path = kTestDir + "/test_file_not_found.idx";
+    std::vector<std::string> file_names = {"existing_file.dat"};
+    std::vector<int64_t> lengths = {50};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // Test fileLength with non-existent file - should throw exception
+    bool exception_thrown = false;
+    try {
+        reader.fileLength("non_existent_file.dat");
+    } catch (CLuceneError& e) {
+        exception_thrown = true;
+        EXPECT_EQ(e.number(), CL_ERR_IO);
+        std::string error_msg = e.what();
+        EXPECT_TRUE(error_msg.find("does not exist") != std::string::npos);
+    }
+    EXPECT_TRUE(exception_thrown);
+
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, ConstructorExceptionHandling) {
+    std::string index_path = kTestDir + "/test_constructor_exception.idx";
+
+    // Test construction that should trigger debug point if available
+    std::vector<std::string> file_names = {"debug_test.dat"};
+    std::vector<int64_t> lengths = {100};
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    // Normal construction should work
+    bool construction_successful = true;
+    try {
+        DorisCompoundReader reader(index_input, 4096, nullptr);
+        reader.close();
+    } catch (CLuceneError&) {
+        construction_successful = false;
+    }
+
+    // In normal cases without debug points, construction should succeed
+    EXPECT_TRUE(construction_successful);
+}
+
+TEST_F(DorisCompoundReaderTest, CopyFileWithZeroRemainder) {
+    std::string index_path = kTestDir + "/test_copy_file_zero_remainder.idx";
+
+    // Create files that will test exact division scenarios in _copyFile
+    std::vector<std::string> file_names = {"exact_size.dat"};
+    std::vector<int64_t> lengths = {16384}; // Buffer size from compound reader source
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // Verify the file was copied correctly with zero remainder
+    CLuceneError err;
+    lucene::store::IndexInput* input = nullptr;
+    EXPECT_TRUE(reader.openInput("exact_size.dat", input, err));
+    EXPECT_EQ(input->length(), 16384);
+
+    input->close();
+    _CLLDELETE(input);
+    reader.close();
+}
+
+TEST_F(DorisCompoundReaderTest, OpenInputFromRAMDirectory) {
+    std::string index_path = kTestDir + "/test_ram_directory.idx";
+
+    // Create a small file that will be stored in RAM directory
+    std::vector<std::string> file_names = {"ram_file.dat"};
+    std::vector<int64_t> lengths = {50}; // Small enough to be in header/RAM
+
+    CL_NS(store)::IndexInput* index_input =
+            create_mock_index_input(index_path, file_names, lengths);
+
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    // The file should be accessible from RAM directory
+    CLuceneError err;
+    lucene::store::IndexInput* input = nullptr;
+    EXPECT_TRUE(reader.openInput("ram_file.dat", input, err, 4096));
+    EXPECT_NE(input, nullptr);
+    EXPECT_EQ(input->length(), 50);
+
+    input->close();
+    _CLLDELETE(input);
+    reader.close();
 }
 
 } // namespace doris::segment_v2

@@ -52,14 +52,14 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
-        super(nameParts, PlanType.LOGICAL_UNBOUND_HIVE_TABLE_SINK, ImmutableList.of(), groupExpression,
+        super(nameParts, PlanType.LOGICAL_UNBOUND_ICEBERG_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child, hints, partitions);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "UnboundHiveTableSink only accepts one child");
+                "UnboundIcebergTableSink only accepts one child");
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, Optional.empty(), children.get(0));
     }

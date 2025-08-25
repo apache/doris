@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -34,9 +39,9 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
 
         createTable("create table test_list_parts(id int, part int not null) "
                 + "partition by list(part) ("
-                + "  partition p1 (('1'), ('4'), ('7')),"
-                + "  partition p2 (('8'), ('9'), ('5')),"
-                + "  partition p3 (('11'), ('0'), ('6'))"
+                + "  partition p1 values in (('1'), ('4'), ('7')),"
+                + "  partition p2 values in (('8'), ('9'), ('5')),"
+                + "  partition p3 values in (('11'), ('0'), ('6'))"
                 + ") "
                 + "distributed by hash(id) "
                 + "properties ('replication_num'='1')");
@@ -153,6 +158,30 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    void testOlapScanPartitionPruneWithTablet() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("single_not_null");
+        Assertions.assertNotNull(tbl);
+        Tablet tablet1 = tbl.getPartition("p20211122")
+                .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL).iterator().next()
+                .getTablets().iterator().next();
+        Tablet tablet2 = tbl.getPartition("p20211125")
+                .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL).iterator().next()
+                .getTablets().iterator().next();
+
+        test("test.single_not_null", "", String.valueOf(tablet1.getId()), 1);
+        test("test.single_not_null", "", tablet1.getId() + ", " + tablet2.getId(), 2);
+        test("test.single_not_null", "dt in (20211121)", tablet1.getId() + ", " + tablet2.getId(), 1);
+        test("test.single_not_null", "dt in (20211121, 20211124)", tablet1.getId() + ", " + tablet2.getId(), 2);
+        test("test.single_not_null", "dt in (20211121)", String.valueOf(tablet2.getId()), 0);
+        test("test.single_not_null", "", "", 7);
+        test("test.single_not_null", "", String.valueOf(tablet1.getId()), "p20211122", 1);
+        test("test.single_not_null", "", String.valueOf(tablet2.getId()), "p20211122", 0);
+        test("test.single_not_null", "dt in (20211124)", String.valueOf(tablet1.getId()), "p20211122", 0);
+
+    }
+
+    @Test
     void testOlapScanPartitionPruneWithMultiColumnCase() throws Exception {
         createTable("create table testOlapScanPartitionPruneWithMultiColumnCase("
                 + "  id int not null,"
@@ -236,8 +265,8 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     public void pruneMultiColumnListPartition() throws Exception {
         createTable("create table test_multi_list_parts(id int, part1 int not null, part2 varchar(32) not null) "
                 + "partition by list(part1, part2) ("
-                + "  partition p1 (('1', 'd'), ('3', 'a')),"
-                + "  partition p2 (('4', 'c'), ('6', 'f'))"
+                + "  partition p1 values in (('1', 'd'), ('3', 'a')),"
+                + "  partition p2 values in (('4', 'c'), ('6', 'f'))"
                 + ") "
                 + "distributed by hash(id) "
                 + "properties ('replication_num'='1')");
@@ -389,8 +418,24 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     }
 
     private void test(String table, String filter, int expectScanPartitionNum) {
+        test(table, filter, "", expectScanPartitionNum);
+    }
+
+    private void test(String table, String filter, String tabletsFilter, int expectScanPartitionNum) {
+        test(table, filter, tabletsFilter, "", expectScanPartitionNum);
+    }
+
+    private void test(String table,
+                      String filter,
+                      String tabletsFilter,
+                      String specifiedPartition,
+                      int expectScanPartitionNum) {
         PlanChecker planChecker = PlanChecker.from(connectContext)
-                .analyze("select * from " + table + (filter.isEmpty() ? "" : " where " + filter))
+                .analyze("select * from " + table
+                        + (specifiedPartition.isEmpty() ? "" : String.format(" PARTITION %s", specifiedPartition))
+                        + (tabletsFilter.isEmpty() ? "" : String.format(" tablet(%s)", tabletsFilter))
+                        + (filter.isEmpty() ? "" : " where " + filter)
+                )
                 .rewrite()
                 .printlnTree();
 

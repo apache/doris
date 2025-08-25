@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.constants;
 
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -25,6 +26,7 @@ import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.credentials.DataLakeAWSCredentialsProvider;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.thrift.TCredProviderType;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
@@ -57,6 +59,10 @@ public class S3Properties extends BaseProperties {
     public static final String ACCESS_KEY = "s3.access_key";
     public static final String SECRET_KEY = "s3.secret_key";
     public static final String SESSION_TOKEN = "s3.session_token";
+
+    public static final String ROLE_ARN = "s3.role_arn";
+    public static final String EXTERNAL_ID = "s3.external_id";
+
     public static final String MAX_CONNECTIONS = "s3.connection.maximum";
     public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
@@ -72,7 +78,7 @@ public class S3Properties extends BaseProperties {
     public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN,
             ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
 
-    public static final List<String> PROVIDERS = Arrays.asList("COS", "OSS", "S3", "OBS", "BOS", "AZURE", "GCP");
+    public static final List<String> PROVIDERS = Arrays.asList("COS", "OSS", "S3", "OBS", "BOS", "AZURE", "GCP", "TOS");
 
     public static final List<String> AWS_CREDENTIALS_PROVIDERS = Arrays.asList(
             DataLakeAWSCredentialsProvider.class.getName(),
@@ -80,8 +86,8 @@ public class S3Properties extends BaseProperties {
             SimpleAWSCredentialsProvider.class.getName(),
             EnvironmentVariableCredentialsProvider.class.getName(),
             SystemPropertiesCredentialsProvider.class.getName(),
-            ProfileCredentialsProvider.class.getName(),
             InstanceProfileCredentialsProvider.class.getName(),
+            ProfileCredentialsProvider.class.getName(),
             WebIdentityTokenCredentialsProvider.class.getName(),
             IAMInstanceCredentialsProvider.class.getName());
 
@@ -120,6 +126,9 @@ public class S3Properties extends BaseProperties {
         public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
         public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
         public static final String NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
+
+        public static final String ROLE_ARN = "AWS_ROLE_ARN";
+        public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
 
         public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
         public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
@@ -284,10 +293,27 @@ public class S3Properties extends BaseProperties {
         if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
             properties.putIfAbsent(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
         }
+
+        if (properties.containsKey(S3Properties.Env.ROLE_ARN)) {
+            properties.putIfAbsent(S3Properties.ROLE_ARN, properties.get(S3Properties.Env.ROLE_ARN));
+        }
+
+        if (properties.containsKey(S3Properties.Env.EXTERNAL_ID)) {
+            properties.putIfAbsent(S3Properties.EXTERNAL_ID, properties.get(S3Properties.Env.EXTERNAL_ID));
+        }
     }
 
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
         TS3StorageParam s3Info = new TS3StorageParam();
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)) {
+            s3Info.setRoleArn(properties.get(S3Properties.ROLE_ARN));
+            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+                s3Info.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
+            }
+            s3Info.setCredProviderType(TCredProviderType.INSTANCE_PROFILE);
+        }
+
         s3Info.setEndpoint(properties.get(S3Properties.ENDPOINT));
         s3Info.setRegion(properties.get(S3Properties.REGION));
         s3Info.setAk(properties.get(S3Properties.ACCESS_KEY));
@@ -348,6 +374,15 @@ public class S3Properties extends BaseProperties {
                     "Invalid use_path_style value: %s only 'true' or 'false' is acceptable", value);
             builder.setUsePathStyle(value.equalsIgnoreCase("true"));
         }
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)) {
+            builder.setRoleArn(properties.get(S3Properties.ROLE_ARN));
+            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+                builder.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
+            }
+            builder.setCredProviderType(CredProviderTypePB.INSTANCE_PROFILE);
+        }
+
         return builder;
     }
 }

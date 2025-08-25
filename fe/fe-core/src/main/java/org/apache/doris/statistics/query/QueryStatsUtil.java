@@ -177,7 +177,7 @@ public class QueryStatsUtil {
             }
             FrontendService.Client client = null;
             try {
-                int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
                 client = ClientPool.frontendPool.borrowObject(new TNetworkAddress(fe.getHost(), fe.getRpcPort()),
                         waitTimeOut * 1000);
                 TQueryStatsResult other = client.getQueryStats(request);

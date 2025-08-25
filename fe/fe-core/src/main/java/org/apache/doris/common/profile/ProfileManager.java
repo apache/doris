@@ -32,9 +32,11 @@ import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
 import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -253,7 +255,7 @@ public class ProfileManager extends MasterDaemon {
     }
 
     private static TGetRealtimeExecStatusResponse getRealtimeQueryProfile(
-            TUniqueId queryID, TNetworkAddress targetBackend) {
+            TUniqueId queryID, String reqType, TNetworkAddress targetBackend) {
         TGetRealtimeExecStatusResponse resp = null;
         BackendService.Client client = null;
 
@@ -268,6 +270,7 @@ public class ProfileManager extends MasterDaemon {
         try {
             TGetRealtimeExecStatusRequest req = new TGetRealtimeExecStatusRequest();
             req.setId(queryID);
+            req.setReqType(reqType);
             resp = client.getRealtimeExecStatus(req);
         } catch (TException e) {
             LOG.warn("Got exception when getRealtimeExecStatus, query {} backend {}",
@@ -293,8 +296,8 @@ public class ProfileManager extends MasterDaemon {
             return null;
         }
 
-        if (!resp.isSetReportExecStatusParams()) {
-            LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}",
+        if (!resp.isSetReportExecStatusParams() && !resp.isSetQueryStats()) {
+            LOG.warn("Invalid GetRealtimeExecStatusResponse, missing both exec status and query stats. query {}",
                     DebugUtil.printId(queryID));
             return null;
         }
@@ -302,7 +305,7 @@ public class ProfileManager extends MasterDaemon {
         return resp;
     }
 
-    private List<Future<TGetRealtimeExecStatusResponse>> createFetchRealTimeProfileTasks(String id) {
+    private List<Future<TGetRealtimeExecStatusResponse>> createFetchRealTimeProfileTasks(String id, String reqType) {
         // For query, id is queryId, for load, id is LoadLoadingTaskId
         class QueryIdAndAddress {
             public TUniqueId id;
@@ -365,9 +368,8 @@ public class ProfileManager extends MasterDaemon {
         }
 
         for (QueryIdAndAddress idAndAddress : involvedBackends) {
-            Callable<TGetRealtimeExecStatusResponse> task = () -> {
-                return getRealtimeQueryProfile(idAndAddress.id, idAndAddress.beAddress);
-            };
+            Callable<TGetRealtimeExecStatusResponse> task = () -> getRealtimeQueryProfile(idAndAddress.id,
+                    reqType, idAndAddress.beAddress);
             Future<TGetRealtimeExecStatusResponse> future = fetchRealTimeProfileExecutor.submit(task);
             futures.add(future);
         }
@@ -375,8 +377,57 @@ public class ProfileManager extends MasterDaemon {
         return futures;
     }
 
+    public TQueryStatistics getQueryStatistic(String queryId) throws Exception {
+        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(queryId,
+                "stats");
+        List<TQueryStatistics> queryStatisticsList = Lists.newArrayList();
+        for (Future<TGetRealtimeExecStatusResponse> future : futures) {
+            try {
+                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
+                if (resp != null && resp.getStatus().status_code == TStatusCode.OK && resp.isSetQueryStats()) {
+                    queryStatisticsList.add(resp.getQueryStats());
+                } else {
+                    LOG.warn("Failed to get real-time query stats, id {}, resp is {}",
+                            queryId, resp == null ? "null" : resp.toString());
+                    throw new Exception("Failed to get realtime query stats: " + resp.toString());
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get real-time query stats, id {}, error: {}", queryId, e.getMessage(), e);
+                throw new Exception("Failed to get realtime query stats: " + e.getMessage());
+            }
+        }
+        Preconditions.checkState(!queryStatisticsList.isEmpty() && queryStatisticsList.size() == futures.size(),
+                String.format("Failed to get real-time stats, id %s, "
+                                + "queryStatisticsList size %d != futures size %d",
+                        queryId, queryStatisticsList.size(), futures.size()));
+
+        TQueryStatistics summary = new TQueryStatistics();
+        for (TQueryStatistics queryStats : queryStatisticsList) {
+            // sum all the statistics
+            summary.setScanRows(summary.getScanRows() + queryStats.getScanRows());
+            summary.setScanBytes(summary.getScanBytes() + queryStats.getScanBytes());
+            summary.setReturnedRows(summary.getReturnedRows() + queryStats.getReturnedRows());
+            summary.setCpuMs(summary.getCpuMs() + queryStats.getCpuMs());
+            summary.setMaxPeakMemoryBytes(Math.max(summary.getMaxPeakMemoryBytes(),
+                    queryStats.getMaxPeakMemoryBytes()));
+            summary.setCurrentUsedMemoryBytes(Math.max(summary.getCurrentUsedMemoryBytes(),
+                    queryStats.getCurrentUsedMemoryBytes()));
+            summary.setShuffleSendBytes(summary.getShuffleSendBytes() + queryStats.getShuffleSendBytes());
+            summary.setShuffleSendRows(summary.getShuffleSendRows() + queryStats.getShuffleSendRows());
+            summary.setScanBytesFromLocalStorage(
+                    summary.getScanBytesFromLocalStorage() + queryStats.getScanBytesFromLocalStorage());
+            summary.setScanBytesFromRemoteStorage(
+                    summary.getScanBytesFromRemoteStorage() + queryStats.getScanBytesFromRemoteStorage());
+            summary.setSpillWriteBytesToLocalStorage(
+                    summary.getSpillWriteBytesToLocalStorage() + queryStats.getSpillWriteBytesToLocalStorage());
+            summary.setSpillReadBytesFromLocalStorage(
+                    summary.getSpillReadBytesFromLocalStorage() + queryStats.getSpillReadBytesFromLocalStorage());
+        }
+        return summary;
+    }
+
     public String getProfile(String id) {
-        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id);
+        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id, "profile");
         // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
         // to avoid compile failing.
         TNetworkAddress dummyAddr = new TNetworkAddress();
@@ -1057,3 +1108,4 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 }
+

@@ -36,7 +36,6 @@
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "json2pb/json_to_pb.h"
@@ -292,7 +291,7 @@ protected:
 
         TabletSchemaSPtr tablet_schema = create_schema(keys_type);
         // create input rowset
-        vector<RowsetSharedPtr> input_rowsets;
+        std::vector<RowsetSharedPtr> input_rowsets;
         SegmentsOverlapPB new_overlap = overlap;
         for (auto i = 0; i < num_input_rowset; i++) {
             if (overlap == OVERLAP_UNKNOWN) {
@@ -336,7 +335,7 @@ protected:
         TabletSharedPtr tablet = create_tablet(*tablet_schema, enable_unique_key_merge_on_write);
 
         // create input rowset reader
-        vector<RowsetReaderSharedPtr> input_rs_readers;
+        std::vector<RowsetReaderSharedPtr> input_rs_readers;
         for (auto& rowset : input_rowsets) {
             RowsetReaderSharedPtr rs_reader;
             EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
@@ -470,7 +469,7 @@ protected:
 
 private:
     const std::string kTestDir = "/ut_dir/rowid_conversion_test";
-    string absolute_dir;
+    std::string absolute_dir;
 };
 
 TEST_F(TestRowIdConversion, Basic) {

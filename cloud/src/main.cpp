@@ -27,6 +27,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -36,9 +37,10 @@
 #include "common/configbase.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
-#include "meta-service/mem_txn_kv.h"
+#include "common/network_util.h"
 #include "meta-service/meta_server.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
 #include "recycler/recycler.h"
 
 using namespace doris::cloud;
@@ -198,12 +200,15 @@ int main(int argc, char** argv) {
     }
 
     auto conf_file = args.get<std::string>(ARG_CONF);
-    if (!config::init(conf_file.c_str(), true)) {
+    if (!config::init(conf_file.c_str(), true, true, true)) {
         std::cerr << "failed to init config file, conf=" << conf_file << std::endl;
         return -1;
     }
+    if (config::custom_conf_path.empty()) {
+        config::custom_conf_path = conf_file;
+    }
     if (!std::filesystem::equivalent(conf_file, config::custom_conf_path) &&
-        !config::init(config::custom_conf_path.c_str(), false)) {
+        !config::init(config::custom_conf_path.c_str(), true, false, false)) {
         std::cerr << "failed to init custom config file, conf=" << config::custom_conf_path
                   << std::endl;
         return -1;
@@ -225,6 +230,10 @@ int main(int argc, char** argv) {
     LOG(INFO) << build_info();
     std::cout << build_info() << std::endl;
 
+    // Check the local ip before starting the meta service or recycler.
+    std::string ip = get_local_ip(config::priority_networks);
+    std::cout << "local ip: " << ip << std::endl;
+
     if (!args.get<bool>(ARG_META_SERVICE) && !args.get<bool>(ARG_RECYCLER)) {
         std::get<0>(args.args()[ARG_META_SERVICE]) = true;
         std::get<0>(args.args()[ARG_RECYCLER]) = true;
@@ -232,6 +241,9 @@ int main(int argc, char** argv) {
                      "run doris_cloud as meta_service and recycler by default";
         std::cout << "try to start meta_service, recycler" << std::endl;
     }
+
+    google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number",
+                                 config::bvar_max_dump_multi_dimension_metric_num.c_str());
 
     brpc::Server server;
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;
@@ -268,6 +280,7 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<MetaServer> meta_server; // meta-service
     std::unique_ptr<Recycler> recycler;
+    std::unique_ptr<FdbMetricExporter> fdb_metric_exporter;
     std::thread periodiccally_log_thread;
     std::mutex periodiccally_log_thread_lock;
     std::condition_variable periodiccally_log_thread_cv;
@@ -307,7 +320,9 @@ int main(int argc, char** argv) {
             }
         };
         periodiccally_log_thread = std::thread {periodiccally_log};
+        pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
+
     // start service
     brpc::ServerOptions options;
     if (config::brpc_idle_timeout_sec != -1) {
@@ -324,6 +339,14 @@ int main(int argc, char** argv) {
         return -1;
     }
     end = steady_clock::now();
+
+    fdb_metric_exporter = std::make_unique<FdbMetricExporter>(txn_kv);
+    ret = fdb_metric_exporter->start();
+    if (ret != 0) {
+        LOG(WARNING) << "failed to start fdb metric exporter";
+        return -2;
+    }
+
     msg = "successfully started service listening on port=" + std::to_string(port) +
           " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count());
     LOG(INFO) << msg;
@@ -337,6 +360,7 @@ int main(int argc, char** argv) {
     if (recycler) {
         recycler->stop();
     }
+    fdb_metric_exporter->stop();
 
     if (periodiccally_log_thread.joinable()) {
         {

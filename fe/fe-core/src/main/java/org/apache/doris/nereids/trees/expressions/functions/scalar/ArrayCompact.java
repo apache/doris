@@ -48,13 +48,18 @@ public class ArrayCompact extends ScalarFunction
         super("array_compact", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayCompact(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayCompact withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayCompact(children.get(0));
+        return new ArrayCompact(getFunctionParams(children));
     }
 
     @Override

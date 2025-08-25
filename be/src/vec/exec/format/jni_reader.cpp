@@ -45,7 +45,7 @@ MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
     int index = 0;
     for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
-        std::string type = JniConnector::get_jni_type(desc->type());
+        std::string type = JniConnector::get_jni_type_with_different_string(desc->type());
         column_names.emplace_back(field);
         if (index == 0) {
             required_fields << field;
@@ -63,24 +63,8 @@ MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
                                                     params, column_names);
 }
 
-Status MockJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
-    if (*eof) {
-        RETURN_IF_ERROR(_jni_connector->close());
-    }
-    return Status::OK();
-}
-
-Status MockJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                                  std::unordered_set<std::string>* missing_cols) {
-    for (const auto& desc : _file_slot_descs) {
-        name_to_type->emplace(desc->col_name(), desc->type());
-    }
-    return Status::OK();
-}
-
 Status MockJniReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);

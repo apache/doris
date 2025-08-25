@@ -14,17 +14,16 @@ PhysicalResultSink
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.sold_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[cs_item_sk,ss_item_sk,ws_item_sk]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk,ss_sold_date_sk,ws_sold_date_sk]
-----------------------------PhysicalProject
-------------------------------PhysicalUnion
---------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
---------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
---------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+----------------------------PhysicalUnion
+------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
+------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
+------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 1998))
 --------------------------------PhysicalOlapScan[date_dim]

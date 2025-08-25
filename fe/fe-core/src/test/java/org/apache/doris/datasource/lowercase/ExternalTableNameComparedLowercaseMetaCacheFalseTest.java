@@ -17,18 +17,21 @@
 
 package org.apache.doris.datasource.lowercase;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.RefreshCatalogStmt;
-import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -50,14 +53,18 @@ public class ExternalTableNameComparedLowercaseMetaCacheFalseTest extends TestWi
         rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
         // 1. create test catalog
-        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt("create catalog test1 properties(\n"
-                        + "    \"type\" = \"test\",\n"
-                        + "    \"use_meta_cache\" = \"false\",\n"
-                        + "    \"catalog_provider.class\" "
-                        + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameComparedLowercaseMetaCacheFalseTest$ExternalTableNameComparedLowercaseProvider\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+        String createStmt = "create catalog test1 properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"use_meta_cache\" = \"false\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameComparedLowercaseMetaCacheFalseTest$ExternalTableNameComparedLowercaseProvider\"\n"
+                + ");";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Override
@@ -70,8 +77,11 @@ public class ExternalTableNameComparedLowercaseMetaCacheFalseTest extends TestWi
     protected void runAfterAll() throws Exception {
         super.runAfterAll();
         rootCtx.setThreadLocalInfo();
-        DropCatalogStmt stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test1");
-        env.getCatalogMgr().dropCatalog(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle("drop catalog test1");
+        if (logicalPlan instanceof DropCatalogCommand) {
+            ((DropCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
 
@@ -82,9 +92,9 @@ public class ExternalTableNameComparedLowercaseMetaCacheFalseTest extends TestWi
 
     @Test
     public void testGetTableWithOutList() {
-        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt("test1", null);
+        RefreshCatalogCommand refreshCatalogCommand = new RefreshCatalogCommand("test1", null);
         try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+            refreshCatalogCommand.run(connectContext, null);
         } catch (Exception e) {
             // Do nothing
         }
@@ -102,8 +112,15 @@ public class ExternalTableNameComparedLowercaseMetaCacheFalseTest extends TestWi
         Assertions.assertTrue(tableNames.contains("TABLE2"));
     }
 
+    @Test
+    public void testShowInformationSchemaTables() {
+        Set<String> tableNames = env.getCatalogMgr().getCatalog("test1").getDbNullable(InfoSchemaDb.DATABASE_NAME).getTableNamesWithLock();
+        Assertions.assertTrue(SchemaTable.TABLE_MAP.keySet().containsAll(tableNames));
+        Assertions.assertTrue(tableNames.containsAll(SchemaTable.TABLE_MAP.keySet()));
+    }
+
     private void switchTest() throws Exception {
-        SwitchStmt switchTest = (SwitchStmt) parseAndAnalyzeStmt("switch test1;");
+        SwitchCommand switchTest = (SwitchCommand) parseStmt("switch test1;");
         Env.getCurrentEnv().changeCatalog(connectContext, switchTest.getCatalogName());
     }
 

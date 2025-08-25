@@ -21,6 +21,7 @@ suite("any_value_roll_up") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set disable_nereids_rules='CONSTANT_PROPAGATION'"
 
     sql """
     drop table if exists orders_2

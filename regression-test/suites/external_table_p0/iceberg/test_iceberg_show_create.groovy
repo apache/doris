@@ -47,9 +47,8 @@ suite("test_iceberg_show_create", "p0,external,doris,external_docker,external_do
     String db2 = "test_db2"
     String tb1 = "test_tb1"
 
-    sql """ drop table if exists ${db1}.${tb1} """
-    sql """ drop database if exists ${db1} """
-    sql """ drop database if exists ${db2} """
+    sql """ drop database if exists ${db1} force"""
+    sql """ drop database if exists ${db2} force"""
 
     sql """ create database ${db1} properties ('location'='${warehouse}/other_location') """
     sql """ create database ${db2} """

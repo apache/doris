@@ -74,7 +74,7 @@ public abstract class AbstractInsertExecutor {
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         this.ctx = ctx;
-        this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
+        this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, planner, ctx.getStatsErrorEstimator());
         this.labelName = labelName;
         this.table = table;
         this.database = table.getDatabase();
@@ -143,7 +143,7 @@ public abstract class AbstractInsertExecutor {
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
         executor.updateProfile(false);
         coordinator.exec();
-        int execTimeout = ctx.getExecTimeout();
+        int execTimeout = ctx.getExecTimeoutS();
         if (LOG.isDebugEnabled()) {
             LOG.debug("insert [{}] with query id {} execution timeout is {}", labelName, queryId, execTimeout);
         }

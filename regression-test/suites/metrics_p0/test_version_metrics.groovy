@@ -1,3 +1,6 @@
+import java.util.regex.Matcher
+import java.util.regex.Pattern
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -25,8 +28,12 @@ suite("test_version_metrics") {
             assertEquals(200, code)
             assertTrue(body.contains("doris_fe_version"))
             for (final def line in body.split("\n")) {
-                if (line.contains("doris_fe_version") && !line.contains("#")) {
-                    assertTrue(Long.parseLong(line.split(" ")[1]) >= 0)
+                if (line.startsWith("doris_fe_version")) {
+                    Pattern pattern = Pattern.compile(/^doris_fe_version\{.*}\s+(\d+)$/)
+                    Matcher matcher = pattern.matcher(line)
+                    assertTrue(matcher.matches())
+                    assertTrue(Long.parseLong(matcher.group(1)) >= 0)
+                    break
                 }
             }
         }

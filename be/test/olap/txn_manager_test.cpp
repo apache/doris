@@ -326,9 +326,13 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
     ASSERT_TRUE(st.ok()) << st;
     Version new_version(10, 11);
     TabletPublishStatistics stats;
-    st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id, tablet_id,
-                                              _tablet_uid, new_version, &stats);
-    ASSERT_TRUE(st.ok()) << st;
+    {
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+        st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, new_version, &stats,
+                                                  extend_tablet_txn_info_lifetime);
+        ASSERT_TRUE(st.ok()) << st;
+    }
 
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
     st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
@@ -345,8 +349,10 @@ TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10, 11);
     auto not_exist_txn = transaction_id + 1000;
     TabletPublishStatistics stats;
+    std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
     auto st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, not_exist_txn,
-                                                   tablet_id, _tablet_uid, new_version, &stats);
+                                                   tablet_id, _tablet_uid, new_version, &stats,
+                                                   extend_tablet_txn_info_lifetime);
     ASSERT_FALSE(st.ok()) << st;
 }
 

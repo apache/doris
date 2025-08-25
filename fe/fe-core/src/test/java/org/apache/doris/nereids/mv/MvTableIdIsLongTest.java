@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
+import java.util.Set;
 
 /**
  * Test mv rewrite when base table id is lager then integer
@@ -49,7 +50,14 @@ public class MvTableIdIsLongTest extends SqlTestBase {
         };
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid,
+                    Set<String> queryUsedRelatedTablePartitionsMap) {
+                return true;
+            }
+        };
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
                 return true;
             }
         };

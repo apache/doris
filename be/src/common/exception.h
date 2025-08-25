@@ -27,7 +27,7 @@
 #include <utility>
 
 #include "common/status.h"
-#include "util/defer_op.h"
+#include "util/defer_op.h" // IWYU pragma: keep
 
 namespace doris {
 
@@ -35,8 +35,8 @@ inline thread_local int enable_thread_catch_bad_alloc = 0;
 class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}
-    Exception(int code, const std::string_view& msg);
-    Exception(const Status& status) : Exception(status.code(), status.msg()) {}
+    Exception(int code, const std::string_view& msg) : Exception(code, std::string(msg), false) {}
+    Exception(const Status& status) : Exception(status.code(), status.msg(), true) {}
 
     // Format message with fmt::format, like the logging functions.
     template <typename... Args>
@@ -44,6 +44,7 @@ public:
             : Exception(code, fmt::format(fmt, std::forward<Args>(args)...)) {}
 
     int code() const { return _code; }
+    std::string message() const { return _err_msg ? _err_msg->_msg : ""; }
 
     const std::string& to_string() const;
 
@@ -52,6 +53,8 @@ public:
     Status to_status() const { return {code(), _err_msg->_msg, _err_msg->_stack}; }
 
 private:
+    Exception(int code, const std::string_view& msg, bool from_status);
+
     int _code;
     struct ErrMsg {
         std::string _msg;

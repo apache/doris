@@ -64,14 +64,19 @@ public class CollectSet extends NotNullableAggregateFunction
      * constructor with 1 argument.
      */
     public CollectSet(boolean distinct, Expression arg) {
-        super("collect_set", distinct, arg);
+        this(arg);
     }
 
     /**
      * constructor with 1 argument.
      */
     public CollectSet(boolean distinct, Expression arg0, Expression arg1) {
-        super("collect_set", distinct, arg0, arg1);
+        this(arg0, arg1);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private CollectSet(AggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -86,11 +91,7 @@ public class CollectSet extends NotNullableAggregateFunction
     @Override
     public CollectSet withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        if (children.size() == 1) {
-            return new CollectSet(distinct, children.get(0));
-        } else {
-            return new CollectSet(distinct, children.get(0), children.get(1));
-        }
+        return new CollectSet(getFunctionParams(distinct, children));
     }
 
     @Override

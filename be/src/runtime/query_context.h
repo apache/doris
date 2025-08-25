@@ -32,7 +32,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
-#include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
@@ -48,6 +47,7 @@ namespace doris {
 namespace pipeline {
 class PipelineFragmentContext;
 class PipelineTask;
+class Dependency;
 } // namespace pipeline
 
 struct ReportStatusRequest {
@@ -106,14 +106,15 @@ public:
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
 
-    void set_thread_token(int concurrency, bool is_serial) {
-        _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
-                is_serial ? ThreadPool::ExecutionMode::SERIAL
-                          : ThreadPool::ExecutionMode::CONCURRENT,
-                concurrency);
+    int64_t get_remaining_query_time_seconds() const {
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (is_timeout(now)) {
+            return -1;
+        }
+        int64_t elapsed_seconds = _query_watcher.elapsed_time_seconds(now);
+        return _timeout_second - elapsed_seconds;
     }
-
-    ThreadPoolToken* get_token() { return _thread_token.get(); }
 
     void set_ready_to_execute(Status reason);
 
@@ -148,7 +149,7 @@ public:
         }
     }
 
-    void set_workload_group(WorkloadGroupPtr& wg);
+    Status set_workload_group(WorkloadGroupPtr& wg);
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -218,6 +219,7 @@ public:
 
     WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const {
+        DCHECK(_resource_ctx->memory_context()->mem_tracker() != nullptr);
         return _resource_ctx->memory_context()->mem_tracker();
     }
 
@@ -232,6 +234,7 @@ public:
     TNetworkAddress coord_addr;
     TNetworkAddress current_connect_fe;
     TQueryGlobals query_globals;
+    const TQueryGlobals get_query_globals() const { return query_globals; }
 
     ObjectPool obj_pool;
 
@@ -252,6 +255,18 @@ public:
         }
 
         DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
+    }
+
+    void set_llm_resources(std::map<std::string, TLLMResource> llm_resources) {
+        _llm_resources =
+                std::make_unique<std::map<std::string, TLLMResource>>(std::move(llm_resources));
+    }
+
+    const std::map<std::string, TLLMResource>& get_llm_resources() const {
+        if (_llm_resources == nullptr) {
+            throw Status::InternalError("LLM resources not found");
+        }
+        return *_llm_resources;
     }
 
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
@@ -285,13 +300,6 @@ private:
     bool _is_nereids = false;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
-
-    // A token used to submit olap scanner to the "_limited_scan_thread_pool",
-    // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
-    // And will be shared by all instances of this query.
-    // So that we can control the max thread that a query can be used to execute.
-    // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
     void _init_resource_context();
     void _init_query_mem_tracker();
@@ -349,6 +357,8 @@ private:
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
+    std::unique_ptr<std::map<std::string, TLLMResource>> _llm_resources;
+
     void _report_query_profile();
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
@@ -372,6 +382,8 @@ public:
 
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
     QuerySource get_query_source() const { return this->_query_source; }
+
+    const TQueryOptions get_query_options() const { return _query_options; }
 };
 
 } // namespace doris

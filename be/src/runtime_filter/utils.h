@@ -24,8 +24,9 @@
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"
 #include "runtime_filter/runtime_filter_definitions.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -88,9 +89,10 @@ RuntimeFilterType get_type(int filter_type);
 // RuntimeFilterType -> PFilterType
 PFilterType get_type(RuntimeFilterType type);
 
-Status create_literal(const TypeDescriptor& type, const void* data, vectorized::VExprSPtr& expr);
+Status create_literal(const vectorized::DataTypePtr& type, const void* data,
+                      vectorized::VExprSPtr& expr);
 
-Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcode,
+Status create_vbin_predicate(const vectorized::DataTypePtr& type, TExprOpcode::type opcode,
                              vectorized::VExprSPtr& expr, TExprNode* tnode, bool contain_null);
 
 template <typename T>

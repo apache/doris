@@ -20,8 +20,11 @@ import java.util.stream.Collectors
 suite("query_cache") {
     def tableName = "table_3_undef_partitions2_keys3_properties4_distributed_by53"
 
-    sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """
+    def test = {
+        sql "set enable_query_cache=false"
+
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """
         CREATE TABLE ${tableName} (
             `pk` int NULL,
             `col_varchar_10__undef_signed` varchar(10) NULL,
@@ -45,7 +48,7 @@ suite("query_cache") {
         )
     """
 
-    sql """
+        sql """
         INSERT INTO ${tableName}(pk, col_varchar_10__undef_signed, col_int_undef_signed, col_varchar_1024__undef_signed) 
         VALUES
             (0, "mean", null, "p"),
@@ -53,8 +56,8 @@ suite("query_cache") {
             (2, "one", null, "e")
     """
 
-    // First complex query - Run without cache
-    order_qt_query_cache1 """
+        // First complex query - Run without cache
+        order_qt_query_cache1 """
         SELECT 
             MIN(`pk`) AS field1,
             MAX(`pk`) AS field2,
@@ -78,8 +81,8 @@ suite("query_cache") {
         GROUP BY field3
     """
 
-    // Simple query - Run without cache
-    order_qt_query_cache2 """
+        // Simple query - Run without cache
+        order_qt_query_cache2 """
         SELECT
             MIN(`pk`) AS field1,
             MAX(`pk`) AS field2,
@@ -88,11 +91,11 @@ suite("query_cache") {
         GROUP BY field3
     """
 
-    // Enable query cache
-    sql "set enable_query_cache=true"
+        // Enable query cache
+        sql "set enable_query_cache=true"
 
-    // Run the same complex query with cache enabled
-    order_qt_query_cache3 """
+        // Run the same complex query with cache enabled
+        order_qt_query_cache3 """
         SELECT 
             MIN(`pk`) AS field1,
             MAX(`pk`) AS field2,
@@ -116,8 +119,8 @@ suite("query_cache") {
         GROUP BY field3
     """
 
-    // Run the same simple query with cache enabled
-    order_qt_query_cache4 """
+        // Run the same simple query with cache enabled
+        order_qt_query_cache4 """
         SELECT
             MIN(`pk`) AS field1,
             MAX(`pk`) AS field2,
@@ -126,8 +129,8 @@ suite("query_cache") {
         GROUP BY field3
     """
 
-    // Run both queries again to test cache hit
-    order_qt_query_cache5 """
+        // Run both queries again to test cache hit
+        order_qt_query_cache5 """
         SELECT 
             MIN(`pk`) AS field1,
             MAX(`pk`) AS field2,
@@ -151,7 +154,7 @@ suite("query_cache") {
         GROUP BY field3
     """
 
-    order_qt_query_cache6 """
+        order_qt_query_cache6 """
         SELECT
             MIN(`pk`) AS field1,
             MAX(`pk`) AS field2,
@@ -160,7 +163,7 @@ suite("query_cache") {
         GROUP BY field3
     """
 
-    order_qt_query_cache7 """
+        order_qt_query_cache7 """
         SELECT
         col_int_undef_signed,
             MIN(`col_int_undef_signed`) AS field1,
@@ -171,8 +174,8 @@ suite("query_cache") {
         GROUP BY col_int_undef_signed
     """
 
-    // reorder the order_qt_query_cache7 select list to test the cache hit
-    order_qt_query_cache8 """
+        // reorder the order_qt_query_cache7 select list to test the cache hit
+        order_qt_query_cache8 """
  SELECT
     COUNT(`col_int_undef_signed`) AS field3,  -- Count of col_int_undef_signed (Original field3)
     col_int_undef_signed,                      -- The original unsigned integer column (Original col_int_undef_signed)
@@ -182,4 +185,11 @@ suite("query_cache") {
 FROM ${tableName}
 GROUP BY col_int_undef_signed;
     """
+    }
+
+    sql "set enable_nereids_distribute_planner=false"
+    test()
+
+    sql "set enable_nereids_distribute_planner=true"
+    test()
 } 

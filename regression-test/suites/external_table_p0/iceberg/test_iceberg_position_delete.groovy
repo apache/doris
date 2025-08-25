@@ -164,7 +164,7 @@ suite("test_iceberg_position_delete", "p0,external,doris,external_docker,externa
         List<List<Object>> iceberg_position_gen_7 = sql """select id from iceberg_position_gen_data where name != "hello word" ;"""
         assertTrue(iceberg_position_gen_7.size() == 5632)
 
-        sql """drop catalog ${catalog_name}"""
+        // sql """drop catalog ${catalog_name}"""
 }
 /*
 

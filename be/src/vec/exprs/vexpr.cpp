@@ -36,8 +36,9 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -48,8 +49,10 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
+#include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
 #include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
@@ -57,7 +60,6 @@
 #include "vec/exprs/vmatch_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
-#include "vec/exprs/vtuple_is_null_predicate.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -161,12 +163,182 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(data, &node));
         break;
     }
+    case TYPE_TIMEV2: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(data, &node));
+        break;
+    }
     default:
         throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
                         int(type));
     }
     return node;
 }
+
+TExprNode create_texpr_node_from(const vectorized::Field& field, const PrimitiveType& type,
+                                 int precision, int scale) {
+    TExprNode node;
+    switch (type) {
+    case TYPE_BOOLEAN: {
+        const auto& storage = static_cast<bool>(
+                field.get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_BOOLEAN>(&storage, &node));
+        break;
+    }
+    case TYPE_TINYINT: {
+        const auto& storage = static_cast<int8_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_TINYINT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TINYINT>(&storage, &node));
+        break;
+    }
+    case TYPE_SMALLINT: {
+        const auto& storage = static_cast<int16_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_SMALLINT>(&storage, &node));
+        break;
+    }
+    case TYPE_INT: {
+        const auto& storage = static_cast<int32_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_INT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_INT>(&storage, &node));
+        break;
+    }
+    case TYPE_BIGINT: {
+        const auto& storage = static_cast<int64_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_BIGINT>(&storage, &node));
+        break;
+    }
+    case TYPE_LARGEINT: {
+        const auto& storage = static_cast<int128_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_LARGEINT>(&storage, &node));
+        break;
+    }
+    case TYPE_FLOAT: {
+        const auto& storage = static_cast<float>(
+                field.get<typename PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_FLOAT>(&storage, &node));
+        break;
+    }
+    case TYPE_DOUBLE: {
+        const auto& storage = static_cast<double>(
+                field.get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DOUBLE>(&storage, &node));
+        break;
+    }
+    case TYPE_DATEV2: {
+        DateV2Value<DateV2ValueType> storage =
+                binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(static_cast<uint32_t>(
+                        field.get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>()));
+
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATEV2>(&storage, &node));
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        DateV2Value<DateTimeV2ValueType> storage = binary_cast<uint64_t,
+                                                               DateV2Value<DateTimeV2ValueType>>(
+                field.get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
+
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DATETIMEV2>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DATE: {
+        VecDateTimeValue storage = binary_cast<int64_t, doris::VecDateTimeValue>(
+                field.get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATE>(&storage, &node));
+        break;
+    }
+    case TYPE_DATETIME: {
+        VecDateTimeValue storage = binary_cast<int64_t, doris::VecDateTimeValue>(
+                field.get<typename PrimitiveTypeTraits<TYPE_DATETIME>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIME>(&storage, &node));
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>()
+                        .get_value();
+
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMALV2>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL32: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>()
+                        .get_value();
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMAL32>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>()
+                        .get_value();
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMAL64>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>()
+                        .get_value();
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMAL128I>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL256: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>()
+                        .get_value();
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMAL256>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_CHAR: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_CHAR>(&storage, &node));
+        break;
+    }
+    case TYPE_VARCHAR: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARCHAR>(&storage, &node));
+        break;
+    }
+    case TYPE_STRING: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(&storage, &node));
+        break;
+    }
+    case TYPE_IPV4: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV4>(&storage, &node));
+        break;
+    }
+    case TYPE_IPV6: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(&storage, &node));
+        break;
+    }
+    case TYPE_TIMEV2: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(&storage, &node));
+        break;
+    }
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
+                        int(type));
+    }
+    return node;
+}
+
 // NOLINTEND(readability-function-size)
 // NOLINTEND(readability-function-cognitive-complexity)
 } // namespace doris
@@ -179,13 +351,14 @@ bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
     auto is_a_slot = std::any_of(children.begin(), children.end(),
                                  [](const auto& child) { return is_acting_on_a_slot(*child); });
 
-    return is_a_slot ? true : (expr.node_type() == TExprNodeType::SLOT_REF);
+    return is_a_slot ? true
+                     : (expr.node_type() == TExprNodeType::SLOT_REF ||
+                        expr.node_type() == TExprNodeType::VIRTUAL_SLOT_REF);
 }
 
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
-          _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
-          _type(TypeDescriptor::from_thrift(node.type)) {
+          _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE) {
     if (node.__isset.fn) {
         _fn = node.fn;
     }
@@ -198,18 +371,18 @@ VExpr::VExpr(const TExprNode& node)
     if (node.node_type == TExprNodeType::NULL_LITERAL) {
         CHECK(is_nullable);
     }
-    _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
+    _data_type = get_data_type_with_default_argument(
+            DataTypeFactory::instance().create_data_type(node.type, is_nullable));
 }
 
 VExpr::VExpr(const VExpr& vexpr) = default;
 
-VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
-        : _opcode(TExprOpcode::INVALID_OPCODE), _type(std::move(type)) {
+VExpr::VExpr(DataTypePtr type, bool is_slotref)
+        : _opcode(TExprOpcode::INVALID_OPCODE),
+          _data_type(get_data_type_with_default_argument(type)) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
-
-    _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
@@ -257,6 +430,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:
+        case TExprNodeType::TIMEV2_LITERAL:
         case TExprNodeType::STRING_LITERAL:
         case TExprNodeType::JSON_LITERAL:
         case TExprNodeType::NULL_LITERAL: {
@@ -276,7 +450,12 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             break;
         }
         case TExprNodeType::SLOT_REF: {
-            expr = VSlotRef::create_shared(expr_node);
+            if (expr_node.slot_ref.__isset.is_virtual_slot && expr_node.slot_ref.is_virtual_slot) {
+                expr = VirtualSlotRef::create_shared(expr_node);
+                expr->_node_type = TExprNodeType::VIRTUAL_SLOT_REF;
+            } else {
+                expr = VSlotRef::create_shared(expr_node);
+            }
             break;
         }
         case TExprNodeType::COLUMN_REF: {
@@ -324,10 +503,6 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::INFO_FUNC: {
             expr = VInfoFunc::create_shared(expr_node);
-            break;
-        }
-        case TExprNodeType::TUPLE_IS_NULL_PRED: {
-            expr = VTupleIsNullPredicate::create_shared(expr_node);
             break;
         }
         default:
@@ -452,7 +627,7 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
         return false;
     };
     for (int i = 0; i < ctxs.size(); i++) {
-        auto real_expr_type = ctxs[i]->root()->data_type();
+        auto real_expr_type = get_data_type_with_default_argument(ctxs[i]->root()->data_type());
         auto&& [name, expected_type] = name_and_types[i];
         if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(
@@ -499,7 +674,7 @@ Status VExpr::clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* s
 std::string VExpr::debug_string() const {
     // TODO: implement partial debug string for member vars
     std::stringstream out;
-    out << " type=" << _type.debug_string();
+    out << " type=" << _data_type->get_name();
 
     if (!_children.empty()) {
         out << " children=" << debug_string(_children);
@@ -566,12 +741,12 @@ Status VExpr::get_const_col(VExprContext* context,
 }
 
 void VExpr::register_function_context(RuntimeState* state, VExprContext* context) {
-    std::vector<TypeDescriptor> arg_types;
+    std::vector<DataTypePtr> arg_types;
     for (auto& i : _children) {
-        arg_types.push_back(i->type());
+        arg_types.push_back(i->data_type());
     }
 
-    _fn_context_index = context->register_function_context(state, _type, arg_types);
+    _fn_context_index = context->register_function_context(state, _data_type, arg_types);
 }
 
 Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
@@ -625,7 +800,7 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
     // Pre-allocate vectors based on an estimated or known size
-    std::vector<segment_v2::InvertedIndexIterator*> iterators;
+    std::vector<segment_v2::IndexIterator*> iterators;
     std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName arguments;
@@ -655,20 +830,19 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                                 ->get_storage_name_and_type_by_column_id(column_id);
                 auto storage_type = remove_nullable(storage_name_type->second);
                 auto target_type = remove_nullable(cast_expr->get_target_type());
-                auto origin_primitive_type = storage_type->get_type_as_type_descriptor().type;
-                auto target_primitive_type = target_type->get_type_as_type_descriptor().type;
-                if (is_complex_type(storage_type)) {
-                    if (is_array(storage_type) && is_array(target_type)) {
+                auto origin_primitive_type = storage_type->get_primitive_type();
+                auto target_primitive_type = target_type->get_primitive_type();
+                if (is_complex_type(storage_type->get_primitive_type())) {
+                    if (storage_type->get_primitive_type() == TYPE_ARRAY &&
+                        target_type->get_primitive_type() == TYPE_ARRAY) {
                         auto nested_storage_type =
                                 (assert_cast<const DataTypeArray*>(storage_type.get()))
                                         ->get_nested_type();
-                        origin_primitive_type =
-                                nested_storage_type->get_type_as_type_descriptor().type;
+                        origin_primitive_type = nested_storage_type->get_primitive_type();
                         auto nested_target_type =
                                 (assert_cast<const DataTypeArray*>(target_type.get()))
                                         ->get_nested_type();
-                        target_primitive_type =
-                                nested_target_type->get_type_as_type_descriptor().type;
+                        target_primitive_type = nested_target_type->get_primitive_type();
                     } else {
                         continue;
                     }
@@ -679,6 +853,8 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                       is_string_type(origin_primitive_type)))) {
                     children_exprs.emplace_back(expr_without_cast(child));
                 }
+            } else {
+                return Status::OK(); // for example: cast("abc") as ipv4 case
             }
         } else {
             children_exprs.emplace_back(child);
@@ -718,10 +894,14 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
             auto* column_literal = assert_cast<VLiteral*>(child.get());
             arguments.emplace_back(column_literal->get_column_ptr(),
                                    column_literal->get_data_type(), column_literal->expr_name());
+        } else {
+            return Status::OK(); // others cases
         }
     }
 
-    if (iterators.empty() || arguments.empty()) {
+    // is null or is not null has no arguments
+    if (iterators.empty() || (arguments.empty() && !(function->get_name() == "is_not_null_pred" ||
+                                                     function->get_name() == "is_null_pred"))) {
         return Status::OK(); // Nothing to evaluate or no literals to compare against
     }
 

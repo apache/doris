@@ -21,7 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -36,7 +36,7 @@ import java.util.List;
  * ScalarFunction 'MicroSeconds_add'.
  */
 public class MicroSecondsAdd extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args,
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args,
         DateAddSubMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
@@ -47,10 +47,15 @@ public class MicroSecondsAdd extends ScalarFunction
         super("microseconds_add", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MicroSecondsAdd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MicroSecondsAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MicroSecondsAdd(children.get(0), children.get(1));
+        return new MicroSecondsAdd(getFunctionParams(children));
     }
 
     @Override

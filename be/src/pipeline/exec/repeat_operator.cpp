@@ -52,9 +52,9 @@ Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _evaluate_input_timer = ADD_TIMER(profile(), "EvaluateInputDataTime");
-    _get_repeat_data_timer = ADD_TIMER(profile(), "GetRepeatDataTime");
-    _filter_timer = ADD_TIMER(profile(), "FilterTime");
+    _evaluate_input_timer = ADD_TIMER(custom_profile(), "EvaluateInputDataTime");
+    _get_repeat_data_timer = ADD_TIMER(custom_profile(), "GetRepeatDataTime");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
     return Status::OK();
 }
 
@@ -169,7 +169,7 @@ Status RepeatLocalState::add_grouping_id_column(std::size_t rows, std::size_t& c
         int64_t val = p._grouping_list[slot_idx][repeat_id_idx];
         auto* column_ptr = columns[cur_col].get();
         DCHECK(!p._output_slots[cur_col]->is_nullable());
-        auto* col = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column_ptr);
+        auto* col = assert_cast<vectorized::ColumnInt64*>(column_ptr);
         col->insert_many_vals(val, rows);
         cur_col++;
     }

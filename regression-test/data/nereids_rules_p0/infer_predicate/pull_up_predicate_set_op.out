@@ -36,7 +36,7 @@ PhysicalResultSink
 
 -- !intersect_one_side_constant_one_side_column --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((t3.b = t.b)) otherCondition=()
 ----PhysicalIntersect
 ------filter((test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
@@ -140,7 +140,7 @@ PhysicalResultSink
 -- !union_all_const_empty_relation --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
-----PhysicalUnion
+----PhysicalOneRowRelation
 ----filter((t3.a = 2) and (t3.b = 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
@@ -169,7 +169,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(a IN (2, 3, 5))
+----filter(a IN (2, 3, 5) and b IN ('aa', 'aab', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_child_and_const_exprs --
@@ -208,7 +208,7 @@ PhysicalResultSink
 
 -- !intersect_one_side_constant_one_side_column_left_join --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((t3.b = t.b)) otherCondition=()
 ----PhysicalIntersect
 ------filter((test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
@@ -255,7 +255,7 @@ PhysicalResultSink
 
 -- !intersect_one_side_constant_one_side_column_left_semi_join --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.b = t.b)) otherCondition=()
 ----PhysicalIntersect
 ------filter((test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
@@ -400,7 +400,7 @@ PhysicalResultSink
 
 -- !union_all_and_project_pull_up --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
@@ -547,6 +547,7 @@ PhysicalResultSink
 
 -- !union_all_const_char10_res --
 2	2024-01-04
+12222222	2024-01-03 10:00:00
 
 -- !union_all_and_project_pull_up_res --
 

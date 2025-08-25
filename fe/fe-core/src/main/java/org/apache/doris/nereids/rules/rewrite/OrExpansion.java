@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -79,6 +80,9 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        if (!plan.containsType(Join.class)) {
+            return plan;
+        }
         OrExpandsionContext ctx = new OrExpandsionContext(
                 jobContext.getCascadesContext().getStatementContext(), jobContext.getCascadesContext());
         plan = plan.accept(this, ctx);

@@ -26,10 +26,10 @@
 #include <ostream>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/table_connector.h"
-#include "gutil/strings/substitute.h"
 #include "jni.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -77,10 +77,13 @@ Status JdbcConnector::close(Status /*unused*/) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
+    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(_executor_factory_clazz);
+    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(_executor_clazz);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteGlobalRef(_executor_obj);
+    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 
@@ -100,7 +103,8 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
             GetStaticMethodID(_executor_factory_clazz, "getExecutorClass",
                               "(Lorg/apache/doris/thrift/TOdbcTableType;)Ljava/lang/String;"));
 
-    jobject jtable_type = _get_java_table_type(env, _conn_param.table_type);
+    jobject jtable_type = nullptr;
+    RETURN_IF_ERROR(_get_java_table_type(env, _conn_param.table_type, &jtable_type));
 
     JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
             jobject, executor_name, env,
@@ -110,8 +114,11 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     const char* executor_name_str = env->GetStringUTFChars((jstring)executor_name, nullptr);
 
     RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, executor_name_str, &_executor_clazz));
-    env->DeleteLocalRef(jtable_type);
+
+    env->DeleteGlobalRef(jtable_type);
+    RETURN_ERROR_IF_EXC(env);
     env->ReleaseStringUTFChars((jstring)executor_name, executor_name_str);
+    RETURN_ERROR_IF_EXC(env);
 
 #undef GET_BASIC_JAVA_CLAZZ
     RETURN_IF_ERROR(_register_func_id(env));
@@ -144,6 +151,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_connection_pool_cache_clear_time(
                 config::jdbc_connection_pool_cache_clear_time_sec);
         ctor_params.__set_connection_pool_keep_alive(_conn_param.connection_pool_keep_alive);
+        ctor_params.__set_is_tvf(_conn_param.is_tvf);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -209,8 +217,10 @@ Status JdbcConnector::query() {
             return Status::InternalError("GetJniExceptionMsg meet error, query={}, msg={}",
                                          _conn_param.query_string, status.to_string());
         }
-        if (colunm_count != materialize_num) {
-            return Status::InternalError("input and output column num not equal of jdbc query.");
+        if (colunm_count < materialize_num) {
+            return Status::InternalError(
+                    "JDBC query returned fewer columns ({}) than required ({}).", colunm_count,
+                    materialize_num);
         }
     }
 
@@ -236,6 +246,7 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
         SCOPED_RAW_TIMER(&_jdbc_statistic._has_next_timer); // Timer for hasNext check
         has_next = env->CallNonvirtualBooleanMethod(_executor_obj, _executor_clazz,
                                                     _executor_has_next_id);
+        RETURN_ERROR_IF_EXC(env);
     } // _has_next_timer stops here
 
     if (has_next != JNI_TRUE) {
@@ -248,10 +259,10 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     auto column_size = _tuple_desc->slots().size();
     auto slots = _tuple_desc->slots();
 
-    jobject map;
+    jobject map = nullptr;
     {
         SCOPED_RAW_TIMER(&_jdbc_statistic._prepare_params_timer); // Timer for preparing params
-        map = _get_reader_params(block, env, column_size);
+        RETURN_IF_ERROR(_get_reader_params(block, env, column_size, &map));
     } // _prepare_params_timer stops here
 
     long address = 0;
@@ -264,7 +275,8 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     } // _get_block_address_timer stops here
 
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    env->DeleteLocalRef(map);
+    env->DeleteGlobalRef(map);
+    RETURN_ERROR_IF_EXC(env);
 
     std::vector<uint32_t> all_columns;
     for (uint32_t i = 0; i < column_size; ++i) {
@@ -315,10 +327,12 @@ Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& out
     std::map<String, String> write_params = {{"meta_address", std::to_string(meta_address)},
                                              {"required_fields", table_schema.first},
                                              {"columns_types", table_schema.second}};
-    jobject hashmap_object = JniUtil::convert_to_java_map(env, write_params);
+    jobject hashmap_object = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, write_params, &hashmap_object));
+
     env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_stmt_write_id,
                                  hashmap_object);
-    env->DeleteLocalRef(hashmap_object);
+    env->DeleteGlobalRef(hashmap_object);
     RETURN_ERROR_IF_EXC(env);
     *num_rows_sent = block->rows();
     return Status::OK();
@@ -363,7 +377,7 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
         func_id = env->GetMethodID(clazz, func_name, func_sign);
         Status s = JniUtil::GetJniExceptionMsg(env);
         if (!s.ok()) {
-            return Status::InternalError(strings::Substitute(
+            return Status::InternalError(absl::Substitute(
                     "Jdbc connector _register_func_id meet error and error is $0", s.to_string()));
         }
         return s;
@@ -396,7 +410,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
     return Status::OK();
 }
 
-jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t column_size) {
+Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t column_size,
+                                         jobject* ans) {
     std::ostringstream columns_nullable;
     std::ostringstream columns_replace_string;
     std::ostringstream required_fields;
@@ -410,11 +425,11 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
             columns_nullable << (slot->is_nullable() ? "true" : "false") << ",";
             // Check column type and replace accordingly
             std::string replace_type = "not_replace";
-            if (type.is_bitmap_type()) {
+            if (type->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
                 replace_type = "bitmap";
-            } else if (type.is_hll_type()) {
+            } else if (type->get_primitive_type() == PrimitiveType::TYPE_HLL) {
                 replace_type = "hll";
-            } else if (type.is_json_type()) {
+            } else if (type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
                 replace_type = "jsonb";
             }
             columns_replace_string << replace_type << ",";
@@ -433,11 +448,12 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
         // Record required fields and column types
         std::string field = slot->col_name();
         std::string jni_type;
-        if (slot->type().is_bitmap_type() || slot->type().is_hll_type() ||
-            slot->type().is_json_type()) {
+        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_BITMAP ||
+            slot->type()->get_primitive_type() == PrimitiveType::TYPE_HLL ||
+            slot->type()->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
             jni_type = "string";
         } else {
-            jni_type = JniConnector::get_jni_type(slot->type());
+            jni_type = JniConnector::get_jni_type_with_different_string(slot->type());
         }
         required_fields << (i != 0 ? "," : "") << field;
         columns_types << (i != 0 ? "#" : "") << jni_type;
@@ -447,7 +463,7 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
                                               {"replace_string", columns_replace_string.str()},
                                               {"required_fields", required_fields.str()},
                                               {"columns_types", columns_types.str()}};
-    return JniUtil::convert_to_java_map(env, reader_params);
+    return JniUtil::convert_to_java_map(env, reader_params, ans);
 }
 
 Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t column_size) {
@@ -462,11 +478,11 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
 
         RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
-        if (slot_desc->type().is_hll_type()) {
+        if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_HLL) {
             RETURN_IF_ERROR(_cast_string_to_hll(slot_desc, block, column_index, num_rows));
-        } else if (slot_desc->type().is_json_type()) {
+        } else if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
             RETURN_IF_ERROR(_cast_string_to_json(slot_desc, block, column_index, num_rows));
-        } else if (slot_desc->type().is_bitmap_type()) {
+        } else if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
             RETURN_IF_ERROR(_cast_string_to_bitmap(slot_desc, block, column_index, num_rows));
         }
     }
@@ -573,7 +589,8 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
-    ColumnPtr _cast_param = _cast_param_data_type->create_column_const(1, "{}");
+    ColumnPtr _cast_param =
+            _cast_param_data_type->create_column_const(1, Field::create_field<TYPE_STRING>("{}"));
 
     auto& input_col = block->get_by_position(column_index).column;
 
@@ -605,13 +622,17 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     return Status::OK();
 }
 
-jobject JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType) {
-    jclass enumClass = env->FindClass("org/apache/doris/thrift/TOdbcTableType");
-    jmethodID findByValueMethod = env->GetStaticMethodID(
-            enumClass, "findByValue", "(I)Lorg/apache/doris/thrift/TOdbcTableType;");
-    jobject javaEnumObj =
-            env->CallStaticObjectMethod(enumClass, findByValueMethod, static_cast<jint>(tableType));
-    return javaEnumObj;
+Status JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type table_type,
+                                           jobject* java_enum_obj) {
+    jclass enum_class = env->FindClass("org/apache/doris/thrift/TOdbcTableType");
+    jmethodID find_by_value_method = env->GetStaticMethodID(
+            enum_class, "findByValue", "(I)Lorg/apache/doris/thrift/TOdbcTableType;");
+    jobject java_enum_local_obj = env->CallStaticObjectMethod(enum_class, find_by_value_method,
+                                                              static_cast<jint>(table_type));
+    RETURN_ERROR_IF_EXC(env);
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, java_enum_local_obj, java_enum_obj));
+    env->DeleteLocalRef(java_enum_local_obj);
+    return Status::OK();
 }
 
 std::string JdbcConnector::_get_real_url(const std::string& url) {

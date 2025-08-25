@@ -93,9 +93,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                     break;
             }
         } catch (Exception e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to process audit event", e);
-            }
+            LOG.warn("failed to process audit event: {}", event.queryId, e);
         }
     }
 
@@ -123,6 +121,12 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                 }
             }
 
+            // replace new line characters with escaped characters to make sure the stmt in one line
+            if (af.value().equals("Stmt")) {
+                fieldValue = ((String) fieldValue).replace("\n", "\\n")
+                        .replace("\r", "\\r");
+            }
+
             sb.append("|").append(af.value()).append("=").append(fieldValue);
         }
 
@@ -133,7 +137,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
         String auditLog = getAuditLogString(event);
         AuditLog.getQueryAudit().log(auditLog);
         // slow query
-        if (event != null && event.queryTime > Config.qe_slow_log_ms) {
+        if (event != null && !event.isInternal && event.queryTime > Config.qe_slow_log_ms) {
             AuditLog.getSlowAudit().log(auditLog);
         }
     }

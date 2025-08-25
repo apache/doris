@@ -38,8 +38,7 @@ suite("single_external_table", "p0,external,hive") {
     );"""
 
     sql """switch ${hive_catalog_name};"""
-    sql """drop table if exists ${hive_catalog_name}.${hive_database}.${hive_table}"""
-    sql """ drop database if exists ${hive_database}"""
+    sql """ drop database if exists ${hive_database} force"""
     sql """ create database ${hive_database}"""
     sql """use ${hive_database}"""
     sql """
@@ -192,7 +191,6 @@ suite("single_external_table", "p0,external,hive") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5"""
 
 
-    sql """drop table if exists ${hive_catalog_name}.${hive_database}.${hive_table}"""
-    sql """drop database if exists ${hive_catalog_name}.${hive_database}"""
+    sql """drop database if exists ${hive_catalog_name}.${hive_database} force"""
     sql """drop catalog if exists ${hive_catalog_name}"""
 }

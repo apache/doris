@@ -18,18 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PasswordPolicy.HistoryPolicy;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
-public class PasswordOptions implements Writable {
+public class PasswordOptions {
 
     public static final int UNSET = -2;
     public static final PasswordOptions UNSET_OPTION = new PasswordOptions(UNSET, UNSET, UNSET, UNSET, UNSET, UNSET);
@@ -143,15 +136,5 @@ public class PasswordOptions implements Writable {
             sb.append(accountUnlocked == -1 ? " ACCOUNT_LOCK" : " ACCOUNT_UNLOCK");
         }
         return sb.toString();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static PasswordOptions read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, PasswordOptions.class);
     }
 }

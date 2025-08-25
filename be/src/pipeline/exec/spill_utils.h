@@ -25,6 +25,7 @@
 #include <functional>
 #include <utility>
 
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
@@ -69,12 +70,12 @@ struct SpillContext {
 class SpillRunnable : public Runnable {
 protected:
     SpillRunnable(RuntimeState* state, std::shared_ptr<SpillContext> spill_context,
-                  std::shared_ptr<Dependency> spill_dependency, RuntimeProfile* profile,
+                  std::shared_ptr<Dependency> spill_dependency, RuntimeProfile* operator_profile,
                   const std::shared_ptr<BasicSpillSharedState>& shared_state, bool is_write,
                   std::function<Status()> spill_exec_func,
                   std::function<Status()> spill_fin_cb = {})
             : _state(state),
-              _profile(profile),
+              _custom_profile(operator_profile->get_child("CustomCounters")),
               _spill_context(std::move(spill_context)),
               _spill_dependency(std::move(spill_dependency)),
               _is_write_task(is_write),
@@ -82,15 +83,18 @@ protected:
               _shared_state_holder(shared_state),
               _spill_exec_func(std::move(spill_exec_func)),
               _spill_fin_cb(std::move(spill_fin_cb)) {
-        _exec_timer = profile->get_counter("ExecTime");
-        _spill_total_timer = profile->get_counter("SpillTotalTime");
+        RuntimeProfile* common_profile = operator_profile->get_child("CommonCounters");
+        DCHECK(common_profile != nullptr);
+        DCHECK(_custom_profile != nullptr);
+        _exec_timer = common_profile->get_counter("ExecTime");
+        _spill_total_timer = _custom_profile->get_counter("SpillTotalTime");
 
         if (is_write) {
             _spill_write_wait_in_queue_timer =
-                    profile->get_counter("SpillWriteTaskWaitInQueueTime");
+                    _custom_profile->get_counter("SpillWriteTaskWaitInQueueTime");
             _write_wait_in_queue_task_count =
-                    profile->get_counter("SpillWriteTaskWaitInQueueCount");
-            _writing_task_count = profile->get_counter("SpillWriteTaskCount");
+                    _custom_profile->get_counter("SpillWriteTaskWaitInQueueCount");
+            _writing_task_count = _custom_profile->get_counter("SpillWriteTaskCount");
             COUNTER_UPDATE(_write_wait_in_queue_task_count, 1);
         }
 
@@ -150,6 +154,7 @@ public:
 
         auto status = _spill_exec_func();
         if (!status.ok()) {
+            DCHECK(ExecEnv::GetInstance()->fragment_mgr() != nullptr);
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(_state->query_id(), status);
         }
 
@@ -170,7 +175,7 @@ protected:
     }
 
     virtual RuntimeProfile::Counter* _get_spill_timer() {
-        return _profile->get_counter("SpillWriteTime");
+        return _custom_profile->get_counter("SpillWriteTime");
     }
 
     virtual void _on_task_started(uint64_t submit_elapsed_time) {
@@ -185,7 +190,7 @@ protected:
     }
 
     RuntimeState* _state;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _custom_profile;
     std::shared_ptr<SpillContext> _spill_context;
     std::shared_ptr<Dependency> _spill_dependency;
 
@@ -210,45 +215,50 @@ private:
 class SpillSinkRunnable : public SpillRunnable {
 public:
     SpillSinkRunnable(RuntimeState* state, std::shared_ptr<SpillContext> spill_context,
-                      std::shared_ptr<Dependency> spill_dependency, RuntimeProfile* profile,
+                      std::shared_ptr<Dependency> spill_dependency,
+                      RuntimeProfile* operator_profile,
                       const std::shared_ptr<BasicSpillSharedState>& shared_state,
                       std::function<Status()> spill_exec_func,
                       std::function<Status()> spill_fin_cb = {})
-            : SpillRunnable(state, spill_context, spill_dependency, profile, shared_state, true,
-                            spill_exec_func, spill_fin_cb) {}
+            : SpillRunnable(state, spill_context, spill_dependency, operator_profile, shared_state,
+                            true, spill_exec_func, spill_fin_cb) {}
 };
 
 class SpillNonSinkRunnable : public SpillRunnable {
 public:
     SpillNonSinkRunnable(RuntimeState* state, std::shared_ptr<Dependency> spill_dependency,
-                         RuntimeProfile* profile,
+                         RuntimeProfile* operator_profile,
                          const std::shared_ptr<BasicSpillSharedState>& shared_state,
                          std::function<Status()> spill_exec_func,
                          std::function<Status()> spill_fin_cb = {})
-            : SpillRunnable(state, nullptr, spill_dependency, profile, shared_state, true,
+            : SpillRunnable(state, nullptr, spill_dependency, operator_profile, shared_state, true,
                             spill_exec_func, spill_fin_cb) {}
 };
 
 class SpillRecoverRunnable : public SpillRunnable {
 public:
     SpillRecoverRunnable(RuntimeState* state, std::shared_ptr<Dependency> spill_dependency,
-                         RuntimeProfile* profile,
+                         RuntimeProfile* operator_profile,
                          const std::shared_ptr<BasicSpillSharedState>& shared_state,
                          std::function<Status()> spill_exec_func,
                          std::function<Status()> spill_fin_cb = {})
-            : SpillRunnable(state, nullptr, spill_dependency, profile, shared_state, false,
+            : SpillRunnable(state, nullptr, spill_dependency, operator_profile, shared_state, false,
                             spill_exec_func, spill_fin_cb) {
-        _spill_revover_timer = profile->get_counter("SpillRecoverTime");
-        _spill_read_wait_in_queue_timer = profile->get_counter("SpillReadTaskWaitInQueueTime");
-        _read_wait_in_queue_task_count = profile->get_counter("SpillReadTaskWaitInQueueCount");
-        _reading_task_count = profile->get_counter("SpillReadTaskCount");
+        RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+        DCHECK(custom_profile != nullptr);
+        _spill_revover_timer = custom_profile->get_counter("SpillRecoverTime");
+        _spill_read_wait_in_queue_timer =
+                custom_profile->get_counter("SpillReadTaskWaitInQueueTime");
+        _read_wait_in_queue_task_count =
+                custom_profile->get_counter("SpillReadTaskWaitInQueueCount");
+        _reading_task_count = custom_profile->get_counter("SpillReadTaskCount");
 
         COUNTER_UPDATE(_read_wait_in_queue_task_count, 1);
     }
 
 protected:
     RuntimeProfile::Counter* _get_spill_timer() override {
-        return _profile->get_counter("SpillRecoverTime");
+        return _custom_profile->get_counter("SpillRecoverTime");
     }
 
     void _on_task_started(uint64_t submit_elapsed_time) override {

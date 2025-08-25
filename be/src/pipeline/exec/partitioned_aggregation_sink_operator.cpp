@@ -73,7 +73,7 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
 Status PartitionedAggSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_open_timer);
-    _shared_state->setup_shared_profile(_profile);
+    _shared_state->setup_shared_profile(custom_profile());
     return Base::open(state);
 }
 
@@ -90,13 +90,13 @@ void PartitionedAggSinkLocalState::_init_counters() {
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 
     _memory_usage_reserved =
-            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
 
     _spill_serialize_hash_table_timer =
-            ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeHashTableTime", 1);
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillSerializeHashTableTime", 1);
 }
 #define UPDATE_PROFILE(name) \
-    update_profile_from_inner_profile<spilled>(name, _profile, child_profile)
+    update_profile_from_inner_profile<spilled>(name, custom_profile(), child_profile)
 
 template <bool spilled>
 void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile) {
@@ -179,7 +179,7 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
 
     if (!local_state._shared_state->is_spilled) {
         auto* sink_local_state = local_state._runtime_state->get_sink_local_state();
-        local_state.update_profile<false>(sink_local_state->profile());
+        local_state.update_profile<false>(sink_local_state->custom_profile());
     }
 
     return Status::OK();
@@ -245,10 +245,10 @@ Status PartitionedAggSinkLocalState::revoke_memory(
     auto* sink_local_state = _runtime_state->get_sink_local_state();
     if (!_shared_state->is_spilled) {
         _shared_state->is_spilled = true;
-        profile()->add_info_string("Spilled", "true");
-        update_profile<false>(sink_local_state->profile());
+        custom_profile()->add_info_string("Spilled", "true");
+        update_profile<false>(sink_local_state->custom_profile());
     } else {
-        update_profile<true>(sink_local_state->profile());
+        update_profile<true>(sink_local_state->custom_profile());
     }
 
     auto& parent = Base::_parent->template cast<Parent>();
@@ -272,8 +272,8 @@ Status PartitionedAggSinkLocalState::revoke_memory(
     state->get_query_ctx()->resource_ctx()->task_controller()->increase_revoking_tasks_count();
 
     auto spill_runnable = std::make_shared<SpillSinkRunnable>(
-            state, spill_context, _spill_dependency, _profile, _shared_state->shared_from_this(),
-            [this, &parent, state, query_id, size_to_revoke] {
+            state, spill_context, _spill_dependency, operator_profile(),
+            _shared_state->shared_from_this(), [this, &parent, state, query_id, size_to_revoke] {
                 Status status;
                 DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_cancel", {
                     status = Status::InternalError(

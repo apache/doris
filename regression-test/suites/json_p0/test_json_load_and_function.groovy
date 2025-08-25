@@ -726,4 +726,24 @@ suite("test_json_load_and_function", "p0") {
     qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "":"v1"}')"""
     qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "ab":"v1", "":"v1", "": 2}')"""
 
+    // test $.[0]
+    qt_sql """select json_extract_string('["aaa", "bbb", "c"]', '\$.[0]');"""
+    qt_sql """select json_extract_string('["aaa", "bbb", "c"]', '\$[0]');"""
+    qt_sql """select json_extract_string('["aaa", "bbb", "c"]', '\$.[1]');"""
+    qt_sql """select json_extract_string('["aaa", "bbb", "c"]', '\$[1]');"""
+
+    qt_sql """select json_extract_string('{"a" : 123}', '\$.[0]');"""
+    qt_sql """select json_extract_string('{"a" : 123}', '\$[0]');"""
+    qt_sql """select json_extract_string('{"a" : 123}', '\$.[1]');"""
+    qt_sql """select json_extract_string('{"a" : 123}', '\$[1]');"""
+
+
+    qt_sql """select json_extract_int('[1, 2, 3]', '\$.[0]');"""
+    qt_sql """select json_extract_int('[1, 2, 3]', '\$[0]');"""
+    qt_sql """select json_extract_int('[1, 2, 3]', '\$.[1]');"""
+    qt_sql """select json_extract_int('[1, 2, 3]', '\$[1]');"""
+
+    qt_sql """select jsonb_extract('[1, 2, 3]', '\$.[1]');"""
+    qt_sql """select jsonb_extract('[1, 2, 3]', '\$[1]');"""
+
 }

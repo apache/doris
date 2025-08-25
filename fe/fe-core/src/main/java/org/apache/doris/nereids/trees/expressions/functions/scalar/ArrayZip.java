@@ -50,13 +50,18 @@ public class ArrayZip extends ScalarFunction implements ExplicitlyCastableSignat
         super("array_zip", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayZip(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayZip withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new ArrayZip(children.get(0), children.subList(1, children.size()).toArray(new Expression[0]));
+        return new ArrayZip(getFunctionParams(children));
     }
 
     @Override

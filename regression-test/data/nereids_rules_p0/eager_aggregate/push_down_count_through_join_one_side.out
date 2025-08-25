@@ -406,12 +406,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -464,12 +460,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -522,15 +514,11 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((count_t_one_side.score > 10))
-------------------PhysicalOlapScan[count_t_one_side]
+------------filter((count_t_one_side.score > 10))
+--------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -555,15 +543,11 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((count_t_one_side.score > 10))
-------------------PhysicalOlapScan[count_t_one_side]
+------------filter((count_t_one_side.score > 10))
+--------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -578,12 +562,8 @@ PhysicalResultSink
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
---------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalOlapScan[count_t_one_side]
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[count_t_one_side]
+----------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -610,22 +590,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+--------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------hashAgg[GLOBAL]
---------------------hashAgg[LOCAL]
-----------------------hashAgg[GLOBAL]
-------------------------hashAgg[LOCAL]
---------------------------PhysicalOlapScan[count_t_one_side]
-------------------hashAgg[GLOBAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t_one_side]
+------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[count_t_one_side]
+--------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -641,12 +613,8 @@ PhysicalResultSink
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
-----------------hashAgg[GLOBAL]
-------------------hashAgg[LOCAL]
---------------------PhysicalOlapScan[count_t_one_side]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
 ----------------PhysicalOlapScan[count_t_one_side]
+------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -660,12 +628,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -696,12 +660,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -715,14 +675,10 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
+------------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
+------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -734,15 +690,11 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((t1.score > 50))
-------------------PhysicalOlapScan[count_t_one_side]
+------------filter((t1.score > 50))
+--------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -771,12 +723,8 @@ PhysicalResultSink
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
-----------------hashAgg[GLOBAL]
-------------------hashAgg[LOCAL]
---------------------PhysicalOlapScan[count_t_one_side]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
 ----------------PhysicalOlapScan[count_t_one_side]
+------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -790,12 +738,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1_alias.id = t2_alias.id) and (t1_alias.name = t2_alias.name)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -835,16 +779,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------filter((count_t_one_side.id < 100))
+----------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------filter((count_t_one_side.id < 100))
+------------filter((count_t_one_side.score > 20) and (t1.id < 100))
 --------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((count_t_one_side.score > 20) and (t1.id < 100))
-------------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -858,12 +798,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -916,12 +852,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -963,12 +895,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -980,15 +908,11 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((count_t_one_side.score > 10))
-------------------PhysicalOlapScan[count_t_one_side]
+------------filter((count_t_one_side.score > 10))
+--------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1013,15 +937,11 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((count_t_one_side.score > 10))
-------------------PhysicalOlapScan[count_t_one_side]
+------------filter((count_t_one_side.score > 10))
+--------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1036,12 +956,8 @@ PhysicalResultSink
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
---------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalOlapScan[count_t_one_side]
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[count_t_one_side]
+----------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1053,22 +969,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+--------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------hashAgg[GLOBAL]
---------------------hashAgg[LOCAL]
-----------------------hashAgg[GLOBAL]
-------------------------hashAgg[LOCAL]
---------------------------PhysicalOlapScan[count_t_one_side]
-------------------hashAgg[GLOBAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t_one_side]
+------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[count_t_one_side]
+--------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1084,12 +992,8 @@ PhysicalResultSink
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
-----------------hashAgg[GLOBAL]
-------------------hashAgg[LOCAL]
---------------------PhysicalOlapScan[count_t_one_side]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
 ----------------PhysicalOlapScan[count_t_one_side]
+------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1103,12 +1007,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1122,12 +1022,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
 ------------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1139,15 +1035,11 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((t1.score > 50))
-------------------PhysicalOlapScan[count_t_one_side]
+------------filter((t1.score > 50))
+--------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1176,12 +1068,8 @@ PhysicalResultSink
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
-----------------hashAgg[GLOBAL]
-------------------hashAgg[LOCAL]
---------------------PhysicalOlapScan[count_t_one_side]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
 ----------------PhysicalOlapScan[count_t_one_side]
+------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1208,16 +1096,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------filter((count_t_one_side.id < 100))
+----------PhysicalOlapScan[count_t_one_side]
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
-------------filter((count_t_one_side.id < 100))
+------------filter((count_t_one_side.score > 20) and (t1.id < 100))
 --------------PhysicalOlapScan[count_t_one_side]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------filter((count_t_one_side.score > 20) and (t1.id < 100))
-------------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -1230,13 +1114,13 @@ PhysicalResultSink
 ----PhysicalLimit[LOCAL]
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
-----------hashJoin[INNER_JOIN] hashCondition=((dwd_tracking_sensor_init_tmp_ymd.dt = dw_user_b2c_tracking_info_tmp_ymd.dt) and (dwd_tracking_sensor_init_tmp_ymd.guid = dw_user_b2c_tracking_info_tmp_ymd.guid)) otherCondition=((dwd_tracking_sensor_init_tmp_ymd.dt >= substring(first_visit_time, 1, 10)))
+----------hashJoin[INNER_JOIN] hashCondition=((dwd_tracking_sensor_init_tmp_ymd.dt = dw_user_b2c_tracking_info_tmp_ymd.dt) and (dwd_tracking_sensor_init_tmp_ymd.guid = dw_user_b2c_tracking_info_tmp_ymd.guid)) otherCondition=()
+------------filter((dwd_tracking_sensor_init_tmp_ymd.dt = '2024-08-19') and (dwd_tracking_sensor_init_tmp_ymd.tracking_type = 'click'))
+--------------PhysicalOlapScan[dwd_tracking_sensor_init_tmp_ymd]
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
-----------------filter((dwd_tracking_sensor_init_tmp_ymd.dt = '2024-08-19') and (dwd_tracking_sensor_init_tmp_ymd.tracking_type = 'click'))
-------------------PhysicalOlapScan[dwd_tracking_sensor_init_tmp_ymd]
-------------filter((dw_user_b2c_tracking_info_tmp_ymd.dt = '2024-08-19'))
---------------PhysicalOlapScan[dw_user_b2c_tracking_info_tmp_ymd]
+----------------filter((dw_user_b2c_tracking_info_tmp_ymd.dt = '2024-08-19') and (substring(first_visit_time, 1, 10) <= '2024-08-19'))
+------------------PhysicalOlapScan[dw_user_b2c_tracking_info_tmp_ymd]
 
 Hint log:
 Used: use_PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE

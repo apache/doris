@@ -111,13 +111,11 @@ private:
 
 namespace pipeline {
 struct TransmitInfo {
-    vectorized::Channel* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
 };
 
 struct BroadcastTransmitInfo {
-    vectorized::Channel* channel = nullptr;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
     bool eos;
 };
@@ -144,10 +142,13 @@ struct RpcInstance {
     int64_t seq = 0;
 
     // Queue for regular data transmission requests
-    std::queue<TransmitInfo, std::list<TransmitInfo>> package_queue;
+    std::unordered_map<vectorized::Channel*, std::queue<TransmitInfo, std::list<TransmitInfo>>>
+            package_queue;
 
     // Queue for broadcast data transmission requests
-    std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> broadcast_package_queue;
+    std::unordered_map<vectorized::Channel*,
+                       std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
+            broadcast_package_queue;
 
     // RPC request parameters for data transmission
     std::shared_ptr<PTransmitDataParams> request;
@@ -257,7 +258,7 @@ private:
 */
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
-void transmit_blockv2(PBackendService_Stub& stub,
+void transmit_blockv2(PBackendService_Stub* stub,
                       std::unique_ptr<AutoReleaseClosure<PTransmitDataParams,
                                                          ExchangeSendCallback<PTransmitDataResult>>>
                               closure);
@@ -268,15 +269,15 @@ public:
                        RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
 #ifdef BE_TEST
     ExchangeSinkBuffer(RuntimeState* state, int64_t sinknum)
-            : HasTaskExecutionCtx(state), _exchange_sink_num(sinknum) {};
+            : HasTaskExecutionCtx(state), _state(state), _exchange_sink_num(sinknum) {};
 #endif
 
     ~ExchangeSinkBuffer() override = default;
 
     void construct_request(TUniqueId);
 
-    Status add_block(TransmitInfo&& request);
-    Status add_block(BroadcastTransmitInfo&& request);
+    Status add_block(vectorized::Channel* channel, TransmitInfo&& request);
+    Status add_block(vectorized::Channel* channel, BroadcastTransmitInfo&& request);
     void close();
     void update_rpc_time(RpcInstance& ins, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
@@ -309,6 +310,7 @@ private:
 
     PlanNodeId _node_id;
     std::atomic<int64_t> _rpc_count = 0;
+    // The state may be from PipelineFragmentContext if it is shared among multi instances.
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
@@ -341,6 +343,8 @@ private:
     // The ExchangeSinkLocalState in _parents is only used in _turn_off_channel.
     std::vector<ExchangeSinkLocalState*> _parents;
     const int64_t _exchange_sink_num;
+    bool _send_multi_blocks = false;
+    int _send_multi_blocks_byte_size = 256 * 1024;
 };
 
 } // namespace pipeline

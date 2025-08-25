@@ -19,6 +19,16 @@ suite("test_create_user_nereids") {
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
 
+    sql "DROP USER IF EXISTS 'jack';"
+    sql "DROP USER IF EXISTS jack1@'172.10.1.10';"
+    sql "DROP USER IF EXISTS jack2;"
+    sql "DROP USER IF EXISTS 'jack3'@'192.168.%';"
+    sql "DROP USER IF EXISTS 'jack4'@('csding');"
+    sql "DROP USER IF EXISTS 'jack5'@'%';"
+    sql "DROP USER IF EXISTS 'jack6';"
+    sql "DROP USER IF EXISTS 'jack7';"
+    sql """DROP USER IF EXISTS 'jack8';"""
+
     sql "CREATE USER 'jack';"
     sql "CREATE USER jack1@'172.10.1.10' IDENTIFIED BY '123456';"
     sql "CREATE USER jack2 IDENTIFIED BY PASSWORD '*6BB4837EB74329105EE4568DDA7DC67ED2CA2AD9';"

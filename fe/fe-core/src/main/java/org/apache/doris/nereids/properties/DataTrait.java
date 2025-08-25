@@ -19,7 +19,6 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 
@@ -98,11 +97,15 @@ public class DataTrait {
         return !slot.nullable() && isUnique(slot);
     }
 
+    /** isUniqueAndNotNull */
     public boolean isUniqueAndNotNull(Set<Slot> slotSet) {
-        Set<Slot> notNullSlotSet = slotSet.stream()
-                .filter(s -> !s.nullable())
-                .collect(ImmutableSet.toImmutableSet());
-        return isUnique(notNullSlotSet);
+        ImmutableSet.Builder<Slot> nonNullableSlots = ImmutableSet.builderWithExpectedSize(slotSet.size());
+        for (Slot slot : slotSet) {
+            if (!slot.nullable()) {
+                nonNullableSlots.add(slot);
+            }
+        }
+        return isUnique(nonNullableSlots.build());
     }
 
     public boolean isUniformAndNotNull(Slot slot) {
@@ -124,7 +127,11 @@ public class DataTrait {
     }
 
     public Optional<Expression> getUniformValue(Slot slot) {
-        return uniformSet.slotUniformValue.get(slot);
+        return uniformSet.slotUniformValue.getOrDefault(slot, Optional.empty());
+    }
+
+    public Map<Slot, Optional<Expression>> getAllUniformValues() {
+        return uniformSet.slotUniformValue;
     }
 
     public boolean isNullSafeEqual(Slot l, Slot r) {
@@ -145,6 +152,10 @@ public class DataTrait {
 
     public Set<Slot> calEqualSet(Slot s) {
         return equalSet.calEqualSet(s);
+    }
+
+    public ImmutableEqualSet<Slot> getEqualSet() {
+        return equalSet;
     }
 
     public ImmutableSet<FdItem> getFdItems() {
@@ -276,10 +287,11 @@ public class DataTrait {
                     uniqueSet.slotSets.remove(slotSet);
                     slotSet.removeAll(intersection);
                     for (Slot slot : equalSet) {
-                        ImmutableSet<Slot> uniqueSlotSet = ImmutableSet.<Slot>builder()
-                                .addAll(slotSet)
-                                .add(slot)
-                                .build();
+                        ImmutableSet<Slot> uniqueSlotSet
+                                = ImmutableSet.<Slot>builderWithExpectedSize(slotSet.size() + 1)
+                                    .addAll(slotSet)
+                                    .add(slot)
+                                    .build();
                         uniqueSet.add(uniqueSlotSet);
                     }
                 }
@@ -324,7 +336,14 @@ public class DataTrait {
                 }
             }
             for (Set<Slot> slotSet : uniqueSet.slotSets) {
-                if (slotSet.stream().noneMatch(ExpressionTrait::nullable)) {
+                boolean containsNullable = false;
+                for (Slot slot : slotSet) {
+                    if (slot.nullable()) {
+                        containsNullable = true;
+                        break;
+                    }
+                }
+                if (!containsNullable) {
                     res.add(slotSet);
                 }
             }

@@ -70,20 +70,22 @@ public class MTMVStatus {
         this.refreshState = refreshState;
     }
 
-    public MTMVStatus updateNotNull(MTMVStatus status) {
-        Objects.requireNonNull(status);
-        if (status.getState() != null) {
-            this.state = status.getState();
-            if (this.state == MTMVState.SCHEMA_CHANGE) {
-                this.schemaChangeDetail = status.getSchemaChangeDetail();
-            } else {
-                this.schemaChangeDetail = null;
-            }
-        }
-        if (status.getRefreshState() != null) {
-            this.refreshState = status.getRefreshState();
+    public MTMVStatus updateStateAndDetail(MTMVStatus status) {
+        Objects.requireNonNull(status, "status can not be null");
+        Objects.requireNonNull(status.getState(), "status.state can not be null");
+        this.state = status.getState();
+        if (this.state == MTMVState.SCHEMA_CHANGE) {
+            this.schemaChangeDetail = status.getSchemaChangeDetail();
+        } else {
+            this.schemaChangeDetail = null;
         }
         return this;
+    }
+
+    public boolean canBeCandidate() {
+        // MTMVRefreshState.FAIL also can be candidate, because may have some sync partitions
+        return getState() == MTMVState.NORMAL
+                && getRefreshState() != MTMVRefreshState.INIT;
     }
 
     @Override

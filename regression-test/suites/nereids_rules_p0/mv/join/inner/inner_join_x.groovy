@@ -19,8 +19,6 @@ suite("inner_join_x") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF"
-    sql "set enable_sync_mv_cost_based_rewrite=false"
-
 
     // =======================  test table with aggregate key ============================
     sql """
@@ -43,7 +41,7 @@ suite("inner_join_x") {
 
     def mv_name="v_t1"
     createMV ( """
-     create materialized view ${mv_name} as select k%2 as kk,a, sum(int_value), max(date_value) from t1 group by kk, a;
+     create materialized view ${mv_name} as select k%2 as kk,a as xx, sum(int_value), max(date_value) from t1 group by kk, a;
     """)
 
     sql """
@@ -95,7 +93,7 @@ suite("inner_join_x") {
 
     mv_name="v_t1"
     createMV ( """
-     create materialized view ${mv_name} as select k%2 as kk,a, sum(int_value), max(date_value) from t1 group by kk, a;
+     create materialized view ${mv_name} as select k%2 as kk1,a as xx, sum(int_value) as b1, max(date_value) as b2 from t1 group by kk1, a;
     """)
 
     sql """

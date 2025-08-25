@@ -88,6 +88,11 @@ public class HudiDlaTable extends HMSDlaTable {
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
+        return getTableSnapshot(snapshot);
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
         // return new MTMVTimestampSnapshot(getOrFetchHudiSnapshotCacheValue(snapshot).getLastUpdateTimestamp());
         return new MTMVTimestampSnapshot(0L);
     }
@@ -95,11 +100,6 @@ public class HudiDlaTable extends HMSDlaTable {
     @Override
     public boolean isPartitionColumnAllowNull() {
         return true;
-    }
-
-    public HMSSchemaCacheValue getHudiSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
-        TablePartitionValues snapshotCacheValue = getOrFetchHudiSnapshotCacheValue(snapshot);
-        return getHudiSchemaCacheValue(snapshotCacheValue.getLastUpdateTimestamp());
     }
 
     private TablePartitionValues getOrFetchHudiSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
@@ -110,10 +110,20 @@ public class HudiDlaTable extends HMSDlaTable {
         }
     }
 
+    public HMSSchemaCacheValue getHudiSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        long timestamp = 0L;
+        if (snapshot.isPresent()) {
+            timestamp = ((HudiMvccSnapshot) snapshot.get()).getTimestamp();
+        } else {
+            timestamp = HudiUtils.getLastTimeStamp(hmsTable);
+        }
+        return getHudiSchemaCacheValue(timestamp);
+    }
+
     private HMSSchemaCacheValue getHudiSchemaCacheValue(long timestamp) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new HudiSchemaCacheKey(hmsTable.getDbName(), hmsTable.getName(), timestamp));
+                new HudiSchemaCacheKey(hmsTable.getOrBuildNameMapping(), timestamp));
         if (!schemaCacheValue.isPresent()) {
             throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
                     null, hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), timestamp);

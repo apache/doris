@@ -51,7 +51,7 @@ public class BackendClause extends AlterClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
 
         for (String param : params) {
             if (!param.contains(":")) {

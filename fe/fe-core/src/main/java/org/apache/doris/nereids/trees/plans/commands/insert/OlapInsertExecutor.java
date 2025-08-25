@@ -29,6 +29,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -50,6 +51,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
+import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -92,12 +94,15 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             return;
         }
         try {
+            if (DebugPointUtil.isEnable("OlapInsertExecutor.beginTransaction.failed")) {
+                throw new BeginTransactionException("current running txns on db is larger than limit");
+            }
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     database.getId(), ImmutableList.of(table.getId()), labelName,
                     new TxnCoordinator(TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
-                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
+                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeoutS());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
@@ -306,7 +311,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     }
 
     public long getTimeout() {
-        return ctx.getExecTimeout();
+        return ctx.getExecTimeoutS();
     }
 
     private boolean isGroupCommitHttpStream() {

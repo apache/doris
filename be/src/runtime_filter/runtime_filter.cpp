@@ -18,6 +18,7 @@
 #include "runtime_filter/runtime_filter.h"
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 #include "vec/exprs/vexpr.h"
@@ -80,7 +81,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
     RuntimeFilterParams params;
     params.filter_id = desc->filter_id;
     params.filter_type = _runtime_filter_type;
-    params.column_return_type = build_ctx->root()->type().type;
+    params.column_return_type = build_ctx->root()->data_type()->get_primitive_type();
     params.max_in_num = options->runtime_filter_max_in_num;
     params.runtime_bloom_filter_min_size = options->__isset.runtime_bloom_filter_min_size
                                                    ? options->runtime_bloom_filter_min_size
@@ -97,15 +98,13 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
     params.null_aware = desc->__isset.null_aware && desc->null_aware;
-    params.enable_fixed_len_to_uint32_v2 = options->__isset.enable_fixed_len_to_uint32_v2 &&
-                                           options->enable_fixed_len_to_uint32_v2;
     if (_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
         if (_has_remote_target) {
             return Status::InternalError("bitmap filter do not support remote target");
         }
-        if (!build_ctx->root()->type().is_bitmap_type()) {
+        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_BITMAP) {
             return Status::InternalError("Unexpected src expr type:{} for bitmap filter.",
-                                         build_ctx->root()->type().debug_string());
+                                         build_ctx->root()->data_type()->get_name());
         }
         if (!desc->__isset.bitmap_target_expr) {
             return Status::InternalError("Unknown bitmap filter target expr.");
@@ -113,7 +112,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         vectorized::VExprContextSPtr bitmap_target_ctx;
         RETURN_IF_ERROR(
                 vectorized::VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
-        params.column_return_type = bitmap_target_ctx->root()->type().type;
+        params.column_return_type = bitmap_target_ctx->root()->data_type()->get_primitive_type();
 
         if (desc->__isset.bitmap_filter_not_in) {
             params.bitmap_filter_not_in = desc->bitmap_filter_not_in;
@@ -129,7 +128,12 @@ std::string RuntimeFilter::_debug_string() const {
                        _has_remote_target ? "GLOBAL" : "LOCAL");
 }
 
-void RuntimeFilter::_check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states) {
+void RuntimeFilter::_check_wrapper_state(
+        const std::vector<RuntimeFilterWrapper::State>& assumed_states) {
+    // _wrapper is null mean rf is published
+    if (!_wrapper) {
+        return;
+    }
     try {
         _wrapper->check_state(assumed_states);
     } catch (const Exception& e) {

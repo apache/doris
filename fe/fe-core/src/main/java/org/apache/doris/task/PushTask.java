@@ -19,7 +19,6 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -38,15 +37,12 @@ import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 public class PushTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PushTask.class);
@@ -82,12 +78,13 @@ public class PushTask extends AgentTask {
     private List<TColumn> columnsDesc = null;
 
     private String vaultId;
+    private Map<String, TColumn> colNameToColDesc;
 
     public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId, long indexId,
             long tabletId, long replicaId, int schemaHash, long version, String filePath, long fileSize,
             int timeoutSecond, long loadJobId, TPushType pushType, List<Predicate> conditions, boolean needDecompress,
             TPriority priority, TTaskType taskType, long transactionId, long signature, List<TColumn> columnsDesc,
-            String vaultId, int schemaVersion) {
+            Map<String, TColumn> colNameToColDesc, String vaultId, int schemaVersion) {
         super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, signature);
         this.replicaId = replicaId;
         this.schemaHash = schemaHash;
@@ -107,6 +104,7 @@ public class PushTask extends AgentTask {
         this.tBrokerScanRange = null;
         this.tDescriptorTable = null;
         this.columnsDesc = columnsDesc;
+        this.colNameToColDesc = colNameToColDesc;
         this.vaultId = vaultId;
         this.schemaVersion = schemaVersion;
     }
@@ -115,10 +113,10 @@ public class PushTask extends AgentTask {
     public PushTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
             long replicaId, int schemaHash, int timeoutSecond, long loadJobId, TPushType pushType, TPriority priority,
             long transactionId, long signature, TBrokerScanRange tBrokerScanRange, TDescriptorTable tDescriptorTable,
-            List<TColumn> columnsDesc, String vaultId, int schemaVersion) {
+            List<TColumn> columnsDesc, Map<String, TColumn> colNameToColDesc, String vaultId, int schemaVersion) {
         this(null, backendId, dbId, tableId, partitionId, indexId, tabletId, replicaId, schemaHash, -1, null, 0,
                 timeoutSecond, loadJobId, pushType, null, false, priority, TTaskType.REALTIME_PUSH, transactionId,
-                signature, columnsDesc, vaultId, schemaVersion);
+                signature, columnsDesc, colNameToColDesc, vaultId, schemaVersion);
         this.tBrokerScanRange = tBrokerScanRange;
         this.tDescriptorTable = tDescriptorTable;
     }
@@ -140,23 +138,12 @@ public class PushTask extends AgentTask {
                 break;
             case DELETE:
                 List<TCondition> tConditions = new ArrayList<TCondition>();
-                Map<String, TColumn> colNameToColDesc = columnsDesc.stream()
-                        .collect(Collectors.toMap(c -> c.getColumnName(), Function.identity(), (v1, v2) -> v1,
-                                () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
                 for (Predicate condition : conditions) {
                     TCondition tCondition = new TCondition();
                     ArrayList<String> conditionValues = new ArrayList<String>();
                     SlotRef slotRef = (SlotRef) condition.getChild(0);
-                    String columnName = new String(slotRef.getColumnName());
                     TColumn column = colNameToColDesc.get(slotRef.getColumnName());
-                    if (column == null) {
-                        columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
-                        column = colNameToColDesc.get(columnName);
-                        // condition's name and column's name may have inconsistent case
-                        columnName = column.getColumnName();
-                    }
-
-                    tCondition.setColumnName(columnName);
+                    tCondition.setColumnName(column.getColumnName());
                     int uniqueId = column.getColUniqueId();
                     if (uniqueId >= 0) {
                         tCondition.setColumnUniqueId(uniqueId);

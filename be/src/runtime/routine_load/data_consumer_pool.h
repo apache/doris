@@ -23,7 +23,6 @@
 #include <memory>
 #include <mutex>
 
-#include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 
@@ -72,7 +71,7 @@ private:
     std::list<std::shared_ptr<DataConsumer>> _pool;
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _clean_idle_consumer_thread;
+    std::shared_ptr<Thread> _clean_idle_consumer_thread;
 };
 
 } // end namespace doris

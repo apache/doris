@@ -112,7 +112,7 @@ Suite.metaClass.http_client = { String method, String url /* param */ ->
 
 logger.info("Added 'http_client' function to Suite")
 
-Suite.metaClass.curl = { String method, String url, String body = null, Integer timeoutSec = 10 /* param */->
+Suite.metaClass.curl = { String method, String url, String body = null, Integer timeoutSec = 10, String user = "", String pwd = ""->
     Suite suite = delegate as Suite
     if (method != "GET" && method != "POST") {
         throw new Exception(String.format("invalid curl method: %s", method))
@@ -125,11 +125,15 @@ Suite.metaClass.curl = { String method, String url, String body = null, Integer 
     Integer retryCount = 0; // Current retry count
     Integer sleepTime = 5000; // Sleep time in milliseconds
 
+    String auth = "";
+    if (!user.equals("")) {
+        auth = String.format("-u%s:%s", user, pwd).toString();
+    }
     String cmd
     if (method == "POST" && body != null) {
-        cmd = String.format("curl --max-time %d -X %s -H Content-Type:application/json -d %s %s", timeoutSec, method, body, url).toString()
+        cmd = String.format("curl %s --max-time %d -X %s -H Content-Type:application/json -d %s %s", auth, timeoutSec, method, body, url).toString()
     } else {
-        cmd = String.format("curl --max-time %d -X %s %s", timeoutSec, method, url).toString()
+        cmd = String.format("curl %s --max-time %d -X %s %s", auth, timeoutSec, method, url).toString()
     }
 
     logger.info("curl cmd: " + cmd)

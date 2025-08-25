@@ -50,7 +50,12 @@ public class BitmapAgg extends NotNullableAggregateFunction
     }
 
     public BitmapAgg(boolean distinct, Expression arg0) {
-        super("bitmap_agg", distinct, arg0);
+        this(arg0);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private BitmapAgg(AggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -61,7 +66,7 @@ public class BitmapAgg extends NotNullableAggregateFunction
     @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapAgg(distinct, children.get(0));
+        return new BitmapAgg(getFunctionParams(distinct, children));
     }
 
     @Override

@@ -20,17 +20,12 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 
-public class KeysDesc implements Writable {
+public class KeysDesc {
     private KeysType type;
     private List<String> keysColumnNames;
     private List<String> clusterKeysColumnNames;
@@ -182,46 +177,5 @@ public class KeysDesc implements Writable {
             stringBuilder.append(")");
         }
         return stringBuilder.toString();
-    }
-
-    public static KeysDesc read(DataInput in) throws IOException {
-        KeysDesc desc = new KeysDesc();
-        desc.readFields(in);
-        return desc;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
-
-        int count = keysColumnNames.size();
-        out.writeInt(count);
-        for (String colName : keysColumnNames) {
-            Text.writeString(out, colName);
-        }
-        if (clusterKeysColumnNames == null) {
-            out.writeInt(0);
-        } else {
-            out.writeInt(clusterKeysColumnNames.size());
-            for (String colName : clusterKeysColumnNames) {
-                Text.writeString(out, colName);
-            }
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        type = KeysType.valueOf(Text.readString(in));
-
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            keysColumnNames.add(Text.readString(in));
-        }
-        count = in.readInt();
-        if (count > 0) {
-            clusterKeysColumnNames = Lists.newArrayList();
-            for (int i = 0; i < count; i++) {
-                clusterKeysColumnNames.add(Text.readString(in));
-            }
-        }
     }
 }

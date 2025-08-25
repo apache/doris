@@ -38,6 +38,8 @@ suite("test_decimalv2_v3", "nonConcurrent") {
         insert into test_decimalv2_v3_1 values (1234.567);
     """
 
+    sql "set enable_strict_cast = true;"
+
     // old type 4.3
     //////////////////////////////////////////
     // cast to wider scale: x.4

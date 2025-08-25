@@ -65,7 +65,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, Init) {
             reinterpret_cast<AggSharedState*>(shared_state->in_mem_shared_state_sptr.get());
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},
@@ -110,7 +110,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockEmpty) {
                                            source_operator->node_id(), "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
@@ -125,7 +125,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockEmpty) {
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},
@@ -181,7 +181,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
                                            source_operator->node_id(), "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
@@ -215,7 +215,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
     ASSERT_GT(inner_sink_local_state->_get_hash_table_size(), 0);
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},
@@ -273,7 +273,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
                                            source_operator->node_id(), "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
@@ -320,7 +320,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     ASSERT_EQ(inner_sink_local_state->_get_hash_table_size(), 0);
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},
@@ -386,7 +386,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
                                            source_operator->node_id(), "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
@@ -433,7 +433,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     ASSERT_EQ(inner_sink_local_state->_get_hash_table_size(), 0);
 
     LocalStateInfo info {
-            .parent_profile = _helper.runtime_profile.get(),
+            .parent_profile = _helper.operator_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
             .shared_state_map = {},

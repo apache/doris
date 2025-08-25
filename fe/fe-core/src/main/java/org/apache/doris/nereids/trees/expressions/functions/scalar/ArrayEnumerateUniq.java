@@ -52,13 +52,18 @@ public class ArrayEnumerateUniq extends ScalarFunction
         super("array_enumerate_uniq", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayEnumerateUniq(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayEnumerateUniq withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new ArrayEnumerateUniq(children.get(0), children.subList(1, children.size()).toArray(new Expression[0]));
+        return new ArrayEnumerateUniq(getFunctionParams(children));
     }
 
     @Override

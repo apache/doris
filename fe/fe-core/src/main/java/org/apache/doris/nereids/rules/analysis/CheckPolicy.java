@@ -28,8 +28,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy.RelatedPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -54,7 +57,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
 
                             Plan child = checkPolicy.child();
                             // Because the unique table will automatically include a filter condition
-                            if ((child instanceof LogicalFilter) && child.bound()) {
+                            if ((child instanceof LogicalFilter)) {
                                 upperFilter = (LogicalFilter) child;
                                 if (child.child(0) instanceof LogicalRelation) {
                                     child = child.child(0);
@@ -64,16 +67,16 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                     child = child.child(0).child(0);
                                 }
                             }
-                            if ((child instanceof LogicalAggregate)
-                                    && child.bound() && child.child(0) instanceof LogicalRelation) {
+                            if ((child instanceof LogicalAggregate) && child.child(0) instanceof LogicalRelation) {
                                 upAgg = child;
                                 child = child.child(0);
                             }
-                            if (!(child instanceof LogicalRelation)
+                            if (!(child instanceof LogicalRelation || isView(child))
                                     || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
                                 return ctx.root.child();
                             }
-                            LogicalRelation relation = (LogicalRelation) child;
+                            LogicalPlan relation = child instanceof LogicalSubQueryAlias ? (LogicalPlan) child.child(0)
+                                    : (LogicalPlan) child;
                             Set<Expression> combineFilter = new LinkedHashSet<>();
 
                             // replace incremental params as AND expression
@@ -87,8 +90,8 @@ public class CheckPolicy implements AnalysisRuleFactory {
 
                             RelatedPolicy relatedPolicy = checkPolicy.findPolicy(relation, ctx.cascadesContext);
                             relatedPolicy.rowPolicyFilter.ifPresent(expression -> combineFilter.addAll(
-                                            ExpressionUtils.extractConjunctionToSet(expression)));
-                            Plan result = upAgg != null ? upAgg.withChildren(relation) : relation;
+                                    ExpressionUtils.extractConjunctionToSet(expression)));
+                            Plan result = upAgg != null ? upAgg.withChildren(child) : child;
                             if (upperFilter != null) {
                                 combineFilter.addAll(upperFilter.getConjuncts());
                             }
@@ -103,5 +106,17 @@ public class CheckPolicy implements AnalysisRuleFactory {
                         })
                 )
         );
+    }
+
+    // logicalView() or logicalSubQueryAlias(logicalView())
+    private boolean isView(Plan plan) {
+        if (plan instanceof LogicalView) {
+            return true;
+        }
+        if (plan instanceof LogicalSubQueryAlias && plan.children().size() > 0 && plan.child(
+                0) instanceof LogicalView) {
+            return true;
+        }
+        return false;
     }
 }

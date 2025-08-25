@@ -132,6 +132,35 @@
 13	0
 7	0
 
+-- !select_with_rollup1 --
+\N	\N	36
+2	\N	6
+2	0	\N
+2	1	6
+3	\N	12
+3	2	12
+4	\N	18
+4	0	\N
+4	3	18
+
+-- !select_with_rollup2 --
+\N	1
+2	0
+3	0
+4	0
+
+-- !select_with_rollup3 --
+3	0
+8	0
+9	0
+20	1
+
+-- !select_with_rollup4 --
+\N	1
+2	0
+3	0
+4	0
+
 -- !select --
 \N	\N	36
 \N	0	\N

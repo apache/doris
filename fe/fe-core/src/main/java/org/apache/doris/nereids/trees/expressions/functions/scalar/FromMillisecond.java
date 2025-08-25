@@ -21,7 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FromSecondMonotonic;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -36,7 +36,7 @@ import java.util.List;
  * ScalarFunction 'from_millisecond'.
  */
 public class FromMillisecond extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args,
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args,
         FromSecondMonotonic {
     public static final DateTimeV2Type MillisecondDateTimeV2 = DateTimeV2Type.of(3);
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
@@ -46,10 +46,15 @@ public class FromMillisecond extends ScalarFunction
         super("from_millisecond", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FromMillisecond(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FromMillisecond withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new FromMillisecond(children.get(0));
+        return new FromMillisecond(getFunctionParams(children));
     }
 
     @Override

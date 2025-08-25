@@ -36,12 +36,12 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 uint64_t VerticalBlockReader::nextId = 1;
@@ -162,7 +162,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     StorageReadOptions opts;
     opts.record_rowids = read_params.record_rowids;
     if (read_params.batch_size > 0) {
-        opts.block_row_max = read_params.batch_size;
+        opts.block_row_max = cast_set<int>(read_params.batch_size);
     }
     RETURN_IF_ERROR(_vcollect_iter->init(opts, sample_info));
 
@@ -219,7 +219,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
                                  CompactionSampleInfo* sample_info) {
     StorageReadOptions opts;
     if (read_params.batch_size > 0) {
-        _reader_context.batch_size = read_params.batch_size;
+        _reader_context.batch_size = cast_set<int>(read_params.batch_size);
     } else {
         _reader_context.batch_size = opts.block_row_max;
     }
@@ -322,7 +322,7 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      &_arena, _stored_has_null_tag[idx]);
+                                      _arena, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
@@ -566,4 +566,5 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

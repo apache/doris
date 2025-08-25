@@ -29,6 +29,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -37,13 +38,14 @@ const int agg_test_batch_size = 2;
 namespace doris::vectorized {
 void register_aggregate_function_group_array_intersect(AggregateFunctionSimpleFactory& factory);
 
-template <typename T>
+template <PrimitiveType T>
 void sort_numeric_array(Array& array) {
     std::sort(array.begin(), array.end(), [](const Field& a, const Field& b) {
         if (a.is_null() || b.is_null()) {
             return a.is_null() && !b.is_null();
         }
-        return doris::vectorized::get<T>(a) < doris::vectorized::get<T>(b);
+        return doris::vectorized::get<typename PrimitiveTypeTraits<T>::ColumnItemType>(a) <
+               doris::vectorized::get<typename PrimitiveTypeTraits<T>::ColumnItemType>(b);
     });
 }
 
@@ -56,20 +58,20 @@ void sort_string_array(Array& array) {
     });
 }
 
-template <typename T>
+template <PrimitiveType T>
 void validate_numeric_test(MutableColumnPtr& test_col_data) {
     // Prepare test data.
     auto nested_column = ColumnVector<T>::create();
-    nested_column->insert_value((T)1);
-    nested_column->insert_value((T)2);
-    nested_column->insert_value((T)3);
-    nested_column->insert_value((T)11);
-    nested_column->insert_value((T)2);
-    nested_column->insert_value((T)3);
+    nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)1);
+    nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)2);
+    nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)3);
+    nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)11);
+    nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)2);
+    nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)3);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(3);
-    offsets_column->insert(6);
+    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
 
     test_col_data = ColumnArray::create(std::move(nested_column), std::move(offsets_column));
     EXPECT_EQ(test_col_data->size(), 2);
@@ -77,8 +79,15 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_group_array_intersect(factory);
-    DataTypePtr data_type_array_numeric(
-            std::make_shared<DataTypeArray>(std::make_shared<DataTypeNumber<T>>()));
+    const auto nested =
+            T == TYPE_DATEV2
+                    ? std::dynamic_pointer_cast<const IDataType>(std::make_shared<DataTypeDateV2>())
+            : T == TYPE_DATETIMEV2
+                    ? std::dynamic_pointer_cast<const IDataType>(
+                              std::make_shared<DataTypeDateTimeV2>())
+                    : std::dynamic_pointer_cast<const IDataType>(
+                              std::make_shared<typename PrimitiveTypeTraits<T>::DataType>());
+    DataTypePtr data_type_array_numeric(std::make_shared<DataTypeArray>(nested));
     DataTypes data_types = {data_type_array_numeric};
     auto agg_function = factory.get("group_array_intersect", data_types, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -91,17 +100,20 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     // Do aggregation.
     const IColumn* column[1] = {test_col_data.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
-    ColumnArray ans(ColumnVector<T>::create(), ColumnArray::ColumnOffsets::create());
+    ColumnArray ans(PrimitiveTypeTraits<T>::ColumnType::create(),
+                    ColumnArray::ColumnOffsets::create());
     agg_function->insert_result_into(place, ans);
     Field actual_field;
     ans.get(0, actual_field);
     const auto& actual_result = doris::vectorized::get<Array&>(actual_field);
 
-    Array expected_result = {(T)2, (T)3};
+    Array expected_result = {
+            Field::create_field<T>((typename PrimitiveTypeTraits<T>::ColumnItemType)2),
+            Field::create_field<T>((typename PrimitiveTypeTraits<T>::ColumnItemType)3)};
 
     Array sorted_actual_result = actual_result;
     Array sorted_expected_result = expected_result;
@@ -116,7 +128,7 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     agg_function->destroy(place);
 }
 
-template <typename T>
+template <PrimitiveType T>
 void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     // Prepare test data.
     auto nested_column = ColumnVector<T>::create();
@@ -124,16 +136,16 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     auto nullable_nested_column =
             ColumnNullable::create(std::move(nested_column), ColumnUInt8::create());
 
-    nullable_nested_column->insert((T)1);
-    nullable_nested_column->insert(Null());
-    nullable_nested_column->insert((T)3);
-    nullable_nested_column->insert((T)11);
-    nullable_nested_column->insert(Null());
-    nullable_nested_column->insert((T)3);
+    nullable_nested_column->insert(vectorized::Field::create_field<T>(1));
+    nullable_nested_column->insert(vectorized::Field());
+    nullable_nested_column->insert(vectorized::Field::create_field<T>(3));
+    nullable_nested_column->insert(vectorized::Field::create_field<T>(11));
+    nullable_nested_column->insert(vectorized::Field());
+    nullable_nested_column->insert(vectorized::Field::create_field<T>(3));
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(3);
-    offsets_column->insert(6);
+    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
 
     test_col_data =
             ColumnArray::create(std::move(nullable_nested_column), std::move(offsets_column));
@@ -143,8 +155,16 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_group_array_intersect(factory);
 
-    DataTypePtr data_type_array_numeric(std::make_shared<DataTypeArray>(
-            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeNumber<T>>())));
+    const auto nested =
+            T == TYPE_DATEV2
+                    ? std::dynamic_pointer_cast<const IDataType>(std::make_shared<DataTypeDateV2>())
+            : T == TYPE_DATETIMEV2
+                    ? std::dynamic_pointer_cast<const IDataType>(
+                              std::make_shared<DataTypeDateTimeV2>())
+                    : std::dynamic_pointer_cast<const IDataType>(
+                              std::make_shared<typename PrimitiveTypeTraits<T>::DataType>());
+    DataTypePtr data_type_array_numeric(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeNullable>(nested)));
     DataTypes data_types = {data_type_array_numeric};
     auto agg_function = factory.get("group_array_intersect", data_types, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -157,11 +177,11 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     // Do aggregation.
     const IColumn* column[1] = {test_col_data.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
-    auto nested_result_column = ColumnVector<T>::create();
+    auto nested_result_column = PrimitiveTypeTraits<T>::ColumnType::create();
     auto nullable_nested_result_column =
             ColumnNullable::create(std::move(nested_result_column), ColumnUInt8::create());
     ColumnArray ans(std::move(nullable_nested_result_column), ColumnArray::ColumnOffsets::create());
@@ -172,7 +192,9 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     ans.get(0, actual_field);
     const auto& actual_result = doris::vectorized::get<Array&>(actual_field);
 
-    Array expected_result = {Null(), (T)3};
+    Array expected_result = {
+            vectorized::Field(),
+            vectorized::Field::create_field<T>((typename PrimitiveTypeTraits<T>::ColumnItemType)3)};
 
     Array sorted_actual_result = actual_result;
     Array sorted_expected_result = expected_result;
@@ -191,7 +213,7 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     agg_function->destroy(place);
 }
 
-template <typename T>
+template <PrimitiveType T>
 void numeric_test_aggregate_function_group_array_intersect() {
     MutableColumnPtr column_array_numeric;
     validate_numeric_test<T>(column_array_numeric);
@@ -201,16 +223,16 @@ void numeric_test_aggregate_function_group_array_intersect() {
 }
 
 TEST(AggGroupArrayIntersectTest, numeric_test) {
-    numeric_test_aggregate_function_group_array_intersect<UInt8>();
-    numeric_test_aggregate_function_group_array_intersect<Int8>();
-    numeric_test_aggregate_function_group_array_intersect<Int16>();
-    numeric_test_aggregate_function_group_array_intersect<Int32>();
-    numeric_test_aggregate_function_group_array_intersect<Int64>();
-    numeric_test_aggregate_function_group_array_intersect<Int128>();
-    numeric_test_aggregate_function_group_array_intersect<Float32>();
-    numeric_test_aggregate_function_group_array_intersect<Float64>();
-    numeric_test_aggregate_function_group_array_intersect<DateV2>();
-    numeric_test_aggregate_function_group_array_intersect<DateTimeV2>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_BOOLEAN>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_TINYINT>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_SMALLINT>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_INT>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_BIGINT>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_LARGEINT>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_FLOAT>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_DOUBLE>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_DATEV2>();
+    numeric_test_aggregate_function_group_array_intersect<TYPE_DATETIMEV2>();
 }
 
 TEST(AggGroupArrayIntersectTest, string_test) {
@@ -224,8 +246,8 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     nested_column->insert_data("c", 1);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(3);
-    offsets_column->insert(6);
+    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
 
     auto column_array_string =
             ColumnArray::create(std::move(nested_column), std::move(offsets_column));
@@ -249,7 +271,7 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_array_string.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -259,7 +281,8 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     ans.get(0, actual_field);
     const auto& actual_result = doris::vectorized::get<Array&>(actual_field);
 
-    Array expected_result = {"b", "c"};
+    Array expected_result = {vectorized::Field::create_field<TYPE_STRING>("b"),
+                             vectorized::Field::create_field<TYPE_STRING>("c")};
 
     Array sorted_actual_result = actual_result;
     Array sorted_expected_result = expected_result;
@@ -281,16 +304,16 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     auto nullable_nested_column =
             ColumnNullable::create(std::move(nested_column), ColumnUInt8::create());
 
-    nullable_nested_column->insert("a");
-    nullable_nested_column->insert(Null());
-    nullable_nested_column->insert("c");
-    nullable_nested_column->insert("aaaa");
-    nullable_nested_column->insert(Null());
-    nullable_nested_column->insert("c");
+    nullable_nested_column->insert(vectorized::Field::create_field<TYPE_STRING>("a"));
+    nullable_nested_column->insert(vectorized::Field());
+    nullable_nested_column->insert(vectorized::Field::create_field<TYPE_STRING>("c"));
+    nullable_nested_column->insert(vectorized::Field::create_field<TYPE_STRING>("aaaa"));
+    nullable_nested_column->insert(vectorized::Field());
+    nullable_nested_column->insert(vectorized::Field::create_field<TYPE_STRING>("c"));
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(3);
-    offsets_column->insert(6);
+    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
+    offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
 
     auto column_array_string_nullable =
             ColumnArray::create(std::move(nullable_nested_column), std::move(offsets_column));
@@ -313,7 +336,7 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_array_string_nullable.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -326,7 +349,8 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     ans.get(0, actual_field);
     const auto& actual_result = doris::vectorized::get<Array&>(actual_field);
 
-    Array expected_result = {Null(), "c"};
+    Array expected_result = {vectorized::Field(),
+                             vectorized::Field::create_field<TYPE_STRING>("c")};
 
     Array sorted_actual_result = actual_result;
     Array sorted_expected_result = expected_result;

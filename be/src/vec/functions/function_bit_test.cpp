@@ -50,11 +50,10 @@ public:
         bool valid =
                 cast_type(block.get_by_position(arguments[0]).type.get(), [&](const auto& type) {
                     using DataType = std::decay_t<decltype(type)>;
-                    using T = typename DataType::FieldType;
-                    if (auto col = check_and_get_column<ColumnVector<T>>(
+                    if (auto col = check_and_get_column<ColumnVector<DataType::PType>>(
                                            block.get_by_position(arguments[0]).column.get()) ||
                                    is_column_const(*block.get_by_position(arguments[0]).column)) {
-                        execute_inner<T>(block, arguments, result, input_rows_count);
+                        execute_inner<DataType::PType>(block, arguments, result, input_rows_count);
                         return true;
                     }
                     return false;
@@ -74,7 +73,7 @@ public:
                                    DataTypeInt128>(type, std::forward<F>(f));
     }
 
-    template <typename T>
+    template <PrimitiveType T>
     void execute_inner(Block& block, const ColumnNumbers& arguments, uint32_t result,
                        size_t input_rows_count) const {
         size_t argument_size = arguments.size();
@@ -101,7 +100,7 @@ public:
         block.replace_by_position(result, std::move(result_data_column));
     }
 
-    template <typename T>
+    template <PrimitiveType T>
     void execute_for_two_argument(std::vector<ColumnPtr>& argument_columns,
                                   std::vector<uint8_t>& is_consts, ColumnInt8::Container& res_data,
                                   size_t input_rows_count) const {
@@ -113,7 +112,8 @@ public:
             auto first_value = first_column_data[index_check_const(i, is_consts[0])];
             auto second_value = second_column_data[index_check_const(i, is_consts[1])];
             // the pos is invalid, set result = 0
-            if (second_value < 0 || second_value >= sizeof(T) * 8) {
+            if (second_value < 0 ||
+                second_value >= sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) * 8) {
                 res_data[i] = 0;
                 continue;
             }
@@ -121,7 +121,7 @@ public:
         }
     }
 
-    template <typename T>
+    template <PrimitiveType T>
     void execute_for_others_arg(std::vector<ColumnPtr>& argument_columns,
                                 ColumnInt8::Container& res_data, size_t argument_size,
                                 size_t input_rows_count) const {
@@ -134,7 +134,9 @@ public:
                         assert_cast<const ColumnVector<T>&>(*argument_columns[col].get())
                                 .get_data();
                 // the pos is invalid, set result = 0
-                if (arg_column_data[i] < 0 || arg_column_data[i] >= sizeof(T) * 8) {
+                if (arg_column_data[i] < 0 ||
+                    arg_column_data[i] >=
+                            sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) * 8) {
                     res_data[i] = 0;
                     break;
                 }

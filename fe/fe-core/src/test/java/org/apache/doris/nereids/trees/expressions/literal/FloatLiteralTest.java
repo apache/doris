@@ -17,7 +17,19 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.CastException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.format.FloatChecker;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -76,5 +88,201 @@ public class FloatLiteralTest {
     private <T extends FractionalLiteral> T check(String str, Function<String, T> literalBuilder) {
         Assertions.assertTrue(FloatChecker.isValidFloat(str), "Invalid fractional: " + str);
         return literalBuilder.apply(str);
+    }
+
+    @Test
+    void testUncheckedCastTo() {
+        // To boolean
+        FloatLiteral f1 = new FloatLiteral((float) -0.0);
+        Assertions.assertFalse(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new FloatLiteral((float) 0.0);
+        Assertions.assertFalse(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new FloatLiteral((float) +0.0);
+        Assertions.assertFalse(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new FloatLiteral((float) 1.0);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new FloatLiteral((float) -1.0);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new FloatLiteral(Float.NaN);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new FloatLiteral(Float.NEGATIVE_INFINITY);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new FloatLiteral(Float.POSITIVE_INFINITY);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+
+        // To integral
+        f1 = new FloatLiteral((float) 12.999);
+        Expression expression = f1.uncheckedCastTo(TinyIntType.INSTANCE);
+        Assertions.assertInstanceOf(TinyIntLiteral.class, expression);
+        Assertions.assertEquals(12, ((TinyIntLiteral) expression).getValue().intValue());
+
+        expression = f1.uncheckedCastTo(SmallIntType.INSTANCE);
+        Assertions.assertInstanceOf(SmallIntLiteral.class, expression);
+        Assertions.assertEquals(12, ((SmallIntLiteral) expression).getValue().intValue());
+
+        expression = f1.uncheckedCastTo(IntegerType.INSTANCE);
+        Assertions.assertInstanceOf(IntegerLiteral.class, expression);
+        Assertions.assertEquals(12, ((IntegerLiteral) expression).getValue().intValue());
+
+        f1 = new FloatLiteral((float) -12.999);
+        expression = f1.uncheckedCastTo(BigIntType.INSTANCE);
+        Assertions.assertInstanceOf(BigIntLiteral.class, expression);
+        Assertions.assertEquals(-12, ((BigIntLiteral) expression).getValue().intValue());
+
+        expression = f1.uncheckedCastTo(LargeIntType.INSTANCE);
+        Assertions.assertInstanceOf(LargeIntLiteral.class, expression);
+        Assertions.assertEquals(-12, ((LargeIntLiteral) expression).getValue().intValue());
+
+        f1 = new FloatLiteral((float) 0);
+        expression = f1.uncheckedCastTo(TinyIntType.INSTANCE);
+        Assertions.assertInstanceOf(TinyIntLiteral.class, expression);
+        Assertions.assertEquals(0, ((TinyIntLiteral) expression).getValue().intValue());
+
+        expression = f1.uncheckedCastTo(SmallIntType.INSTANCE);
+        Assertions.assertInstanceOf(SmallIntLiteral.class, expression);
+        Assertions.assertEquals(0, ((SmallIntLiteral) expression).getValue().intValue());
+
+        expression = f1.uncheckedCastTo(IntegerType.INSTANCE);
+        Assertions.assertInstanceOf(IntegerLiteral.class, expression);
+        Assertions.assertEquals(0, ((IntegerLiteral) expression).getValue().intValue());
+
+        f1 = new FloatLiteral((float) -0);
+        expression = f1.uncheckedCastTo(BigIntType.INSTANCE);
+        Assertions.assertInstanceOf(BigIntLiteral.class, expression);
+        Assertions.assertEquals(0, ((BigIntLiteral) expression).getValue().intValue());
+
+        expression = f1.uncheckedCastTo(LargeIntType.INSTANCE);
+        Assertions.assertInstanceOf(LargeIntLiteral.class, expression);
+        Assertions.assertEquals(0, ((LargeIntLiteral) expression).getValue().intValue());
+
+        f1 = new FloatLiteral(Float.NaN);
+        FloatLiteral finalF = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF.uncheckedCastTo(TinyIntType.INSTANCE));
+
+        f1 = new FloatLiteral(Float.NEGATIVE_INFINITY);
+        FloatLiteral finalF1 = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF1.uncheckedCastTo(IntegerType.INSTANCE));
+
+        f1 = new FloatLiteral(Float.POSITIVE_INFINITY);
+        FloatLiteral finalF2 = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF2.uncheckedCastTo(LargeIntType.INSTANCE));
+
+        f1 = new FloatLiteral((float) 1e30);
+        FloatLiteral finalF3 = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF3.uncheckedCastTo(IntegerType.INSTANCE));
+
+        // To double
+        f1 = new FloatLiteral((float) 234.567);
+        expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+        Assertions.assertEquals(234.567, ((DoubleLiteral) expression).getValue());
+
+        f1 = new FloatLiteral(Float.NaN);
+        expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+        Assertions.assertEquals(Double.NaN, ((DoubleLiteral) expression).getValue());
+
+        f1 = new FloatLiteral(Float.NEGATIVE_INFINITY);
+        expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+        Assertions.assertEquals(Double.NEGATIVE_INFINITY, ((DoubleLiteral) expression).getValue());
+
+        f1 = new FloatLiteral(Float.POSITIVE_INFINITY);
+        expression = f1.uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+        Assertions.assertEquals(Double.POSITIVE_INFINITY, ((DoubleLiteral) expression).getValue());
+
+        // To decimal
+        f1 = new FloatLiteral((float) 234.999);
+        expression = f1.uncheckedCastTo(DecimalV2Type.createDecimalV2Type(9, 3));
+        Assertions.assertInstanceOf(DecimalLiteral.class, expression);
+        Assertions.assertEquals("234.999", ((DecimalLiteral) expression).getValue().toString());
+
+        f1 = new FloatLiteral((float) 234.999);
+        expression = f1.uncheckedCastTo(DecimalV2Type.createDecimalV2Type(9, 2));
+        Assertions.assertInstanceOf(DecimalLiteral.class, expression);
+        Assertions.assertEquals("235.00", ((DecimalLiteral) expression).getValue().toString());
+        FloatLiteral finalF4 = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF4.uncheckedCastTo(DecimalV2Type.createDecimalV2Type(2, 1)));
+
+        f1 = new FloatLiteral(Float.NaN);
+        FloatLiteral finalF5 = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF5.uncheckedCastTo(DecimalV2Type.SYSTEM_DEFAULT));
+
+        f1 = new FloatLiteral(Float.POSITIVE_INFINITY);
+        FloatLiteral finalF6 = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF6.uncheckedCastTo(DecimalV2Type.SYSTEM_DEFAULT));
+
+        f1 = new FloatLiteral(Float.NEGATIVE_INFINITY);
+        FloatLiteral finalF7 = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF7.uncheckedCastTo(DecimalV2Type.SYSTEM_DEFAULT));
+
+        // to date
+        f1 = new FloatLiteral((float) 123.245);
+        expression = f1.uncheckedCastTo(DateType.INSTANCE);
+        Assertions.assertInstanceOf(DateLiteral.class, expression);
+        Assertions.assertEquals(2000, ((DateLiteral) expression).year);
+        Assertions.assertEquals(1, ((DateLiteral) expression).month);
+        Assertions.assertEquals(23, ((DateLiteral) expression).day);
+
+        f1 = new FloatLiteral(1231);
+        expression = f1.uncheckedCastTo(DateType.INSTANCE);
+        Assertions.assertInstanceOf(DateLiteral.class, expression);
+        Assertions.assertEquals(2000, ((DateLiteral) expression).year);
+        Assertions.assertEquals(12, ((DateLiteral) expression).month);
+        Assertions.assertEquals(31, ((DateLiteral) expression).day);
+
+        f1 = new FloatLiteral(91231);
+        expression = f1.uncheckedCastTo(DateType.INSTANCE);
+        Assertions.assertInstanceOf(DateLiteral.class, expression);
+        Assertions.assertEquals(2009, ((DateLiteral) expression).year);
+        Assertions.assertEquals(12, ((DateLiteral) expression).month);
+        Assertions.assertEquals(31, ((DateLiteral) expression).day);
+
+        f1 = new FloatLiteral(701231);
+        expression = f1.uncheckedCastTo(DateType.INSTANCE);
+        Assertions.assertInstanceOf(DateLiteral.class, expression);
+        Assertions.assertEquals(1970, ((DateLiteral) expression).year);
+        Assertions.assertEquals(12, ((DateLiteral) expression).month);
+        Assertions.assertEquals(31, ((DateLiteral) expression).day);
+
+        f1 = new FloatLiteral(691231);
+        expression = f1.uncheckedCastTo(DateType.INSTANCE);
+        Assertions.assertInstanceOf(DateLiteral.class, expression);
+        Assertions.assertEquals(2069, ((DateLiteral) expression).year);
+        Assertions.assertEquals(12, ((DateLiteral) expression).month);
+        Assertions.assertEquals(31, ((DateLiteral) expression).day);
+
+        f1 = new FloatLiteral(1);
+        FloatLiteral finalF8 = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF8.uncheckedCastTo(DateType.INSTANCE));
+
+        // to datetime
+        f1 = new FloatLiteral((float) 123.245);
+        expression = f1.uncheckedCastTo(DateTimeV2Type.of(5));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class, expression);
+        Assertions.assertEquals(2000, ((DateTimeV2Literal) expression).year);
+        Assertions.assertEquals(1, ((DateTimeV2Literal) expression).month);
+        Assertions.assertEquals(23, ((DateTimeV2Literal) expression).day);
+        Assertions.assertEquals(0, ((DateTimeV2Literal) expression).hour);
+        Assertions.assertEquals(0, ((DateTimeV2Literal) expression).minute);
+        Assertions.assertEquals(0, ((DateTimeV2Literal) expression).second);
+        Assertions.assertEquals(245000, ((DateTimeV2Literal) expression).microSecond);
+
+        f1 = new FloatLiteral((float) 1231.9999);
+        expression = f1.uncheckedCastTo(DateTimeV2Type.of(3));
+        Assertions.assertInstanceOf(DateTimeV2Literal.class, expression);
+        Assertions.assertEquals(2000, ((DateTimeV2Literal) expression).year);
+        Assertions.assertEquals(12, ((DateTimeV2Literal) expression).month);
+        Assertions.assertEquals(31, ((DateTimeV2Literal) expression).day);
+        Assertions.assertEquals(0, ((DateTimeV2Literal) expression).hour);
+        Assertions.assertEquals(0, ((DateTimeV2Literal) expression).minute);
+        Assertions.assertEquals(1, ((DateTimeV2Literal) expression).second);
+        Assertions.assertEquals(0, ((DateTimeV2Literal) expression).microSecond);
+
+        f1 = new FloatLiteral(1000);
+        FloatLiteral finalF9 = f1;
+        Assertions.assertThrows(CastException.class, () -> finalF9.uncheckedCastTo(DateType.INSTANCE));
+
     }
 }

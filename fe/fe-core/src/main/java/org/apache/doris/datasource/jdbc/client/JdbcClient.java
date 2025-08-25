@@ -144,7 +144,22 @@ public abstract class JdbcClient {
                     + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
                     + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime());
         } catch (Exception e) {
-            throw new JdbcClientException(e.getMessage());
+            // If driver class loading failed (Hikari wraps it), clean cache and prompt retry
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("Failed to load driver class")) {
+                try {
+                    URL url = new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()));
+                    classLoaderMap.remove(url);
+                    // Prompt user to verify driver validity and retry
+                    throw new JdbcClientException(
+                        String.format("Failed to load driver class `%s`. "
+                                        + "Please check that the driver JAR is valid and retry.",
+                                      config.getDriverClass()), e);
+                } catch (MalformedURLException ignore) {
+                    // ignore invalid URL when cleaning cache
+                }
+            }
+            throw new JdbcClientException(e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -153,7 +168,7 @@ public abstract class JdbcClient {
     private synchronized void initializeClassLoader(JdbcClientConfig config) {
         try {
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
-            if (classLoaderMap.containsKey(urls[0])) {
+            if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
                 this.classLoader = classLoaderMap.get(urls[0]);
             } else {
                 ClassLoader parent = getClass().getClassLoader();
@@ -161,7 +176,8 @@ public abstract class JdbcClient {
                 classLoaderMap.put(urls[0], this.classLoader);
             }
         } catch (MalformedURLException e) {
-            throw new RuntimeException("Error loading JDBC driver.", e);
+            throw new RuntimeException("Failed to load JDBC driver from path: "
+                    + config.getDriverUrl(), e);
         }
     }
 
@@ -329,6 +345,13 @@ public abstract class JdbcClient {
         return remoteTablesNames;
     }
 
+    /**
+     * get table comment
+     */
+    public String getTableComment(String remoteDbName, String remoteTableName) {
+        return "";
+    }
+
     public boolean isTableExist(String remoteDbName, String remoteTableName) {
         final boolean[] isExist = {false};
         String[] tableTypes = getTableTypes();
@@ -393,17 +416,30 @@ public abstract class JdbcClient {
     protected void processTable(String remoteDbName, String remoteTableName, String[] tableTypes,
             Consumer<ResultSet> resultSetConsumer) {
         Connection conn = null;
-        ResultSet rs = null;
+        ResultSet standardRs = null;
+        Statement stmt = null;
+        ResultSet customRs = null;
+
         try {
             conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            rs = databaseMetaData.getTables(catalogName, remoteDbName, remoteTableName, tableTypes);
-            resultSetConsumer.accept(rs);
+
+            // 1. Process standard tables from getTables() method
+            standardRs = databaseMetaData.getTables(catalogName, remoteDbName, remoteTableName, tableTypes);
+            resultSetConsumer.accept(standardRs);
+
+            // 2. Process additional tables from custom SQL query (if any)
+            String additionalQuery = getAdditionalTablesQuery(remoteDbName, remoteTableName, tableTypes);
+            if (additionalQuery != null && !additionalQuery.trim().isEmpty()) {
+                stmt = conn.createStatement();
+                customRs = stmt.executeQuery(additionalQuery);
+                resultSetConsumer.accept(customRs);
+            }
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to process table", e);
         } finally {
-            close(rs, conn);
+            close(customRs, stmt, standardRs, conn);
         }
     }
 
@@ -449,6 +485,23 @@ public abstract class JdbcClient {
     }
 
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);
+
+    /**
+     * Get additional SQL query for tables that cannot be retrieved from standard getTables() method.
+     * For example, Oracle SYNONYM tables need custom SQL query.
+     * <p>
+     * Default implementation returns null, meaning no additional query is needed.
+     * Subclasses can override this method to provide custom SQL queries.
+     *
+     * @param remoteDbName database name
+     * @param remoteTableName table name (can be null for all tables)
+     * @param tableTypes table types array
+     * @return SQL query string, or null if no additional query needed
+     */
+    protected String getAdditionalTablesQuery(String remoteDbName, String remoteTableName, String[] tableTypes) {
+        // Default implementation: most databases don't need additional queries
+        return null;
+    }
 
     protected Type createDecimalOrStringType(int precision, int scale) {
         if (precision <= ScalarType.MAX_DECIMAL128_PRECISION && precision > 0) {

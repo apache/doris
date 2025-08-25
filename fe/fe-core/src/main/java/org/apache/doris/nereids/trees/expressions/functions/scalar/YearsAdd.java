@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -42,7 +42,7 @@ import java.util.List;
  */
 public class YearsAdd extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullableOnDateLikeV2Args, DateAddSubMonotonic {
+        ComputeSignatureForDateArithmetic, PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
 
     // When enable_date_conversion is true, we prefer to V2 signature.
     // This preference follows original planner. refer to ScalarType.getDefaultDateType()
@@ -64,10 +64,15 @@ public class YearsAdd extends ScalarFunction
         super("years_add", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private YearsAdd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public YearsAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new YearsAdd(children.get(0), children.get(1));
+        return new YearsAdd(getFunctionParams(children));
     }
 
     @Override

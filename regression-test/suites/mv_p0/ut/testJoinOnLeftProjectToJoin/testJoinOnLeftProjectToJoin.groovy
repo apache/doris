@@ -30,7 +30,10 @@ suite ("testJoinOnLeftProjectToJoin") {
         """
 
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,7,2);"""
     sql """insert into emps values("2020-01-02",2,"b",2,7,2);"""
 
     sql """ DROP TABLE IF EXISTS depts; """
@@ -43,17 +46,20 @@ suite ("testJoinOnLeftProjectToJoin") {
         partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
-    sql """alter table depts modify column time_col set stats ('row_count'='3');"""
+    sql """alter table depts modify column time_col set stats ('row_count'='6');"""
 
     sql """insert into depts values("2020-01-02",2,"b",2);"""
+    sql """insert into depts values("2020-01-02",2,"b",2);"""
+    sql """insert into depts values("2020-01-03",3,"c",3);"""
     sql """insert into depts values("2020-01-03",3,"c",3);"""
     sql """insert into depts values("2020-01-02",2,"b",1);"""
+    sql """insert into depts values("2020-01-02",2,"b",1);"""
 
-    createMV("create materialized view emps_mv as select deptno, sum(salary), sum(commission) from emps group by deptno;")
-    createMV("create materialized view depts_mv as select deptno, max(cost) from depts group by deptno;")
+    createMV("create materialized view emps_mv as select deptno as a1, sum(salary), sum(commission) from emps group by deptno;")
+    createMV("create materialized view depts_mv as select deptno as a2, max(cost) from depts group by deptno;")
 
     sql "analyze table emps with sync;"
-    sql """alter table emps modify column time_col set stats ('row_count'='3');"""
+    sql """alter table emps modify column time_col set stats ('row_count'='6');"""
 
     sql """set enable_stats=false;"""
 

@@ -3653,3 +3653,72 @@ false
 false
 false
 
+-- !map_constructor_basic --
+{"name":"John", "age":"30", "city":"NY", "zip":"10001"}
+
+-- !map_constructor_string_values --
+{"key1":"value1", "key2":"value2", "key3":"value3"}
+
+-- !map_constructor_mixed_types --
+{"string_key":"string_value", "int_key":"12345", "float_key":"3.14159"}
+
+-- !map_constructor_large_numbers --
+{"small":100, "medium":10000, "large":100000, "very_large":1000000}
+
+-- !map_constructor_json_strings --
+{"{"name":"John"}":"{"age":30}", "{"city":"NY"}":"{"zip":10001}"}
+
+-- !map_constructor_nested_json --
+{"{"user":{"name":"John","age":30}}":"{"address":{"city":"NY","zip":10001}}"}
+
+-- !map_constructor_special_chars --
+{"key with spaces":"value with spaces", "key-with-dashes":"value-with-dashes"}
+
+-- !map_constructor_unicode --
+{"中文键":"中文值", "key_中文":"value_中文"}
+
+-- !map_constructor_empty_strings --
+{"empty_key":"", "key_empty":"value", "empty_both":""}
+
+-- !map_constructor_null_values --
+{"null_key":null, "key_null":"value", "both_null":null}
+
+-- !map_constructor_boolean_values --
+{"true_key":1, "false_key":0, "mixed_key":123}
+
+-- !map_constructor_decimal_values --
+{"decimal_key":123.456, "integer_key":789.000, "mixed_decimal":10001.000}
+
+-- !map_constructor_date_values --
+{"date_key":"2023-01-01", "datetime_key":"2023-01-01 12:00:00", "string_key":"text"}
+
+-- !map_constructor_array_values --
+{"array_key":"[1,2,3]", "string_key":"text", "number_key":"10001"}
+
+-- !map_constructor_object_values --
+{"object_key":"{"nested":"value"}", "simple_key":"simple_value"}
+
+-- !map_constructor_long_strings --
+{"long_key":"this is a very long string value that should not be truncated", "short_key":"short"}
+
+-- !map_constructor_numeric_strings --
+{"numeric_string":"10001", "actual_number":"10001", "mixed":"text"}
+
+-- !map_constructor_escape_chars --
+{"quoted_key":"value with "quotes"", "backslash_key":"value with  backslash"}
+
+-- !map_constructor_whitespace --
+{"  spaced_key  ":"  spaced_value  ", "normal_key":"normal_value"}
+
+-- !sql --
+{"{"name":"John"}":"{"age":30}", "{"city":"NY"}":"{"zip":10001}"}
+
+-- !sql --
+{"zip":10001, "code":10002, "number":10003}
+
+-- !sql --
+{"postal_code":10001, "area_code":10002, "zip_plus_4":10003}
+
+-- !sql --
+{"{"zip":10001}":"{"city":"NY"}", "{"code":10002}":"{"state":"NY"}"}
+

@@ -80,7 +80,7 @@ public class ImportColumnDesc {
         StringBuilder sb = new StringBuilder();
         sb.append(columnName);
         if (expr != null) {
-            sb.append("=").append(expr.toSql());
+            sb.append("=").append(expr.toSqlWithoutTbl());
         }
         return sb.toString();
     }

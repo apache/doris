@@ -17,6 +17,7 @@
 
 #include "olap/task/engine_clone_task.h"
 
+#include <absl/strings/str_split.h>
 #include <curl/curl.h>
 #include <fcntl.h>
 #include <fmt/format.h>
@@ -38,11 +39,10 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/split.h"
-#include "gutil/strings/strip.h"
 #include "http/http_client.h"
 #include "http/utils.h"
 #include "io/fs/file_system.h"
@@ -71,8 +71,6 @@
 
 using std::set;
 using std::stringstream;
-using strings::Split;
-using strings::SkipWhitespace;
 
 namespace doris {
 using namespace ErrorCode;
@@ -182,7 +180,7 @@ Status EngineCloneTask::_do_clone() {
                 _clone_req.tablet_id, _clone_req.replica_id, _clone_req.version);
     });
     Status status = Status::OK();
-    string src_file_path;
+    std::string src_file_path;
     TBackend src_host;
     RETURN_IF_ERROR(
             _engine.tablet_manager()->register_transition_tablet(_clone_req.tablet_id, "clone"));
@@ -266,7 +264,7 @@ Status EngineCloneTask::_do_clone() {
                   << ", req replica=" << _clone_req.replica_id;
         // create a new tablet in this be
         // Get local disk from olap
-        string local_shard_root_path;
+        std::string local_shard_root_path;
         DataDir* store = nullptr;
         RETURN_IF_ERROR(_engine.obtain_shard_path(_clone_req.storage_medium,
                                                   _clone_req.dest_path_hash, &local_shard_root_path,
@@ -316,7 +314,7 @@ Status EngineCloneTask::_do_clone() {
         // MUST reset `replica_id` to request `replica_id` to keep consistent with FE
         tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
         // clone success, delete .hdr file because tablet meta is stored in rocksdb
-        string header_path =
+        std::string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(header_path));
     }
@@ -364,7 +362,7 @@ Status EngineCloneTask::_set_tablet_info() {
 /// 4. Release the snapshots on source BE.
 Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                                                      const std::string& local_data_path,
-                                                     TBackend* src_host, string* snapshot_path,
+                                                     TBackend* src_host, std::string* snapshot_path,
                                                      const std::vector<Version>& missed_versions,
                                                      bool* allow_incremental_clone) {
     Status status;
@@ -546,15 +544,15 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(local_path));
 
     // Get remote dir file list
-    string file_list_str;
+    std::string file_list_str;
     auto list_files_cb = [&remote_url_prefix, &file_list_str](HttpClient* client) {
         RETURN_IF_ERROR(client->init(remote_url_prefix));
         client->set_timeout_ms(LIST_REMOTE_FILE_TIMEOUT * 1000);
         return client->execute(&file_list_str);
     };
     RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb));
-    std::vector<string> file_name_list =
-            strings::Split(file_list_str, "\n", strings::SkipWhitespace());
+    std::vector<std::string> file_name_list =
+            absl::StrSplit(file_list_str, "\n", absl::SkipWhitespace());
 
     // If the header file is not exist, the table couldn't loaded by olap engine.
     // Avoid of data is not complete, we copy the header file at last.
@@ -800,7 +798,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     }
 
     Status status;
-    std::vector<string> linked_success_files;
+    std::vector<std::string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
             std::vector<io::Path> paths;
@@ -813,7 +811,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     /// Traverse all downloaded clone files in CLONE dir.
     /// If it does not exist in local tablet dir, link the file to local tablet dir
     /// And save all linked files in linked_success_files.
-    for (const string& clone_file : clone_file_names) {
+    for (const std::string& clone_file : clone_file_names) {
         if (local_file_names.find(clone_file) != local_file_names.end()) {
             VLOG_NOTICE << "find same file when clone, skip it. "
                         << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;
@@ -989,5 +987,4 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
 }
-
 } // namespace doris

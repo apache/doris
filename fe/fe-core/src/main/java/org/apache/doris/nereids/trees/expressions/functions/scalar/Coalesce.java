@@ -36,7 +36,6 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -66,7 +65,6 @@ public class Coalesce extends ScalarFunction
             FunctionSignature.ret(DateTimeType.INSTANCE).varArgs(DateTimeType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).varArgs(DateV2Type.INSTANCE),
             FunctionSignature.ret(DateType.INSTANCE).varArgs(DateType.INSTANCE),
-            FunctionSignature.ret(TimeType.INSTANCE).varArgs(TimeType.INSTANCE),
             FunctionSignature.ret(TimeV2Type.INSTANCE).varArgs(TimeV2Type.INSTANCE),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).varArgs(DecimalV3Type.WILDCARD),
             FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
@@ -80,6 +78,11 @@ public class Coalesce extends ScalarFunction
      */
     public Coalesce(Expression arg, Expression... varArgs) {
         super("coalesce", ExpressionUtils.mergeArguments(arg, varArgs));
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Coalesce(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -100,9 +103,8 @@ public class Coalesce extends ScalarFunction
      */
     @Override
     public Coalesce withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Coalesce(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Coalesce(getFunctionParams(children));
     }
 
     @Override

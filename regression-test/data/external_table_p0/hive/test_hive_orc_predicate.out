@@ -17,6 +17,8 @@
 1	\N	1	\N
 3	\N	1	\N
 
+-- !predicate_full_acid_push_down --
+
 -- !lazy_materialization_for_list_type --
 ["c", "a"]
 ["b", "c"]
@@ -76,6 +78,9 @@
 -- !predicate_null_aware_equal_in_rt --
 1	\N	1	\N
 3	\N	1	\N
+
+-- !predicate_full_acid_push_down --
+2	BB	20230101
 
 -- !lazy_materialization_for_list_type --
 ["c", "a"]

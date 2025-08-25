@@ -31,7 +31,7 @@ using namespace ut_type;
 
 TEST(FunctionUrlTEST, DomainTest) {
     std::string func_name = "domain";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{Null()}, Null()},
@@ -50,7 +50,7 @@ TEST(FunctionUrlTEST, DomainTest) {
 
 TEST(FunctionUrlTEST, DomainWithoutWWWTest) {
     std::string func_name = "domain_without_www";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{Null()}, Null()},
@@ -69,7 +69,7 @@ TEST(FunctionUrlTEST, DomainWithoutWWWTest) {
 
 TEST(FunctionUrlTEST, ProtocolTest) {
     std::string func_name = "protocol";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{Null()}, Null()},

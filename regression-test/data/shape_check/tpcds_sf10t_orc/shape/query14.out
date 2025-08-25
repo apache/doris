@@ -56,17 +56,16 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF9 d_date_sk->[cs_sold_date_sk,ss_sold_date_sk,ws_sold_date_sk]
-----------------PhysicalProject
-------------------PhysicalUnion
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[store_sales] apply RFs: RF9
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF9
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales] apply RFs: RF9
+----------------PhysicalUnion
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[store_sales] apply RFs: RF9
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[catalog_sales] apply RFs: RF9
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[web_sales] apply RFs: RF9
 ----------------PhysicalProject
 ------------------filter((date_dim.d_year <= 2002) and (date_dim.d_year >= 2000))
 --------------------PhysicalOlapScan[date_dim]

@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMySQLTable;
@@ -26,14 +25,11 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -245,28 +241,5 @@ public class MysqlTable extends Table {
             LOG.debug("get signature of mysql table {}: {}. signature string: {}", name, md5, sb.toString());
         }
         return md5;
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        // Read MySQL meta
-        int size = in.readInt();
-        Map<String, String> serializeMap = Maps.newHashMap();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            serializeMap.put(key, value);
-        }
-
-        odbcCatalogResourceName = serializeMap.get(ODBC_CATALOG_RESOURCE);
-        host = serializeMap.get(MYSQL_HOST);
-        port = serializeMap.get(MYSQL_PORT);
-        userName = serializeMap.get(MYSQL_USER);
-        passwd = serializeMap.get(MYSQL_PASSWORD);
-        mysqlDatabaseName = serializeMap.get(MYSQL_DATABASE);
-        mysqlTableName = serializeMap.get(MYSQL_TABLE);
-        charset = serializeMap.get(MYSQL_CHARSET);
     }
 }

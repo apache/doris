@@ -141,7 +141,7 @@ public class TableQueryPlanAction extends RestBaseController {
                     ConnectContext.get().getSessionVariable().setEnableTwoPhaseReadOpt(false);
                 }
                 if (Config.isCloudMode()) { // Choose a cluster to for this query
-                    ConnectContext.get().getCurrentCloudCluster();
+                    ConnectContext.get().getCloudCluster();
                 }
                 // parse/analysis/plan the sql and acquire tablet distributions
                 handleQuery(ConnectContext.get(), fullDbName, tblName, sql, resultMap);

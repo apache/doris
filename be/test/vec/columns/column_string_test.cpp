@@ -40,9 +40,15 @@ static std::string test_data_dir;
 static std::string test_result_dir;
 static DataTypePtr dt_str =
         DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
+static DataTypePtr dt_jsonb =
+        DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_JSONB, 0, 0);
 
 static ColumnString::MutablePtr column_str32;
 static ColumnString64::MutablePtr column_str64;
+
+static ColumnString::MutablePtr column_str32_json;
+static ColumnString64::MutablePtr column_str64_json;
+
 class ColumnStringTest : public CommonColumnTest {
 protected:
     static void SetUpTestSuite() {
@@ -54,6 +60,10 @@ protected:
         column_str64 = ColumnString64::create();
 
         load_columns_data();
+
+        column_str32_json = ColumnString::create();
+        column_str64_json = ColumnString64::create();
+        load_json_columns_data();
     }
 
     static void load_columns_data() {
@@ -71,12 +81,59 @@ protected:
         }
         std::cout << "column str size: " << column_str32->size() << std::endl;
     }
-    template <typename T>
-    void column_string_common_test(T callback, bool only_str32 = false) {
-        callback(ColumnString(), column_str32->get_ptr());
-        if (!only_str32) {
-            callback(ColumnString64(), column_str64->get_ptr());
+
+    static void load_json_columns_data() {
+        std::cout << "loading json dataset" << std::endl;
+        {
+            MutableColumns columns;
+            columns.push_back(column_str32_json->get_ptr());
+            DataTypeSerDeSPtrs serde = {dt_jsonb->get_serde()};
+            std::string test_data_dir_json =
+                    std::string(getenv("ROOT")) + "/regression-test/data/nereids_function_p0/";
+            std::vector<std::string> json_files = {
+                    test_data_dir_json + "json_variant/boolean_boundary.jsonl",
+                    test_data_dir_json + "json_variant/null_boundary.jsonl",
+                    test_data_dir_json + "json_variant/number_boundary.jsonl",
+                    test_data_dir_json + "json_variant/string_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_boolean_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_nullable_null_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_number_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_string_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_object_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_nullable_boolean_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_nullable_number_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_nullable_string_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_nullable_object_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_array_boolean_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_array_number_boundary.jsonl",
+                    test_data_dir_json + "json_variant/array_array_string_boundary.jsonl",
+                    test_data_dir_json +
+                            "json_variant/array_nullable_array_nullable_boolean_boundary.jsonl",
+                    test_data_dir_json +
+                            "json_variant/array_nullable_array_nullable_null_boundary.jsonl",
+                    test_data_dir_json +
+                            "json_variant/array_nullable_array_nullable_number_boundary.jsonl",
+                    test_data_dir_json +
+                            "json_variant/array_nullable_array_nullable_string_boundary.jsonl",
+                    test_data_dir_json + "json_variant/object_boundary.jsonl",
+            };
+
+            for (const auto& json_file : json_files) {
+                load_columns_data_from_file(columns, serde, '\n', {0}, json_file);
+                EXPECT_TRUE(!column_str32_json->empty());
+                column_str32_json->insert_default();
+                column_str64_json->insert_range_from(*column_str32_json, 0,
+                                                     column_str32_json->size());
+                std::cout << "column str size: " << column_str32_json->size() << std::endl;
+                std::cout << "column str64 size: " << column_str64_json->size() << std::endl;
+            }
         }
+    }
+
+#define column_string_common_test(callback, only_str32)                   \
+    callback<TYPE_STRING>(ColumnString(), column_str32->get_ptr());       \
+    if (!only_str32) {                                                    \
+        callback<TYPE_STRING>(ColumnString64(), column_str64->get_ptr()); \
     }
     void hash_common_test(
             const std::string& function_name,
@@ -96,6 +153,20 @@ protected:
             DataTypeSerDeSPtrs serdes = {dt_str->get_serde()};
             assert_callback(columns, serdes,
                             test_result_dir + "/column_str64_" + function_name + ".out");
+        }
+        {
+            MutableColumns columns;
+            columns.push_back(column_str32_json->get_ptr());
+            DataTypeSerDeSPtrs serdes = {dt_jsonb->get_serde()};
+            assert_callback(columns, serdes,
+                            test_result_dir + "/column_str32_json_" + function_name + ".out");
+        }
+        {
+            MutableColumns columns;
+            columns.push_back(column_str64_json->get_ptr());
+            DataTypeSerDeSPtrs serdes = {dt_jsonb->get_serde()};
+            assert_callback(columns, serdes,
+                            test_result_dir + "/column_str64_json_" + function_name + ".out");
         }
     }
 };
@@ -209,7 +280,7 @@ TEST_F(ColumnStringTest, allocated_bytes) {
     }
 }
 TEST_F(ColumnStringTest, clone_resized) {
-    column_string_common_test(assert_column_vector_clone_resized_callback);
+    column_string_common_test(assert_column_vector_clone_resized_callback, false);
 }
 TEST_F(ColumnStringTest, field_test) {
     auto test_func = [](const auto& source_column) {
@@ -231,13 +302,13 @@ TEST_F(ColumnStringTest, field_test) {
             auto assert_col = source_column->clone_empty();
             for (size_t i = 0; i != src_size; ++i) {
                 JsonbField jsonbf;
-                Field f(std::move(jsonbf));
+                Field f = Field::create_field<TYPE_JSONB>(std::move(jsonbf));
                 source_column->get(i, f);
                 assert_col->insert(f);
             }
             for (size_t i = 0; i != src_size; ++i) {
                 JsonbField jsonbf;
-                Field f(std::move(jsonbf));
+                Field f = Field::create_field<TYPE_JSONB>((std::move(jsonbf)));
                 assert_col->get(i, f);
                 const auto& real_field = vectorized::get<const JsonbField&>(f);
                 ASSERT_EQ(StringRef(real_field.get_value(), real_field.get_size()),
@@ -247,30 +318,54 @@ TEST_F(ColumnStringTest, field_test) {
     };
     test_func(column_str32);
     test_func(column_str64);
+    test_func(column_str32_json);
+    test_func(column_str64_json);
 }
 TEST_F(ColumnStringTest, insert_many_from) {
-    column_string_common_test(assert_column_vector_insert_many_from_callback);
+    column_string_common_test(assert_column_vector_insert_many_from_callback, false);
 }
 TEST_F(ColumnStringTest, is_column_string64) {
     EXPECT_FALSE(column_str32->is_column_string64());
     EXPECT_TRUE(column_str64->is_column_string64());
+    EXPECT_FALSE(column_str32_json->is_column_string64());
+    EXPECT_TRUE(column_str64_json->is_column_string64());
 }
 TEST_F(ColumnStringTest, insert_from) {
     {
-        assert_column_vector_insert_from_callback(ColumnString(), column_str32->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_STRING>(ColumnString(),
+                                                               column_str32->get_ptr());
 
         auto tmp_col_str32 = ColumnString::create();
-        assert_column_vector_insert_from_callback(ColumnString(), tmp_col_str32->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_STRING>(ColumnString(),
+                                                               tmp_col_str32->get_ptr());
     }
     {
-        assert_column_vector_insert_from_callback(ColumnString64(), column_str64->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_STRING>(ColumnString64(),
+                                                               column_str64->get_ptr());
 
         auto tmp_col_str = ColumnString64::create();
-        assert_column_vector_insert_from_callback(ColumnString64(), tmp_col_str->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_STRING>(ColumnString64(),
+                                                               tmp_col_str->get_ptr());
+    }
+    {
+        assert_column_vector_insert_from_callback<TYPE_JSONB>(ColumnString(),
+                                                              column_str32_json->get_ptr());
+
+        auto tmp_col_str32 = ColumnString::create();
+        assert_column_vector_insert_from_callback<TYPE_JSONB>(ColumnString(),
+                                                              tmp_col_str32->get_ptr());
+    }
+    {
+        assert_column_vector_insert_from_callback<TYPE_JSONB>(ColumnString64(),
+                                                              column_str64_json->get_ptr());
+
+        auto tmp_col_str = ColumnString64::create();
+        assert_column_vector_insert_from_callback<TYPE_JSONB>(ColumnString64(),
+                                                              tmp_col_str->get_ptr());
     }
 }
 TEST_F(ColumnStringTest, insert_data) {
-    column_string_common_test(assert_column_vector_insert_data_callback);
+    column_string_common_test(assert_column_vector_insert_data_callback, false);
 }
 TEST_F(ColumnStringTest, insert_data_without_reserve) {
     auto test_func = [](auto& col) {
@@ -370,6 +465,11 @@ TEST_F(ColumnStringTest, insert_many_strings_without_reserve) {
     test_func(10, ColumnString(), column_str32);
     test_func(0, ColumnString64(), column_str64);
     test_func(10, ColumnString64(), column_str64);
+
+    test_func(0, ColumnString(), column_str32_json);
+    test_func(10, ColumnString(), column_str32_json);
+    test_func(0, ColumnString64(), column_str64_json);
+    test_func(10, ColumnString64(), column_str64_json);
 }
 TEST_F(ColumnStringTest, insert_many_continuous_binary_data) {
     auto test_func = [&](size_t clone_count, auto x, const auto& source_column) {
@@ -418,6 +518,9 @@ TEST_F(ColumnStringTest, insert_many_continuous_binary_data) {
     };
     test_func(0, ColumnString(), column_str32);
     test_func(10, ColumnString(), column_str32);
+
+    test_func(0, ColumnString(), column_str32_json);
+    test_func(10, ColumnString(), column_str32_json);
 }
 TEST_F(ColumnStringTest, insert_many_strings) {
     auto test_func = [&](size_t clone_count, auto x, const auto& source_column) {
@@ -468,6 +571,11 @@ TEST_F(ColumnStringTest, insert_many_strings) {
     test_func(10, ColumnString(), column_str32);
     test_func(0, ColumnString64(), column_str64);
     test_func(10, ColumnString64(), column_str64);
+
+    test_func(0, ColumnString(), column_str32_json);
+    test_func(10, ColumnString(), column_str32_json);
+    test_func(0, ColumnString64(), column_str64_json);
+    test_func(10, ColumnString64(), column_str64_json);
 }
 TEST_F(ColumnStringTest, insert_many_strings_overflow) {
     auto test_func = [&](size_t clone_count, auto x, const auto& source_column, size_t max_length) {
@@ -523,9 +631,11 @@ TEST_F(ColumnStringTest, insert_many_strings_overflow) {
     for (auto clone_count : clone_counts) {
         for (auto max_length : max_lengths) {
             test_func(clone_count, ColumnString(), column_str32, max_length);
+            test_func(clone_count, ColumnString(), column_str32_json, max_length);
         }
         for (auto max_length : max_lengths) {
             test_func(clone_count, ColumnString64(), column_str64, max_length);
+            test_func(clone_count, ColumnString64(), column_str64_json, max_length);
         }
     }
 }
@@ -579,9 +689,14 @@ TEST_F(ColumnStringTest, insert_many_dict_data) {
     test_func(10, ColumnString(), column_str32);
     test_func(0, ColumnString64(), column_str64);
     test_func(10, ColumnString64(), column_str64);
+
+    test_func(0, ColumnString(), column_str32_json);
+    test_func(10, ColumnString(), column_str32_json);
+    test_func(0, ColumnString64(), column_str64_json);
+    test_func(10, ColumnString64(), column_str64_json);
 }
 TEST_F(ColumnStringTest, pop_back_test) {
-    column_string_common_test(assert_column_vector_pop_back_callback);
+    column_string_common_test(assert_column_vector_pop_back_callback, false);
 }
 TEST_F(ColumnStringTest, ser_deser_test) {
     {
@@ -594,9 +709,20 @@ TEST_F(ColumnStringTest, ser_deser_test) {
         columns.push_back(column_str64->get_ptr());
         ser_deserialize_with_arena_impl(columns, {dt_str});
     }
+
+    {
+        MutableColumns columns;
+        columns.push_back(column_str32_json->get_ptr());
+        ser_deserialize_with_arena_impl(columns, {dt_jsonb});
+    }
+    {
+        MutableColumns columns;
+        columns.push_back(column_str64_json->get_ptr());
+        ser_deserialize_with_arena_impl(columns, {dt_jsonb});
+    }
 }
 TEST_F(ColumnStringTest, ser_deser_vec_test) {
-    column_string_common_test(assert_column_vector_serialize_vec_callback);
+    column_string_common_test(assert_column_vector_serialize_vec_callback, false);
 }
 TEST_F(ColumnStringTest, get_max_row_byte_size) {
     {
@@ -616,6 +742,25 @@ TEST_F(ColumnStringTest, get_max_row_byte_size) {
         }
 
         EXPECT_EQ(column_str64->get_max_row_byte_size(), max_size + sizeof(uint32_t));
+    }
+
+    {
+        size_t max_size = 0;
+        size_t num_rows = column_str32_json->size();
+        for (size_t i = 0; i != num_rows; ++i) {
+            max_size = std::max<size_t>(max_size, column_str32_json->size_at(i));
+        }
+
+        EXPECT_EQ(column_str32_json->get_max_row_byte_size(), max_size + sizeof(uint32_t));
+    }
+    {
+        size_t max_size = 0;
+        size_t num_rows = column_str64_json->size();
+        for (size_t i = 0; i != num_rows; ++i) {
+            max_size = std::max<size_t>(max_size, column_str64_json->size_at(i));
+        }
+
+        EXPECT_EQ(column_str64_json->get_max_row_byte_size(), max_size + sizeof(uint32_t));
     }
 }
 TEST_F(ColumnStringTest, update_xxHash_with_value) {
@@ -650,12 +795,31 @@ TEST_F(ColumnStringTest, update_crcs_with_value_test) {
         assert_column_vector_update_crc_hashes_callback(
                 columns, serdes, pts, test_result_dir + "/column_str64_" + function_name + ".out");
     }
+    {
+        MutableColumns columns;
+        columns.push_back(column_str32_json->get_ptr());
+        DataTypeSerDeSPtrs serdes = {dt_jsonb->get_serde()};
+        std::vector<PrimitiveType> pts(columns.size(), PrimitiveType::TYPE_JSONB);
+        assert_column_vector_update_crc_hashes_callback(
+                columns, serdes, pts,
+                test_result_dir + "/column_str32_json_" + function_name + ".out");
+    }
+    {
+        MutableColumns columns;
+        columns.push_back(column_str64_json->get_ptr());
+        DataTypeSerDeSPtrs serdes = {dt_jsonb->get_serde()};
+        std::vector<PrimitiveType> pts(columns.size(), PrimitiveType::TYPE_JSONB);
+        assert_column_vector_update_crc_hashes_callback(
+                columns, serdes, pts,
+                test_result_dir + "/column_str64_json_" + function_name + ".out");
+    }
 }
 TEST_F(ColumnStringTest, insert_range_from) {
-    column_string_common_test(assert_column_vector_insert_range_from_callback);
+    column_string_common_test(assert_column_vector_insert_range_from_callback, false);
 }
 TEST_F(ColumnStringTest, insert_range_from_ignore_overflow) {
-    column_string_common_test(assert_column_vector_insert_range_from_ignore_overflow_callback);
+    column_string_common_test(assert_column_vector_insert_range_from_ignore_overflow_callback,
+                              false);
 }
 TEST_F(ColumnStringTest, insert_indices_from) {
     auto test_func = [](auto& target_column, const auto& source_column) {
@@ -741,6 +905,11 @@ TEST_F(ColumnStringTest, insert_indices_from) {
     test_func(column_str32, column_str64);
     test_func(column_str64, column_str32);
     test_func(column_str64, column_str64);
+
+    test_func(column_str32, column_str32_json);
+    test_func(column_str32, column_str64_json);
+    test_func(column_str64, column_str32_json);
+    test_func(column_str64, column_str64_json);
 }
 TEST_F(ColumnStringTest, filter) {
     column_string_common_test(assert_column_vector_filter_callback, true);
@@ -786,10 +955,17 @@ TEST_F(ColumnStringTest, filter_by_selector) {
         }
     };
     test_func(column_str32);
+    test_func(column_str32_json);
     {
         auto target_column = column_str64->clone_empty();
         std::vector<uint16_t> indices(10, 0);
         auto status = column_str64->filter_by_selector(indices.data(), 10, target_column.get());
+        EXPECT_FALSE(status.ok());
+    }
+    {
+        auto target_column = column_str64_json->clone_empty();
+        std::vector<uint16_t> indices(10, 0);
+        auto status = column_str64_json->filter_by_selector(indices.data(), 0, target_column.get());
         EXPECT_FALSE(status.ok());
     }
 }
@@ -812,31 +988,52 @@ TEST_F(ColumnStringTest, permute) {
         EXPECT_THROW(column_str32->permute(permutation, 10), Exception);
         EXPECT_THROW(column_str64->permute(permutation, 10), Exception);
     }
+    {
+        // test empty column and limit == 0
+        IColumn::Permutation permutation(0);
+        auto col = column_str32_json->clone_empty();
+        col->permute(permutation, 0);
+        EXPECT_EQ(col->size(), 0);
+    }
+    {
+        IColumn::Permutation permutation(0);
+        auto col = column_str64_json->clone_empty();
+        col->permute(permutation, 0);
+        EXPECT_EQ(col->size(), 0);
+    }
+    {
+        IColumn::Permutation permutation(0);
+        EXPECT_THROW(column_str32_json->permute(permutation, 10), Exception);
+        EXPECT_THROW(column_str64_json->permute(permutation, 10), Exception);
+    }
     MutableColumns columns;
     columns.push_back(column_str32->get_ptr());
     columns.push_back(column_str64->get_ptr());
+    columns.push_back(column_str32_json->get_ptr());
+    columns.push_back(column_str64_json->get_ptr());
     assert_column_vector_permute(columns, 0);
     assert_column_vector_permute(columns, 1);
     assert_column_vector_permute(columns, column_str32->size());
     assert_column_vector_permute(columns, UINT64_MAX);
 }
 TEST_F(ColumnStringTest, insert_default) {
-    column_string_common_test(assert_column_vector_insert_default_callback);
+    column_string_common_test(assert_column_vector_insert_default_callback, false);
 }
 
 TEST_F(ColumnStringTest, insert_many_default) {
-    column_string_common_test(assert_column_vector_insert_many_defaults_callback);
+    column_string_common_test(assert_column_vector_insert_many_defaults_callback, false);
 }
 TEST_F(ColumnStringTest, get_permutation) {
     assert_column_permutations2(*column_str32, dt_str);
     assert_column_permutations2(*column_str64, dt_str);
-}
-TEST_F(ColumnStringTest, replicate) {
-    column_string_common_test(assert_column_vector_replicate_callback);
+    assert_column_permutations2(*column_str32_json, dt_jsonb);
+    assert_column_permutations2(*column_str64_json, dt_jsonb);
 }
 TEST_F(ColumnStringTest, is_column_string) {
     EXPECT_TRUE(column_str32->is_column_string());
     EXPECT_TRUE(column_str64->is_column_string());
+    EXPECT_TRUE(column_str32_json->is_column_string());
+    EXPECT_TRUE(column_str64_json->is_column_string());
 }
 TEST_F(ColumnStringTest, structure_equals) {
     EXPECT_TRUE(column_str32->structure_equals(ColumnString()));
@@ -844,7 +1041,11 @@ TEST_F(ColumnStringTest, structure_equals) {
     EXPECT_TRUE(column_str64->structure_equals(ColumnString64()));
     EXPECT_FALSE(column_str64->structure_equals(*column_str32));
 
-    EXPECT_FALSE(column_str32->structure_equals(ColumnVector<int>()));
+    EXPECT_TRUE(column_str32_json->structure_equals(ColumnString()));
+    EXPECT_FALSE(column_str32_json->structure_equals(*column_str64_json));
+    EXPECT_TRUE(column_str64_json->structure_equals(ColumnString64()));
+    EXPECT_FALSE(column_str64_json->structure_equals(*column_str32_json));
+    EXPECT_FALSE(column_str32->structure_equals(ColumnInt32()));
 }
 TEST_F(ColumnStringTest, clear) {
     auto tmp_col = column_str32->clone();
@@ -856,13 +1057,50 @@ TEST_F(ColumnStringTest, clear) {
     EXPECT_EQ(tmp_col->size(), 0);
     EXPECT_EQ(tmp_col_str->get_offsets().size(), 0);
     EXPECT_EQ(tmp_col_str->get_chars().size(), 0);
+
+    {
+        auto tmp_col = column_str32_json->clone();
+        EXPECT_EQ(tmp_col->size(), column_str32_json->size());
+
+        auto* tmp_col_str = assert_cast<ColumnString*>(tmp_col.get());
+        EXPECT_EQ(tmp_col_str->get_offsets().size(), column_str32_json->size());
+        tmp_col->clear();
+        EXPECT_EQ(tmp_col->size(), 0);
+        EXPECT_EQ(tmp_col_str->get_offsets().size(), 0);
+        EXPECT_EQ(tmp_col_str->get_chars().size(), 0);
+    }
+
+    {
+        auto tmp_col = column_str64->clone();
+        EXPECT_EQ(tmp_col->size(), column_str64->size());
+
+        auto* tmp_col_str = assert_cast<ColumnString64*>(tmp_col.get());
+        EXPECT_EQ(tmp_col_str->get_offsets().size(), column_str64->size());
+        tmp_col->clear();
+        EXPECT_EQ(tmp_col->size(), 0);
+        EXPECT_EQ(tmp_col_str->get_offsets().size(), 0);
+        EXPECT_EQ(tmp_col_str->get_chars().size(), 0);
+    }
+    {
+        auto tmp_col = column_str64_json->clone();
+        EXPECT_EQ(tmp_col->size(), column_str64_json->size());
+
+        auto* tmp_col_str = assert_cast<ColumnString64*>(tmp_col.get());
+        EXPECT_EQ(tmp_col_str->get_offsets().size(), column_str64_json->size());
+        tmp_col->clear();
+        EXPECT_EQ(tmp_col->size(), 0);
+        EXPECT_EQ(tmp_col_str->get_offsets().size(), 0);
+        EXPECT_EQ(tmp_col_str->get_chars().size(), 0);
+    }
 }
 TEST_F(ColumnStringTest, replace_column_data) {
     EXPECT_THROW(column_str32->replace_column_data(ColumnString(), 0, 0), Exception);
     EXPECT_THROW(column_str64->replace_column_data(ColumnString(), 0, 0), Exception);
+    EXPECT_THROW(column_str32_json->replace_column_data(ColumnString(), 0, 0), Exception);
+    EXPECT_THROW(column_str64_json->replace_column_data(ColumnString(), 0, 0), Exception);
 }
 TEST_F(ColumnStringTest, compare_internal) {
-    column_string_common_test(assert_column_vector_compare_internal_callback);
+    column_string_common_test(assert_column_vector_compare_internal_callback, false);
 }
 TEST_F(ColumnStringTest, convert_column_if_overflow) {
     {
@@ -896,6 +1134,54 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
             EXPECT_EQ(tmp_col_converted->get_data_at(i), column_str32->get_data_at(i % src_size));
         }
     }
+
+    {
+        auto tmp_col = column_str32_json->clone();
+        auto* tmp_col_str32 = assert_cast<ColumnString*>(tmp_col.get());
+        auto src_size = column_str32_json->size();
+        auto chars_size = column_str32_json->get_chars().size();
+        auto max_chars_size = config::string_overflow_size;
+        while (chars_size < max_chars_size) {
+            tmp_col->insert_range_from_ignore_overflow(*column_str32_json, 0,
+                                                       column_str32_json->size());
+            chars_size = tmp_col_str32->get_chars().size();
+        }
+        tmp_col->insert_range_from_ignore_overflow(*column_str32_json, 0,
+                                                   column_str32_json->size());
+        auto tmp_col_row_count = tmp_col->size();
+        chars_size = tmp_col_str32->get_chars().size();
+        EXPECT_GT(chars_size, max_chars_size);
+        auto tmp_col_converted = tmp_col->convert_column_if_overflow();
+        EXPECT_TRUE(tmp_col_converted->is_column_string64());
+        for (size_t i = 0; i < tmp_col_row_count; ++i) {
+            EXPECT_EQ(tmp_col_converted->get_data_at(i),
+                      column_str32_json->get_data_at(i % src_size));
+        }
+    }
+
+    {
+        auto tmp_col = column_str64_json->clone();
+        auto* tmp_col_str64 = assert_cast<ColumnString64*>(tmp_col.get());
+        auto src_size = column_str64_json->size();
+        auto chars_size = column_str64_json->get_chars().size();
+        auto max_chars_size = config::string_overflow_size;
+        while (chars_size < max_chars_size) {
+            tmp_col->insert_range_from_ignore_overflow(*column_str64_json, 0,
+                                                       column_str64_json->size());
+            chars_size = tmp_col_str64->get_chars().size();
+        }
+        tmp_col->insert_range_from_ignore_overflow(*column_str64_json, 0,
+                                                   column_str64_json->size());
+        auto tmp_col_row_count = tmp_col->size();
+        chars_size = tmp_col_str64->get_chars().size();
+        EXPECT_GT(chars_size, max_chars_size);
+        auto tmp_col_converted = tmp_col->convert_column_if_overflow();
+        EXPECT_TRUE(tmp_col_converted->is_column_string64());
+        for (size_t i = 0; i < tmp_col_row_count; ++i) {
+            EXPECT_EQ(tmp_col_converted->get_data_at(i),
+                      column_str64_json->get_data_at(i % src_size));
+        }
+    }
 }
 TEST_F(ColumnStringTest, resize) {
     auto test_func = [](const auto& source_column) {
@@ -913,6 +1199,8 @@ TEST_F(ColumnStringTest, resize) {
     };
     test_func(column_str32);
     test_func(column_str64);
+    test_func(column_str32_json);
+    test_func(column_str64_json);
 }
 TEST_F(ColumnStringTest, TestConcat) {
     Block block;
@@ -938,7 +1226,7 @@ TEST_F(ColumnStringTest, TestConcat) {
     ColumnNumbers arguments = {0, 1};
 
     FunctionStringConcat func_concat;
-    auto fn_ctx = FunctionContext::create_context(nullptr, TypeDescriptor {}, {});
+    auto fn_ctx = FunctionContext::create_context(nullptr, nullptr, {});
     {
         auto status =
                 func_concat.open(fn_ctx.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
@@ -1014,7 +1302,7 @@ TEST_F(ColumnStringTest, shrink_padding_chars) {
     EXPECT_EQ(col->get_data_at(3), StringRef("xy"));
 }
 TEST_F(ColumnStringTest, sort_column) {
-    column_string_common_test(assert_sort_column_callback);
+    column_string_common_test(assert_sort_column_callback, false);
 }
 
 TEST_F(ColumnStringTest, ScalaTypeStringTesterase) {
@@ -1072,6 +1360,35 @@ TEST_F(ColumnStringTest, ScalaTypeStringTest2erase) {
     for (int i = 0; i < column2->size(); ++i) {
         std::cout << column2->get_data_at(i).to_string() << std::endl;
         EXPECT_EQ(column2->get_data_at(i).to_string(), res2[i].to_string());
+    }
+}
+
+TEST_F(ColumnStringTest, is_ascii) {
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"), StringRef("3"),
+                                       StringRef("4"), StringRef("5")};
+        for (auto d : data) {
+            column->insert_data(d.data, d.size);
+        }
+        EXPECT_TRUE(column->is_ascii());
+    }
+
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"),
+                                       StringRef("3"),   StringRef("4"),
+                                       StringRef("5"),   StringRef("你好世界")};
+        for (auto d : data) {
+            column->insert_data(d.data, d.size);
+        }
+        EXPECT_FALSE(column->is_ascii());
+    }
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef(""), StringRef(""), StringRef(""),
+                                       StringRef(""), StringRef(""), StringRef("")};
+        EXPECT_TRUE(column->is_ascii());
     }
 }
 

@@ -227,6 +227,7 @@ extArrowFlightSqlHost = "127.0.0.1"
 extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
+extArrowFlightHttpPort= 8030
 
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
@@ -248,6 +249,7 @@ enableTrinoConnectorTest = false
 enableKerberosTest=false
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+enableRefactorParamsHdfsTest=true
 
 
 // LakeSoul catalog test config
@@ -279,3 +281,6 @@ icebergS3TablesCatalog = ""
 enableExternalHudiTest = false
 // The properties string of hudi catalog
 hudiEmrCatalog = ""
+icebergS3TablesCatalog=""
+icebergS3TablesCatalogGlueRest=""
+

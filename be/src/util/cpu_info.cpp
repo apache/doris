@@ -54,11 +54,10 @@
 #include <filesystem>
 #include <fstream>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/env_config.h"
 #include "gflags/gflags.h"
-#include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
 #include "util/cgroup_util.h"
 #include "util/pretty_printer.h"
 
@@ -76,11 +75,11 @@ DEFINE_int32(num_cores, 0,
 namespace doris {
 // Helper function to warn if a given file does not contain an expected string as its
 // first line. If the file cannot be opened, no error is reported.
-void WarnIfFileNotEqual(const string& filename, const string& expected,
-                        const string& warning_text) {
+void WarnIfFileNotEqual(const std::string& filename, const std::string& expected,
+                        const std::string& warning_text) {
     std::ifstream file(filename);
     if (!file) return;
-    string line;
+    std::string line;
     getline(file, line);
     if (line != expected) {
         LOG(ERROR) << "Expected " << expected << ", actual " << line << std::endl << warning_text;
@@ -99,11 +98,11 @@ int CpuInfo::max_num_cores_ = 1;
 std::string CpuInfo::model_name_ = "unknown";
 int CpuInfo::max_num_numa_nodes_;
 std::unique_ptr<int[]> CpuInfo::core_to_numa_node_;
-std::vector<vector<int>> CpuInfo::numa_node_to_cores_;
+std::vector<std::vector<int>> CpuInfo::numa_node_to_cores_;
 std::vector<int> CpuInfo::numa_node_core_idx_;
 
 static struct {
-    string name;
+    std::string name;
     int64_t flag;
 } flag_mappings[] = {
         {"ssse3", CpuInfo::SSSE3},   {"sse4_1", CpuInfo::SSE4_1}, {"sse4_2", CpuInfo::SSE4_2},
@@ -114,7 +113,7 @@ static struct {
 // values contains a list of space-separated flags.  check to see if the flags we
 // care about are present.
 // Returns a bitmap of flags.
-int64_t ParseCPUFlags(const string& values) {
+int64_t ParseCPUFlags(const std::string& values) {
     int64_t flags = 0;
     for (auto& flag_mapping : flag_mappings) {
         if (contains(values, flag_mapping.name)) {
@@ -126,9 +125,9 @@ int64_t ParseCPUFlags(const string& values) {
 
 void CpuInfo::init() {
     if (initialized_) return;
-    string line;
-    string name;
-    string value;
+    std::string line;
+    std::string name;
+    std::string value;
 
     float max_mhz = 0;
     int physical_num_cores = 0;
@@ -139,9 +138,9 @@ void CpuInfo::init() {
     while (cpuinfo) {
         getline(cpuinfo, line);
         size_t colon = line.find(':');
-        if (colon != string::npos) {
+        if (colon != std::string::npos) {
             name = line.substr(0, colon - 1);
-            value = line.substr(colon + 1, string::npos);
+            value = line.substr(colon + 1, std::string::npos);
             trim(name);
             trim(value);
             if (name == "flags") {
@@ -161,6 +160,11 @@ void CpuInfo::init() {
         }
     }
 
+#ifdef __APPLE__
+    size_t len = sizeof(max_num_cores_);
+    sysctlbyname("hw.physicalcpu", &physical_num_cores, &len, nullptr, 0);
+#endif
+
     int num_cores = CGroupUtil::get_cgroup_limited_cpu_number(physical_num_cores);
     if (max_mhz != 0) {
         cycles_per_ms_ = int64_t(max_mhz) * 1000;
@@ -179,7 +183,6 @@ void CpuInfo::init() {
     }
 
 #ifdef __APPLE__
-    size_t len = sizeof(max_num_cores_);
     sysctlbyname("hw.logicalcpu", &max_num_cores_, &len, nullptr, 0);
 #else
     max_num_cores_ = get_nprocs_conf();
@@ -220,7 +223,7 @@ void CpuInfo::_init_numa() {
     fs::directory_iterator dir_it("/sys/devices/system/node");
     max_num_numa_nodes_ = 0;
     for (; dir_it != fs::directory_iterator(); ++dir_it) {
-        const string filename = dir_it->path().filename().string();
+        const std::string filename = dir_it->path().filename().string();
         if (filename.find("node") == 0) ++max_num_numa_nodes_;
     }
     if (max_num_numa_nodes_ == 0) {
@@ -233,8 +236,7 @@ void CpuInfo::_init_numa() {
     for (int core = 0; core < max_num_cores_; ++core) {
         bool found_numa_node = false;
         for (int node = 0; node < max_num_numa_nodes_; ++node) {
-            if (fs::exists(
-                        strings::Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
+            if (fs::exists(absl::Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
                 core_to_numa_node_[core] = node;
                 found_numa_node = true;
                 break;
@@ -280,9 +282,9 @@ void CpuInfo::verify_cpu_requirements() {
 
 void CpuInfo::verify_performance_governor() {
     for (int cpu_id = 0; cpu_id < CpuInfo::num_cores(); ++cpu_id) {
-        const string governor_file = strings::Substitute(
-                "/sys/devices/system/cpu/cpu$0/cpufreq/scaling_governor", cpu_id);
-        const string warning_text = strings::Substitute(
+        const std::string governor_file =
+                absl::Substitute("/sys/devices/system/cpu/cpu$0/cpufreq/scaling_governor", cpu_id);
+        const std::string warning_text = absl::Substitute(
                 "WARNING: CPU $0 is not using 'performance' governor. Note that changing the "
                 "governor to 'performance' will reset the no_turbo setting to 0.",
                 cpu_id);
@@ -373,17 +375,17 @@ std::string CpuInfo::debug_string() {
     long cache_line_sizes[NUM_CACHE_LEVELS];
     _get_cache_info(cache_sizes, cache_line_sizes);
 
-    string L1 = strings::Substitute(
+    std::string L1 = absl::Substitute(
             "L1 Cache: $0 (Line: $1)",
             PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L1_CACHE]), TUnit::BYTES),
             PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L1_CACHE]), TUnit::BYTES));
-    string L2 = strings::Substitute(
+    std::string L2 = absl::Substitute(
             "L2 Cache: $0 (Line: $1)",
             PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L2_CACHE]), TUnit::BYTES),
             PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L2_CACHE]), TUnit::BYTES));
-    string L3 =
+    std::string L3 =
             cache_sizes[L3_CACHE]
-                    ? strings::Substitute(
+                    ? absl::Substitute(
                               "L3 Cache: $0 (Line: $1)",
                               PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L3_CACHE]),
                                                    TUnit::BYTES),

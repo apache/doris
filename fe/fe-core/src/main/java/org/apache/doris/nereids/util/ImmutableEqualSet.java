@@ -116,15 +116,23 @@ public class ImmutableEqualSet<T> {
          */
         public List<Set<T>> calEqualSetList() {
             parent.replaceAll((s, v) -> findRoot(s));
-            return parent.values()
-                    .stream()
-                    .distinct()
-                    .map(a -> {
-                        T ra = parent.get(a);
-                        return parent.keySet().stream()
-                                .filter(t -> parent.get(t).equals(ra))
-                                .collect(ImmutableSet.toImmutableSet());
-                    }).collect(ImmutableList.toImmutableList());
+
+            ImmutableList.Builder<Set<T>> setList = ImmutableList.builderWithExpectedSize(parent.size());
+            Set<T> distinct = Sets.newHashSet();
+            for (T value : parent.values()) {
+                if (!distinct.add(value)) {
+                    continue;
+                }
+                T ra = parent.get(value);
+                ImmutableSet.Builder<T> set = ImmutableSet.builderWithExpectedSize(parent.size());
+                for (Entry<T, T> kv : parent.entrySet()) {
+                    if (kv.getValue().equals(ra)) {
+                        set.add(kv.getKey());
+                    }
+                }
+                setList.add(set.build());
+            }
+            return setList.build();
         }
 
         public void addEqualSet(ImmutableEqualSet<T> equalSet) {
@@ -152,9 +160,13 @@ public class ImmutableEqualSet<T> {
      */
     public Set<T> calEqualSet(T a) {
         T ra = root.get(a);
-        return root.keySet().stream()
-                .filter(t -> root.get(t).equals(ra) && !t.equals(a))
-                .collect(ImmutableSet.toImmutableSet());
+        ImmutableSet.Builder<T> set = ImmutableSet.builderWithExpectedSize(root.size());
+        for (Entry<T, T> kv : root.entrySet()) {
+            if (kv.getValue().equals(ra) && !kv.getKey().equals(a)) {
+                set.add(kv.getKey());
+            }
+        }
+        return set.build();
     }
 
     public boolean isEmpty() {
@@ -165,15 +177,22 @@ public class ImmutableEqualSet<T> {
      * Calculate all equal set
      */
     public List<Set<T>> calEqualSetList() {
-        return root.values()
-                .stream()
-                .distinct()
-                .map(a -> {
-                    T ra = root.get(a);
-                    return root.keySet().stream()
-                            .filter(t -> root.get(t).equals(ra))
-                            .collect(ImmutableSet.toImmutableSet());
-                }).collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<Set<T>> setList = ImmutableList.builderWithExpectedSize(root.size());
+        Set<T> distinct = Sets.newHashSet();
+        for (T value : root.values()) {
+            if (!distinct.add(value)) {
+                continue;
+            }
+            T ra = root.get(value);
+            ImmutableSet.Builder<T> set = ImmutableSet.builderWithExpectedSize(root.size());
+            for (Entry<T, T> kv : root.entrySet()) {
+                if (kv.getValue().equals(ra)) {
+                    set.add(kv.getKey());
+                }
+            }
+            setList.add(set.build());
+        }
+        return setList.build();
     }
 
     public Set<T> getAllItemSet() {

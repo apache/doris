@@ -36,7 +36,7 @@ suite ("routine_load_mapping") {
 
     sql """insert into test(event_id,time_stamp,device_id) values('ad_sdk_request','2024-03-04 00:00:00','a');"""
 
-    createMV("""create materialized view m_view as select time_stamp, count(device_id) from test group by time_stamp;""")
+    createMV("""create materialized view m_view as select time_stamp as a1, count(device_id) from test group by time_stamp;""")
 
     streamLoad {
         table "test"
@@ -96,8 +96,8 @@ PROPERTIES (
 
          createMV("""CREATE MATERIALIZED VIEW location_rt_mv AS
         SELECT
-        battery_id,
-        create_time
+        battery_id as a1,
+        create_time as a2
         FROM
         rt_new
         WHERE

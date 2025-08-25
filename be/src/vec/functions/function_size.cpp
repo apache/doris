@@ -34,14 +34,14 @@ public:
     String get_name() const override { return name; }
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
+    bool use_default_implementation_for_constants() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr datatype = arguments[0];
-        if (datatype->is_nullable()) {
-            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
-        }
-        DCHECK(is_map(datatype) || is_array(datatype)) << "first argument for function: " << name
-                                                       << " should be DataTypeMap or DataTypeArray";
+        DCHECK(datatype->get_primitive_type() == TYPE_MAP ||
+               datatype->get_primitive_type() == TYPE_ARRAY)
+                << "first argument for function: " << name
+                << " should be DataTypeMap or DataTypeArray";
         return std::make_shared<DataTypeInt64>();
     }
 
@@ -52,21 +52,10 @@ public:
         const auto type = block.get_by_position(arguments[0]).type;
         const ColumnArray* array_column = nullptr;
         const ColumnMap* map_column = nullptr;
-        if (is_array(type)) {
-            if (left_column->is_nullable()) {
-                auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
-                array_column =
-                        check_and_get_column<ColumnArray>(nullable_column->get_nested_column());
-            } else {
-                array_column = check_and_get_column<ColumnArray>(*left_column.get());
-            }
-        } else if (is_map(type)) {
-            if (left_column->is_nullable()) {
-                auto nullable_column = reinterpret_cast<const ColumnNullable*>(left_column.get());
-                map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
-            } else {
-                map_column = check_and_get_column<ColumnMap>(*left_column.get());
-            }
+        if (type->get_primitive_type() == TYPE_ARRAY) {
+            array_column = check_and_get_column<ColumnArray>(*left_column.get());
+        } else if (type->get_primitive_type() == TYPE_MAP) {
+            map_column = check_and_get_column<ColumnMap>(*left_column.get());
         }
 
         auto dst_column = ColumnInt64::create(input_rows_count);

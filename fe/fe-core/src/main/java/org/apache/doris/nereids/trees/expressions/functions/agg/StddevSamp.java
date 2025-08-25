@@ -23,12 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.DecimalStddevPrecisi
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -43,12 +38,7 @@ public class StddevSamp extends NullableAggregateFunction
         StdDevOrVarianceFunction, DecimalStddevPrecision {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE));
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE));
 
     /**
      * constructor with 1 argument.
@@ -68,18 +58,23 @@ public class StddevSamp extends NullableAggregateFunction
         super("stddev_samp", distinct, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StddevSamp(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public StddevSamp withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StddevSamp(distinct, alwaysNullable, children.get(0));
+        return new StddevSamp(getFunctionParams(distinct, children));
     }
 
     @Override
     public StddevSamp withAlwaysNullable(boolean alwaysNullable) {
-        return new StddevSamp(distinct, alwaysNullable, children.get(0));
+        return new StddevSamp(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

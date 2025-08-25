@@ -31,7 +31,7 @@ import java.util.Objects;
 public class StaticAssignedJob implements AssignedJob {
     private final int indexInUnassignedJob;
     private final UnassignedJob unassignedJob;
-    private final TUniqueId instanceId;
+    private TUniqueId instanceId; // when retry query, we'll need to reset instanceId
     private final DistributedPlanWorker worker;
     private final ScanSource scanSource;
 
@@ -53,6 +53,14 @@ public class StaticAssignedJob implements AssignedJob {
     @Override
     public TUniqueId instanceId() {
         return instanceId;
+    }
+
+    @Override
+    public void resetInstanceId(TUniqueId instanceId) {
+        if (instanceId == null) {
+            throw new IllegalArgumentException("instanceId can not be null");
+        }
+        this.instanceId = instanceId;
     }
 
     @Override

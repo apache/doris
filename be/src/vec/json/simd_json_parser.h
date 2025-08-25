@@ -24,7 +24,6 @@
 #include <simdjson.h>
 
 #include "vec/core/types.h"
-#include "vec/json/path_in_data.h"
 
 namespace doris::vectorized {
 
@@ -66,7 +65,6 @@ public:
             return element.type() == simdjson::dom::element_type::NULL_VALUE;
         }
         ALWAYS_INLINE Int64 getInt64() const { return element.get_int64().value_unsafe(); }
-        ALWAYS_INLINE UInt64 getUInt64() const { return element.get_uint64().value_unsafe(); }
         ALWAYS_INLINE double getDouble() const { return element.get_double().value_unsafe(); }
         ALWAYS_INLINE bool getBool() const { return element.get_bool().value_unsafe(); }
         ALWAYS_INLINE std::string_view getString() const {
@@ -74,7 +72,6 @@ public:
         }
         ALWAYS_INLINE Array getArray() const;
         ALWAYS_INLINE Object getObject() const;
-        ALWAYS_INLINE simdjson::dom::element getElement() const { return element; }
 
     private:
         simdjson::dom::element element;
@@ -91,16 +88,8 @@ public:
                 ++it;
                 return *this;
             }
-            ALWAYS_INLINE Iterator operator++(int) {
-                auto res = *this;
-                ++it;
-                return res;
-            } /// NOLINT
             ALWAYS_INLINE friend bool operator!=(const Iterator& left, const Iterator& right) {
                 return left.it != right.it;
-            }
-            ALWAYS_INLINE friend bool operator==(const Iterator& left, const Iterator& right) {
-                return !(left != right);
             }
 
         private:
@@ -153,35 +142,6 @@ public:
         ALWAYS_INLINE Iterator begin() const { return object.begin(); }
         ALWAYS_INLINE Iterator end() const { return object.end(); }
         ALWAYS_INLINE size_t size() const { return object.size(); }
-        bool find(const PathInData& path, Element& result) const {
-            size_t idx = 0;
-            auto obj = object;
-            simdjson::simdjson_result<simdjson::dom::element> x;
-            for (const auto& part : path.get_parts()) {
-                ++idx;
-                x = obj.at_key(part.key);
-                if (x.error()) {
-                    return false;
-                }
-                if (!x.is_object()) {
-                    break;
-                }
-                obj = x.get_object();
-            }
-            if (idx != path.get_parts().size()) {
-                return false;
-            }
-            result = x.value_unsafe();
-            return true;
-        }
-        bool find(const std::string_view& key, Element& result) const {
-            auto x = object.at_key(key);
-            if (x.error()) {
-                return false;
-            }
-            result = x.value_unsafe();
-            return true;
-        }
         /// Optional: Provides access to an object's element by index.
         KeyValuePair operator[](size_t index) const {
             assert(index < size());
@@ -204,13 +164,6 @@ public:
         }
         result = document.value_unsafe();
         return true;
-    }
-    /// Optional: Allocates memory to parse JSON documents faster.
-    void reserve(size_t max_size) {
-        if (parser.allocate(max_size) != simdjson::error_code::SUCCESS) {
-            throw Exception(Status::FatalError("Couldn't allocate {} bytes when parsing JSON",
-                                               std::to_string(max_size)));
-        }
     }
 
 private:

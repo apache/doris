@@ -17,7 +17,6 @@
 
 package org.apache.doris.plugin;
 
-import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -132,14 +131,15 @@ public class PluginMgr implements Writable {
 
     // install a plugin from user's command.
     // install should be successfully, or nothing should be left if failed to install.
-    public PluginInfo installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
-        PluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, stmt.getPluginPath(), stmt.getMd5sum());
+    public PluginInfo installPlugin(String pluginPath, Map<String, String> properties, String md5Sum)
+                throws IOException, UserException {
+        PluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, pluginPath, md5Sum);
         pluginLoader.setStatus(PluginStatus.INSTALLING);
 
         try {
             PluginInfo info = pluginLoader.getPluginInfo();
-            if (stmt.getProperties() != null) {
-                info.setProperties(stmt.getProperties());
+            if (properties != null) {
+                info.setProperties(properties);
             }
 
             if (checkDynamicPluginNameExist(info.getName())) {

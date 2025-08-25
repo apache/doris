@@ -38,7 +38,7 @@ Result<WrapperField*> WrapperField::create(const TabletColumn& column, uint32_t 
     bool is_string_type = (column.type() == FieldType::OLAP_FIELD_TYPE_CHAR ||
                            column.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                            column.type() == FieldType::OLAP_FIELD_TYPE_HLL ||
-                           column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+                           column.type() == FieldType::OLAP_FIELD_TYPE_BITMAP ||
                            column.type() == FieldType::OLAP_FIELD_TYPE_STRING);
     size_t max_length = column.type() == FieldType::OLAP_FIELD_TYPE_STRING
                                 ? config::string_type_length_soft_limit_bytes
@@ -73,7 +73,7 @@ Result<WrapperField*> WrapperField::create(const TabletColumn& column, uint32_t 
     return new WrapperField(rep, variable_len, is_string_type);
 }
 
-WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_length) {
+WrapperField* WrapperField::create_by_type(const FieldType& type, int64_t var_length) {
     Field* rep = FieldFactory::create_by_type(type);
     if (rep == nullptr) {
         return nullptr;
@@ -81,7 +81,7 @@ WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_le
     bool is_string_type =
             (type == FieldType::OLAP_FIELD_TYPE_CHAR ||
              type == FieldType::OLAP_FIELD_TYPE_VARCHAR || type == FieldType::OLAP_FIELD_TYPE_HLL ||
-             type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+             type == FieldType::OLAP_FIELD_TYPE_BITMAP ||
              type == FieldType::OLAP_FIELD_TYPE_STRING ||
              type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE);
     return new WrapperField(rep, var_length, is_string_type);

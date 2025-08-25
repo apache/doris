@@ -76,6 +76,9 @@ public class S3URI {
     private static final Set<String> OS_SCHEMES = ImmutableSet.of("s3", "s3a", "s3n",
             "bos", "oss", "cos", "cosn", "obs", "azure");
 
+    /** Suffix of S3Express storage bucket names. */
+    private static final String S3_DIRECTORY_BUCKET_SUFFIX = "--x-s3";
+
     private URI uri;
 
     private String bucket;
@@ -251,7 +254,7 @@ public class S3URI {
         if (!StringUtils.isEmpty(path) && !"/".equals(path)) {
             key = path.substring(1);
         } else {
-            throw new UserException("missing key: " + this.uri);
+            throw new UserException("missing key from uri: " + this.uri);
         }
     }
 
@@ -331,5 +334,70 @@ public class S3URI {
         sb.append(", queryParams=").append(queryParams);
         sb.append('}');
         return sb.toString();
+    }
+
+    /**
+     * Check if this S3URI uses a directory bucket.
+     *
+     * @return true if the bucket is a directory bucket
+     */
+    public boolean useS3DirectoryBucket() {
+        return isS3DirectoryBucket(this.bucket);
+    }
+
+    /**
+     * Check if the bucket name indicates the bucket is a directory bucket. This method does not check
+     * against the S3 service.
+     *
+     * <p>Directory bucket names follow the format: bucket-name--azid--x-s3
+     * where azid is an availability zone identifier like "usw2-az1", "use1-az4", etc.
+     *
+     * @param bucketName bucket to probe.
+     * @return true if the bucket name indicates the bucket is a directory bucket
+     */
+    public static boolean isS3DirectoryBucket(final String bucketName) {
+        if (bucketName == null || !bucketName.endsWith(S3_DIRECTORY_BUCKET_SUFFIX)) {
+            return false;
+        }
+        // Check if the bucket name has the correct format: bucket-name--azid--x-s3
+        // The bucket name should have at least 3 segments separated by "--"
+        String[] segments = bucketName.split("--");
+        if (segments.length < 3) {
+            return false;
+        }
+        // The last segment should be "x-s3"
+        if (!"x-s3".equals(segments[segments.length - 1])) {
+            return false;
+        }
+        // The second-to-last segment should be the availability zone identifier
+        // It should have a format like "usw2-az1", "use1-az4", etc.
+        String azid = segments[segments.length - 2];
+        if (azid == null || azid.isEmpty()) {
+            return false;
+        }
+        // Basic validation: azid should contain at least one hyphen and not be empty
+        // More sophisticated validation could be added here if needed
+        return azid.contains("-") && azid.length() > 3;
+    }
+
+    /**
+     * Adjusts a glob prefix for S3 Directory Bucket listing.
+     * <p>
+     * For Directory Buckets, listing with a prefix like "path/to/files" will not return any results
+     * if the objects are "path/to/files1.csv", "path/to/files2.csv", etc. The prefix needs to be
+     * adjusted to the containing "directory", which is "path/to/".
+     *
+     * @param globPrefix The prefix derived from a glob pattern (e.g., "path/to/files" from "path/to/files*.csv").
+     * @return The adjusted prefix ending with a "/" (e.g., "path/to/"), or an empty string if no "/" is present.
+     */
+    public static String getDirectoryPrefixForGlob(final String globPrefix) {
+        if (globPrefix == null || globPrefix.isEmpty() || globPrefix.endsWith("/")) {
+            return globPrefix;
+        }
+        int lastSlashIndex = globPrefix.lastIndexOf('/');
+        if (lastSlashIndex >= 0) {
+            return globPrefix.substring(0, lastSlashIndex + 1);
+        }
+        return "";
     }
 }

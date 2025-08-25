@@ -101,9 +101,9 @@ public class CreateTableLikeStmt extends DdlStmt implements NotFallbackInParser 
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        existedTableName.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
+        existedTableName.analyze();
         // disallow external catalog
         Util.prohibitExternalCatalog(existedTableName.getCtl(), this.getClass().getSimpleName());
         ConnectContext ctx = ConnectContext.get();
@@ -113,7 +113,7 @@ public class CreateTableLikeStmt extends DdlStmt implements NotFallbackInParser 
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
         }
 
-        tableName.analyze(analyzer);
+        tableName.analyze();
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         FeNameFormat.checkTableName(getTableName());

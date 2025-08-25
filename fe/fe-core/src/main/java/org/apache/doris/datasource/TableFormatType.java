@@ -25,7 +25,9 @@ public enum TableFormatType {
     MAX_COMPUTE("max_compute"),
     TRANSACTIONAL_HIVE("transactional_hive"),
     LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector");
+    TRINO_CONNECTOR("trino_connector"),
+    TVF("tvf"),
+    ARROW_RESULT("arrow_result");
 
     private final String tableFormatType;
 

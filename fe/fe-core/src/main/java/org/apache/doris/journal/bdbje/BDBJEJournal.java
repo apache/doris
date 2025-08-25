@@ -146,10 +146,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                     DatabaseEntry theData = new DatabaseEntry(entity.getBinaryData());
                     currentJournalDB.put(txn, theKey, theData);  // Put with overwrite, it always success
                     dataSize += theData.getSize();
-                    if (i == 0) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("opCode = {}, journal size = {}", entity.getOpCode(), theData.getSize());
-                        }
+                    if (i == 0 && LOG.isDebugEnabled()) {
+                        LOG.debug("opCode = {}, journal size = {}, batchNum = {}", entity.getOpCode(),
+                                theData.getSize(), entitySize);
                     }
                 }
 
@@ -212,6 +211,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                     LOG.warn("write bdb is too slow, cost {}ms, the first journal id, batch size {}, data size{}",
                             watch.getTime(), firstId, entitySize, dataSize);
                 }
+                if (MetricRepo.isInit) {
+                    MetricRepo.HISTO_JOURNAL_WRITE_LATENCY.update(watch.getTime());
+                }
             }
         }
 
@@ -248,7 +250,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             MetricRepo.COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
         }
         if (LOG.isDebugEnabled() || theData.getSize() > (1 << 20)) {
-            LOG.info("opCode = {}, journal size = {}", op, theData.getSize());
+            LOG.info("opCode = {}, journal size = {}, log id: {}", op, theData.getSize(), id);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_LARGE_EDIT_LOG.increase(1L);
             }

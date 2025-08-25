@@ -19,17 +19,14 @@
 
 #include "pipeline/dependency.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
+#include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
 std::string MultiCastDataStreamSinkLocalState::name_suffix() {
-    const auto& sinks = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)->sink_node().sinks;
-    std::string id_name = " (dst id : ";
-    for (const auto& sink : sinks) {
-        id_name += std::to_string(sink.dest_node_id) + ",";
-    }
-    id_name += ")";
-    return id_name;
+    auto* parent = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent);
+    return fmt::format(operator_name_suffix, parent->operator_id());
 }
 
 std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_shared_state() const {
@@ -51,8 +48,8 @@ std::vector<Dependency*> MultiCastDataStreamSinkLocalState::dependencies() const
 
 Status MultiCastDataStreamSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
-    _shared_state->multi_cast_data_streamer->set_sink_profile(profile());
-    _shared_state->setup_shared_profile(profile());
+    _shared_state->multi_cast_data_streamer->set_sink_profile(operator_profile());
+    _shared_state->setup_shared_profile(custom_profile());
     _shared_state->multi_cast_data_streamer->set_write_dependency(_dependency);
     return Status::OK();
 }

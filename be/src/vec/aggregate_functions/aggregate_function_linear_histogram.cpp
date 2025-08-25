@@ -24,38 +24,27 @@ namespace doris::vectorized {
 
 const std::string AggregateFunctionLinearHistogramConsts::NAME = "linear_histogram";
 
-template <typename T>
-AggregateFunctionPtr create_agg_function_linear_histogram(const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
-    bool has_offset = (argument_types.size() == 3);
+template <PrimitiveType T, typename Data>
+using HistogramWithInputParam = AggregateFunctionLinearHistogram<T, Data, true>;
 
-    if (has_offset) {
-        return creator_without_type::create<
-                AggregateFunctionLinearHistogram<T, AggregateFunctionLinearHistogramData<T>, true>>(
-                argument_types, result_is_nullable);
-    } else {
-        return creator_without_type::create<AggregateFunctionLinearHistogram<
-                T, AggregateFunctionLinearHistogramData<T>, false>>(argument_types,
-                                                                    result_is_nullable);
-    }
-}
+template <PrimitiveType T, typename Data>
+using HistogramNormal = AggregateFunctionLinearHistogram<T, Data, false>;
 
 AggregateFunctionPtr create_aggregate_function_linear_histogram(const std::string& name,
                                                                 const DataTypes& argument_types,
                                                                 const bool result_is_nullable,
                                                                 const AggregateFunctionAttr& attr) {
-    WhichDataType type(remove_nullable(argument_types[0]));
-
-#define DISPATCH(TYPE)               \
-    if (type.idx == TypeIndex::TYPE) \
-        return create_agg_function_linear_histogram<TYPE>(argument_types, result_is_nullable);
-    FOR_NUMERIC_TYPES(DISPATCH)
-    FOR_DECIMAL_TYPES(DISPATCH)
-#undef DISPATCH
-
-    LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
-                                argument_types[0]->get_name(), name);
-    return nullptr;
+    using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                           TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32,
+                                           TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256>;
+    bool has_offset = (argument_types.size() == 3);
+    if (has_offset) {
+        return creator::create<HistogramWithInputParam, AggregateFunctionLinearHistogramData>(
+                argument_types, result_is_nullable, attr);
+    } else {
+        return creator::create<HistogramNormal, AggregateFunctionLinearHistogramData>(
+                argument_types, result_is_nullable, attr);
+    }
 }
 
 void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory& factory) {

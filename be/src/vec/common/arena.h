@@ -21,18 +21,15 @@
 #pragma once
 
 #include <common/compiler_util.h>
+#include <sanitizer/asan_interface.h>
 #include <string.h>
 
 #include <boost/noncopyable.hpp>
 #include <memory>
 #include <vector>
-#if __has_include(<sanitizer/asan_interface.h>)
-#include <sanitizer/asan_interface.h>
-#endif
-#include "gutil/dynamic_annotations.h"
+
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
-#include "vec/common/memcpy_small.h"
 
 namespace doris::vectorized {
 
@@ -305,7 +302,7 @@ public:
     * If alloc 4G memory, 128M each time, then only one 128M chunk will be reserved after clearing,
     * and only 128M can be reused when you apply for 4G memory again.
     */
-    void clear() {
+    void clear(bool delete_head = false) {
         if (head == nullptr) {
             return;
         }
@@ -314,8 +311,14 @@ public:
             delete head->prev;
             head->prev = nullptr;
         }
-        head->pos = head->begin;
-        size_in_bytes = head->size();
+        if (delete_head) {
+            delete head;
+            head = nullptr;
+            size_in_bytes = 0;
+        } else {
+            head->pos = head->begin;
+            size_in_bytes = head->size();
+        }
         _used_size_no_head = 0;
     }
 

@@ -54,7 +54,7 @@ public class FileSplitter {
             blockLocations = new BlockLocation[0];
         }
         List<Split> result = Lists.newArrayList();
-        TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.get());
+        TFileCompressType compressType = Util.inferFileCompressTypeByPath(path.getNormalizedLocation());
         if (!splittable || compressType != TFileCompressType.PLAIN) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Path {} is not splittable.", path);

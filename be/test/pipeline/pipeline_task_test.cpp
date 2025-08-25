@@ -318,7 +318,7 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
         TDataSink tsink;
         EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
-        EXPECT_FALSE(task->_filter_dependencies.empty());
+        EXPECT_GT(task->_execution_dependencies.size(), 1);
         read_dep = _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
                            .value()
                            ->dependencies()
@@ -340,7 +340,7 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
     {
         // task is blocked by filter dependency.
         _query_ctx->get_execution_dependency()->set_ready();
-        task->_filter_dependencies.front()->block();
+        task->_execution_dependencies.back()->block();
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
@@ -348,8 +348,8 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
         EXPECT_FALSE(done);
         EXPECT_FALSE(task->_wake_up_early);
         EXPECT_FALSE(task->_opened);
-        EXPECT_FALSE(task->_filter_dependencies.front()->ready());
-        EXPECT_FALSE(task->_filter_dependencies.front()->_blocked_task.empty());
+        EXPECT_FALSE(task->_execution_dependencies.back()->ready());
+        EXPECT_FALSE(task->_execution_dependencies.back()->_blocked_task.empty());
         EXPECT_TRUE(task->_read_dependencies.empty());
         EXPECT_TRUE(task->_write_dependencies.empty());
         EXPECT_TRUE(task->_finish_dependencies.empty());
@@ -358,7 +358,7 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
     }
     {
         // `open` phase. And then task is blocked by read dependency.
-        task->_filter_dependencies.front()->set_ready();
+        task->_execution_dependencies.back()->set_ready();
         read_dep->block();
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
@@ -446,7 +446,7 @@ TEST_F(PipelineTaskTest, TEST_TERMINATE) {
         TDataSink tsink;
         EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
-        EXPECT_FALSE(task->_filter_dependencies.empty());
+        EXPECT_GT(task->_execution_dependencies.size(), 1);
     }
     _query_ctx->get_execution_dependency()->set_ready();
     {
@@ -511,7 +511,7 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         TDataSink tsink;
         EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
-        EXPECT_FALSE(task->_filter_dependencies.empty());
+        EXPECT_GT(task->_execution_dependencies.size(), 1);
     }
     for (int i = 0; i < task->LEGAL_STATE_TRANSITION.size(); i++) {
         auto target = (PipelineTask::State)i;
@@ -556,7 +556,7 @@ TEST_F(PipelineTaskTest, TEST_SINK_FINISHED) {
         TDataSink tsink;
         EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
-        EXPECT_FALSE(task->_filter_dependencies.empty());
+        EXPECT_GT(task->_execution_dependencies.size(), 1);
     }
     _query_ctx->get_execution_dependency()->set_ready();
     {
@@ -637,7 +637,7 @@ TEST_F(PipelineTaskTest, TEST_SINK_EOF) {
         TDataSink tsink;
         EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
-        EXPECT_FALSE(task->_filter_dependencies.empty());
+        EXPECT_GT(task->_execution_dependencies.size(), 1);
     }
     _query_ctx->get_execution_dependency()->set_ready();
     {
@@ -671,8 +671,16 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
                                      true, fe_address, QuerySource::INTERNAL_FRONTEND);
         _task_queue = std::make_unique<DummyTaskQueue>(1);
         _build_fragment_context();
+
+        TWorkloadGroupInfo twg_info;
+        twg_info.__set_id(0);
+        twg_info.__set_name("_dummpy_workload_group");
+        twg_info.__set_version(0);
+
+        WorkloadGroupInfo workload_group_info = WorkloadGroupInfo::parse_topic_info(twg_info);
+
         ((MockRuntimeState*)_runtime_state.get())->_workload_group =
-                std::make_shared<DummyWorkloadGroup>();
+                std::make_shared<WorkloadGroup>(workload_group_info);
         ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
                 ->_test_low_memory = true;
     }
@@ -710,7 +718,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
         TDataSink tsink;
         EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
-        EXPECT_FALSE(task->_filter_dependencies.empty());
+        EXPECT_GT(task->_execution_dependencies.size(), 1);
         read_dep = _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
                            .value()
                            ->dependencies()
@@ -796,8 +804,16 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
                                      true, fe_address, QuerySource::INTERNAL_FRONTEND);
         _task_queue = std::make_unique<DummyTaskQueue>(1);
         _build_fragment_context();
+
+        TWorkloadGroupInfo twg_info;
+        twg_info.__set_id(0);
+        twg_info.__set_name("_dummpy_workload_group");
+        twg_info.__set_version(0);
+
+        WorkloadGroupInfo workload_group_info = WorkloadGroupInfo::parse_topic_info(twg_info);
+
         ((MockRuntimeState*)_runtime_state.get())->_workload_group =
-                std::make_shared<DummyWorkloadGroup>();
+                std::make_shared<WorkloadGroup>(workload_group_info);
         ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
                 ->_test_low_memory = true;
 
@@ -838,7 +854,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         TDataSink tsink;
         EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
-        EXPECT_FALSE(task->_filter_dependencies.empty());
+        EXPECT_GT(task->_execution_dependencies.size(), 1);
         read_dep = _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
                            .value()
                            ->dependencies()

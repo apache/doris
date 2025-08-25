@@ -31,8 +31,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
 
     // arrays_overlap(Array<Int32>, Array<Int32>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Array,
-                                    TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
 
         TestArray vec1 = {Int32(1), Int32(2), Int32(3)};
         TestArray vec2 = {Int32(3)};
@@ -47,8 +47,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
 
     // arrays_overlap(Array<Int128>, Array<Int128>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int128, TypeIndex::Array,
-                                    TypeIndex::Int128};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_LARGEINT,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_LARGEINT};
 
         TestArray vec1 = {Int128(11111111111LL), Int128(22222LL), Int128(333LL)};
         TestArray vec2 = {Int128(11111111111LL)};
@@ -60,8 +60,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
 
     // arrays_overlap(Array<Float64>, Array<Float64>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Float64, TypeIndex::Array,
-                                    TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DOUBLE,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DOUBLE};
 
         TestArray vec1 = {double(1.2345), double(2.222), double(3.0)};
         TestArray vec2 = {double(1.2345)};
@@ -73,8 +73,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
 
     // arrays_overlap(Array<Date>, Array<Date>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Array,
-                                    TypeIndex::Date};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE};
 
         TestArray vec1 = {std::string("2022-01-02"), std::string("2022-01-02"),
                           std::string("2022-07-08")};
@@ -87,8 +87,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
 
     // arrays_overlap(Array<DateTime>, Array<DateTime>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::Array,
-                                    TypeIndex::DateTime};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME};
 
         TestArray vec1 = {std::string("2022-01-02 00:00:00"), std::string("2022-01-02 00:00:00"),
                           std::string("2022-07-08 00:00:00")};
@@ -104,8 +104,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
 
     // arrays_overlap(Array<Decimal128V2>, Array<Decimal128V2>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2, TypeIndex::Array,
-                                    TypeIndex::Decimal128V2};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2};
 
         TestArray vec1 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
                           ut_type::DECIMALV2(0.0)};
@@ -125,8 +125,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
 
     // arrays_overlap(Array<String>, Array<String>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Array,
-                                    TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
 
         TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
         TestArray vec2 = {std::string("abc")};
@@ -143,8 +143,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
 
     // arrays_overlap(Array<Decimal128V2>, Array<Decimal128V2>), Non-nullable
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2, TypeIndex::Array,
-                                    TypeIndex::Decimal128V2};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2};
 
         TestArray vec1 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
                           ut_type::DECIMALV2(0.0)};
@@ -162,8 +162,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
 
     // arrays_overlap(Array<String>, Array<String>), Non-nullable
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Array,
-                                    TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
 
         TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
         TestArray vec2 = {std::string("abc")};

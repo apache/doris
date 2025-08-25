@@ -191,7 +191,8 @@ public abstract class BaseExecutor {
         objCache.methodAccess = null;
     }
 
-    protected ColumnValueConverter getInputConverter(TPrimitiveType primitiveType, Class clz) {
+    protected ColumnValueConverter getInputConverter(TPrimitiveType primitiveType, Class clz)
+            throws UdfRuntimeException {
         switch (primitiveType) {
             case DATE:
             case DATEV2: {
@@ -220,7 +221,7 @@ public abstract class BaseExecutor {
                         return result;
                     };
                 } else if (!LocalDate.class.equals(clz)) {
-                    throw new RuntimeException("Unsupported date type: " + clz.getCanonicalName());
+                    throw new UdfRuntimeException("Unsupported date type: " + clz.getCanonicalName());
                 }
                 break;
             }
@@ -253,7 +254,7 @@ public abstract class BaseExecutor {
                         return result;
                     };
                 } else if (!LocalDateTime.class.equals(clz)) {
-                    throw new RuntimeException("Unsupported date type: " + clz.getCanonicalName());
+                    throw new UdfRuntimeException("Unsupported date type: " + clz.getCanonicalName());
                 }
                 break;
             }
@@ -279,7 +280,8 @@ public abstract class BaseExecutor {
         return null;
     }
 
-    protected ColumnValueConverter getOutputConverter(JavaUdfDataType returnType, Class clz) {
+    protected ColumnValueConverter getOutputConverter(JavaUdfDataType returnType, Class clz)
+            throws UdfRuntimeException {
         switch (returnType.getPrimitiveType()) {
             case DATE:
             case DATEV2: {
@@ -306,7 +308,7 @@ public abstract class BaseExecutor {
                         return result;
                     };
                 } else if (!LocalDate.class.equals(clz)) {
-                    throw new RuntimeException("Unsupported date type: " + clz.getCanonicalName());
+                    throw new UdfRuntimeException("Unsupported date type: " + clz.getCanonicalName());
                 }
                 break;
             }
@@ -367,7 +369,8 @@ public abstract class BaseExecutor {
     }
 
     // Add unified converter methods
-    protected Map<Integer, ColumnValueConverter> getInputConverters(int numColumns, boolean isUdaf) {
+    protected Map<Integer, ColumnValueConverter> getInputConverters(int numColumns, boolean isUdaf)
+            throws UdfRuntimeException {
         Map<Integer, ColumnValueConverter> converters = new HashMap<>();
         for (int j = 0; j < numColumns; ++j) {
             // For UDAF, we need to offset by 1 since first arg is state
@@ -381,7 +384,7 @@ public abstract class BaseExecutor {
         return converters;
     }
 
-    protected ColumnValueConverter getOutputConverter() {
+    protected ColumnValueConverter getOutputConverter() throws UdfRuntimeException {
         return getOutputConverter(objCache.retType, objCache.retClass);
     }
 }

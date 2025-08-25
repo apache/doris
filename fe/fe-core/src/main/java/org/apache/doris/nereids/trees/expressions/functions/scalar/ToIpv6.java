@@ -46,13 +46,18 @@ public class ToIpv6 extends ScalarFunction
         super("to_ipv6", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToIpv6(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ToIpv6 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "to_ipv6 accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new ToIpv6(children.get(0));
+        return new ToIpv6(getFunctionParams(children));
     }
 
     @Override

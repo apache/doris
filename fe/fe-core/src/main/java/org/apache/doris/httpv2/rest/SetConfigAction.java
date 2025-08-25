@@ -94,7 +94,7 @@ public class SetConfigAction extends RestBaseController {
             try {
                 if (confValue != null && confValue.length == 1) {
                     try {
-                        Env.getCurrentEnv().setMutableConfigwithCallback(confKey, confValue[0]);
+                        Env.getCurrentEnv().setMutableConfigWithCallback(confKey, confValue[0]);
                     } catch (ConfigException e) {
                         throw new DdlException(e.getMessage());
                     }

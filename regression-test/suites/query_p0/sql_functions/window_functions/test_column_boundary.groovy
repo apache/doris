@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_column_boundary","nonConcurrent") {
+suite("test_column_boundary","nonConcurrent,p1") {
     sql """ DROP TABLE IF EXISTS test_column_boundary """
     sql """
         CREATE TABLE IF NOT EXISTS test_column_boundary (

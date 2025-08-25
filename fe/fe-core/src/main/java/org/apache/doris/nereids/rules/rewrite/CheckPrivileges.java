@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Sets;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -56,13 +57,13 @@ public class CheckPrivileges extends ColumnPruning {
         this.jobContext = jobContext;
         super.rewriteRoot(plan, jobContext);
         jobContext.getCascadesContext().getStatementContext().setPrivChecked(true);
-        // don't rewrite plan
+        // don't rewrite plan, because Reorder expect no LogicalProject on LogicalJoin
         return plan;
     }
 
     @Override
     public Plan visitLogicalView(LogicalView<? extends Plan> view, PruneContext context) {
-        checkColumnPrivileges(view.getView(), computeUsedColumns(view, context.requiredSlots));
+        checkColumnPrivileges(view.getView(), computeUsedColumns(view, context.requiredSlotsIds));
 
         // stop check privilege in the view
         return view;
@@ -79,25 +80,25 @@ public class CheckPrivileges extends ColumnPruning {
     public Plan visitLogicalRelation(LogicalRelation relation, PruneContext context) {
         if (relation instanceof LogicalCatalogRelation) {
             TableIf table = ((LogicalCatalogRelation) relation).getTable();
-            checkColumnPrivileges(table, computeUsedColumns(relation, context.requiredSlots));
+            checkColumnPrivileges(table, computeUsedColumns(relation, context.requiredSlotsIds));
         }
         return super.visitLogicalRelation(relation, context);
     }
 
-    private Set<String> computeUsedColumns(Plan plan, Set<Slot> requiredSlots) {
+    private Set<String> computeUsedColumns(Plan plan, RoaringBitmap requiredSlotIds) {
         List<Slot> outputs = plan.getOutput();
         Map<Integer, Slot> idToSlot = new LinkedHashMap<>(outputs.size());
         for (Slot output : outputs) {
             idToSlot.putIfAbsent(output.getExprId().asInt(), output);
         }
 
-        Set<String> usedColumns = Sets.newLinkedHashSetWithExpectedSize(requiredSlots.size());
-        for (Slot requiredSlot : requiredSlots) {
-            Slot slot = idToSlot.get(requiredSlot.getExprId().asInt());
+        Set<String> usedColumns = Sets.newLinkedHashSetWithExpectedSize(idToSlot.size());
+        for (Integer requiredSlotId : requiredSlotIds) {
+            Slot slot = idToSlot.get(requiredSlotId);
             if (slot != null) {
                 // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
-                if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()
-                        && !((SlotReference) slot).getColumn().get().isVisible()) {
+                if (slot instanceof SlotReference && ((SlotReference) slot).getOriginalColumn().isPresent()
+                        && !((SlotReference) slot).getOriginalColumn().get().isVisible()) {
                     continue;
                 }
                 usedColumns.add(slot.getName());

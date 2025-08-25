@@ -82,6 +82,26 @@ public class DropRowPolicyCommand extends DropCommand {
         }
     }
 
+    public boolean isIfExists() {
+        return ifExists;
+    }
+
+    public String getPolicyName() {
+        return policyName;
+    }
+
+    public TableNameInfo getTableNameInfo() {
+        return tableNameInfo;
+    }
+
+    public UserIdentity getUser() {
+        return user;
+    }
+
+    public String getRoleName() {
+        return roleName;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitDropRowPolicyCommand(this, context);

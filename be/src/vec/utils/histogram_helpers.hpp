@@ -23,11 +23,12 @@
 
 #include <boost/dynamic_bitset.hpp>
 
+#include "common/cast_set.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <typename T>
 struct Bucket {
 public:
@@ -247,7 +248,7 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
     doc.SetObject();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
 
-    int num_buckets = buckets.size();
+    int num_buckets = cast_set<int>(buckets.size());
     doc.AddMember("num_buckets", num_buckets, allocator);
 
     rapidjson::Value bucket_arr(rapidjson::kArrayType);
@@ -298,5 +299,5 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
 
     return !buckets.empty() && buffer.GetSize() > 0;
 }
-
+#include "common/compile_check_end.h"
 } // namespace  doris::vectorized

@@ -107,6 +107,7 @@ suite("sql_cache") {
                 """
 
     qt_sql_cache4 """
+                    (
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -118,7 +119,9 @@ suite("sql_cache") {
                         k1 
                     order by
                         k1
+                    )
                     union all
+                    (
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -129,10 +132,12 @@ suite("sql_cache") {
                     group by
                         k1 
                     order by
-                        k1;
+                        k1
+                    )
                 """
     
     qt_sql_cache5 """
+                    (
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -144,7 +149,9 @@ suite("sql_cache") {
                         k1 
                     order by
                         k1
+                    )
                     union all
+                    (
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -155,7 +162,8 @@ suite("sql_cache") {
                     group by
                         k1 
                     order by
-                        k1;
+                        k1
+                    )
                 """
 
     sql "SET enable_nereids_planner=true"

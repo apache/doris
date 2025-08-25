@@ -17,17 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -120,12 +116,6 @@ public class TempPartitions implements GsonPostProcessable {
         for (String partName : partNames) {
             dropPartition(partName, true);
         }
-    }
-
-    @Deprecated
-    public static TempPartitions read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, TempPartitions.class);
     }
 
     @Override

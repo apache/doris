@@ -30,14 +30,14 @@
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 struct Slice;
 
 inline const int HLL_COLUMN_PRECISION = 14;
 inline const int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
 inline const int HLL_EXPLICIT_INT64_NUM = 160;
 inline const int HLL_SPARSE_THRESHOLD = 4096;
-inline const int HLL_REGISTERS_COUNT = 16 * 1024;
+inline const uint16_t HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
 inline const int HLL_COLUMN_DEFAULT_LEN = HLL_REGISTERS_COUNT + 1;
 
@@ -270,7 +270,7 @@ private:
         hash_value >>= HLL_COLUMN_PRECISION;
         // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
         hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
-        uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
+        auto first_one_bit = uint8_t(__builtin_ctzl(hash_value) + 1);
         _registers[idx] = (_registers[idx] < first_one_bit ? first_one_bit : _registers[idx]);
     }
 
@@ -302,5 +302,5 @@ private:
     // it only when it is really needed.
     uint8_t* _registers = nullptr;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

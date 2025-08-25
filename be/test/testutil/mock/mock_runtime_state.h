@@ -17,20 +17,32 @@
 
 #pragma once
 #include "mock_query_context.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/workload_group/dummy_workload_group.h"
 
 namespace doris {
 
 class MockContext : public TaskExecutionContext {};
 
+class MockFragmentManager : public FragmentMgr {
+public:
+    MockFragmentManager(Status& status_, ExecEnv* exec_env)
+            : FragmentMgr(exec_env), status(status_) {}
+    void cancel_query(const TUniqueId query_id, const Status reason) override { status = reason; }
+
+private:
+    Status& status;
+};
+
 class MockRuntimeState : public RuntimeState {
 public:
     MockRuntimeState() {
         set_task_execution_context(_mock_context);
+        _query_ctx_uptr->set_mock_llm_resource();
         _query_ctx = _query_ctx_uptr.get();
     }
-    MockRuntimeState(const TUniqueId& query_id, int32 fragment_id,
+    MockRuntimeState(const TQueryGlobals& query_globals) : RuntimeState(query_globals) {}
+    MockRuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                      const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                      ExecEnv* exec_env, QueryContext* ctx)
             : RuntimeState(query_id, fragment_id, query_options, query_globals, exec_env, ctx) {}
@@ -44,6 +56,10 @@ public:
     bool enable_share_hash_table_for_broadcast_join() const override {
         return _enable_share_hash_table_for_broadcast_join;
     }
+
+    void set_enable_spill(bool enable) { _query_options.__set_enable_spill(enable); }
+
+    void set_enable_strict_cast(bool enable) { _query_options.__set_enable_strict_cast(enable); }
 
     bool enable_local_exchange() const override { return true; }
     WorkloadGroupPtr workload_group() override { return _workload_group; }

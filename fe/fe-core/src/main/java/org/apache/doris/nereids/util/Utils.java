@@ -20,11 +20,9 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -59,6 +57,15 @@ import java.util.stream.Stream;
  * Utils for Nereids.
  */
 public class Utils {
+    public static final boolean enableAssert;
+
+    static {
+        boolean enabled = false;
+        // if run jvm with -ea or -enableassertions, the assert statement will be executed
+        assert enabled = true;
+        enableAssert = enabled;
+    }
+
     /**
      * Quoted string if it contains special character or all characters are digit.
      *
@@ -197,6 +204,40 @@ public class Utils {
         return stringBuilder.append(" )").toString();
     }
 
+    /**
+     * same as toSqlString, but skip null obj
+     */
+    public static String toSqlStringSkipNull(String planName, Object... variables) {
+        Preconditions.checkState(variables.length % 2 == 0);
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(planName).append(" ( ");
+
+        if (variables.length == 0) {
+            return stringBuilder.append(" )").toString();
+        }
+
+        for (int i = 0; i < variables.length - 1; i += 2) {
+            if (!skipEmptyOrNull(variables[i + 1])) {
+                if (i != 0) {
+                    stringBuilder.append(", ");
+                }
+                stringBuilder.append(toStringOrNull(variables[i])).append("=").append(toStringOrNull(variables[i + 1]));
+            }
+        }
+
+        return stringBuilder.append(" )").toString();
+    }
+
+    private static boolean skipEmptyOrNull(Object obj) {
+        if (obj == null) {
+            return true;
+        }
+        if ("".equals(obj.toString())) {
+            return true;
+        }
+        return false;
+    }
+
     public static String toStringOrNull(Object obj) {
         return obj == null ? "null" : obj.toString();
     }
@@ -211,7 +252,7 @@ public class Utils {
      * return abs(t2.d)
      */
     public static List<Expression> getUnCorrelatedExprs(List<Expression> correlatedPredicates,
-                                                        List<Expression> correlatedSlots) {
+                                                        List<Slot> correlatedSlots) {
         List<Expression> unCorrelatedExprs = new ArrayList<>();
         correlatedPredicates.forEach(predicate -> {
             if (!(predicate instanceof BinaryExpression) && (!(predicate instanceof Not)
@@ -249,27 +290,8 @@ public class Utils {
         return unCorrelatedExprs;
     }
 
-    private static List<Expression> collectCorrelatedSlotsFromChildren(
-            BinaryExpression binaryExpression, List<Expression> correlatedSlots) {
-        List<Expression> slots = new ArrayList<>();
-        if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
-            if (binaryExpression.right() instanceof SlotReference) {
-                slots.add(binaryExpression.right());
-            } else if (binaryExpression.right() instanceof Cast) {
-                slots.add(((Cast) binaryExpression.right()).child());
-            }
-        } else {
-            if (binaryExpression.left() instanceof SlotReference) {
-                slots.add(binaryExpression.left());
-            } else if (binaryExpression.left() instanceof Cast) {
-                slots.add(((Cast) binaryExpression.left()).child());
-            }
-        }
-        return slots;
-    }
-
     public static Map<Boolean, List<Expression>> splitCorrelatedConjuncts(
-            Set<Expression> conjuncts, List<Expression> slots) {
+            Set<Expression> conjuncts, List<Slot> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
                 expr -> expr.anyMatch(slots::contains)));
     }

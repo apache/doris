@@ -41,7 +41,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _scanner_param.common_param = p._common_scanner_param;
     // init schema scanner profile
     _scanner_param.profile = std::make_unique<RuntimeProfile>("SchemaScanner");
-    profile()->add_child(_scanner_param.profile.get(), true, nullptr);
+    custom_profile()->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // get src tuple desc
     const auto* schema_table =
@@ -132,6 +132,11 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         fe_addr.port = tnode.schema_scan_node.port;
         _common_scanner_param->fe_addr_list.insert(fe_addr);
     }
+
+    if (tnode.schema_scan_node.__isset.frontend_conjuncts) {
+        _common_scanner_param->frontend_conjuncts =
+                state->obj_pool()->add(new std::string(tnode.schema_scan_node.frontend_conjuncts));
+    }
     return Status::OK();
 }
 
@@ -183,11 +188,11 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
                                          _dest_tuple_desc->slots()[i]->col_name());
         }
 
-        if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type().type) {
-            return Status::InternalError("schema not match. input is {}({}) and output is {}({})",
-                                         columns_desc[j].name, type_to_string(columns_desc[j].type),
-                                         _dest_tuple_desc->slots()[i]->col_name(),
-                                         type_to_string(_dest_tuple_desc->slots()[i]->type().type));
+        if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type()->get_primitive_type()) {
+            return Status::InternalError(
+                    "schema not match. input is {}({}) and output is {}({})", columns_desc[j].name,
+                    type_to_string(columns_desc[j].type), _dest_tuple_desc->slots()[i]->col_name(),
+                    type_to_string(_dest_tuple_desc->slots()[i]->type()->get_primitive_type()));
         }
     }
 
@@ -217,9 +222,8 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         // src block columns desc is filled by schema_scanner->get_column_desc.
         vectorized::Block src_block;
         for (int i = 0; i < columns_desc.size(); ++i) {
-            TypeDescriptor descriptor(columns_desc[i].type);
-            auto data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+            auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    columns_desc[i].type, true);
             src_block.insert(vectorized::ColumnWithTypeAndName(data_type->create_column(),
                                                                data_type, columns_desc[i].name));
         }

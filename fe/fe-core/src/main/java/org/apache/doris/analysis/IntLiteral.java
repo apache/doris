@@ -18,10 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.util.ByteBufferUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -30,8 +31,6 @@ import org.apache.doris.thrift.TIntLiteral;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -172,46 +171,6 @@ public class IntLiteral extends NumericLiteralExpr {
         return new IntLiteral(value);
     }
 
-    public static IntLiteral createMaxValue(Type type) {
-        long value = 0L;
-        switch (type.getPrimitiveType()) {
-            case TINYINT:
-                value = TINY_INT_MAX;
-                break;
-            case SMALLINT:
-                value = SMALL_INT_MAX;
-                break;
-            case INT:
-                value = INT_MAX;
-                break;
-            case BIGINT:
-                value = BIG_INT_MAX;
-                break;
-            default:
-                Preconditions.checkState(false);
-        }
-
-        return new IntLiteral(value);
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        //it's so strange, now in write/read function, not write type info
-        if (this.type.getPrimitiveType() == Type.INVALID.getPrimitiveType()) {
-            if (this.value <= TINY_INT_MAX && this.value >= TINY_INT_MIN) {
-                type = Type.TINYINT;
-            } else if (this.value <= SMALL_INT_MAX && this.value >= SMALL_INT_MIN) {
-                type = Type.SMALLINT;
-            } else if (this.value <= INT_MAX && this.value >= INT_MIN) {
-                type = Type.INT;
-            } else if (this.value <= BIG_INT_MAX && this.value >= BIG_INT_MIN) {
-                type = Type.BIGINT;
-            } else {
-                Preconditions.checkState(false, value);
-            }
-        }
-    }
-
     @Override
     public boolean isMinValue() {
         switch (type.getPrimitiveType()) {
@@ -299,6 +258,12 @@ public class IntLiteral extends NumericLiteralExpr {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getStringValue();
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.INT_LITERAL;
         msg.int_literal = new TIntLiteral(value);
@@ -352,39 +317,9 @@ public class IntLiteral extends NumericLiteralExpr {
         value = -value;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = in.readLong();
-    }
-
-    public static IntLiteral read(DataInput in) throws IOException {
-        IntLiteral literal = new IntLiteral();
-        literal.readFields(in);
-        return literal;
-    }
-
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Long.hashCode(value);
     }
 
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        switch (type.getPrimitiveType()) {
-            case TINYINT:
-                value = data.get();
-                break;
-            case SMALLINT:
-                value = !isUnsigned ? data.getChar() : ByteBufferUtil.getUnsignedByte(data);
-                break;
-            case INT:
-                value = !isUnsigned ? data.getInt() : ByteBufferUtil.getUnsignedShort(data);
-                break;
-            case BIGINT:
-                value = !isUnsigned ? data.getLong() : ByteBufferUtil.getUnsignedInt(data);
-                break;
-            default:
-                Preconditions.checkState(false);
-        }
-    }
 }

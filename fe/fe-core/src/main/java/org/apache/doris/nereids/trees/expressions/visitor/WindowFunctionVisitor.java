@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.FirstValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
 import org.apache.doris.nereids.trees.expressions.functions.window.LastValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
+import org.apache.doris.nereids.trees.expressions.functions.window.NthValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
@@ -56,6 +57,10 @@ public interface WindowFunctionVisitor<R, C> {
 
     default R visitNtile(Ntile ntile, C context) {
         return visitWindowFunction(ntile, context);
+    }
+
+    default R visitNthValue(NthValue nthValue, C context) {
+        return visitWindowFunction(nthValue, context);
     }
 
     default R visitPercentRank(PercentRank percentRank, C context) {

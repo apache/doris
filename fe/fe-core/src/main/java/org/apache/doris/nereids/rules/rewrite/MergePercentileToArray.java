@@ -23,13 +23,13 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -76,20 +77,33 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
     // Merge percentile into percentile_array according to funcMap
     private List<AggregateFunction> getPercentileArrays(Map<DistinctAndExpr, List<AggregateFunction>> funcMap) {
         List<AggregateFunction> newPercentileArrays = Lists.newArrayList();
+
         for (Map.Entry<DistinctAndExpr, List<AggregateFunction>> entry : funcMap.entrySet()) {
-            List<Literal> literals = new ArrayList<>();
+            List<Expression> percentList = new ArrayList<>();
+            boolean allPercentIsLiteral = true;
             for (AggregateFunction aggFunc : entry.getValue()) {
-                List<Expression> literal = aggFunc.child(1).collectToList(expr -> expr instanceof Literal);
-                literals.add((Literal) literal.get(0));
+                Expression percent = aggFunc.child(1);
+                percentList.add(percent);
+                if (allPercentIsLiteral && !(percent instanceof Literal)) {
+                    allPercentIsLiteral = false;
+                }
             }
-            ArrayLiteral arrayLiteral = new ArrayLiteral(literals);
-            PercentileArray percentileArray = null;
-            if (entry.getKey().isDistinct) {
-                percentileArray = new PercentileArray(true, entry.getKey().getExpression(), new Cast(arrayLiteral,
-                        ArrayType.of(DoubleType.INSTANCE)));
+            ArrayLiteral percentArrayLiteral = null;
+            Array percentArray = null;
+            if (allPercentIsLiteral) {
+                percentArrayLiteral = new ArrayLiteral((List) percentList);
             } else {
-                percentileArray = new PercentileArray(entry.getKey().getExpression(), new Cast(arrayLiteral,
-                        ArrayType.of(DoubleType.INSTANCE)));
+                percentArray = new Array(percentList.toArray(new Expression[0]));
+            }
+
+            PercentileArray percentileArray;
+            Expression secondArg = allPercentIsLiteral
+                    ? TypeCoercionUtils.castIfNotSameType(percentArrayLiteral, ArrayType.of(DoubleType.INSTANCE))
+                    : TypeCoercionUtils.castIfNotSameType(percentArray, ArrayType.of(DoubleType.INSTANCE));
+            if (entry.getKey().isDistinct) {
+                percentileArray = new PercentileArray(true, entry.getKey().getExpression(), secondArg);
+            } else {
+                percentileArray = new PercentileArray(entry.getKey().getExpression(), secondArg);
             }
             newPercentileArrays.add(percentileArray);
         }

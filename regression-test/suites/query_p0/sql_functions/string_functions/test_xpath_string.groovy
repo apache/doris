@@ -141,6 +141,18 @@ suite("test_xpath_string") {
     order_qt_29 "select xpath_string('<root><a><b>1</b></a><a><b>2</b></a></root>', '//a[b=\"2\"]/b')"
     order_qt_30 "select xpath_string('<doc><p class=\"main\">Content</p></doc>', '//p[@class=\"main\"]/text()')"
 
+    // string function cases for xpath_string
+    order_qt_str_1 "select xpath_string('<root><name>John</name><age>30</age></root>', 'substring-before(/root/name, \"o\")')"
+    order_qt_str_2 "select xpath_string('<root><name>John</name><age>30</age></root>', 'substring-after(/root/name, \"o\")')"
+    order_qt_str_3 "select xpath_string('<root><name>John</name></root>', 'contains(/root/name, \"oh\")')"
+    order_qt_str_4 "select xpath_string('<root><name>John</name></root>', 'starts-with(/root/name, \"Jo\")')"
+    order_qt_str_5 "select xpath_string('<root><name>John</name></root>', 'string-length(/root/name)')"
+    order_qt_str_6 "select xpath_string('<root><name>  John  </name></root>', 'normalize-space(/root/name)')"
+    order_qt_str_7 "select xpath_string('<root><desc>hello world</desc></root>', 'translate(/root/desc, \"helowrd\", \"HELOWRD\")')"
+    order_qt_str_8 "select xpath_string('<root><desc>hello world</desc></root>', 'concat(substring(/root/desc,1,5), \"_test\")')"
+    order_qt_str_9 "select xpath_string('<root><desc>hello world</desc></root>', 'substring(/root/desc,7)')"
+    order_qt_str_10 "select xpath_string('<root><desc>hello world</desc></root>', 'substring(/root/desc,1,5)')"
+
     /// error cases:
     test {
         sql """ select xpath_string('wrong xml', '//a/c') """

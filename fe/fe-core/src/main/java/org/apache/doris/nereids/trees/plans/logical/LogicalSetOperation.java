@@ -22,12 +22,15 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
@@ -55,7 +58,8 @@ import java.util.Optional;
  * <p>
  * eg: select k1, k2 from t1 union select 1, 2 union select d1, d2 from t2;
  */
-public abstract class LogicalSetOperation extends AbstractLogicalPlan implements SetOperation, OutputSavePoint {
+public abstract class LogicalSetOperation extends AbstractLogicalPlan
+        implements SetOperation, OutputSavePoint, ProjectProcessor {
 
     // eg value: qualifier:DISTINCT
     protected final Qualifier qualifier;
@@ -115,8 +119,13 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     public List<NamedExpression> buildNewOutputs() {
         List<Slot> slots = resetNullableForLeftOutputs();
         ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList.builderWithExpectedSize(slots.size());
-        for (Slot slot : slots) {
-            newOutputs.add(new SlotReference(slot.toSql(), slot.getDataType(), slot.nullable()));
+
+        for (int i = 0; i < slots.size(); i++) {
+            Slot slot = slots.get(i);
+            ExprId exprId = i < outputs.size() ? outputs.get(i).getExprId() : StatementScopeIdGenerator.newExprId();
+            newOutputs.add(
+                    new SlotReference(exprId, slot.toSql(), slot.getDataType(), slot.nullable(), ImmutableList.of())
+            );
         }
         return newOutputs.build();
     }
@@ -269,5 +278,15 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             }
         }
         return DataType.fromCatalogType(resultType);
+    }
+
+    @Override
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return PushProjectThroughUnion.canPushProject(parentProjects, this);
+    }
+
+    @Override
+    public Optional<Plan> processProject(List<NamedExpression> parentProjects) {
+        return Optional.of(PushProjectThroughUnion.doPushProject(parentProjects, this));
     }
 }

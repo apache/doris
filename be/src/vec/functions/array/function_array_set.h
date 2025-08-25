@@ -19,7 +19,9 @@
 
 #include <type_traits>
 
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/functions/array/function_array_utils.h"

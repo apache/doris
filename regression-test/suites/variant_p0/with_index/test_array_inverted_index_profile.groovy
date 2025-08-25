@@ -19,7 +19,7 @@ import groovy.json.JsonSlurper
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
+suite("test_variant_arrayInvertedIdx_profile", "p0,nonConcurrent"){
     // prepare test table
     def indexTblName = "var_arr_idx"
     def httpGet = { url ->
@@ -67,32 +67,32 @@ suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
     sql """ set profile_level = 2;"""
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
 
-        sql "DROP TABLE IF EXISTS ${indexTblName}"
-        def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
-        if (storageFormat == "V1" && isCloudMode()) {
-            return;
-        }
-        // create 1 replica table
-        sql """
-        CREATE TABLE IF NOT EXISTS `${indexTblName}` (
-        `apply_date` date NULL COMMENT '',
-        `id` varchar(60) NOT NULL COMMENT '',
-        `inventors` variant NULL COMMENT '',
-        INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`apply_date`, `id`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-        "is_being_synced" = "false",
-        "storage_format" = "V2",
-        "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
-        "inverted_index_storage_format" = "$storageFormat"
-        );
-        """
+    sql "DROP TABLE IF EXISTS ${indexTblName}"
+    def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
+    if (storageFormat == "V1" && isCloudMode()) {
+        return;
+    }
+    // create 1 replica table
+    sql """
+	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
+      `apply_date` date NULL COMMENT '',
+      `id` varchar(60) NOT NULL COMMENT '',
+      `inventors` variant<'inventors' : array<text>> NULL COMMENT '',
+      INDEX index_inverted_inventors(inventors) USING INVERTED PROPERTIES( "field_pattern" = "inventors") COMMENT ''
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`apply_date`, `id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "is_being_synced" = "false",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false",
+    "inverted_index_storage_format" = "$storageFormat"
+    );
+    """
 
         sql """ INSERT INTO `var_arr_idx` (`apply_date`, `id`, `inventors`) VALUES
             ('2017-01-01', '6afef581285b6608bf80d5a4e46cf839', '{"inventors":["a", "b", "c"]}'),

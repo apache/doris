@@ -36,10 +36,6 @@ public class CTEScanNode extends ScanNode {
         super(UNINITIAL_PLANNODEID, desc, "CTEScanNode", StatisticalType.CTE_SCAN_NODE);
     }
 
-    public CTEScanNode(PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc, "CTEScanNode", StatisticalType.CTE_SCAN_NODE);
-    }
-
     public void setPlanNodeId(PlanNodeId id) {
         this.id = id;
     }

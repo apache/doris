@@ -92,16 +92,13 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
             LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
             return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
         }
-        size_t disk_capacity = static_cast<size_t>(
-                static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize) *
-                (static_cast<double>(config::file_cache_enter_disk_resource_limit_mode_percent) /
-                 100));
+        size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
+                                                   static_cast<size_t>(stat.f_bsize));
         if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
             LOG_INFO(
-                    "The cache {} config size {} is larger than {}% disk size {} or zero, recalc "
+                    "The cache {} config size {} is larger than disk size {} or zero, recalc "
                     "it.",
-                    cache_base_path, file_cache_settings.capacity,
-                    config::file_cache_enter_disk_resource_limit_mode_percent, disk_capacity);
+                    cache_base_path, file_cache_settings.capacity, disk_capacity);
             file_cache_settings = get_file_cache_settings(disk_capacity,
                                                           file_cache_settings.max_query_cache_size);
         }
@@ -174,16 +171,59 @@ std::vector<std::string> FileCacheFactory::get_base_paths() {
     return paths;
 }
 
+std::string validate_capacity(const std::string& path, int64_t new_capacity,
+                              int64_t& valid_capacity) {
+    struct statfs stat;
+    if (statfs(path.c_str(), &stat) < 0) {
+        auto ret = fmt::format("reset capacity {} statfs error {}. ", path, strerror(errno));
+        LOG_ERROR(ret);
+        valid_capacity = 0; // caller will handle the error
+        return ret;
+    }
+    size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
+                                               static_cast<size_t>(stat.f_bsize));
+    if (new_capacity == 0 || disk_capacity < new_capacity) {
+        auto ret = fmt::format(
+                "The cache {} config size {} is larger than disk size {} or zero, recalc "
+                "it to disk size. ",
+                path, new_capacity, disk_capacity);
+        valid_capacity = disk_capacity;
+        LOG_WARNING(ret);
+        return ret;
+    }
+    valid_capacity = new_capacity;
+    return "";
+}
+
 std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t new_capacity) {
+    std::stringstream ss;
+    size_t total_capacity = 0;
     if (path.empty()) {
-        std::stringstream ss;
-        for (auto& [_, cache] : _path_to_cache) {
-            ss << cache->reset_capacity(new_capacity);
+        for (auto& [p, cache] : _path_to_cache) {
+            int64_t valid_capacity = 0;
+            ss << validate_capacity(p, new_capacity, valid_capacity);
+            if (valid_capacity <= 0) {
+                return ss.str();
+            }
+            ss << cache->reset_capacity(valid_capacity);
+            total_capacity += cache->capacity();
         }
+        _capacity = total_capacity;
         return ss.str();
     } else {
         if (auto iter = _path_to_cache.find(path); iter != _path_to_cache.end()) {
-            return iter->second->reset_capacity(new_capacity);
+            int64_t valid_capacity = 0;
+            ss << validate_capacity(path, new_capacity, valid_capacity);
+            if (valid_capacity <= 0) {
+                return ss.str();
+            }
+            ss << iter->second->reset_capacity(valid_capacity);
+
+            for (auto& [p, cache] : _path_to_cache) {
+                total_capacity += cache->capacity();
+            }
+            _capacity = total_capacity;
+            return ss.str();
         }
     }
     return "Unknown the cache path " + path;

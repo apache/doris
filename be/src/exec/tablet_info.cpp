@@ -48,12 +48,15 @@
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 // NOLINTNEXTLINE(unused-includes)
 #include "vec/exprs/vexpr_context.h" // IWYU pragma: keep
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
@@ -143,6 +146,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         }
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
     }
+    if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT) {
+        if (pschema.has_partial_update_new_key_policy()) {
+            _partial_update_new_row_policy = pschema.partial_update_new_key_policy();
+        }
+    }
     _timestamp_ms = pschema.timestamp_ms();
     if (pschema.has_nano_seconds()) {
         _nano_seconds = pschema.nano_seconds();
@@ -159,7 +167,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     for (const auto& p_slot_desc : pschema.slot_descs()) {
         auto* slot_desc = _obj_pool.add(new SlotDescriptor(p_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        string data_type;
+        std::string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
         std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
         std::string data_type_str =
@@ -270,6 +278,27 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _auto_increment_column_unique_id = tschema.auto_increment_column_unique_id;
     }
 
+    if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT) {
+        if (tschema.__isset.partial_update_new_key_policy) {
+            switch (tschema.partial_update_new_key_policy) {
+            case doris::TPartialUpdateNewRowPolicy::APPEND: {
+                _partial_update_new_row_policy = PartialUpdateNewRowPolicyPB::APPEND;
+                break;
+            }
+            case doris::TPartialUpdateNewRowPolicy::ERROR: {
+                _partial_update_new_row_policy = PartialUpdateNewRowPolicyPB::ERROR;
+                break;
+            }
+            default: {
+                return Status::InvalidArgument(
+                        "Unknown partial_update_new_key_behavior: {}, should be one of "
+                        "'APPEND' or 'ERROR'",
+                        tschema.partial_update_new_key_policy);
+            }
+            }
+        }
+    }
+
     for (const auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
     }
@@ -358,6 +387,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
         // for backward compatibility
         pschema->set_partial_update(true);
     }
+    pschema->set_partial_update_new_key_policy(_partial_update_new_row_policy);
     pschema->set_is_strict_mode(_is_strict_mode);
     pschema->set_auto_increment_column(_auto_increment_column);
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);
@@ -529,7 +559,9 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
     //TODO: use assert_cast before insert_data
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
-        if (TypeDescriptor::from_thrift(t_expr.type).is_date_v2_type()) {
+        if (vectorized::DataTypeFactory::instance()
+                    .create_data_type(t_expr.type)
+                    ->get_primitive_type() == TYPE_DATEV2) {
             DateV2Value<DateV2ValueType> dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
@@ -538,7 +570,9 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                 return Status::InternalError(ss.str());
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
-        } else if (TypeDescriptor::from_thrift(t_expr.type).is_datetime_v2_type()) {
+        } else if (vectorized::DataTypeFactory::instance()
+                           .create_data_type(t_expr.type)
+                           ->get_primitive_type() == TYPE_DATETIMEV2) {
             DateV2Value<DateTimeV2ValueType> dt;
             const int32_t scale =
                     t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
@@ -564,17 +598,17 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
     case TExprNodeType::INT_LITERAL: {
         switch (t_expr.type.types[0].scalar_type.type) {
         case TPrimitiveType::TINYINT: {
-            int8_t value = t_expr.int_literal.value;
+            auto value = cast_set<int8_t>(t_expr.int_literal.value);
             column->insert_data(reinterpret_cast<const char*>(&value), 0);
             break;
         }
         case TPrimitiveType::SMALLINT: {
-            int16_t value = t_expr.int_literal.value;
+            auto value = cast_set<int16_t>(t_expr.int_literal.value);
             column->insert_data(reinterpret_cast<const char*>(&value), 0);
             break;
         }
         case TPrimitiveType::INT: {
-            int32_t value = t_expr.int_literal.value;
+            auto value = cast_set<int32_t>(t_expr.int_literal.value);
             column->insert_data(reinterpret_cast<const char*>(&value), 0);
             break;
         }
@@ -596,7 +630,7 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
         break;
     }
     case TExprNodeType::STRING_LITERAL: {
-        int len = t_expr.string_literal.value.size();
+        size_t len = t_expr.string_literal.value.size();
         const char* str_val = t_expr.string_literal.value.c_str();
         column->insert_data(str_val, len);
         break;
@@ -620,7 +654,7 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                                      t_expr.node_type);
     }
     }
-    part_key->second = column->size() - 1;
+    part_key->second = cast_set<int32_t>(column->size() - 1);
     return Status::OK();
 }
 // NOLINTEND(readability-function-size)
@@ -685,6 +719,12 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
                     ", part_index={}, schema_index={}",
                     part_result->indexes[j].index_id, _schema->indexes()[j]->index_id);
         }
+    }
+    if (t_part.__isset.total_replica_num) {
+        part_result->total_replica_num = t_part.total_replica_num;
+    }
+    if (t_part.__isset.load_required_replica_num) {
+        part_result->load_required_replica_num = t_part.load_required_replica_num;
     }
     return Status::OK();
 }
@@ -836,5 +876,6 @@ Status VOlapTablePartitionParam::replace_partitions(
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

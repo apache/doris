@@ -1,0 +1,45 @@
+{
+    "thread_config": {
+        "max_thread_num": 36,
+        "min_thread_num": 36
+    },
+    "executor_config": {
+        "min_concurrency": 72,
+        "guaranteed_concurrency_per_task": 3,
+        "max_concurrency_per_task": 8
+    },
+    "split_queue_config": {
+        "type": "multi_level",
+        "levels": 2
+    },
+    "task_specs": [
+        {
+            "name": "slow_leaf",
+            "type": "leaf",
+            "total_tasks": 600,
+	    "num_concurrent_tasks": 40,
+            "num_splits_per_task": 4,
+            "split_generator_type": "slow_leaf"
+        },
+        {
+            "name": "intermediate",
+            "type": "intermediate",
+            "total_tasks": 400,
+	    "num_concurrent_tasks": 40,
+            "num_splits_per_task": 8,
+            "split_generator_type": "intermediate"
+        },
+        {
+            "name": "fast_leaf",
+            "type": "leaf",
+            "total_tasks": 6000,
+	    "num_concurrent_tasks": 40,
+            "num_splits_per_task": 4,
+            "split_generator_type": "fast_leaf"
+        }
+    ],
+    "runtime_config": {
+        "clear_pending_queue_count": 60,
+        "clear_pending_queue_interval_seconds": 20
+    }
+} 

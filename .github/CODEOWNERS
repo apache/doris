@@ -35,3 +35,5 @@ cloud/ @gavinchou @dataroaring @w41ter
 be/src/cloud/ @gavinchou @dataroaring
 gensrc/proto/olap_file.proto @gavinchou @dataroaring @yiguolei
 gensrc/proto/cloud.proto @gavinchou @dataroaring @w41ter
+fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs
+fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs

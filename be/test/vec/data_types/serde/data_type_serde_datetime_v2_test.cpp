@@ -29,7 +29,6 @@
 #include "util/slice.h"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
@@ -55,9 +54,9 @@ static ColumnDateTimeV2::MutablePtr column_datetime_v2_5;
 static ColumnDateTimeV2::MutablePtr column_datetime_v2_6;
 static ColumnDateV2::MutablePtr column_date_v2;
 
-static ColumnFloat64::MutablePtr column_time_v2_6;
-static ColumnFloat64::MutablePtr column_time_v2_5;
-static ColumnFloat64::MutablePtr column_time_v2_0;
+static ColumnTimeV2::MutablePtr column_time_v2_6;
+static ColumnTimeV2::MutablePtr column_time_v2_5;
+static ColumnTimeV2::MutablePtr column_time_v2_0;
 
 class DataTypeDateTimeV2SerDeTest : public ::testing::Test {
 public:
@@ -69,9 +68,9 @@ public:
         column_datetime_v2_5 = ColumnDateTimeV2::create();
         column_datetime_v2_6 = ColumnDateTimeV2::create();
         column_date_v2 = ColumnDateV2::create();
-        column_time_v2_6 = ColumnFloat64::create();
-        column_time_v2_5 = ColumnFloat64::create();
-        column_time_v2_0 = ColumnFloat64::create();
+        column_time_v2_6 = ColumnTimeV2::create();
+        column_time_v2_5 = ColumnTimeV2::create();
+        column_time_v2_0 = ColumnTimeV2::create();
 
         load_columns_data();
     }
@@ -182,7 +181,7 @@ TEST_F(DataTypeDateTimeV2SerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 
@@ -190,8 +189,11 @@ TEST_F(DataTypeDateTimeV2SerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            auto* pdoc = JsonbDocument::checkAndCreateDocument(
-                    jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
+            JsonbDocument* pdoc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                            jsonb_writer.getOutput()->getSize(),
+                                                            &pdoc);
+            EXPECT_TRUE(st.ok()) << "Failed to create JsonbDocument: " << st;
             JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());

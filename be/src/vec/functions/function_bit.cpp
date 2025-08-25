@@ -28,25 +28,148 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/number_traits.h"
-#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-struct NameBitAnd {
-    static constexpr auto name = "bitand";
+template <typename Impl>
+class FunctionBit : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionBit<Impl>>(); }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<typename Impl::DataType>(),
+                std::make_shared<typename Impl::DataType>()};
+    }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<typename Impl::DataType>();
+    }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto& column_left = block.get_by_position(arguments[0]).column;
+        auto& column_right = block.get_by_position(arguments[1]).column;
+        bool is_const_left = is_column_const(*column_left);
+        bool is_const_right = is_column_const(*column_right);
+
+        ColumnPtr column_result = nullptr;
+        if (is_const_left && is_const_right) {
+            column_result = constant_constant(column_left, column_right);
+        } else if (is_const_left) {
+            column_result = constant_vector(column_left, column_right);
+        } else if (is_const_right) {
+            column_result = vector_constant(column_left, column_right);
+        } else {
+            column_result = vector_vector(column_left, column_right);
+        }
+        block.replace_by_position(result, std::move(column_result));
+
+        return Status::OK();
+    }
+
+private:
+    ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
+        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
+        ColumnPtr column_result = nullptr;
+
+        auto res = Impl::ColumnType::create(1);
+        res->get_element(0) =
+                Impl::apply(column_left_ptr->template get_value<typename Impl::Arg>(),
+                            column_right_ptr->template get_value<typename Impl::Arg>());
+        column_result = std::move(res);
+        return ColumnConst::create(std::move(column_result), column_left->size());
+    }
+
+    ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
+        const auto* column_left_ptr =
+                assert_cast<const typename Impl::ColumnType*>(column_left.get());
+        auto column_result = Impl::ColumnType::create(column_left->size());
+
+        auto& a = column_left_ptr->get_data();
+        auto& c = column_result->get_data();
+        size_t size = a.size();
+        for (size_t i = 0; i < size; ++i) {
+            c[i] = Impl::apply(a[i], column_right_ptr->template get_value<typename Impl::Arg>());
+        }
+        return column_result;
+    }
+
+    ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
+
+        const auto* column_right_ptr =
+                assert_cast<const typename Impl::ColumnType*>(column_right.get());
+        auto column_result = Impl::ColumnType::create(column_right->size());
+
+        auto& b = column_right_ptr->get_data();
+        auto& c = column_result->get_data();
+        size_t size = b.size();
+        for (size_t i = 0; i < size; ++i) {
+            c[i] = Impl::apply(column_left_ptr->template get_value<typename Impl::Arg>(), b[i]);
+        }
+        return column_result;
+    }
+
+    ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
+        const auto* column_left_ptr =
+                assert_cast<const typename Impl::ColumnType*>(column_left->get_ptr().get());
+        const auto* column_right_ptr =
+                assert_cast<const typename Impl::ColumnType*>(column_right->get_ptr().get());
+
+        auto column_result = Impl::ColumnType::create(column_left->size());
+
+        auto& a = column_left_ptr->get_data();
+        auto& b = column_right_ptr->get_data();
+        auto& c = column_result->get_data();
+        size_t size = a.size();
+        for (size_t i = 0; i < size; ++i) {
+            c[i] = Impl::apply(a[i], b[i]);
+        }
+        return column_result;
+    }
 };
 
-template <typename A, typename B>
+template <PrimitiveType PType>
 struct BitAndImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    static_assert(is_int(PType));
+    using Arg = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using DataType = typename PrimitiveTypeTraits<PType>::DataType;
+    using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
+    static constexpr auto name = "bitand";
+    static constexpr bool is_nullable = false;
+    static inline Arg apply(Arg a, Arg b) { return a & b; }
+};
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) & static_cast<Result>(b);
-    }
+template <PrimitiveType PType>
+struct BitOrImpl {
+    static_assert(is_int(PType));
+    using Arg = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using DataType = typename PrimitiveTypeTraits<PType>::DataType;
+    using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
+    static constexpr auto name = "bitor";
+    static constexpr bool is_nullable = false;
+    static inline Arg apply(Arg a, Arg b) { return a | b; }
+};
+
+template <PrimitiveType PType>
+struct BitXorImpl {
+    static_assert(is_int(PType));
+    using Arg = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using DataType = typename PrimitiveTypeTraits<PType>::DataType;
+    using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
+    static constexpr auto name = "bitxor";
+    static constexpr bool is_nullable = false;
+    static inline Arg apply(Arg a, Arg b) { return a ^ b; }
 };
 
 struct NameBitNot {
@@ -55,36 +178,10 @@ struct NameBitNot {
 
 template <typename A>
 struct BitNotImpl {
-    using ResultType = typename NumberTraits::ResultOfBitNot<A>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBitNot<A>::Type;
 
-    static inline ResultType apply(A a) { return ~static_cast<ResultType>(a); }
-};
-
-struct NameBitOr {
-    static constexpr auto name = "bitor";
-};
-
-template <typename A, typename B>
-struct BitOrImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
-
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) | static_cast<Result>(b);
-    }
-};
-
-struct NameBitXor {
-    static constexpr auto name = "bitxor";
-};
-
-template <typename A, typename B>
-struct BitXorImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
-
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) ^ static_cast<Result>(b);
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        return ~static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
     }
 };
 
@@ -94,9 +191,9 @@ struct NameBitLength {
 
 struct BitLengthImpl {
     using ReturnType = DataTypeInt32;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
@@ -110,17 +207,29 @@ struct BitLengthImpl {
     }
 };
 
-using FunctionBitAnd = FunctionBinaryArithmetic<BitAndImpl, NameBitAnd, false>;
 using FunctionBitNot = FunctionUnaryArithmetic<BitNotImpl, NameBitNot>;
-using FunctionBitOr = FunctionBinaryArithmetic<BitOrImpl, NameBitOr, false>;
-using FunctionBitXor = FunctionBinaryArithmetic<BitXorImpl, NameBitXor, false>;
 using FunctionBitLength = FunctionUnaryToType<BitLengthImpl, NameBitLength>;
 
 void register_function_bit(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionBitAnd>();
+    factory.register_function<FunctionBit<BitAndImpl<TYPE_TINYINT>>>();
+    factory.register_function<FunctionBit<BitAndImpl<TYPE_SMALLINT>>>();
+    factory.register_function<FunctionBit<BitAndImpl<TYPE_INT>>>();
+    factory.register_function<FunctionBit<BitAndImpl<TYPE_BIGINT>>>();
+    factory.register_function<FunctionBit<BitAndImpl<TYPE_LARGEINT>>>();
+
+    factory.register_function<FunctionBit<BitOrImpl<TYPE_TINYINT>>>();
+    factory.register_function<FunctionBit<BitOrImpl<TYPE_SMALLINT>>>();
+    factory.register_function<FunctionBit<BitOrImpl<TYPE_INT>>>();
+    factory.register_function<FunctionBit<BitOrImpl<TYPE_BIGINT>>>();
+    factory.register_function<FunctionBit<BitOrImpl<TYPE_LARGEINT>>>();
+
+    factory.register_function<FunctionBit<BitXorImpl<TYPE_TINYINT>>>();
+    factory.register_function<FunctionBit<BitXorImpl<TYPE_SMALLINT>>>();
+    factory.register_function<FunctionBit<BitXorImpl<TYPE_INT>>>();
+    factory.register_function<FunctionBit<BitXorImpl<TYPE_BIGINT>>>();
+    factory.register_function<FunctionBit<BitXorImpl<TYPE_LARGEINT>>>();
+
     factory.register_function<FunctionBitNot>();
-    factory.register_function<FunctionBitOr>();
-    factory.register_function<FunctionBitXor>();
     factory.register_function<FunctionBitLength>();
 }
 } // namespace doris::vectorized

@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property;
 
 import org.apache.doris.common.CatalogConfigFileUtils;
-import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -55,20 +55,13 @@ public abstract class ConnectionProperties {
         this.origProps = origProps;
     }
 
-    protected void initNormalizeAndCheckProps() throws UserException {
-        List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
-        for (Field field : supportedProps) {
-            field.setAccessible(true);
-            ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
-            String[] names = anno.names();
-            for (String name : names) {
+    public void initNormalizeAndCheckProps() {
+        ConnectorPropertiesUtils.bindConnectorProperties(this, origProps);
+        for (Field field : ConnectorPropertiesUtils.getConnectorProperties(this.getClass())) {
+            ConnectorProperty annotation = field.getAnnotation(ConnectorProperty.class);
+            for (String name : annotation.names()) {
                 if (origProps.containsKey(name)) {
-                    try {
-                        field.set(this, origProps.get(name));
-                        matchedProperties.put(name, origProps.get(name));
-                    } catch (IllegalAccessException e) {
-                        throw new RuntimeException("Failed to set property " + name + ", " + e.getMessage(), e);
-                    }
+                    matchedProperties.put(name, origProps.get(name));
                     break;
                 }
             }
@@ -84,10 +77,7 @@ public abstract class ConnectionProperties {
         if (Strings.isNullOrEmpty(resourceConfig)) {
             return new HashMap<>();
         }
-        if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
-            return Maps.newHashMap();
-        }
-        Configuration conf = CatalogConfigFileUtils.loadConfigurationFromHadoopConfDir(origProps.get(resourceConfig));
+        Configuration conf = CatalogConfigFileUtils.loadConfigurationFromHadoopConfDir(resourceConfig);
         Map<String, String> confMap = Maps.newHashMap();
         for (Map.Entry<String, String> entry : conf) {
             confMap.put(entry.getKey(), entry.getValue());
@@ -103,7 +93,7 @@ public abstract class ConnectionProperties {
     // This method will check if all required properties are set.
     // Subclass can implement this method for additional check.
     protected void checkRequiredProperties() {
-        List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
+        List<Field> supportedProps = ConnectorPropertiesUtils.getConnectorProperties(this.getClass());
         for (Field field : supportedProps) {
             field.setAccessible(true);
             ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
@@ -115,7 +105,8 @@ public abstract class ConnectionProperties {
                         throw new IllegalArgumentException("Property " + names[0] + " is required.");
                     }
                 } catch (IllegalAccessException e) {
-                    throw new RuntimeException(e);
+                    throw new StoragePropertiesException("Failed to get property " + names[0]
+                            + ", " + e.getMessage(), e);
                 }
             }
         }

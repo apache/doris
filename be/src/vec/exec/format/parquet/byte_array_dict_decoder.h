@@ -24,7 +24,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -32,7 +31,7 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 template <typename T>
 class ColumnStr;

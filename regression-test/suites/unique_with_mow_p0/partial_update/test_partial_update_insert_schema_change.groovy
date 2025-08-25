@@ -249,12 +249,16 @@ suite("test_partial_update_insert_schema_change", "p0") {
     sql "sync"
 
     // test insert data with all key column, should fail because
-    // it inserts a new row in strict mode
+    // it inserts a new row when partial_update_new_key_behavior=ERROR
     sql "set enable_unique_key_partial_update=true;"
+    sql """set partial_update_new_key_behavior="ERROR";"""
+    sql "sync;"
     test {
         sql "insert into ${tableName}(c0,c1) values(1, 1);"
-        exception "Insert has filtered data in strict mode"
+        exception "[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR"
     }
+    sql """set partial_update_new_key_behavior="APPEND";"""
+    sql "sync;"
     sql "insert into ${tableName}(c0,c1,c2) values(1,0,10);"
     sql "set enable_unique_key_partial_update=false;"
     sql "sync"

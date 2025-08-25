@@ -25,6 +25,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 import com.google.gson.Gson;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
@@ -32,6 +34,8 @@ import java.util.Map;
 import java.util.Set;
 
 public class LoadStatistic {
+    private static final Logger LOG = LogManager.getLogger(LoadStatistic.class);
+
     // number of rows processed on BE, this number will be updated periodically by query report.
     // A load job may has several load tasks(queries), and each task has several fragments.
     // each fragment will report independently.
@@ -78,15 +82,24 @@ public class LoadStatistic {
     public synchronized void updateLoadProgress(long backendId, TUniqueId loadId, TUniqueId fragmentId,
                                                 long rows, long bytes, boolean isDone) {
         if (counterTbl.contains(loadId, fragmentId)) {
-            counterTbl.put(loadId, fragmentId, rows);
+            if (counterTbl.get(loadId, fragmentId) < rows) {
+                counterTbl.put(loadId, fragmentId, rows);
+            }
         }
 
         if (loadBytes.contains(loadId, fragmentId)) {
-            loadBytes.put(loadId, fragmentId, bytes);
+            if (loadBytes.get(loadId, fragmentId) < bytes) {
+                loadBytes.put(loadId, fragmentId, bytes);
+            }
         }
         if (isDone && unfinishedBackendIds.containsKey(loadId)) {
             unfinishedBackendIds.get(loadId).remove(backendId);
         }
+
+        LOG.debug("updateLoadProgress: loadId={}, fragmentId={}, backendId={}, "
+                + "rows={}, bytes={}, isDone={}, scannedRows={}, loadBytes={}",
+                DebugUtil.printId(loadId), DebugUtil.printId(fragmentId), backendId,
+                rows, bytes, isDone, getScannedRows(), getLoadBytes());
     }
 
     public synchronized long getScannedRows() {

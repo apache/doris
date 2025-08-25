@@ -58,13 +58,14 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
 private:
     RuntimeState* _state;
     const TFileRangeDesc& _range;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
+    io::IOContext* _io_ctx;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<doris::vectorized::ArrowPipInputStream> _pip_stream;
     cctz::time_zone _ctzz;

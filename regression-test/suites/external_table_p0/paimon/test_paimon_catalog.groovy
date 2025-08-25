@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
 
     String file_ctl_name = "paimon_file_catalog";
     String hms_ctl_name = "paimon_hms_catalog";
@@ -295,6 +295,12 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             test_cases("false", "true")
             test_cases("true", "false")
             test_cases("true", "true")
+
+            test {
+                sql """select * from dup_columns_table;"""
+                exception "Duplicate column name found: id"
+            }
+
             sql """ set force_jni_scanner=false; """
 
             // test view from jion paimon

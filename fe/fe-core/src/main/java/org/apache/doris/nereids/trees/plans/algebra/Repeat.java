@@ -111,8 +111,8 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
         Iterator<List<Expression>> iterator = groupingSets.iterator();
         Set<Expression> commonGroupingExpressions = Sets.newLinkedHashSet(iterator.next());
         while (iterator.hasNext()) {
-            commonGroupingExpressions =
-                    Sets.intersection(commonGroupingExpressions, Sets.newLinkedHashSet(iterator.next()));
+            commonGroupingExpressions = Sets.intersection(commonGroupingExpressions,
+                    Sets.newLinkedHashSet(iterator.next())).immutableCopy();
             if (commonGroupingExpressions.isEmpty()) {
                 break;
             }

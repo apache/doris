@@ -21,6 +21,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -177,5 +178,7 @@ bool init(const char* conf_file, bool fill_conf_map = false, bool must_exist = t
 
 std::pair<bool, std::string> set_config(std::unordered_map<std::string, std::string> field_map,
                                         bool need_persist, const std::string& custom_conf_path);
+
+std::shared_mutex* get_mutable_string_config_lock();
 
 } // namespace doris::cloud::config

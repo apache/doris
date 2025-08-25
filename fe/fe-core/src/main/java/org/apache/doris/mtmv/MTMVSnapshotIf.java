@@ -21,4 +21,9 @@ package org.apache.doris.mtmv;
  * MTMV refresh snapshot
  */
 public interface MTMVSnapshotIf {
+    /**
+     * Get the snapshot identity. may be timestamp or id. should be incremental about data changes
+     * @return timestamp or id
+     */
+    abstract long getSnapshotVersion();
 }

@@ -71,7 +71,7 @@ public class JobsProcDir implements ProcDirInterface {
             return new LoadProcDir(env.getCurrentEnv().getLoadManager(), db);
         } else if (jobTypeName.equals(DELETE)) {
             Long dbId = db == null ? -1 : db.getId();
-            return new DeleteInfoProcDir(env.getDeleteHandler(), env.getLoadInstance(), dbId);
+            return new DeleteInfoProcDir(env.getDeleteHandler(), dbId);
         } else if (jobTypeName.equals(ROLLUP)) {
             return new RollupProcDir(env.getMaterializedViewHandler(), db);
         } else if (jobTypeName.equals(SCHEMA_CHANGE)) {

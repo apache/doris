@@ -22,42 +22,42 @@
 
 #include <cstddef>
 #include <iostream>
-#include <limits>
 #include <type_traits>
 
 #include "testutil/test_util.h"
 #include "util/slice.h"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_decimal_serde.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
 
-static auto serde_decimal32_1 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(1, 0);
-static auto serde_decimal32_2 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(1, 1);
-static auto serde_decimal32_3 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(8, 3);
-static auto serde_decimal32_4 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(9, 0);
-static auto serde_decimal32_5 = std::make_shared<DataTypeDecimalSerDe<Decimal32>>(9, 9);
+static auto serde_decimal32_1 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(1, 0);
+static auto serde_decimal32_2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(1, 1);
+static auto serde_decimal32_3 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(8, 3);
+static auto serde_decimal32_4 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(9, 0);
+static auto serde_decimal32_5 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL32>>(9, 9);
 
-static auto serde_decimal64_1 = std::make_shared<DataTypeDecimalSerDe<Decimal64>>(18, 0);
-static auto serde_decimal64_2 = std::make_shared<DataTypeDecimalSerDe<Decimal64>>(18, 9);
-static auto serde_decimal64_3 = std::make_shared<DataTypeDecimalSerDe<Decimal64>>(18, 18);
+static auto serde_decimal64_1 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL64>>(18, 0);
+static auto serde_decimal64_2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL64>>(18, 9);
+static auto serde_decimal64_3 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL64>>(18, 18);
 
-static auto serde_decimal128v2 = std::make_shared<DataTypeDecimalSerDe<Decimal128V2>>(27, 9);
+static auto serde_decimal128v2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMALV2>>(27, 9);
 
-static auto serde_decimal128v3_1 = std::make_shared<DataTypeDecimalSerDe<Decimal128V3>>(38, 0);
-static auto serde_decimal128v3_2 = std::make_shared<DataTypeDecimalSerDe<Decimal128V3>>(38, 30);
-static auto serde_decimal128v3_3 = std::make_shared<DataTypeDecimalSerDe<Decimal128V3>>(38, 38);
+static auto serde_decimal128v3_1 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL128I>>(38, 0);
+static auto serde_decimal128v3_2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL128I>>(38, 30);
+static auto serde_decimal128v3_3 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL128I>>(38, 38);
 
-static auto serde_decimal256_1 = std::make_shared<DataTypeDecimalSerDe<Decimal256>>(76, 0);
-static auto serde_decimal256_2 = std::make_shared<DataTypeDecimalSerDe<Decimal256>>(76, 38);
-static auto serde_decimal256_3 = std::make_shared<DataTypeDecimalSerDe<Decimal256>>(76, 76);
+static auto serde_decimal256_1 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL256>>(76, 0);
+static auto serde_decimal256_2 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL256>>(76, 38);
+static auto serde_decimal256_3 = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMAL256>>(76, 76);
 
 static ColumnDecimal32::MutablePtr column_decimal32_1; // decimal32(1,0)
 static ColumnDecimal32::MutablePtr column_decimal32_2; // decimal32(1,1)
@@ -155,6 +155,7 @@ public:
     void SetUp() override { helper = std::make_unique<CommonDataTypeTest>(); }
     std::unique_ptr<CommonDataTypeTest> helper;
 };
+
 TEST_F(DataTypeDecimalSerDeTest, serdes) {
     auto test_func = [](const auto& serde, const auto& source_column) {
         using SerdeType = decltype(serde);
@@ -239,7 +240,7 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 
@@ -247,8 +248,11 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            auto* pdoc = JsonbDocument::checkAndCreateDocument(
-                    jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
+            JsonbDocument* pdoc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                            jsonb_writer.getOutput()->getSize(),
+                                                            &pdoc);
+            EXPECT_TRUE(st.ok()) << "Failed to create JsonbDocument: " << st;
             JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());

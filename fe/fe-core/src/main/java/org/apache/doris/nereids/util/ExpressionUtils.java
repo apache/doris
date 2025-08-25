@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
+import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -63,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -91,7 +93,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -195,9 +196,19 @@ public class ExpressionUtils {
     }
 
     /**
+     *  AND / OR expression, also remove duplicate expression, boolean literal
+     */
+    public static Expression compound(boolean isAnd, Collection<Expression> expressions) {
+        return isAnd ? and(expressions) : or(expressions);
+    }
+
+    /**
      *  AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Collection<Expression> expressions) {
+        if (expressions.size() == 1) {
+            return expressions.iterator().next();
+        }
         Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(BooleanLiteral.FALSE)) {
@@ -243,6 +254,9 @@ public class ExpressionUtils {
      *  OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression or(Collection<Expression> expressions) {
+        if (expressions.size() == 1) {
+            return expressions.iterator().next();
+        }
         Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(BooleanLiteral.TRUE)) {
@@ -284,47 +298,6 @@ public class ExpressionUtils {
         } else {
             return new InPredicate(reference, ImmutableList.copyOf(values));
         }
-    }
-
-    /**
-     * Use AND/OR to combine expressions together.
-     */
-    public static Expression combineAsLeftDeepTree(
-            Class<? extends Expression> type, Collection<Expression> expressions) {
-        /*
-         *             (AB) (CD) E   ((AB)(CD))  E     (((AB)(CD))E)
-         *               ▲   ▲   ▲       ▲       ▲          ▲
-         *               │   │   │       │       │          │
-         * A B C D E ──► A B C D E ──► (AB) (CD) E ──► ((AB)(CD)) E ──► (((AB)(CD))E)
-         */
-        Preconditions.checkArgument(type == And.class || type == Or.class);
-        Objects.requireNonNull(expressions, "expressions is null");
-
-        Expression shortCircuit = (type == And.class ? BooleanLiteral.FALSE : BooleanLiteral.TRUE);
-        Expression skip = (type == And.class ? BooleanLiteral.TRUE : BooleanLiteral.FALSE);
-        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
-        for (Expression expression : expressions) {
-            if (expression.equals(shortCircuit)) {
-                return shortCircuit;
-            } else if (!expression.equals(skip)) {
-                distinctExpressions.add(expression);
-            }
-        }
-
-        if (distinctExpressions.isEmpty()) {
-            return BooleanLiteral.of(type == And.class);
-        }
-        Expression result = null;
-        for (Expression expr : distinctExpressions) {
-            if (result == null) {
-                result = expr;
-            } else if (type == And.class) {
-                result = new And(result, expr);
-            } else {
-                result = new Or(result, expr);
-            }
-        }
-        return result;
     }
 
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
@@ -456,6 +429,17 @@ public class ExpressionUtils {
     }
 
     /**
+     * Replace expression node with predicate in the expression tree by `replaceMap` in top-down manner.
+     */
+    public static Expression replaceIf(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
+            Predicate<Expression> predicate) {
+        return expr.rewriteDownShortCircuitDown(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            return replacedExpr == null ? e : replacedExpr;
+        }, predicate);
+    }
+
+    /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
      * <pre>
@@ -535,9 +519,11 @@ public class ExpressionUtils {
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
             Collection<E> exprs, Function<Expression, Expression> rewriteFunction) {
-        return exprs.stream()
-                .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (E expr : exprs) {
+            result.add((E) expr.rewriteDownShortCircuit(rewriteFunction));
+        }
+        return result.build();
     }
 
     private static class ExpressionReplacer
@@ -754,6 +740,12 @@ public class ExpressionUtils {
         return newPredicates.build();
     }
 
+    public static boolean isGeneratedNotNull(Expression expression) {
+        return expression instanceof Not
+                && ((Not) expression).isGeneratedIsNotNull()
+                && ((Not) expression).child() instanceof IsNull;
+    }
+
     /** flatExpressions */
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressionLists) {
         int num = 0;
@@ -768,11 +760,31 @@ public class ExpressionUtils {
         return flatten.build();
     }
 
-    /** containsType */
-    public static boolean containsType(Collection<? extends Expression> expressions, Class type) {
-        for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(type::isInstance))) {
-                return true;
+    /** containsTypes */
+    public static boolean containsTypes(
+            Collection<? extends Expression> expressions, Collection<Class<? extends Expression>> types) {
+        return containsTypes(expressions, types.toArray(new Class[0]));
+    }
+
+    /** containsTypes */
+    public static boolean containsTypes(
+            Collection<? extends Expression> expressions, Class<? extends Expression>... types) {
+        if (types.length == 1) {
+            int classId = SuperClassId.getClassId(types[0]);
+            for (Expression expression : expressions) {
+                if (expression.getAllChildrenTypes().get(classId)) {
+                    return true;
+                }
+            }
+        } else {
+            BitSet typeIds = new BitSet();
+            for (Class<?> type : types) {
+                typeIds.set(SuperClassId.getClassId(type));
+            }
+            for (Expression expression : expressions) {
+                if (expression.getAllChildrenTypes().intersects(typeIds)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -846,8 +858,7 @@ public class ExpressionUtils {
     public static ImmutableMap<Slot, Expression> extractUniformSlot(Expression expression) {
         ImmutableMap.Builder<Slot, Expression> builder = new ImmutableMap.Builder<>();
         if (expression instanceof And) {
-            builder.putAll(extractUniformSlot(expression.child(0)));
-            builder.putAll(extractUniformSlot(expression.child(1)));
+            expression.children().forEach(child -> builder.putAll(extractUniformSlot(child)));
         }
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
@@ -1036,7 +1047,7 @@ public class ExpressionUtils {
     /** containsWindowExpression */
     public static boolean containsWindowExpression(List<NamedExpression> expressions) {
         for (NamedExpression expression : expressions) {
-            if (expression.anyMatch(WindowExpression.class::isInstance)) {
+            if (expression.containsType(WindowExpression.class)) {
                 return true;
             }
         }
@@ -1078,6 +1089,22 @@ public class ExpressionUtils {
             }
         }
         return true;
+    }
+
+    /** check constant value the expression */
+    public static Optional<Literal> checkConstantExpr(Expression expr, Optional<ExpressionRewriteContext> context) {
+        if (expr instanceof Literal) {
+            return Optional.of((Literal) expr);
+        } else if (expr instanceof Alias) {
+            return checkConstantExpr(((Alias) expr).child(), context);
+        } else if (expr.isConstant() && context.isPresent()) {
+            Expression evalExpr = FoldConstantRule.evaluate(expr, context.get());
+            if (evalExpr instanceof Literal) {
+                return Optional.of((Literal) evalExpr);
+            }
+        }
+
+        return Optional.empty();
     }
 
     /** analyze the unbound expression and fold it to literal */
@@ -1140,5 +1167,43 @@ public class ExpressionUtils {
             // we need to rewrite it to String Literal '21G'
             return new StringLiteral(unboundSlot.getName());
         }
+    }
+
+    /**
+     * format a list of slots
+     */
+    public static String slotListShapeInfo(List<Slot> materializedSlots) {
+        StringBuilder shapeBuilder = new StringBuilder();
+        shapeBuilder.append("(");
+        boolean isFirst = true;
+        for (Slot slot : materializedSlots) {
+            if (isFirst) {
+                shapeBuilder.append(slot.shapeInfo());
+                isFirst = false;
+            } else {
+                shapeBuilder.append(",").append(slot.shapeInfo());
+            }
+        }
+        shapeBuilder.append(")");
+        return shapeBuilder.toString();
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Collection<? extends Expression> expressions) {
+        for (Expression expression : expressions) {
+            if (hasNonWindowAggregateFunction(expression)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Expression expression) {
+        return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
     }
 }

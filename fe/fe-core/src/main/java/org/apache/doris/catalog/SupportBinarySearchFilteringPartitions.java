@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.rpc.RpcException;
 
 import java.util.Map;
 
@@ -36,7 +37,7 @@ public interface SupportBinarySearchFilteringPartitions extends TableIf {
      * return the version of the partitions meta, if the version changed, we should skip the legacy sorted
      * partitions and reload it.
      */
-    Object getPartitionMetaVersion(CatalogRelation scan);
+    Object getPartitionMetaVersion(CatalogRelation scan) throws RpcException;
 
     /**
      * when the partition meta loaded? if the partition meta load too frequently, we will skip sort partitions meta

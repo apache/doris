@@ -17,12 +17,14 @@
 
 #include "http/http_client.h"
 
+#include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <unistd.h>
 
 #include <memory>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "http/http_headers.h"
@@ -31,7 +33,7 @@
 #include "util/stack_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class MultiFileSplitter {
 public:
     MultiFileSplitter(std::string local_dir, std::unordered_set<std::string> expected_files)
@@ -111,8 +113,7 @@ private:
         bool has_file_name = false;
         bool has_file_size = false;
         std::string_view header = buf.substr(0, pos);
-        std::vector<std::string> headers =
-                strings::Split(header, "\r\n", strings::SkipWhitespace());
+        std::vector<std::string> headers = absl::StrSplit(header, "\r\n", absl::SkipWhitespace());
         for (auto& s : headers) {
             size_t header_pos = s.find(':');
             if (header_pos == std::string::npos) {
@@ -191,7 +192,7 @@ private:
             switch_to_next_file();
         }
 
-        return write_size;
+        return cast_set<int>(write_size);
     }
 
     Status finish_inner() {
@@ -456,6 +457,13 @@ Status HttpClient::download(const std::string& local_path) {
     set_method(GET);
     set_speed_limit();
 
+    // remove the file if it exists, to avoid change the linked files unexpectedly
+    bool exist = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(local_path, &exist));
+    if (exist) {
+        remove(local_path.c_str());
+    }
+
     auto fp_closer = [](FILE* fp) { fclose(fp); };
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(local_path.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
@@ -600,7 +608,8 @@ Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url)
             std::string value = query.substr(equal_pos + 1, ampersand_pos - equal_pos - 1);
 
             auto encoded_value = std::unique_ptr<char, decltype(&curl_free)>(
-                    curl_easy_escape(_curl, value.c_str(), value.length()), &curl_free);
+                    curl_easy_escape(_curl, value.c_str(), cast_set<int>(value.length())),
+                    &curl_free);
             if (encoded_value) {
                 encoded_query += key + "=" + std::string(encoded_value.get());
             } else {
@@ -621,5 +630,5 @@ Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url)
     *escaped_url = url.substr(0, query_pos + 1) + encoded_query + fragment;
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

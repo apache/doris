@@ -21,10 +21,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
-import org.apache.doris.common.io.Text;
-
-import java.io.DataInput;
-import java.io.IOException;
 
 public class ResourcePrivEntry extends PrivEntry {
     protected PatternMatcher resourcePattern;
@@ -93,17 +89,5 @@ public class ResourcePrivEntry extends PrivEntry {
         StringBuilder sb = new StringBuilder();
         sb.append("origResource:").append(origResource).append("priv:").append(privSet);
         return sb.toString();
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        origResource = Text.readString(in);
-        try {
-            resourcePattern = PatternMatcher.createMysqlPattern(origResource,
-                    CaseSensibility.RESOURCE.getCaseSensibility());
-        } catch (PatternMatcherException e) {
-            throw new IOException(e);
-        }
     }
 }

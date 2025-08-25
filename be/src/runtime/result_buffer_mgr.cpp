@@ -20,17 +20,15 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
-#include <chrono>
-#include <thread>
+#include <cstdint>
+
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
 #include <ostream>
 #include <utility>
 
-#include "arrow/record_batch.h"
 #include "arrow/type_fwd.h"
 #include "common/status.h"
 #include "runtime/result_block_buffer.h"
@@ -69,18 +67,17 @@ Status ResultBufferMgr::init() {
     return Status::OK();
 }
 
-Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
+Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_size,
                                       std::shared_ptr<ResultBlockBufferBase>* sender,
                                       RuntimeState* state, bool arrow_flight,
                                       std::shared_ptr<arrow::Schema> schema) {
     {
         std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
-        auto iter = _buffer_map.find(query_id);
+        auto iter = _buffer_map.find(unique_id);
 
         if (_buffer_map.end() != iter) {
-            LOG(WARNING) << "already have buffer control block for this instance " << query_id;
-            *sender = iter->second;
-            return Status::OK();
+            return Status::InternalError("ResultBlockBuffer already exist, id={}",
+                                         print_id(unique_id));
         }
     }
 
@@ -88,22 +85,22 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 
     if (arrow_flight) {
         control_block = std::make_shared<vectorized::ArrowFlightResultBlockBuffer>(
-                query_id, state, schema, buffer_size);
+                unique_id, state, schema, buffer_size);
     } else {
         control_block =
-                std::make_shared<vectorized::MySQLResultBlockBuffer>(query_id, state, buffer_size);
+                std::make_shared<vectorized::MySQLResultBlockBuffer>(unique_id, state, buffer_size);
     }
 
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
-        _buffer_map.insert(std::make_pair(query_id, control_block));
+        _buffer_map.insert(std::make_pair(unique_id, control_block));
         // ResultBlockBufferBase should destroy after max_timeout
         // for exceed max_timeout FE will return timeout to client
         // otherwise in some case may block all fragment handle threads
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
         int64_t max_timeout = time(nullptr) + state->execution_timeout() + 5;
-        cancel_at_time(max_timeout, query_id);
+        cancel_at_time(max_timeout, unique_id);
     }
     *sender = control_block;
     return Status::OK();
@@ -111,9 +108,9 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 
 template <typename ResultBlockBufferType>
 std::shared_ptr<ResultBlockBufferType> ResultBufferMgr::_find_control_block(
-        const TUniqueId& query_id) {
+        const TUniqueId& unique_id) {
     std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
-    auto iter = _buffer_map.find(query_id);
+    auto iter = _buffer_map.find(unique_id);
 
     if (_buffer_map.end() != iter) {
         return std::dynamic_pointer_cast<ResultBlockBufferType>(iter->second);
@@ -133,9 +130,9 @@ Status ResultBufferMgr::find_buffer(const TUniqueId& finst_id,
                              : Status::OK();
 }
 
-bool ResultBufferMgr::cancel(const TUniqueId& query_id, const Status& reason) {
+bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
     std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
-    auto iter = _buffer_map.find(query_id);
+    auto iter = _buffer_map.find(unique_id);
 
     auto exist = _buffer_map.end() != iter;
     if (exist) {
@@ -145,7 +142,7 @@ bool ResultBufferMgr::cancel(const TUniqueId& query_id, const Status& reason) {
     return exist;
 }
 
-void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
+void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& unique_id) {
     std::lock_guard<std::mutex> l(_timeout_lock);
     auto iter = _timeout_map.find(cancel_time);
 
@@ -155,7 +152,7 @@ void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_
         iter = _timeout_map.find(cancel_time);
     }
 
-    iter->second.push_back(query_id);
+    iter->second.push_back(unique_id);
 }
 
 void ResultBufferMgr::cancel_thread() {

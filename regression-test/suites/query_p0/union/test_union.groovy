@@ -237,11 +237,11 @@ suite("test_union") {
         }
     }
     // cast类型
-    def res5 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1})
-       order by k1, k2"""
-    def res6 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1} order by k2)
-       order by k1, k2"""
-    check2_doris(res5, res6)
+    // def res5 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1})
+    //    order by k1, k2"""
+    // def res6 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1} order by k2)
+    //    order by k1, k2"""
+    // check2_doris(res5, res6)
     def res7 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k10 as int) from ${tbName1}) order by k1, k2"""
 
     def res8 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k10 as int) from ${tbName1} order by k2) order

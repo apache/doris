@@ -26,9 +26,9 @@ import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.statistics.Statistics;
 
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -44,7 +44,7 @@ public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
     private final Group group;
 
     public GroupPlan(Group group) {
-        super(PlanType.GROUP_PLAN, Optional.empty(), Suppliers.ofInstance(group.getLogicalProperties()), true);
+        super(PlanType.GROUP_PLAN, Optional.empty(), LazyCompute.ofInstance(group.getLogicalProperties()), true);
         this.group = group;
     }
 

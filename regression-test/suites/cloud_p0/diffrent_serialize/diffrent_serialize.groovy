@@ -39,12 +39,10 @@ suite ("diffrent_serialize_cloud") {
 
     createMV("create materialized view mv1_1 as select k1,bitmap_intersect(to_bitmap(k2)) from d_table group by k1;")
     createMV("create materialized view mv1 as select k1,bitmap_agg(k2) from d_table group by k1;")
-    /*
     createMV("create materialized view mv2 as select k1,map_agg(k2,k3) from d_table group by k1;")
     createMV("create materialized view mv3 as select k1,array_agg(k2) from d_table group by k1;")
     createMV("create materialized view mv4 as select k1,collect_list(k2,3) from d_table group by k1;")
     createMV("create materialized view mv5 as select k1,collect_set(k2,3) from d_table group by k1;")
-    */
 
     sql "insert into d_table select -4,4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"
@@ -63,6 +61,12 @@ suite ("diffrent_serialize_cloud") {
     }
     qt_select_mv "select k1,bitmap_to_string(bitmap_intersect(to_bitmap(k2))) from d_table group by k1 order by 1;"
 
+    explain {
+        sql("select k1,array_sort(map_keys(map_agg(k2,k3))),array_sortby(map_values(map_agg(k2,k3)),map_keys(map_agg(k2,k3))) from d_table group by k1 order by 1;")
+        contains "(mv2)"
+    }
+    qt_select_mv "select k1,array_sort(map_keys(map_agg(k2,k3))),array_sortby(map_values(map_agg(k2,k3)),map_keys(map_agg(k2,k3))) from d_table group by k1 order by 1;"
+
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 1,2,1,'a';"
 
@@ -71,13 +75,6 @@ suite ("diffrent_serialize_cloud") {
         contains "(mv1)"
     }
     qt_select_mv "select k1,bitmap_count(bitmap_agg(k2)) from d_table group by k1 order by 1;"
-
-/*
-    explain {
-        sql("select k1,map_agg(k2,k3) from d_table group by k1 order by 1;")
-        contains "(mv2)"
-    }
-    qt_select_mv "select k1,map_agg(k2,k3) from d_table group by k1 order by 1;"
 
     explain {
         sql("select k1,array_agg(k2) from d_table group by k1 order by 1;")
@@ -96,5 +93,4 @@ suite ("diffrent_serialize_cloud") {
         contains "(mv5)"
     }
     qt_select_mv "select k1,collect_set(k2,3) from d_table group by k1 order by 1;"
-    */
 }

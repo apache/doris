@@ -34,7 +34,7 @@ namespace doris::vectorized {
 
 TEST(function_bitmap_test, function_bitmap_min_test) {
     std::string func_name = "bitmap_min";
-    InputTypeSet input_types = {TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP};
 
     BitmapValue bitmap1(1);
     BitmapValue bitmap2({1, 9999999});
@@ -48,7 +48,7 @@ TEST(function_bitmap_test, function_bitmap_min_test) {
 }
 TEST(function_bitmap_test, function_bitmap_max_test) {
     std::string func_name = "bitmap_max";
-    InputTypeSet input_types = {TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP};
 
     BitmapValue bitmap1(1);
     BitmapValue bitmap2({1, 9999999});
@@ -63,7 +63,7 @@ TEST(function_bitmap_test, function_bitmap_max_test) {
 
 TEST(function_bitmap_test, function_bitmap_to_string_test) {
     std::string func_name = "bitmap_to_string";
-    InputTypeSet input_types = {TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP};
 
     BitmapValue bitmap1(1);
     BitmapValue bitmap2({1, 9999999});
@@ -78,7 +78,7 @@ TEST(function_bitmap_test, function_bitmap_to_string_test) {
 
 TEST(function_bitmap_test, function_bitmap_remove) {
     std::string func_name = "bitmap_remove";
-    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::Int64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BIGINT};
 
     BitmapValue bitmap1({1, 3});
     BitmapValue bitmap2({1, 3, 5});
@@ -110,7 +110,7 @@ TEST(function_bitmap_test, function_bitmap_to_base64) {
             std::make_pair(std::string("bitmap_serialize_version"), field_ser_ver));
 
     std::string func_name = "bitmap_to_base64";
-    InputTypeSet input_types = {TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP};
 
     EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "false", false, true).ok());
     std::vector<uint64_t> bits32 {0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11,
@@ -226,7 +226,7 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
             std::make_pair(std::string("bitmap_serialize_version"), field_ser_ver));
 
     std::string func_name = "bitmap_from_base64";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     EXPECT_TRUE(config::set_config("enable_set_in_bitmap_value", "false", false, true).ok());
     std::string bitmap32_base64_1("AQEAAAA=");
@@ -319,7 +319,7 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
 
 TEST(function_bitmap_test, function_bitmap_and_count) {
     std::string func_name = "bitmap_and_count";
-    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP};
     BitmapValue bitmap1({1, 2, 3});
     BitmapValue bitmap2({3, 4, 5});
     BitmapValue empty_bitmap;
@@ -330,7 +330,8 @@ TEST(function_bitmap_test, function_bitmap_and_count) {
     static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     {
-        InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap, TypeIndex::BitMap};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP,
+                                    PrimitiveType::TYPE_BITMAP};
         BitmapValue bitmap1({33, 1, 2019});
         BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
         BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
@@ -347,7 +348,7 @@ TEST(function_bitmap_test, function_bitmap_and_count) {
 
 TEST(function_bitmap_test, function_bitmap_or_count) {
     std::string func_name = "bitmap_or_count";
-    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP};
 
     BitmapValue bitmap1({1, 2, 3});
     BitmapValue bitmap2({1, 2, 3, 4});
@@ -360,7 +361,8 @@ TEST(function_bitmap_test, function_bitmap_or_count) {
     static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     {
-        InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap, TypeIndex::BitMap};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP,
+                                    PrimitiveType::TYPE_BITMAP};
         BitmapValue bitmap1({1024, 1, 2019});
         BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
         BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()}); //18446744073709551615
@@ -379,7 +381,7 @@ TEST(function_bitmap_test, function_bitmap_or_count) {
 
 TEST(function_bitmap_test, function_bitmap_xor_count) {
     std::string func_name = "bitmap_xor_count";
-    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP};
 
     BitmapValue bitmap1({1, 2, 3});
     BitmapValue bitmap2({1, 2, 3, 4});
@@ -393,7 +395,8 @@ TEST(function_bitmap_test, function_bitmap_xor_count) {
     static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
 
     {
-        InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap, TypeIndex::BitMap};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP,
+                                    PrimitiveType::TYPE_BITMAP};
         BitmapValue bitmap1({1024, 1, 2019});
         BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
         BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
@@ -411,7 +414,7 @@ TEST(function_bitmap_test, function_bitmap_xor_count) {
 
 TEST(function_bitmap_test, function_bitmap_and_not_count) {
     std::string func_name = "bitmap_and_not_count";
-    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP};
     BitmapValue bitmap1({1, 2, 3});
     BitmapValue bitmap2({3, 4, std::numeric_limits<uint64_t>::min()});
     BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
@@ -426,7 +429,7 @@ TEST(function_bitmap_test, function_bitmap_and_not_count) {
 }
 TEST(function_bitmap_test, function_bitmap_and_not_count_alias) {
     std::string func_name = "bitmap_andnot_count";
-    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP};
     BitmapValue bitmap1({1, 2, 3});
     BitmapValue bitmap2({3, 4, std::numeric_limits<uint64_t>::min()});
     BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
@@ -441,7 +444,7 @@ TEST(function_bitmap_test, function_bitmap_and_not_count_alias) {
 }
 TEST(function_bitmap_test, function_bitmap_has_all) {
     std::string func_name = "bitmap_has_all";
-    InputTypeSet input_types = {TypeIndex::BitMap, TypeIndex::BitMap};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BITMAP, PrimitiveType::TYPE_BITMAP};
 
     BitmapValue bitmap1(
             {1, 4, 5, std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::min()});
@@ -453,10 +456,10 @@ TEST(function_bitmap_test, function_bitmap_has_all) {
     BitmapValue empty_bitmap1;
     BitmapValue empty_bitmap2;
 
-    DataSet data_set = {{{&bitmap1, &bitmap2}, uint8(true)},
-                        {{&empty_bitmap1, &empty_bitmap2}, uint8(true)},
-                        {{&bitmap3, &bitmap4}, uint8(false)},
-                        {{&bitmap4, &bitmap5}, uint8(true)},
+    DataSet data_set = {{{&bitmap1, &bitmap2}, uint8_t(true)},
+                        {{&empty_bitmap1, &empty_bitmap2}, uint8_t(true)},
+                        {{&bitmap3, &bitmap4}, uint8_t(false)},
+                        {{&bitmap4, &bitmap5}, uint8_t(true)},
                         {{Null(), &empty_bitmap1}, Null()}};
 
     static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));

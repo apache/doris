@@ -40,7 +40,11 @@ suite ("test_agg_state_max_by") {
     sql "insert into d_table select 1,-3,null,'c';"
     sql "insert into d_table(k4,k2) values('d',4);"
 
-    createMV("create materialized view k1mb as select k1,max_by(k2,k3) from d_table group by k1;")
+    test {
+        sql """create materialized view k1mb as select k1,max_by(k2,k3) from d_table group by k1;"""
+        exception "Duplicate column name 'k1'"
+    }
+    createMV("create materialized view k1mb as select k1 as k1mb_k1,max_by(k2,k3) from d_table group by k1;")
 
     sql "insert into d_table select 1,-4,-4,'d';"
 
@@ -73,9 +77,13 @@ suite ("test_agg_state_max_by") {
     mv_rewrite_success("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;", "k1mb")
     qt_select_mv "select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;"
 
-    createMV("create materialized view k1mbcp1 as select k1,max_by(k2+k3,abs(k3)) from d_table group by k1;")
-    createMV("create materialized view k1mbcp2 as select k1,max_by(k2+k3,k3) from d_table group by k1;")
-    createMV("create materialized view k1mbcp3 as select k1,max_by(k2,abs(k3)) from d_table group by k1;")
+    test {
+        sql """create materialized view k1mbcp1 as select k1 as k1mbcp1_k1,max_by(k2+k3,abs(k3)) from d_table group by k1;"""
+        exception "Duplicate column name '__max_by_1'"
+    }
+    createMV("create materialized view k1mbcp1 as select k1 as k1mbcp1_k1,max_by(k2+k3,abs(k3)) as k1mbcp1_max_by from d_table group by k1;")
+    createMV("create materialized view k1mbcp2 as select k1 as k1mbcp2_k1,max_by(k2+k3,k3) as k1mbcp2_max_by from d_table group by k1;")
+    createMV("create materialized view k1mbcp3 as select k1 as k1mbcp3_k1,max_by(k2,abs(k3)) as k1mbcp3_max_by from d_table group by k1;")
 
     sql "insert into d_table(k4,k2) values('d',4);"
     sql "set enable_nereids_dml = true"

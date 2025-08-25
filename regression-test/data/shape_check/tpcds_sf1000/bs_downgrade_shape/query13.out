@@ -21,7 +21,7 @@ PhysicalResultSink
 ------------------------------filter((store_sales.ss_net_profit <= 300.00) and (store_sales.ss_net_profit >= 50.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
 --------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF4
 ----------------------------PhysicalProject
-------------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'College')],AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Primary')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = '2 yr Degree')]] and cd_education_status IN ('2 yr Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'M', 'W'))
+------------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Primary')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = '2 yr Degree')],AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'College')]] and cd_education_status IN ('2 yr Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'M', 'W'))
 --------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------PhysicalProject
 --------------------------filter(hd_dep_count IN (1, 3))

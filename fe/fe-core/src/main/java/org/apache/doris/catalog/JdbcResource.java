@@ -29,6 +29,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -110,6 +111,7 @@ public class JdbcResource extends Resource {
     public static final String CHECK_SUM = "checksum";
     public static final String CREATE_TIME = "create_time";
     public static final String TEST_CONNECTION = "test_connection";
+    public static final String FUNCTION_RULES = "function_rules";
 
     private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,
@@ -194,10 +196,10 @@ public class JdbcResource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
+    protected void setProperties(ImmutableMap<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
-        validateProperties(properties);
-        configs = properties;
+        this.configs = Maps.newHashMap(properties);
+        validateProperties(this.configs);
         applyDefaultProperties();
         String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
         configs.put(CREATE_TIME, currentDateTime);

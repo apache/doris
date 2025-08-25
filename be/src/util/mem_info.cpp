@@ -20,12 +20,13 @@
 
 #include "mem_info.h"
 
-#include "gutil/strings/split.h"
+#include "runtime/memory/cache_manager.h"
 
 #ifdef __APPLE__
 #include <sys/sysctl.h>
 #endif
 
+#include <absl/strings/str_split.h>
 #include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
@@ -72,7 +73,7 @@ void MemInfo::refresh_proc_meminfo() {
 
     while (meminfo.good() && !meminfo.eof()) {
         getline(meminfo, line);
-        std::vector<std::string> fields = strings::Split(line, " ", strings::SkipWhitespace());
+        std::vector<std::string> fields = absl::StrSplit(line, " ", absl::SkipWhitespace());
         if (fields.size() < 2) {
             continue;
         }
@@ -160,6 +161,12 @@ void MemInfo::refresh_proc_meminfo() {
 
     // 2. if physical_mem changed, refresh mem limit and gc size.
     if (physical_mem > 0 && _s_physical_mem.load(std::memory_order_relaxed) != physical_mem) {
+        if (_s_physical_mem != std::numeric_limits<int64_t>::max()) {
+            // After MemInfo is initialized, if physical memory changed, reset initial capacity of all caches.
+            CacheManager::instance()->for_each_cache_reset_initial_capacity(
+                    physical_mem / (_s_physical_mem * 1.0));
+        }
+
         _s_physical_mem.store(physical_mem);
 
         bool is_percent = true;

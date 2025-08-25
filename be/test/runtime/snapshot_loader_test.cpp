@@ -207,8 +207,7 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     for (const auto& slot_desc : tuple_desc->slots()) {
         std::cout << "slot_desc: " << slot_desc->col_name() << std::endl;
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
 
     std::cout << "total column " << block.mutate_columns().size() << std::endl;
@@ -248,7 +247,9 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     RowsetSharedPtr rowset = tablet_related_rs.begin()->second;
 
     TabletPublishStatistics stats;
-    res = engine_ref->txn_manager()->publish_txn(partition_id, tablet, txn_id, version, &stats);
+    std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+    res = engine_ref->txn_manager()->publish_txn(partition_id, tablet, txn_id, version, &stats,
+                                                 extend_tablet_txn_info_lifetime);
     ASSERT_TRUE(res.ok()) << res;
     std::cout << "start to add inc rowset:" << rowset->rowset_id()
               << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -343,7 +344,7 @@ TEST_F(SnapshotLoaderTest, DirMoveTaskIsIdempotent) {
     std::cout << "version: " << version.first << ", " << version.second << std::endl;
 
     // 3. make a snapshot
-    string snapshot_path;
+    std::string snapshot_path;
     bool allow_incremental_clone = false; // not used
     TSnapshotRequest snapshot_request;
     snapshot_request.tablet_id = tablet_id;
@@ -398,7 +399,7 @@ TEST_F(SnapshotLoaderTest, TestLinkSameRowsetFiles) {
     std::cout << "Original version: " << version.first << ", " << version.second << std::endl;
 
     // 3. Make a snapshot of the tablet
-    string snapshot_path;
+    std::string snapshot_path;
     bool allow_incremental_clone = false;
     TSnapshotRequest snapshot_request;
     snapshot_request.tablet_id = tablet_id;

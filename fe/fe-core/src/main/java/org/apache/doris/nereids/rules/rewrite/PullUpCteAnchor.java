@@ -18,12 +18,10 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
@@ -69,7 +67,10 @@ public class PullUpCteAnchor extends DefaultPlanRewriter<List<LogicalCTEProducer
             List<LogicalCTEProducer<Plan>> producers) {
         List<LogicalCTEProducer<Plan>> childProducers = Lists.newArrayList();
         Plan child = cteProducer.child().accept(this, childProducers);
-        LogicalCTEProducer<Plan> newProducer = (LogicalCTEProducer<Plan>) cteProducer.withChildren(child);
+        LogicalCTEProducer<Plan> newProducer = (LogicalCTEProducer<Plan>) cteProducer;
+        if (child != cteProducer.child()) {
+            newProducer = (LogicalCTEProducer<Plan>) cteProducer.withChildren(child);
+        }
         // because current producer relay on it child's producers, so add current producer first.
         producers.add(newProducer);
         producers.addAll(childProducers);
@@ -79,17 +80,7 @@ public class PullUpCteAnchor extends DefaultPlanRewriter<List<LogicalCTEProducer
     @Override
     public Plan visitLogicalApply(LogicalApply<? extends Plan, ? extends Plan> apply,
             List<LogicalCTEProducer<Plan>> producers) {
-        SubqueryExpr subqueryExpr = apply.getSubqueryExpr();
-        PullUpCteAnchor pullSubqueryExpr = new PullUpCteAnchor();
-        List<LogicalCTEProducer<Plan>> subqueryExprProducers = Lists.newArrayList();
-        Plan newPlanInExpr = pullSubqueryExpr.rewriteRoot(subqueryExpr.getQueryPlan(), subqueryExprProducers);
-        while (newPlanInExpr instanceof LogicalCTEAnchor) {
-            newPlanInExpr = ((LogicalCTEAnchor<?, ?>) newPlanInExpr).right();
-        }
-        SubqueryExpr newSubqueryExpr = subqueryExpr.withSubquery((LogicalPlan) newPlanInExpr);
-
         Plan newApplyLeft = apply.left().accept(this, producers);
-
         Plan applyRight = apply.right();
         PullUpCteAnchor pullApplyRight = new PullUpCteAnchor();
         List<LogicalCTEProducer<Plan>> childProducers = Lists.newArrayList();
@@ -98,7 +89,10 @@ public class PullUpCteAnchor extends DefaultPlanRewriter<List<LogicalCTEProducer
             newApplyRight = ((LogicalCTEAnchor<?, ?>) newApplyRight).right();
         }
         producers.addAll(childProducers);
-        return apply.withSubqueryExprAndChildren(newSubqueryExpr,
-                ImmutableList.of(newApplyLeft, newApplyRight));
+        if (newApplyLeft != apply.left() || newApplyRight != apply.right()) {
+            return apply.withChildren(ImmutableList.of(newApplyLeft, newApplyRight));
+        } else {
+            return apply;
+        }
     }
 }

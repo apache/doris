@@ -33,8 +33,6 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Map;
-
 public class CreateResourceCommandTest extends TestWithFeService {
     @Test
     public void testValidate(@Mocked Env env, @Mocked AccessControllerManager accessManager) {
@@ -48,7 +46,7 @@ public class CreateResourceCommandTest extends TestWithFeService {
         };
 
         // test validate normal
-        Map<String, String> properties = ImmutableMap.of("type", "spark", "host", "http://127.0.0.1:29200");
+        ImmutableMap<String, String> properties = ImmutableMap.of("type", "es", "host", "http://127.0.0.1:29200");
         CreateResourceInfo info = new CreateResourceInfo(true, false, "test", properties);
         CreateResourceCommand createResourceCommand = new CreateResourceCommand(info);
         Assertions.assertDoesNotThrow(() -> createResourceCommand.getInfo().validate());
@@ -70,12 +68,6 @@ public class CreateResourceCommandTest extends TestWithFeService {
         info = new CreateResourceInfo(false, false, "test", properties);
         CreateResourceCommand createResourceCommand3 = new CreateResourceCommand(info);
         Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand3.getInfo().validate());
-
-        // test spark is external resource
-        properties = ImmutableMap.of("type", "spark", "host", "http://127.0.0.1:29200");
-        info = new CreateResourceInfo(false, false, "test", properties);
-        CreateResourceCommand createResourceCommand4 = new CreateResourceCommand(info);
-        Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand4.getInfo().validate());
     }
 
     @Test

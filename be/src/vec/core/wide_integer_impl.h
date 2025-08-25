@@ -32,8 +32,8 @@
 #include <tuple>
 #include <type_traits>
 
+#include "common/compile_check_begin.h"
 #include "common/exception.h"
-
 // NOLINTBEGIN(*)
 
 /// Use same extended double for all platforms
@@ -255,7 +255,7 @@ struct integer<Bits, Signed>::_impl {
                                                     Integral rhs) noexcept {
         if constexpr (std::is_same_v<Integral, __int128> ||
                       std::is_same_v<Integral, unsigned __int128>) {
-            self.items[little(0)] = rhs;
+            self.items[little(0)] = static_cast<base_type>(rhs);
             self.items[little(1)] = rhs >> 64;
             if (rhs < 0) {
                 for (unsigned i = 2; i < item_count; ++i) {
@@ -341,7 +341,8 @@ struct integer<Bits, Signed>::_impl {
         }
 
         self *= max_int;
-        self += static_cast<uint64_t>(t - floor(alpha) * static_cast<T>(max_int)); // += b_i
+        self += static_cast<uint64_t>(t - floor(static_cast<double>(alpha)) *
+                                                  static_cast<T>(max_int)); // += b_i
     }
 
     CONSTEXPR_FROM_DOUBLE static void wide_integer_from_builtin(integer<Bits, Signed>& self,
@@ -562,7 +563,7 @@ private:
             HalfType a1 = lhs.items[little(1)];
 
             HalfType b01 = rhs;
-            uint64_t b0 = b01;
+            uint64_t b0 = static_cast<uint64_t>(b01);
             uint64_t b1 = 0;
             HalfType b23 = 0;
             if constexpr (sizeof(T) > 8) {
@@ -578,7 +579,7 @@ private:
             HalfType r12_x = a1 * b0;
 
             integer<Bits, Signed> res;
-            res.items[little(0)] = r01;
+            res.items[little(0)] = static_cast<base_type>(r01);
             res.items[little(3)] = r23 >> 64;
 
             if constexpr (sizeof(T) > 8) {
@@ -594,7 +595,7 @@ private:
                 ++res.items[little(3)];
             }
 
-            res.items[little(1)] = r12;
+            res.items[little(1)] = static_cast<base_type>(r12);
             res.items[little(2)] = r12 >> 64;
             return res;
         } else if constexpr (Bits == 128 && sizeof(base_type) == 8) {
@@ -609,7 +610,7 @@ private:
                             0)]; // NOLINT(clang-analyzer-core.UndefinedBinaryOperatorResult)
             CompilerUInt128 c = a * b;
             integer<Bits, Signed> res;
-            res.items[little(0)] = c;
+            res.items[little(0)] = static_cast<base_type>(c);
             res.items[little(1)] = c >> 64;
             return res;
         } else {
@@ -851,11 +852,11 @@ public:
             CompilerUInt128 c = a / b; // NOLINT
 
             integer<Bits, Signed> res;
-            res.items[little(0)] = c;
+            res.items[little(0)] = static_cast<base_type>(c);
             res.items[little(1)] = c >> 64;
 
             CompilerUInt128 remainder = a - b * c;
-            numerator.items[little(0)] = remainder;
+            numerator.items[little(0)] = static_cast<base_type>(remainder);
             numerator.items[little(1)] = remainder >> 64;
 
             return res;
@@ -1029,7 +1030,7 @@ constexpr integer<Bits, Signed>::integer(std::initializer_list<T> il) noexcept :
         auto it = il.begin();
         for (unsigned i = 0; i < _impl::item_count; ++i) {
             if (it < il.end()) {
-                items[_impl::little(i)] = *it;
+                items[_impl::little(i)] = static_cast<base_type>(*it);
                 ++it;
             } else {
                 items[_impl::little(i)] = 0;
@@ -1211,7 +1212,7 @@ constexpr integer<Bits, Signed>::operator long double() const noexcept {
         long double t = res;
         res *= static_cast<long double>(std::numeric_limits<base_type>::max());
         res += t;
-        res += tmp.items[_impl::big(i)];
+        res += static_cast<long double>(tmp.items[_impl::big(i)]);
     }
 
     if (_impl::is_negative(*this)) {
@@ -1473,4 +1474,5 @@ struct hash<wide::integer<Bits, Signed>> {
 
 } // namespace std
 
+#include "common/compile_check_end.h"
 // NOLINTEND(*)

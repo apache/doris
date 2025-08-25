@@ -43,12 +43,12 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_ipv4.h"
@@ -59,7 +59,6 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
@@ -126,8 +125,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest3) {
     std::cout << "==== nullable_int32 === " << std::endl;
     // nullable_int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
 
@@ -148,8 +147,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest4) {
     std::cout << "==== array<int32> === " << std::endl;
     // array<int32>
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -183,8 +182,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest5) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -219,8 +218,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -262,8 +261,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -313,7 +312,7 @@ inline void serialize_and_deserialize_pb_test() {
     std::cout << "==== int32 === " << std::endl;
     // int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -337,9 +336,7 @@ inline void serialize_and_deserialize_pb_test() {
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                              decimal_column.get())
-                             ->get_data();
+        auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
@@ -420,7 +417,7 @@ inline void serialize_and_deserialize_pb_test() {
     // int with 1024 batch size
     std::cout << "==== int with 1024 batch size === " << std::endl;
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -436,7 +433,7 @@ inline void serialize_and_deserialize_pb_test() {
     // ipv4
     std::cout << "==== ipv4 === " << std::endl;
     {
-        auto vec = vectorized::ColumnVector<IPv4>::create();
+        auto vec = vectorized::ColumnIPv4::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -447,7 +444,7 @@ inline void serialize_and_deserialize_pb_test() {
     // ipv6
     std::cout << "==== ipv6 === " << std::endl;
     {
-        auto vec = vectorized::ColumnVector<IPv6>::create();
+        auto vec = vectorized::ColumnIPv6::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -467,29 +464,29 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestMap) {
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
     DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
     Array k1, k2, v1, v2;
-    k1.push_back("null");
-    k1.push_back("doris");
-    k1.push_back("clever amory");
-    v1.push_back("ss");
-    v1.push_back(Null());
-    v1.push_back("NULL");
-    k2.push_back("hello amory");
-    k2.push_back("NULL");
-    k2.push_back("cute amory");
-    k2.push_back("doris");
-    v2.push_back("s");
-    v2.push_back("0");
-    v2.push_back("sf");
-    v2.push_back(Null());
+    k1.push_back(Field::create_field<TYPE_STRING>("null"));
+    k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+    k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+    v1.push_back(Field::create_field<TYPE_STRING>("ss"));
+    v1.push_back(Field());
+    v1.push_back(Field::create_field<TYPE_STRING>("NULL"));
+    k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+    k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+    k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+    k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+    v2.push_back(Field::create_field<TYPE_STRING>("s"));
+    v2.push_back(Field::create_field<TYPE_STRING>("0"));
+    v2.push_back(Field::create_field<TYPE_STRING>("sf"));
+    v2.push_back(Field());
     Map m1, m2;
-    m1.push_back(k1);
-    m1.push_back(v1);
-    m2.push_back(k2);
-    m2.push_back(v2);
+    m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+    m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+    m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+    m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
     MutableColumnPtr map_column = m->create_column();
     map_column->reserve(2);
-    map_column->insert(m1);
-    map_column->insert(m2);
+    map_column->insert(Field::create_field<TYPE_MAP>(m1));
+    map_column->insert(Field::create_field<TYPE_MAP>(m2));
     /*
     +-----------------------------------------+
     |(Map(Nullable(String), Nullable(String)))                       |
@@ -511,29 +508,29 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestMap2) {
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
     DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
     Array k1, k2, v1, v2;
-    k1.push_back("null");
-    k1.push_back("doris");
-    k1.push_back("clever amory");
-    v1.push_back("ss");
-    v1.push_back(Null());
-    v1.push_back("NULL");
-    k2.push_back("hello amory");
-    k2.push_back("NULL");
-    k2.push_back("cute amory");
-    k2.push_back("doris");
-    v2.push_back("s");
-    v2.push_back("0");
-    v2.push_back("sf");
-    v2.push_back(Null());
+    k1.push_back(Field::create_field<TYPE_STRING>("null"));
+    k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+    k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+    v1.push_back(Field::create_field<TYPE_STRING>("ss"));
+    v1.push_back(Field());
+    v1.push_back(Field::create_field<TYPE_STRING>("NULL"));
+    k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+    k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+    k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+    k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+    v2.push_back(Field::create_field<TYPE_STRING>("s"));
+    v2.push_back(Field::create_field<TYPE_STRING>("0"));
+    v2.push_back(Field::create_field<TYPE_STRING>("sf"));
+    v2.push_back(Field());
     Map m1, m2;
-    m1.push_back(k1);
-    m1.push_back(v1);
-    m2.push_back(k2);
-    m2.push_back(v2);
+    m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+    m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+    m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+    m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
     MutableColumnPtr map_column = m->create_column();
     map_column->reserve(2);
-    map_column->insert(m1);
-    map_column->insert(m2);
+    map_column->insert(Field::create_field<TYPE_MAP>(m1));
+    map_column->insert(Field::create_field<TYPE_MAP>(m2));
     /*
     +-----------------------------------------+
     |(Map(Nullable(String), Nullable(String)))                       |
@@ -583,16 +580,16 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestStruct) {
     DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
     DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
     Tuple t1, t2;
-    t1.push_back(Field(String("amory cute")));
-    t1.push_back(__int128_t(37));
-    t1.push_back(true);
-    t2.push_back(Field("null"));
-    t2.push_back(__int128_t(26));
-    t2.push_back(false);
+    t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
+    t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+    t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+    t2.push_back(Field::create_field<TYPE_STRING>("null"));
+    t2.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+    t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
     MutableColumnPtr struct_column = st->create_column();
     struct_column->reserve(2);
-    struct_column->insert(t1);
-    struct_column->insert(t2);
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(t1));
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(t2));
     /*
     +-------------------------------------------------------------------+
     |(Struct(1:Nullable(String), 2:Nullable(Int128), 3:Nullable(UInt8)))|
@@ -614,16 +611,16 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestStruct2) {
     DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
     DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
     Tuple t1, t2;
-    t1.push_back(Field(String("amory cute")));
-    t1.push_back(37);
-    t1.push_back(true);
-    t2.push_back("null");
-    t2.push_back(26);
-    t2.push_back(false);
+    t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
+    t1.push_back(Field::create_field<TYPE_BIGINT>(37));
+    t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+    t2.push_back(Field::create_field<TYPE_STRING>("null"));
+    t2.push_back(Field::create_field<TYPE_BIGINT>(26));
+    t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
     MutableColumnPtr struct_column = st->create_column();
     struct_column->reserve(2);
-    struct_column->insert(t1);
-    struct_column->insert(t2);
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(t1));
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(t2));
 
     DataTypePtr string_type =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
@@ -686,7 +683,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestLargeInt) {
     std::cout << "==== LargeInt === " << std::endl;
     // LargeInt
     {
-        auto vec = vectorized::ColumnVector<Int128>::create();
+        auto vec = vectorized::ColumnInt128::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 10; ++i) {
             data.push_back(500000000000 + i);

@@ -26,7 +26,7 @@
 #include "vec/runtime/time_value.h"
 #include "vec/utils/template_helpers.hpp"
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <typename ToDataType, typename Transform>
 class FunctionTimeValueToField : public IFunction {
 public:
@@ -51,7 +51,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 1);
 
-        const auto* column_time = assert_cast<const TimeValue::ColumnTime*>(
+        const auto* column_time = assert_cast<const TimeValue::ColumnTimeV2*>(
                 block.get_by_position(arguments[0]).column.get());
 
         auto col_res = ToDataType::ColumnType::create();
@@ -60,7 +60,7 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < input_rows_count; i++) {
-            col_res_data[i] = Transform::execute(column_time->get_element(i));
+            cast_set(col_res_data[i], Transform::execute(column_time->get_element(i)));
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -88,5 +88,5 @@ void register_function_time_value_field(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimeValueToField<DataTypeInt8, MintuImpl>>();
     factory.register_function<FunctionTimeValueToField<DataTypeInt8, SecondImpl>>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

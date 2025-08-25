@@ -49,16 +49,16 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
     // add all counter
-    _written_rows_counter = ADD_COUNTER(_profile, "WrittenRows", TUnit::UNIT);
-    _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
+    _written_rows_counter = ADD_COUNTER(_operator_profile, "WrittenRows", TUnit::UNIT);
+    _send_data_timer = ADD_TIMER(_operator_profile, "SendDataTime");
     _partition_writers_dispatch_timer =
-            ADD_CHILD_TIMER(_profile, "PartitionsDispatchTime", "SendDataTime");
+            ADD_CHILD_TIMER(_operator_profile, "PartitionsDispatchTime", "SendDataTime");
     _partition_writers_write_timer =
-            ADD_CHILD_TIMER(_profile, "PartitionsWriteTime", "SendDataTime");
-    _partition_writers_count = ADD_COUNTER(_profile, "PartitionsWriteCount", TUnit::UNIT);
-    _open_timer = ADD_TIMER(_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_profile, "CloseTime");
-    _write_file_counter = ADD_COUNTER(_profile, "WriteFileCount", TUnit::UNIT);
+            ADD_CHILD_TIMER(_operator_profile, "PartitionsWriteTime", "SendDataTime");
+    _partition_writers_count = ADD_COUNTER(_operator_profile, "PartitionsWriteCount", TUnit::UNIT);
+    _open_timer = ADD_TIMER(_operator_profile, "OpenTime");
+    _close_timer = ADD_TIMER(_operator_profile, "CloseTime");
+    _write_file_counter = ADD_COUNTER(_operator_profile, "WriteFileCount", TUnit::UNIT);
 
     SCOPED_TIMER(_open_timer);
     try {
@@ -99,10 +99,11 @@ VIcebergTableWriter::_to_iceberg_partition_columns() {
         int column_idx = id_to_column_idx[partition_field.source_id()];
         std::unique_ptr<PartitionColumnTransform> partition_column_transform =
                 PartitionColumnTransforms::create(
-                        partition_field, _vec_output_expr_ctxs[column_idx]->root()->type());
-        partition_columns.emplace_back(partition_field,
-                                       _vec_output_expr_ctxs[column_idx]->root()->type(),
-                                       column_idx, std::move(partition_column_transform));
+                        partition_field, _vec_output_expr_ctxs[column_idx]->root()->data_type());
+        partition_columns.emplace_back(
+                partition_field,
+                _vec_output_expr_ctxs[column_idx]->root()->data_type()->get_primitive_type(),
+                column_idx, std::move(partition_column_transform));
     }
     return partition_columns;
 }
@@ -132,7 +133,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
                     return e.to_status();
                 }
                 _partitions_to_writers.insert({"", writer});
-                RETURN_IF_ERROR(writer->open(_state, _profile));
+                RETURN_IF_ERROR(writer->open(_state, _operator_profile));
             } else {
                 if (writer_iter->second->written_len() > config::iceberg_sink_max_file_size) {
                     std::string file_name(writer_iter->second->file_name());
@@ -149,7 +150,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
                         return e.to_status();
                     }
                     _partitions_to_writers.insert({"", writer});
-                    RETURN_IF_ERROR(writer->open(_state, _profile));
+                    RETURN_IF_ERROR(writer->open(_state, _operator_profile));
                 } else {
                     writer = writer_iter->second;
                 }
@@ -189,7 +190,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
                 try {
                     auto writer = _create_partition_writer(&transformed_block, position, file_name,
                                                            file_name_index);
-                    RETURN_IF_ERROR(writer->open(_state, _profile));
+                    RETURN_IF_ERROR(writer->open(_state, _operator_profile));
                     IColumn::Filter filter(output_block.rows(), 0);
                     filter[position] = 1;
                     writer_positions.insert({writer, std::move(filter)});
@@ -291,7 +292,7 @@ Status VIcebergTableWriter::close(Status status) {
         _partitions_to_writers.clear();
     }
     if (status.ok()) {
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
 
         COUNTER_SET(_written_rows_counter, static_cast<int64_t>(_row_count));
         COUNTER_SET(_send_data_timer, _send_data_ns);
@@ -308,11 +309,10 @@ std::string VIcebergTableWriter::_partition_to_path(const doris::iceberg::Struct
     std::stringstream ss;
     for (size_t i = 0; i < _iceberg_partition_columns.size(); i++) {
         auto& iceberg_partition_column = _iceberg_partition_columns[i];
-        TypeDescriptor result_type =
-                iceberg_partition_column.partition_column_transform().get_result_type();
         std::string value_string =
-                iceberg_partition_column.partition_column_transform().to_human_string(result_type,
-                                                                                      data.get(i));
+                iceberg_partition_column.partition_column_transform().to_human_string(
+                        iceberg_partition_column.partition_column_transform().get_result_type(),
+                        data.get(i));
         if (i > 0) {
             ss << "/";
         }
@@ -332,11 +332,10 @@ std::vector<std::string> VIcebergTableWriter::_partition_values(
     partition_values.reserve(_iceberg_partition_columns.size());
     for (size_t i = 0; i < _iceberg_partition_columns.size(); i++) {
         auto& iceberg_partition_column = _iceberg_partition_columns[i];
-        TypeDescriptor result_type =
-                iceberg_partition_column.partition_column_transform().get_result_type();
         partition_values.emplace_back(
                 iceberg_partition_column.partition_column_transform().get_partition_value(
-                        result_type, data.get(i)));
+                        iceberg_partition_column.partition_column_transform().get_result_type(),
+                        data.get(i)));
     }
 
     return partition_values;
@@ -366,9 +365,15 @@ std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_
         write_path = output_path;
     }
 
-    VIcebergPartitionWriter::WriteInfo write_info = {
-            std::move(write_path), std::move(original_write_path), std::move(target_path),
-            iceberg_table_sink.file_type};
+    VIcebergPartitionWriter::WriteInfo write_info = {std::move(write_path),
+                                                     std::move(original_write_path),
+                                                     std::move(target_path),
+                                                     iceberg_table_sink.file_type,
+                                                     {}};
+    if (iceberg_table_sink.__isset.broker_addresses) {
+        write_info.broker_addresses.assign(iceberg_table_sink.broker_addresses.begin(),
+                                           iceberg_table_sink.broker_addresses.end());
+    }
 
     _write_file_count++;
     std::vector<std::string> column_names;
@@ -395,9 +400,11 @@ PartitionData VIcebergTableWriter::_get_partition_data(vectorized::Block* transf
     for (auto& iceberg_partition_column : _iceberg_partition_columns) {
         const vectorized::ColumnWithTypeAndName& partition_column =
                 transformed_block->get_by_position(column_idx);
-        const TypeDescriptor& result_type =
-                iceberg_partition_column.partition_column_transform().get_result_type();
-        auto value = _get_iceberg_partition_value(result_type, partition_column, position);
+        auto value =
+                _get_iceberg_partition_value(iceberg_partition_column.partition_column_transform()
+                                                     .get_result_type()
+                                                     ->get_primitive_type(),
+                                             partition_column, position);
         values.emplace_back(value);
         ++column_idx;
     }
@@ -405,7 +412,7 @@ PartitionData VIcebergTableWriter::_get_partition_data(vectorized::Block* transf
 }
 
 std::any VIcebergTableWriter::_get_iceberg_partition_value(
-        const TypeDescriptor& type_desc, const ColumnWithTypeAndName& partition_column,
+        const PrimitiveType& type_desc, const ColumnWithTypeAndName& partition_column,
         int position) {
     //1) get the partition column ptr
     ColumnPtr col_ptr = partition_column.column->convert_to_full_column_if_const();
@@ -422,7 +429,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
 
     //2) get parition field data from paritionblock
     auto [item, size] = col_ptr->get_data_at(position);
-    switch (type_desc.type) {
+    switch (type_desc) {
     case TYPE_BOOLEAN: {
         vectorized::Field field =
                 vectorized::check_and_get_column<const ColumnUInt8>(*col_ptr)->operator[](position);
@@ -480,7 +487,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     }
     default: {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "Unsupported type for partition {}", type_desc.debug_string());
+                               "Unsupported type for partition {}", type_desc);
     }
     }
 }

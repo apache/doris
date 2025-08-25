@@ -18,15 +18,19 @@
 package org.apache.doris.cloud;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Triple;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -35,6 +39,7 @@ import org.apache.doris.thrift.TDownloadType;
 import org.apache.doris.thrift.TJobMeta;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TWarmUpEventType;
 import org.apache.doris.thrift.TWarmUpTabletsRequest;
 import org.apache.doris.thrift.TWarmUpTabletsRequestType;
 import org.apache.doris.thrift.TWarmUpTabletsResponse;
@@ -42,6 +47,7 @@ import org.apache.doris.thrift.TWarmUpTabletsResponse;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,6 +58,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class CloudWarmUpJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(CloudWarmUpJob.class);
@@ -72,32 +79,64 @@ public class CloudWarmUpJob implements Writable {
         TABLE;
     }
 
+    public enum SyncMode {
+        ONCE,
+        PERIODIC,
+        EVENT_DRIVEN;
+    }
+
+    public enum SyncEvent {
+        LOAD,
+        QUERY
+    }
+
     @SerializedName(value = "jobId")
     protected long jobId;
     @SerializedName(value = "jobState")
     protected JobState jobState;
     @SerializedName(value = "createTimeMs")
     protected long createTimeMs = -1;
+    @SerializedName(value = "startTimeMs")
+    protected long startTimeMs = -1;
 
     @SerializedName(value = "errMsg")
     protected String errMsg = "";
     @SerializedName(value = "finishedTimeMs")
     protected long finishedTimeMs = -1;
 
+    @SerializedName(value = "srcClusterName")
+    protected String srcClusterName = "";
+
+    // the serialized name is kept for compatibility reasons
     @SerializedName(value = "cloudClusterName")
-    protected String cloudClusterName = "";
+    protected String dstClusterName = "";
 
     @SerializedName(value = "lastBatchId")
     protected long lastBatchId = -1;
 
     @SerializedName(value = "beToTabletIdBatches")
-    protected Map<Long, List<List<Long>>> beToTabletIdBatches;
+    protected Map<Long, List<List<Long>>> beToTabletIdBatches = new HashMap<>();
 
     @SerializedName(value = "beToThriftAddress")
     protected Map<Long, String> beToThriftAddress = new HashMap<>();
 
     @SerializedName(value = "JobType")
     protected JobType jobType;
+
+    @SerializedName(value = "tables")
+    protected List<Triple<String, String, String>> tables = new ArrayList<>();
+
+    @SerializedName(value = "force")
+    protected boolean force = false;
+
+    @SerializedName(value = "syncMode")
+    protected SyncMode syncMode = SyncMode.ONCE;
+
+    @SerializedName(value = "syncInterval")
+    protected long syncInterval;
+
+    @SerializedName(value = "syncEvent")
+    protected SyncEvent syncEvent;
 
     private Map<Long, Client> beToClient;
 
@@ -111,21 +150,154 @@ public class CloudWarmUpJob implements Writable {
 
     private boolean setJobDone = false;
 
-    public CloudWarmUpJob(long jobId, String cloudClusterName,
+    public static class Builder {
+        private long jobId;
+        private String srcClusterName;
+        private String dstClusterName;
+        private JobType jobType = JobType.CLUSTER;
+        private SyncMode syncMode = SyncMode.ONCE;
+        private SyncEvent syncEvent;
+        private long syncInterval;
+
+        public Builder() {}
+
+        public Builder setJobId(long jobId) {
+            this.jobId = jobId;
+            return this;
+        }
+
+        public Builder setSrcClusterName(String srcClusterName) {
+            this.srcClusterName = srcClusterName;
+            return this;
+        }
+
+        public Builder setDstClusterName(String dstClusterName) {
+            this.dstClusterName = dstClusterName;
+            return this;
+        }
+
+        public Builder setJobType(JobType jobType) {
+            this.jobType = jobType;
+            return this;
+        }
+
+        public Builder setSyncMode(SyncMode syncMode) {
+            this.syncMode = syncMode;
+            return this;
+        }
+
+        public Builder setSyncEvent(SyncEvent syncEvent) {
+            this.syncEvent = syncEvent;
+            return this;
+        }
+
+        public Builder setSyncInterval(long syncInterval) {
+            this.syncInterval = syncInterval;
+            return this;
+        }
+
+        public CloudWarmUpJob build() {
+            if (jobId == 0 || srcClusterName == null || dstClusterName == null || jobType == null || syncMode == null) {
+                throw new IllegalStateException("Missing required fields for CloudWarmUpJob");
+            }
+            return new CloudWarmUpJob(this);
+        }
+    }
+
+    private CloudWarmUpJob(Builder builder) {
+        this.jobId = builder.jobId;
+        this.jobState = JobState.PENDING;
+        this.srcClusterName = builder.srcClusterName;
+        this.dstClusterName = builder.dstClusterName;
+        this.jobType = builder.jobType;
+        this.syncMode = builder.syncMode;
+        this.syncEvent = builder.syncEvent;
+        this.syncInterval = builder.syncInterval;
+        this.createTimeMs = System.currentTimeMillis();
+    }
+
+    private void fetchBeToThriftAddress() {
+        String clusterName = isEventDriven() ? srcClusterName : dstClusterName;
+        List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getBackendsByClusterName(clusterName);
+        for (Backend backend : backends) {
+            beToThriftAddress.put(backend.getId(), backend.getHost() + ":" + backend.getBePort());
+        }
+    }
+
+    public CloudWarmUpJob(long jobId, String srcClusterName, String dstClusterName,
                                 Map<Long, List<List<Long>>> beToTabletIdBatches, JobType jobType) {
         this.jobId = jobId;
         this.jobState = JobState.PENDING;
-        this.cloudClusterName = cloudClusterName;
+        this.srcClusterName = srcClusterName;
+        this.dstClusterName = dstClusterName;
         this.beToTabletIdBatches = beToTabletIdBatches;
         this.createTimeMs = System.currentTimeMillis();
         this.jobType = jobType;
         if (!FeConstants.runningUnitTest) {
             List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                            .getBackendsByClusterName(cloudClusterName);
+                                            .getBackendsByClusterName(dstClusterName);
             for (Backend backend : backends) {
                 beToThriftAddress.put(backend.getId(), backend.getHost() + ":" + backend.getBePort());
             }
         }
+    }
+
+    public void fetchBeToTabletIdBatches() {
+        if (FeConstants.runningUnitTest) {
+            return;
+        }
+        if (jobType == JobType.TABLE) {
+            // warm up with table will have to set tablets on creation
+            return;
+        }
+        if (syncMode == null) {
+            // This job was created by an old FE version.
+            // It doesn't have the source cluster name, but tablets were already set.
+            // Return for backward compatibility.
+            return;
+        }
+        if (this.isEventDriven()) {
+            // Event-driven jobs do not need to calculate tablets
+            return;
+        }
+        CacheHotspotManager manager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
+        Map<Long, List<Tablet>> beToWarmUpTablets =
+                manager.warmUpNewClusterByCluster(dstClusterName, srcClusterName);
+        long totalTablets = beToWarmUpTablets.values().stream()
+                .mapToLong(List::size)
+                .sum();
+        beToTabletIdBatches = manager.splitBatch(beToWarmUpTablets);
+        long totalBatches = beToTabletIdBatches.values().stream()
+                .mapToLong(List::size)
+                .sum();
+        LOG.info("warm up job {} tablet num {}, batch num {}", jobId, totalTablets, totalBatches);
+    }
+
+    public boolean shouldWait() {
+        if (!this.isPeriodic()) {
+            return false;
+        }
+        if (this.jobState != JobState.PENDING) {
+            return false;
+        }
+        long timeSinceLastStart = System.currentTimeMillis() - this.startTimeMs;
+        if (timeSinceLastStart < this.syncInterval * 1000L) {
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isOnce() {
+        return this.syncMode == SyncMode.ONCE || this.syncMode == null;
+    }
+
+    public boolean isPeriodic() {
+        return this.syncMode == SyncMode.PERIODIC;
+    }
+
+    public boolean isEventDriven() {
+        return this.syncMode == SyncMode.EVENT_DRIVEN;
     }
 
     public long getJobId() {
@@ -164,24 +336,60 @@ public class CloudWarmUpJob implements Writable {
         return jobType;
     }
 
+    public SyncMode getSyncMode() {
+        return syncMode;
+    }
+
+    public String getSyncModeString() {
+        if (syncMode == null) {
+            // For backward compatibility: older FE versions did not set syncMode for jobs,
+            // so default to ONCE when syncMode is missing.
+            return String.valueOf(SyncMode.ONCE);
+        }
+        StringBuilder sb = new StringBuilder().append(syncMode);
+        switch (syncMode) {
+            case PERIODIC:
+                sb.append(" (");
+                sb.append(syncInterval);
+                sb.append("s)");
+                break;
+            case EVENT_DRIVEN:
+                sb.append(" (");
+                sb.append(syncEvent);
+                sb.append(")");
+                break;
+            default:
+                break;
+        }
+        return sb.toString();
+    }
+
     public List<String> getJobInfo() {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
-        info.add(cloudClusterName);
-        info.add(jobState.name());
-        info.add(jobType.name());
+        info.add(srcClusterName);
+        info.add(dstClusterName);
+        info.add(String.valueOf(jobState));
+        info.add(String.valueOf(jobType));
+        info.add(this.getSyncModeString());
         info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
+        info.add(TimeUtils.longToTimeStringWithms(startTimeMs));
         info.add(Long.toString(lastBatchId + 1));
         long maxBatchSize = 0;
-        for (List<List<Long>> list : beToTabletIdBatches.values()) {
-            long size = list.size();
-            if (size > maxBatchSize) {
-                maxBatchSize = size;
-            }
+        if (beToTabletIdBatches != null) {
+            maxBatchSize = beToTabletIdBatches.values().stream()
+                    .mapToLong(List::size)
+                    .max()
+                    .orElse(0);
         }
         info.add(Long.toString(maxBatchSize));
         info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
         info.add(errMsg);
+        info.add(tables == null ? "" : tables.stream()
+                .map(t -> StringUtils.isEmpty(t.getRight())
+                        ? t.getLeft() + "." + t.getMiddle()
+                        : t.getLeft() + "." + t.getMiddle() + "." + t.getRight())
+                .collect(Collectors.joining(", ")));
         return info;
     }
 
@@ -202,7 +410,7 @@ public class CloudWarmUpJob implements Writable {
     }
 
     public void setCloudClusterName(String name) {
-        this.cloudClusterName = name;
+        this.dstClusterName = name;
     }
 
     public void setLastBatchId(long id) {
@@ -226,7 +434,8 @@ public class CloudWarmUpJob implements Writable {
     }
 
     public boolean isTimeout() {
-        return (System.currentTimeMillis() - createTimeMs) / 1000 > Config.cloud_warm_up_timeout_second;
+        return jobState == JobState.RUNNING
+                && (System.currentTimeMillis() - startTimeMs) / 1000 > Config.cloud_warm_up_timeout_second;
     }
 
     public boolean isExpire() {
@@ -234,20 +443,24 @@ public class CloudWarmUpJob implements Writable {
                 > Config.history_cloud_warm_up_job_keep_max_second;
     }
 
-    public String getCloudClusterName() {
-        return cloudClusterName;
+    public String getDstClusterName() {
+        return dstClusterName;
+    }
+
+    public String getSrcClusterName() {
+        return srcClusterName;
     }
 
     public synchronized void run() {
         if (isTimeout()) {
-            cancel("Timeout");
+            cancel("Timeout", false);
             return;
         }
         if (Config.isCloudMode()) {
             LOG.debug("set context to job");
             ConnectContext ctx = new ConnectContext();
             ctx.setThreadLocalInfo();
-            ctx.setCloudCluster(cloudClusterName);
+            ctx.setCloudCluster(dstClusterName);
         }
         try {
             switch (jobState) {
@@ -272,6 +485,9 @@ public class CloudWarmUpJob implements Writable {
     }
 
     public void initClients() throws Exception {
+        if (beToThriftAddress == null || beToThriftAddress.isEmpty()) {
+            fetchBeToThriftAddress();
+        }
         if (beToClient == null) {
             beToClient = new HashMap<>();
             beToAddr = new HashMap<>();
@@ -311,39 +527,77 @@ public class CloudWarmUpJob implements Writable {
         beToAddr = null;
     }
 
-    public final synchronized boolean cancel(String errMsg) {
-        if (this.jobState.isFinalState()) {
-            return false;
-        }
+    private final void clearJobOnBEs() {
         try {
             initClients();
             for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
                 TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
                 request.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
                 request.setJobId(jobId);
-                LOG.info("send warm up request. request_type=CLEAR_JOB");
+                if (this.isEventDriven()) {
+                    TWarmUpEventType event = getTWarmUpEventType();
+                    if (event == null) {
+                        throw new IllegalArgumentException("Unknown SyncEvent " + syncEvent);
+                    }
+                    request.setEvent(event);
+                }
+                LOG.info("send warm up request to BE {}. job_id={}, request_type=CLEAR_JOB",
+                        entry.getKey(), jobId);
                 entry.getValue().warmUpTablets(request);
             }
         } catch (Exception e) {
-            LOG.warn("warm up job {} cancel exception: {}", jobId, e.getMessage());
+            LOG.warn("send warm up request failed. job_id={}, request_type=CLEAR_JOB, exception={}",
+                    jobId, e.getMessage());
         } finally {
             releaseClients();
         }
-        this.jobState = JobState.CANCELLED;
+    }
+
+    public final synchronized boolean cancel(String errMsg, boolean force) {
+        if (this.jobState.isFinalState()) {
+            return false;
+        }
+        if (this.jobState == JobState.PENDING) {
+            // BE haven't started this job yet, skip RPC
+        } else {
+            clearJobOnBEs();
+        }
+        if (this.isOnce() || force) {
+            this.jobState = JobState.CANCELLED;
+        } else {
+            this.jobState = JobState.PENDING;
+        }
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
+        MetricRepo.updateClusterWarmUpJobLastFinishTime(String.valueOf(jobId), srcClusterName,
+                dstClusterName, finishedTimeMs);
         LOG.info("cancel cloud warm up job {}, err {}", jobId, errMsg);
         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
-        ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
+        ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().notifyJobStop(this);
         return true;
-
     }
 
     private void runPendingJob() throws DdlException {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
 
-        // Todo: nothing to prepare yet
+        // make sure only one job runs concurrently for one destination cluster
+        if (!((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().tryRegisterRunningJob(this)) {
+            return;
+        }
 
+        // Todo: nothing to prepare yet
+        this.setJobDone = false;
+        this.lastBatchId = -1;
+        this.startTimeMs = System.currentTimeMillis();
+        MetricRepo.updateClusterWarmUpJobLatestStartTime(String.valueOf(jobId), srcClusterName,
+                dstClusterName, startTimeMs);
+        this.fetchBeToTabletIdBatches();
+        long totalTablets = beToTabletIdBatches.values().stream()
+                .flatMap(List::stream)
+                .mapToLong(List::size)
+                .sum();
+        MetricRepo.increaseClusterWarmUpJobRequestedTablets(dstClusterName, totalTablets);
+        MetricRepo.increaseClusterWarmUpJobExecCount(dstClusterName);
         this.jobState = JobState.RUNNING;
         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
         LOG.info("transfer cloud warm up job {} state to {}", jobId, this.jobState);
@@ -358,8 +612,51 @@ public class CloudWarmUpJob implements Writable {
             jobMeta.setDownloadType(TDownloadType.S3);
             jobMeta.setTabletIds(tabletIds);
             jobMetas.add(jobMeta);
+            MetricRepo.increaseClusterWarmUpJobFinishedTablets(dstClusterName, tabletIds.size());
         }
         return jobMetas;
+    }
+
+    private TWarmUpEventType getTWarmUpEventType() {
+        switch (syncEvent) {
+            case LOAD:
+                return TWarmUpEventType.LOAD;
+            case QUERY:
+                return TWarmUpEventType.QUERY;
+            default:
+                return null;
+        }
+    }
+
+    private void runEventDrivenJob() throws Exception {
+        try {
+            initClients();
+            for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
+                TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
+                request.setType(TWarmUpTabletsRequestType.SET_JOB);
+                request.setJobId(jobId);
+                TWarmUpEventType event = getTWarmUpEventType();
+                if (event == null) {
+                    throw new IllegalArgumentException("Unknown SyncEvent " + syncEvent);
+                }
+                request.setEvent(event);
+                LOG.debug("send warm up request to BE {}. job_id={}, event={}, request_type=SET_JOB(EVENT)",
+                        entry.getKey(), jobId, syncEvent);
+                TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
+                if (response.getStatus().getStatusCode() != TStatusCode.OK) {
+                    if (!response.getStatus().getErrorMsgs().isEmpty()) {
+                        errMsg = response.getStatus().getErrorMsgs().get(0);
+                    }
+                    LOG.warn("send warm up request failed. job_id={}, event={}, err={}",
+                            jobId, syncEvent, errMsg);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("send warm up request job_id={} failed with exception {}",
+                    jobId, e);
+        } finally {
+            releaseClients();
+        }
     }
 
     private void runRunningJob() throws Exception {
@@ -368,8 +665,12 @@ public class CloudWarmUpJob implements Writable {
             Thread.sleep(1000);
             this.jobState = JobState.FINISHED;
             this.finishedTimeMs = System.currentTimeMillis();
-            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getRunnableClusterSet().remove(this.cloudClusterName);
+            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().notifyJobStop(this);
             Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
+            return;
+        }
+        if (this.isEventDriven()) {
+            runEventDrivenJob();
             return;
         }
         boolean changeToCancelState = false;
@@ -384,8 +685,9 @@ public class CloudWarmUpJob implements Writable {
                     request.setJobId(jobId);
                     request.setBatchId(lastBatchId + 1);
                     request.setJobMetas(buildJobMetas(entry.getKey(), request.batch_id));
-                    LOG.info("send warm up request. job_id={}, batch_id={}, job_sizes={}, request_type=SET_JOB",
-                                        jobId, request.batch_id, request.job_metas.size());
+                    LOG.info("send warm up request to BE {}. job_id={}, batch_id={}"
+                            + ", job_size={}, request_type=SET_JOB",
+                            entry.getKey(), jobId, request.batch_id, request.job_metas.size());
                     TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                     if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                         if (!response.getStatus().getErrorMsgs().isEmpty()) {
@@ -400,7 +702,8 @@ public class CloudWarmUpJob implements Writable {
                 for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
                     TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
                     request.setType(TWarmUpTabletsRequestType.GET_CURRENT_JOB_STATE_AND_LEASE);
-                    LOG.info("send warm up request. request_type=GET_CURRENT_JOB_STATE_AND_LEASE");
+                    LOG.info("send warm up request to BE {}. job_id={}, request_type=GET_CURRENT_JOB_STATE_AND_LEASE",
+                            entry.getKey(), jobId);
                     TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                     if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                         if (!response.getStatus().getErrorMsgs().isEmpty()) {
@@ -410,6 +713,12 @@ public class CloudWarmUpJob implements Writable {
                     }
                     if (!changeToCancelState && response.pending_job_size != 0) {
                         allLastBatchDone = false;
+                        break;
+                    }
+                    // /api/debug_point/add/CloudWarmUpJob.FakeLastBatchNotDone
+                    if (DebugPointUtil.isEnable("CloudWarmUpJob.FakeLastBatchNotDone")) {
+                        allLastBatchDone = false;
+                        LOG.info("DebugPoint:CloudWarmUpJob.FakeLastBatchNotDone, jobID={}", jobId);
                         break;
                     }
                 }
@@ -432,9 +741,9 @@ public class CloudWarmUpJob implements Writable {
                         if (!request.job_metas.isEmpty()) {
                             // check all batches is done or not
                             allBatchesDone = false;
-                            LOG.info("send warm up request. job_id={}, batch_id={}"
-                                    + "job_sizes={}, request_type=SET_BATCH",
-                                    jobId, request.batch_id, request.job_metas.size());
+                            LOG.info("send warm up request to BE {}. job_id={}, batch_id={}"
+                                    + ", job_size={}, request_type=SET_BATCH",
+                                    entry.getKey(), jobId, request.batch_id, request.job_metas.size());
                             TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                             if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                                 if (!response.getStatus().getErrorMsgs().isEmpty()) {
@@ -445,38 +754,23 @@ public class CloudWarmUpJob implements Writable {
                         }
                     }
                     if (allBatchesDone) {
-                        // release job
-                        this.jobState = JobState.FINISHED;
-                        for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
-                            TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
-                            request.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
-                            request.setJobId(jobId);
-                            LOG.info("send warm up request. request_type=CLEAR_JOB");
-                            entry.getValue().warmUpTablets(request);
-                        }
+                        clearJobOnBEs();
                         this.finishedTimeMs = System.currentTimeMillis();
-                        releaseClients();
-                        ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr()
-                                .getRunnableClusterSet().remove(this.cloudClusterName);
+                        if (this.isPeriodic()) {
+                            // wait for next schedule
+                            this.jobState = JobState.PENDING;
+                        } else {
+                            // release job
+                            this.jobState = JobState.FINISHED;
+                        }
+                        ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().notifyJobStop(this);
                         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
                     }
                 }
             }
             if (changeToCancelState) {
                 // release job
-                this.jobState = JobState.CANCELLED;
-                for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
-                    TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
-                    request.setType(TWarmUpTabletsRequestType.CLEAR_JOB);
-                    request.setJobId(jobId);
-                    LOG.info("send warm up request. request_type=CLEAR_JOB");
-                    entry.getValue().warmUpTablets(request);
-                }
-                this.finishedTimeMs = System.currentTimeMillis();
-                releaseClients();
-                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr()
-                        .getRunnableClusterSet().remove(this.cloudClusterName);
-                Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
+                cancel("job fail", false);
             }
         } catch (Exception e) {
             retryTime++;
@@ -485,12 +779,7 @@ public class CloudWarmUpJob implements Writable {
                 LOG.warn("warm up job {} exception: {}", jobId, e.getMessage());
             } else {
                 // retry three times and release job
-                this.jobState = JobState.CANCELLED;
-                this.finishedTimeMs = System.currentTimeMillis();
-                this.errMsg = "retry the warm up job until max retry time " + String.valueOf(maxRetryTime);
-                ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr()
-                        .getRunnableClusterSet().remove(this.cloudClusterName);
-                Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
+                cancel("retry the warm up job until max retry time " + String.valueOf(maxRetryTime), false);
             }
             releaseClients();
         }

@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 
@@ -60,13 +61,14 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
         Map<Id, ColumnStatistic> columnStatisticMap = new HashMap<>();
         Table table = scanNode.getOlapTable();
         double rowCount = table.getRowCountForNereids();
+        ConnectContext connectContext = ConnectContext.get();
         for (Map.Entry<Id, String> entry : slotIdToTableIdAndColumnName.entrySet()) {
             String colName = entry.getValue();
             // TODO. Get index id for materialized view.
             ColumnStatistic statistic =
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                         table.getDatabase().getCatalog().getId(),
-                        table.getDatabase().getId(), table.getId(), -1, colName);
+                        table.getDatabase().getId(), table.getId(), -1, colName, connectContext);
             columnStatisticMap.put(entry.getKey(), statistic);
         }
         return new StatsDeriveResult(rowCount, columnStatisticMap);

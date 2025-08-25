@@ -60,6 +60,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
@@ -71,7 +72,6 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -82,10 +82,34 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
     auto block = std::make_shared<Block>();
     for (int i = 0; i < cols.size(); i++) {
         std::string col_name = std::to_string(i);
-        TypeDescriptor type_desc(cols[i]);
+        int precision = 0, scale = 0;
+        switch (cols[i]) {
+        case TYPE_DECIMAL32: {
+            precision = 9;
+            scale = 2;
+            break;
+        }
+        case TYPE_DECIMAL64: {
+            precision = 18;
+            scale = 6;
+            break;
+        }
+        case TYPE_DECIMAL128I: {
+            precision = 27;
+            scale = 9;
+            break;
+        }
+        default:
+            break;
+        }
+        DataTypePtr type_desc;
+        if (!is_complex_type(cols[i])) {
+            type_desc =
+                    DataTypeFactory::instance().create_data_type(cols[i], false, precision, scale);
+        }
         switch (cols[i]) {
         case TYPE_BOOLEAN: {
-            auto vec = vectorized::ColumnVector<UInt8>::create();
+            auto vec = vectorized::ColumnVector<TYPE_BOOLEAN>::create();
             auto& data = vec->get_data();
             for (int i = 0; i < row_num; ++i) {
                 data.push_back(i % 2);
@@ -97,7 +121,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
         case TYPE_INT:
             if (is_nullable) {
                 {
-                    auto column_vector_int32 = vectorized::ColumnVector<Int32>::create();
+                    auto column_vector_int32 = vectorized::ColumnVector<TYPE_INT>::create();
                     auto column_nullable_vector =
                             vectorized::make_nullable(std::move(column_vector_int32));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
@@ -105,7 +129,8 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                         if (i % 2 == 0) {
                             mutable_nullable_vector->insert_default();
                         } else {
-                            mutable_nullable_vector->insert(int32(i));
+                            mutable_nullable_vector->insert(
+                                    Field::create_field<TYPE_INT>(int32_t(i)));
                         }
                     }
                     auto data_type = vectorized::make_nullable(
@@ -115,7 +140,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                     block->insert(type_and_name);
                 }
             } else {
-                auto vec = vectorized::ColumnVector<Int32>::create();
+                auto vec = vectorized::ColumnVector<TYPE_INT>::create();
                 auto& data = vec->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     data.push_back(i);
@@ -126,89 +151,70 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                 block->insert(std::move(type_and_name));
             }
             break;
-        case TYPE_DECIMAL32:
-            type_desc.precision = 9;
-            type_desc.scale = 2;
-            {
-                vectorized::DataTypePtr decimal_data_type =
-                        std::make_shared<DataTypeDecimal<Decimal32>>(type_desc.precision,
-                                                                     type_desc.scale);
-                auto decimal_column = decimal_data_type->create_column();
-                auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int32>>*)
-                                      decimal_column.get())
-                                     ->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    if (i == 0) {
-                        data.push_back(Int32(0));
-                        continue;
-                    }
-                    Int32 val;
-                    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-                    i % 2 == 0 ? val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
-                                         "1234567.56", 11, type_desc.precision, type_desc.scale,
-                                         &result)
-                               : val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
-                                         "-1234567.56", 12, type_desc.precision, type_desc.scale,
-                                         &result);
-                    EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
-                    data.push_back(val);
+        case TYPE_DECIMAL32: {
+            vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal32>(9, 2);
+            type_desc = decimal_data_type;
+            auto decimal_column = decimal_data_type->create_column();
+            auto& data = ((vectorized::ColumnDecimal32*)decimal_column.get())->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                if (i == 0) {
+                    data.push_back(Int32(0));
+                    continue;
                 }
+                Int32 val;
+                StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+                i % 2 == 0 ? val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
+                                     "1234567.56", 10, type_desc->get_precision(),
+                                     type_desc->get_scale(), &result)
+                           : val = StringParser::string_to_decimal<TYPE_DECIMAL32>(
+                                     "-1234567.56", 11, type_desc->get_precision(),
+                                     type_desc->get_scale(), &result);
+                EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
+                data.push_back(val);
+            }
 
-                vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                                decimal_data_type, col_name);
-                block->insert(type_and_name);
-            }
-            break;
-        case TYPE_DECIMAL64:
-            type_desc.precision = 18;
-            type_desc.scale = 6;
-            {
-                vectorized::DataTypePtr decimal_data_type =
-                        std::make_shared<DataTypeDecimal<Decimal64>>(type_desc.precision,
-                                                                     type_desc.scale);
-                auto decimal_column = decimal_data_type->create_column();
-                auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int64>>*)
-                                      decimal_column.get())
-                                     ->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    if (i == 0) {
-                        data.push_back(Int64(0));
-                        continue;
-                    }
-                    Int64 val;
-                    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-                    std::string decimal_string =
-                            i % 2 == 0 ? "-123456789012.123456" : "123456789012.123456";
-                    val = StringParser::string_to_decimal<TYPE_DECIMAL64>(
-                            decimal_string.c_str(), decimal_string.size(), type_desc.precision,
-                            type_desc.scale, &result);
-                    EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
-                    data.push_back(val);
+            vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
+                                                            decimal_data_type, col_name);
+            block->insert(type_and_name);
+        } break;
+        case TYPE_DECIMAL64: {
+            vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal64>(18, 6);
+            type_desc = decimal_data_type;
+            auto decimal_column = decimal_data_type->create_column();
+            auto& data = ((vectorized::ColumnDecimal64*)decimal_column.get())->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                if (i == 0) {
+                    data.push_back(Int64(0));
+                    continue;
                 }
-                vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                                decimal_data_type, col_name);
-                block->insert(type_and_name);
+                Int64 val;
+                StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+                std::string decimal_string =
+                        i % 2 == 0 ? "-123456789012.123456" : "123456789012.123456";
+                val = StringParser::string_to_decimal<TYPE_DECIMAL64>(
+                        decimal_string.c_str(), decimal_string.size(), type_desc->get_precision(),
+                        type_desc->get_scale(), &result);
+                EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
+                data.push_back(val);
             }
-            break;
-        case TYPE_DECIMAL128I:
-            type_desc.precision = 27;
-            type_desc.scale = 9;
-            {
-                vectorized::DataTypePtr decimal_data_type(
-                        doris::vectorized::create_decimal(27, 9, true));
-                auto decimal_column = decimal_data_type->create_column();
-                auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                                      decimal_column.get())
-                                     ->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
-                    data.push_back(value);
-                }
-                vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                                decimal_data_type, col_name);
-                block->insert(type_and_name);
+            vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
+                                                            decimal_data_type, col_name);
+            block->insert(type_and_name);
+        } break;
+        case TYPE_DECIMAL128I: {
+            vectorized::DataTypePtr decimal_data_type(
+                    doris::vectorized::create_decimal(27, 9, true));
+            type_desc = decimal_data_type;
+            auto decimal_column = decimal_data_type->create_column();
+            auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
+                data.push_back(value);
             }
-            break;
+            vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
+                                                            decimal_data_type, col_name);
+            block->insert(type_and_name);
+        } break;
         case TYPE_STRING: {
             auto strcol = vectorized::ColumnString::create();
             for (int i = 0; i < row_num; ++i) {
@@ -235,7 +241,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             block->insert(type_and_name);
         } break;
         case TYPE_DATEV2: {
-            auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
+            auto column_vector_date_v2 = vectorized::ColumnVector<TYPE_DATEV2>::create();
             auto& date_v2_data = column_vector_date_v2->get_data();
             for (int i = 0; i < row_num; ++i) {
                 DateV2Value<DateV2ValueType> value;
@@ -249,7 +255,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
         } break;
         case TYPE_DATE: // int64
         {
-            auto column_vector_date = vectorized::ColumnVector<vectorized::Int64>::create();
+            auto column_vector_date = vectorized::ColumnVector<TYPE_DATE>::create();
             auto& date_data = column_vector_date->get_data();
             for (int i = 0; i < row_num; ++i) {
                 VecDateTimeValue value;
@@ -263,7 +269,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
         } break;
         case TYPE_DATETIME: // int64
         {
-            auto column_vector_datetime = vectorized::ColumnVector<vectorized::Int64>::create();
+            auto column_vector_datetime = vectorized::ColumnVector<TYPE_DATETIME>::create();
             auto& datetime_data = column_vector_datetime->get_data();
             for (int i = 0; i < row_num; ++i) {
                 VecDateTimeValue value;
@@ -277,16 +283,17 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
         } break;
         case TYPE_DATETIMEV2: // uint64
         {
-            auto column_vector_datetimev2 = vectorized::ColumnVector<vectorized::UInt64>::create();
+            auto column_vector_datetimev2 = vectorized::ColumnVector<TYPE_DATETIMEV2>::create();
             DateV2Value<DateTimeV2ValueType> value;
-            string date_literal = "2022-01-01 11:11:11.111";
+            std::string date_literal = "2022-01-01 11:11:11.111";
             cctz::time_zone ctz;
             TimezoneUtils::find_cctz_time_zone("UTC", ctz);
             EXPECT_TRUE(value.from_date_str(date_literal.c_str(), date_literal.size(), ctz, 3));
             char to[64] = {};
             std::cout << "value: " << value.to_string(to) << std::endl;
             for (int i = 0; i < row_num; ++i) {
-                column_vector_datetimev2->insert(value.to_date_int_val());
+                column_vector_datetimev2->insert(
+                        Field::create_field<TYPE_DATETIMEV2>(value.to_date_int_val()));
             }
             vectorized::DataTypePtr datetimev2_type(
                     std::make_shared<vectorized::DataTypeDateTimeV2>(3));
@@ -295,95 +302,78 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             block->insert(test_datetimev2);
         } break;
         case TYPE_ARRAY: // array
-            type_desc.add_sub_type(TYPE_STRING, true);
-            {
-                DataTypePtr s =
-                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-                DataTypePtr au = std::make_shared<DataTypeArray>(s);
-                Array a1, a2;
-                a1.push_back(Field("sss"));
-                a1.push_back(Null());
-                a1.push_back(Field("clever amory"));
-                a2.push_back(Field("hello amory"));
-                a2.push_back(Null());
-                a2.push_back(Field("cute amory"));
-                a2.push_back(Field("sf"));
-                MutableColumnPtr array_column = au->create_column();
-                array_column->reserve(2);
-                array_column->insert(a1);
-                array_column->insert(a2);
-                vectorized::ColumnWithTypeAndName type_and_name(array_column->get_ptr(), au,
-                                                                col_name);
-                block->insert(type_and_name);
-            }
+        {
+            DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr au = std::make_shared<DataTypeArray>(s);
+            Array a1, a2;
+            a1.push_back(Field::create_field<TYPE_STRING>("sss"));
+            a1.push_back(Field());
+            a1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+            a2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+            a2.push_back(Field());
+            a2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+            a2.push_back(Field::create_field<TYPE_STRING>("sf"));
+            MutableColumnPtr array_column = au->create_column();
+            array_column->reserve(2);
+            array_column->insert(Field::create_field<TYPE_ARRAY>(a1));
+            array_column->insert(Field::create_field<TYPE_ARRAY>(a2));
+            vectorized::ColumnWithTypeAndName type_and_name(array_column->get_ptr(), au, col_name);
+            block->insert(type_and_name);
+            type_desc = au;
             break;
-        case TYPE_MAP:
-            type_desc.add_sub_type(TYPE_STRING, true);
-            type_desc.add_sub_type(TYPE_STRING, true);
-            {
-                DataTypePtr s =
-                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-                ;
-                DataTypePtr d =
-                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-                DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
-                Array k1, k2, v1, v2;
-                k1.push_back("null");
-                k1.push_back("doris");
-                k1.push_back("clever amory");
-                v1.push_back("ss");
-                v1.push_back(Null());
-                v1.push_back("NULL");
-                k2.push_back("hello amory");
-                k2.push_back("NULL");
-                k2.push_back("cute amory");
-                k2.push_back("doris");
-                v2.push_back("s");
-                v2.push_back("0");
-                v2.push_back("sf");
-                v2.push_back(Null());
-                Map m1, m2;
-                m1.push_back(k1);
-                m1.push_back(v1);
-                m2.push_back(k2);
-                m2.push_back(v2);
-                MutableColumnPtr map_column = m->create_column();
-                map_column->reserve(2);
-                map_column->insert(m1);
-                map_column->insert(m2);
-                vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
-                block->insert(type_and_name);
-            }
-            break;
-        case TYPE_STRUCT:
-            type_desc.add_sub_type(TYPE_STRING, "name", true);
-            type_desc.add_sub_type(TYPE_LARGEINT, "age", true);
-            type_desc.add_sub_type(TYPE_BOOLEAN, "is", true);
-            {
-                DataTypePtr s =
-                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-                DataTypePtr d =
-                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
-                DataTypePtr m =
-                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
-                DataTypePtr st =
-                        std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
-                Tuple t1, t2;
-                t1.push_back(Field("amory cute"));
-                t1.push_back(__int128_t(37));
-                t1.push_back(true);
-                t2.push_back("null");
-                t2.push_back(__int128_t(26));
-                t2.push_back(false);
-                MutableColumnPtr struct_column = st->create_column();
-                struct_column->reserve(2);
-                struct_column->insert(t1);
-                struct_column->insert(t2);
-                vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st,
-                                                                col_name);
-                block->insert(type_and_name);
-            }
-            break;
+        }
+        case TYPE_MAP: {
+            DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
+            type_desc = m;
+            Array k1, k2, v1, v2;
+            k1.push_back(Field::create_field<TYPE_STRING>("null"));
+            k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+            k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+            v1.push_back(Field::create_field<TYPE_STRING>("ss"));
+            v1.push_back(Field());
+            v1.push_back(Field::create_field<TYPE_STRING>("NULL"));
+            k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+            k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+            k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+            k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+            v2.push_back(Field::create_field<TYPE_STRING>("s"));
+            v2.push_back(Field::create_field<TYPE_STRING>("0"));
+            v2.push_back(Field::create_field<TYPE_STRING>("sf"));
+            v2.push_back(Field());
+            Map m1, m2;
+            m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+            m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+            m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+            m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
+            MutableColumnPtr map_column = m->create_column();
+            map_column->reserve(2);
+            map_column->insert(Field::create_field<TYPE_MAP>(m1));
+            map_column->insert(Field::create_field<TYPE_MAP>(m2));
+            vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
+            block->insert(type_and_name);
+        } break;
+        case TYPE_STRUCT: {
+            DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
+            DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
+            DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
+            type_desc = st;
+            Tuple t1, t2;
+            t1.push_back(Field::create_field<TYPE_STRING>("amory cute"));
+            t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+            t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+            t2.push_back(Field::create_field<TYPE_STRING>("null"));
+            t2.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+            t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
+            MutableColumnPtr struct_column = st->create_column();
+            struct_column->reserve(2);
+            struct_column->insert(Field::create_field<TYPE_STRUCT>(t1));
+            struct_column->insert(Field::create_field<TYPE_STRUCT>(t2));
+            vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, col_name);
+            block->insert(type_and_name);
+        } break;
         case TYPE_IPV4: {
             auto vec = vectorized::ColumnIPv4::create();
             auto& data = vec->get_data();
@@ -439,35 +429,55 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
         DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
         DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
         Array k1, k2, v1, v2, k3, v3;
-        k1.push_back("doris");
-        k1.push_back("clever amory");
-        v1.push_back(Null());
-        v1.push_back(30);
-        k2.push_back("hello amory");
-        k2.push_back("NULL");
-        k2.push_back("cute amory");
-        k2.push_back("doris");
-        v2.push_back(26);
-        v2.push_back(Null());
-        v2.push_back(6);
-        v2.push_back(7);
-        k3.push_back("test");
-        v3.push_back(11);
+        k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+        k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+        v1.push_back(Field());
+        v1.push_back(Field::create_field<TYPE_INT>(30));
+        k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+        k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+        k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+        k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+        v2.push_back(Field::create_field<TYPE_INT>(26));
+        v2.push_back(Field());
+        v2.push_back(Field::create_field<TYPE_INT>(6));
+        v2.push_back(Field::create_field<TYPE_INT>(7));
+        k3.push_back(Field::create_field<TYPE_STRING>("test"));
+        v3.push_back(Field::create_field<TYPE_INT>(11));
         Map m1, m2, m3;
-        m1.push_back(k1);
-        m1.push_back(v1);
-        m2.push_back(k2);
-        m2.push_back(v2);
-        m3.push_back(k3);
-        m3.push_back(v3);
+        m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        m3.push_back(Field::create_field<TYPE_ARRAY>(k3));
+        m3.push_back(Field::create_field<TYPE_ARRAY>(v3));
         MutableColumnPtr map_column = m->create_column();
         map_column->reserve(3);
-        map_column->insert(m1);
-        map_column->insert(m2);
-        map_column->insert(m3);
+        map_column->insert(Field::create_field<TYPE_MAP>(m1));
+        map_column->insert(Field::create_field<TYPE_MAP>(m2));
+        map_column->insert(Field::create_field<TYPE_MAP>(m3));
         vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
         block->insert(type_and_name);
     }
+
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
+    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
+TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
+    std::string col_name = "big_string";
+    auto block = std::make_shared<Block>();
+    auto strcol = vectorized::ColumnString::create();
+    // 2G, if > 4G report string column length is too large: total_length=4402341462
+    for (int i = 0; i < 20; ++i) {
+        std::string is(107374182, '0'); // 100M
+        strcol->insert_data(is.c_str(), is.size());
+    }
+    vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
+    vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
+    block->insert(type_and_name);
 
     std::shared_ptr<arrow::RecordBatch> record_batch =
             CommonDataTypeSerdeTest::serialize_arrow(block);

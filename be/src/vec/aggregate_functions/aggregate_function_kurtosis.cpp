@@ -15,62 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_statistic.h"
+#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-
-template <typename T>
-AggregateFunctionPtr type_dispatch_for_aggregate_function_kurt(const DataTypes& argument_types,
-                                                               const bool result_is_nullable,
-                                                               bool nullable_input) {
-    using StatFunctionTemplate = StatFuncOneArg<T, 4>;
-
-    if (nullable_input) {
-        return creator_without_type::create_ignore_nullable<
-                AggregateFunctionVarianceSimple<StatFunctionTemplate, true>>(
-                argument_types, result_is_nullable, STATISTICS_FUNCTION_KIND::KURT_POP);
-    } else {
-        return creator_without_type::create_ignore_nullable<
-                AggregateFunctionVarianceSimple<StatFunctionTemplate, false>>(
-                argument_types, result_is_nullable, STATISTICS_FUNCTION_KIND::KURT_POP);
-    }
-};
 
 AggregateFunctionPtr create_aggregate_function_kurt(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
-    if (argument_types.size() != 1) {
-        LOG(WARNING) << "aggregate function " << name << " requires exactly 1 argument";
-        return nullptr;
-    }
-
+    assert_arity_range(name, argument_types, 1, 1);
     if (!result_is_nullable) {
-        LOG(WARNING) << "aggregate function " << name << " requires nullable result type";
-        return nullptr;
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Aggregate function {} requires result_is_nullable", name);
     }
 
     const bool nullable_input = argument_types[0]->is_nullable();
-    WhichDataType type(remove_nullable(argument_types[0]));
+    using StatFunctionTemplate = StatFuncOneArg<TYPE_DOUBLE, 4>;
 
-#define DISPATCH(TYPE)                                                                             \
-    if (type.idx == TypeIndex::TYPE)                                                               \
-        return type_dispatch_for_aggregate_function_kurt<TYPE>(argument_types, result_is_nullable, \
-                                                               nullable_input);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-
-    LOG(WARNING) << "unsupported input type " << argument_types[0]->get_name()
-                 << " for aggregate function " << name;
-    return nullptr;
+    if (nullable_input) {
+        return creator_without_type::create_ignore_nullable<
+                AggregateFunctionVarianceSimple<StatFunctionTemplate, true>>(
+                argument_types, result_is_nullable, attr, STATISTICS_FUNCTION_KIND::KURT_POP);
+    } else {
+        return creator_without_type::create_ignore_nullable<
+                AggregateFunctionVarianceSimple<StatFunctionTemplate, false>>(
+                argument_types, result_is_nullable, attr, STATISTICS_FUNCTION_KIND::KURT_POP);
+    }
 }
 
 void register_aggregate_function_kurtosis(AggregateFunctionSimpleFactory& factory) {

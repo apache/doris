@@ -29,7 +29,12 @@ import java.util.List;
 public interface PropagateNullable extends ComputeNullable {
     @Override
     default boolean nullable() {
-        return children().stream().anyMatch(Expression::nullable);
+        for (Expression child : children()) {
+            if (child.nullable()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     List<Expression> children();

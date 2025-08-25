@@ -63,18 +63,22 @@ DECLARE_mInt32(meta_service_rpc_timeout_ms);
 DECLARE_mInt32(meta_service_rpc_retry_times);
 // default brpc timeout
 DECLARE_mInt32(meta_service_brpc_timeout_ms);
+DECLARE_mInt32(meta_service_rpc_timeout_retry_times);
 
 // CloudTabletMgr config
 DECLARE_Int64(tablet_cache_capacity);
 DECLARE_Int64(tablet_cache_shards);
 DECLARE_mInt32(tablet_sync_interval_s);
+// parallelism for scanner init where may issue RPCs to sync rowset meta from MS
+DECLARE_mInt32(init_scanner_sync_rowsets_parallelism);
+DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
 
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mBool(enable_new_tablet_do_compaction);
 // For cloud read/write separate mode
 DECLARE_mInt64(base_compaction_freeze_interval_s);
-DECLARE_mInt64(cu_compaction_freeze_interval_s);
+DECLARE_mInt64(compaction_load_max_freeze_interval_s);
 DECLARE_mInt64(cumu_compaction_interval_s);
 
 DECLARE_mInt32(compaction_timeout_seconds);
@@ -118,6 +122,27 @@ DECLARE_Bool(enable_cloud_tablet_report);
 DECLARE_mInt32(delete_bitmap_rpc_retry_times);
 
 DECLARE_mInt64(meta_service_rpc_reconnect_interval_ms);
+
+DECLARE_mInt32(meta_service_conflict_error_retry_times);
+
+DECLARE_Bool(enable_check_storage_vault);
+
+DECLARE_mInt64(warmup_tablet_replica_info_cache_ttl_sec);
+
+DECLARE_mInt64(warm_up_rowset_slow_log_ms);
+
+// When event driven warm-up is enabled by the user, turning on this option can help
+// avoid file cache misses in the read cluster caused by compaction.
+// If enabled, compaction will wait for the warm-up to complete before committing.
+//
+// ATTN: Enabling this option may slow down compaction due to the added wait.
+DECLARE_mBool(enable_compaction_delay_commit_for_warm_up);
+
+DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
+
+DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
+
+DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

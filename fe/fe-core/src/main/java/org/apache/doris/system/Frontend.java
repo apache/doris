@@ -19,7 +19,6 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.BDBHA;
@@ -59,6 +58,7 @@ public class Frontend implements Writable {
     private long replayedJournalId;
     private long lastStartupTime;
     private long lastUpdateTime;
+    private long liveSince;
     private String heartbeatErrMsg = "";
     private List<FeDiskInfo> diskInfos;
 
@@ -140,6 +140,10 @@ public class Frontend implements Writable {
         return lastUpdateTime;
     }
 
+    public long getLiveSince() {
+        return liveSince;
+    }
+
     public List<FeDiskInfo> getDiskInfos() {
         return diskInfos;
     }
@@ -165,6 +169,10 @@ public class Frontend implements Writable {
                 BDBHA bdbha = (BDBHA) Env.getCurrentEnv().getHaProtocol();
                 bdbha.removeUnReadyElectableNode(nodeName, Env.getCurrentEnv().getFollowerCount());
             }
+            if (!isAlive) {
+                liveSince = System.currentTimeMillis();
+            }
+
             isAlive = true;
             version = hbResponse.getVersion();
             queryPort = hbResponse.getQueryPort();
@@ -173,7 +181,7 @@ public class Frontend implements Writable {
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
-            lastStartupTime = hbResponse.getProcessUUID();
+            lastStartupTime = hbResponse.getFeStartTime();
             diskInfos = hbResponse.getDiskInfos();
             isChanged = true;
             processUUID = hbResponse.getProcessUUID();
@@ -198,25 +206,7 @@ public class Frontend implements Writable {
         Text.writeString(out, json);
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        role = FrontendNodeType.valueOf(Text.readString(in));
-        if (role == FrontendNodeType.REPLICA) {
-            // this is for compatibility.
-            // we changed REPLICA to FOLLOWER
-            role = FrontendNodeType.FOLLOWER;
-        }
-        host = Text.readString(in);
-        editLogPort = in.readInt();
-        nodeName = Text.readString(in);
-    }
-
     public static Frontend read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_118) {
-            Frontend frontend = new Frontend();
-            frontend.readFields(in);
-            return frontend;
-        }
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Frontend.class);
     }

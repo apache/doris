@@ -35,7 +35,7 @@ suite("test_drop_cached_stats") {
             "replication_num" = "1"
         )
     """
-    createMV("create materialized view mv1 as select key1 from drop_cache_test;")
+    createMV("create materialized view mv1 as select key1 as a1 from drop_cache_test;")
 
     sql """insert into drop_cache_test values (1, "1", "1")"""
     sql """analyze table drop_cache_test with sync"""

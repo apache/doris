@@ -30,7 +30,6 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 namespace doris::pipeline {
@@ -93,7 +92,7 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
         sink->_num_agg_input.resize(agg_functions_size);
         sink->_offsets_of_aggregate_states.resize(agg_functions_size);
         sink->_change_to_nullable_flags.resize(agg_functions_size);
-        sink->_agg_functions[0] = create_agg_fn(pool, function_name, args_types, false);
+        sink->_agg_functions[0] = create_agg_fn(pool, function_name, args_types, false, true);
         sink->_num_agg_input[0] = 1;
         sink->_offsets_of_aggregate_states[0] = 0;
         sink->_total_size_of_aggregate_states = 100;
@@ -619,6 +618,188 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
         int row_count = 0;
         std::vector<int64_t> data_vals {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
         std::vector<int64_t> expect_vals {0, 0, 1, 2, 3, 4, 5, 6, 7, 8}; //sum
+        for (int i = 0; i < 5; i++) {
+            compare_block_result(row_count);
+            row_count += batch_size;
+        }
+        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        bool eos2 = false;
+        auto st2 = source->get_block(state.get(), &block2, &eos2);
+        EXPECT_TRUE(st2.ok()) << st2.msg();
+        EXPECT_EQ(block2.rows(), 0);
+        EXPECT_TRUE(eos2);
+    }
+    std::cout << "######### AggFunction with row_number test end #########" << std::endl;
+}
+
+TEST_F(AnalyticSinkOperatorTest, AggFunction7) {
+    int batch_size = 2;
+    Initialize(batch_size);
+    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()});
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_partition_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_order_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    TAnalyticWindow temp_window;
+    temp_window.type = TAnalyticWindowType::RANGE;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
+    temp_window.__set_window_end(window_end);
+    create_window_type(false, true, temp_window);
+    sink->_has_range_window = true;
+
+    create_local_state();
+
+    auto sink_data = [&](int row_count, bool eos) {
+        std::vector<int64_t> data_vals;
+        for (int i = 0; i < batch_size; i++) {
+            data_vals.push_back(row_count + i);
+        }
+        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
+        auto st = sink->sink(state.get(), &block, eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    };
+
+    {
+        int row_count = 0;
+        for (int i = 0; i < 5; i++) {
+            sink_data(row_count, i == 4);
+            row_count += batch_size;
+        }
+    }
+
+    auto compare_block_result = [&](int row_count, std::vector<int64_t> data_vals,
+                                    std::vector<int64_t> expect_vals) {
+        std::vector<int64_t> expect_vals_tmp;
+        std::vector<int64_t> data_vals_tmp;
+        for (int i = 0; i < batch_size; i++) {
+            data_vals_tmp.push_back(data_vals[i + row_count]);
+            expect_vals_tmp.push_back(expect_vals[i + row_count]);
+        }
+        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        std::cout << "source get from block is: \n" << block.dump_data() << std::endl;
+        std::cout << "block for real result is: \n "
+                  << ColumnHelper::create_block<DataTypeInt64>(data_vals_tmp, expect_vals_tmp)
+                             .dump_data()
+                  << std::endl;
+        EXPECT_TRUE(ColumnHelper::block_equal(
+                block, ColumnHelper::create_block<DataTypeInt64>(data_vals_tmp, expect_vals_tmp)));
+    };
+
+    {
+        int row_count = 0;
+        std::vector<int64_t> data_vals {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        std::vector<int64_t> expect_vals {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}; //sum
+        for (int i = 0; i < 5; i++) {
+            compare_block_result(row_count, data_vals, expect_vals);
+            row_count += batch_size;
+        }
+        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        bool eos2 = false;
+        auto st2 = source->get_block(state.get(), &block2, &eos2);
+        EXPECT_TRUE(st2.ok()) << st2.msg();
+        EXPECT_EQ(block2.rows(), 0);
+        EXPECT_TRUE(eos2);
+    }
+    Status exec_status = Status::OK();
+    auto st = sink_local_state->close(state.get(), exec_status);
+    EXPECT_TRUE(st.ok());
+    st = source_local_state->close(state.get());
+    EXPECT_TRUE(st.ok());
+    std::cout << "######### AggFunction with row_number test end #########" << std::endl;
+}
+
+// range between is not support by FE, shouldn't consider this test
+TEST_F(AnalyticSinkOperatorTest, AggFunction8) {
+    int batch_size = 1;
+    Initialize(batch_size);
+    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()});
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(2, std::make_shared<DataTypeInt64>());
+    sink->_partition_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_order_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>());
+    sink->_range_between_expr_ctxs = MockSlotRef::create_mock_contexts(
+            {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()});
+    TAnalyticWindow temp_window;
+    temp_window.type = TAnalyticWindowType::RANGE;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
+    temp_window.__set_window_end(window_end);
+    create_window_type(true, true, temp_window);
+    sink->_has_range_window = true;
+    create_local_state();
+    // test with row_number agg function and has window: _get_next_for_unbounded_rows
+    std::vector<int64_t> suppkey = {5,  5,  17, 17, 26, 26, 32, 32, 36, 36,
+                                    40, 40, 41, 41, 51, 51, 87, 87, 93, 93};
+    std::vector<int64_t> orderkey = {5, 5, 7, 7, 7, 7, 7, 7, 6, 6, 7, 7, 5, 5, 7, 7, 5, 5, 7, 7};
+    std::vector<int64_t> quantity = {50, 50, 46, 46, 35, 35, 28, 28, 37, 37,
+                                     38, 38, 26, 26, 12, 12, 15, 15, 9,  9};
+    std::vector<int64_t> first_value_quantity_A = {100, 100, 0,  92, 35, 35, 28, 28, 37, 37,
+                                                   38,  38,  26, 26, 12, 12, 15, 15, 9,  9};
+
+    auto sink_data = [&](int row_count, bool eos) {
+        std::vector<int64_t> col1, col2, col3;
+        for (int i = 0; i < batch_size; i++) {
+            col1.push_back(suppkey[row_count + i]);
+            col2.push_back(orderkey[row_count + i]);
+            col3.push_back(quantity[row_count + i]);
+        }
+        vectorized::Block block;
+
+        block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col1));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col2));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col3));
+        auto st = sink->sink(state.get(), &block, eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    };
+
+    {
+        int row_count = 0;
+        for (int i = 0; i < 5; i++) {
+            sink_data(row_count, i == 4);
+            row_count += batch_size;
+        }
+    }
+
+    auto compare_block_result = [&](int row_count) {
+        std::vector<int64_t> col1, col2, col3, expect_vals;
+        for (int i = 0; i < batch_size; i++) {
+            col1.push_back(suppkey[row_count + i]);
+            col2.push_back(orderkey[row_count + i]);
+            col3.push_back(quantity[row_count + i]);
+            expect_vals.push_back(first_value_quantity_A[row_count + i]);
+        }
+
+        vectorized::Block block;
+        block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        std::cout << "source get from block is: \n" << block.dump_data() << std::endl;
+
+        vectorized::Block result_block;
+        result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col1));
+        result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col2));
+        result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col3));
+        result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(expect_vals));
+        std::cout << "block for real result is: \n " << result_block.dump_data() << std::endl;
+        EXPECT_TRUE(ColumnHelper::block_equal(block, result_block));
+    };
+
+    {
+        int row_count = 0;
         for (int i = 0; i < 5; i++) {
             compare_block_result(row_count);
             row_count += batch_size;
