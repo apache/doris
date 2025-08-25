@@ -22,8 +22,8 @@
 #include <cstring>
 
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_variant.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/json/path_in_data.h"
 
@@ -33,7 +33,7 @@ using doris::segment_v2::ColumnIteratorOptions;
 using doris::segment_v2::HierarchicalDataIterator;
 using doris::vectorized::ColumnMap;
 using doris::vectorized::ColumnString;
-using doris::vectorized::ColumnVariant;
+using doris::vectorized::ColumnObject;
 using doris::vectorized::MutableColumnPtr;
 using doris::vectorized::PathInData;
 
@@ -47,15 +47,18 @@ public:
                           MutableColumnPtr&) override {
         return Status::OK();
     }
+    Status seek_to_first() override { return Status::OK(); }
 };
 
 TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     std::unique_ptr<ColumnIterator> sparse_reader = std::make_unique<DummySparseIterator>();
-    HierarchicalDataIterator::ReadType read_type = HierarchicalDataIterator::ReadType::READ_DIRECT;
     doris::segment_v2::ColumnIteratorUPtr iter;
-    ASSERT_TRUE(HierarchicalDataIterator::create(&iter, PathInData("a.b"), /*node*/ nullptr,
-                                                 /*root*/ nullptr, read_type,
-                                                 std::move(sparse_reader))
+    auto sparse_iter = std::make_unique<SubstreamIterator>(
+            doris::vectorized::ColumnObject::create_sparse_column_fn(), std::move(sparse_reader),
+            nullptr);
+    ASSERT_TRUE(HierarchicalDataIterator::create(
+                        &iter, /*col_uid*/ 0, PathInData("a.b"), /*node*/ nullptr,
+                        /*root*/ std::move(sparse_iter), nullptr, nullptr, nullptr)
                         .ok());
 
     ColumnIteratorOptions opts;
@@ -94,9 +97,9 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     offs.push_back(keys.size());
 
     const size_t nrows = 2;
-    MutableColumnPtr dst = ColumnVariant::create(/*max_subcolumns_count*/ 2, nrows);
+    MutableColumnPtr dst = ColumnObject::create(/*max_subcolumns_count*/ 2, nrows);
 
-    auto& variant = assert_cast<ColumnVariant&>(*dst);
+    auto& variant = assert_cast<ColumnObject&>(*dst);
     ASSERT_TRUE(hiter->_process_sparse_column(variant, nrows).ok());
 
     // root column + 2 subcolumns
@@ -126,7 +129,7 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
 
     EXPECT_EQ(read_offs.size(), 2);
 
-    EXPECT_EQ(read_keys.get_element(0), "e");
+    EXPECT_EQ(read_keys.get_data_at(0).to_string(), "e");
     auto val = read_vals.get_data_at(0).to_string();
     EXPECT_EQ(val.substr(val.size() - 9, 9), "abevalues");
 
