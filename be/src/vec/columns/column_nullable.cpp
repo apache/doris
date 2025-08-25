@@ -56,7 +56,7 @@ void ColumnNullable::shrink_padding_chars() {
 
 void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                               const uint8_t* __restrict null_data) const {
-    if (!has_null()) {
+    if (!has_null(start, end)) {
         _nested_column->update_xxHash_with_value(start, end, hash, nullptr);
     } else {
         const auto* __restrict real_null_data =
@@ -72,7 +72,7 @@ void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t
 
 void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                            const uint8_t* __restrict null_data) const {
-    if (!has_null()) {
+    if (!has_null(start, end)) {
         _nested_column->update_crc_with_value(start, end, hash, nullptr);
     } else {
         const auto* __restrict real_null_data =
@@ -580,7 +580,7 @@ void ColumnNullable::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 }
 
 bool ColumnNullable::has_null(size_t begin, size_t end) const {
-    return simd::contain_byte(get_null_map_data().data() + begin, end - begin + 1, 1);
+    return simd::contain_byte(get_null_map_data().data() + begin, end - begin, 1);
 }
 
 bool ColumnNullable::has_null() const {
