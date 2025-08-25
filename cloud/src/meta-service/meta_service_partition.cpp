@@ -784,7 +784,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     drop_partition_log.set_db_id(request->db_id());
     drop_partition_log.set_table_id(request->table_id());
     drop_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
-    drop_partition_log.set_expiration(request->expiration());
+    drop_partition_log.set_expired_at_s(request->expiration());
 
     MetaReader reader(instance_id);
     for (auto part_id : request->partition_ids()) {
