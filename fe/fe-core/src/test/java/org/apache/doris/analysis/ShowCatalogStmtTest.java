@@ -30,14 +30,14 @@ public class ShowCatalogStmtTest {
         ShowCatalogStmt stmt = new ShowCatalogStmt();
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getCatalogName());
-        Assert.assertEquals(7, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(8, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("SHOW CATALOGS", stmt.toSql());
 
         stmt = new ShowCatalogStmt(null, "%hive%");
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getCatalogName());
         Assert.assertNotNull(stmt.getPattern());
-        Assert.assertEquals(7, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(8, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("SHOW CATALOGS LIKE '%hive%'", stmt.toSql());
 
         stmt = new ShowCatalogStmt("testCatalog", null);

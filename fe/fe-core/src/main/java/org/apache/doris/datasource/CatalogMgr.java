@@ -66,6 +66,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -386,12 +387,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     row.add(createTime);
                     row.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
                     row.add(catalog.getComment());
+                    row.add(Strings.nullToEmpty(catalog.getErrorMsg()));
                     rows.add(row);
 
                     // sort by catalog name
-                    rows.sort((x, y) -> {
-                        return x.get(1).compareTo(y.get(1));
-                    });
+                    rows.sort(Comparator.comparing(x -> x.get(1)));
                 }
             } else {
                 if (!nameToCatalog.containsKey(showStmt.getCatalogName())) {
