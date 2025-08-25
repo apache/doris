@@ -32,6 +32,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -63,7 +64,9 @@ import java.text.ParseException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -436,5 +439,16 @@ public class HudiUtils {
         tschema.setSchemaId(hudiInternalSchema.schemaId());
         tschema.setRootField(getSchemaInfo(hudiInternalSchema.getRecord().fields()));
         return tschema;
+    }
+
+    public static Map<String, String> getPartitionInfoMap(HMSExternalTable table, HivePartition partition) {
+        Map<String, String> partitionInfoMap = new HashMap<>();
+        List<Column> partitionColumns = table.getPartitionColumns();
+        for (int i = 0; i < partitionColumns.size(); i++) {
+            String partitionName = partitionColumns.get(i).getName();
+            String partitionValue = partition.getPartitionValues().get(i);
+            partitionInfoMap.put(partitionName, partitionValue);
+        }
+        return partitionInfoMap;
     }
 }
