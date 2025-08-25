@@ -423,11 +423,59 @@ public class ExpressionUtils {
      * Replace expression node with predicate in the expression tree by `replaceMap` in top-down manner.
      */
     public static Expression replaceIf(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
-            Predicate<Expression> predicate) {
+            Predicate<Expression> predicate, boolean stopWhenNotMatched) {
         return expr.rewriteDownShortCircuitDown(e -> {
             Expression replacedExpr = replaceMap.get(e);
             return replacedExpr == null ? e : replacedExpr;
-        }, predicate);
+        }, predicate, stopWhenNotMatched);
+    }
+
+    public static Set<Expression> replaceWithCounter(Set<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap, Map<Expression, Integer> counterMap) {
+        ImmutableSet.Builder<Expression> result = ImmutableSet.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replaceWithCounter(expr, replaceMap, counterMap));
+        }
+        return result.build();
+    }
+
+    public static List<Expression> replaceWithCounter(List<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap,
+            Map<Expression, Integer> counterMap) {
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replaceWithCounter(expr, replaceMap, counterMap));
+        }
+        return result.build();
+    }
+
+    /**
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
+     * This function gives counter map to record replace count.
+     * For example.
+     * <pre>
+     * input expression: a > 1
+     * replaceMap: a -> b + c
+     *
+     * output:
+     * b + c > 1
+     * </pre>
+     */
+    public static Expression replaceWithCounter(Expression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap,
+            Map<Expression, Integer> counterMap) {
+        return expr.rewriteDownShortCircuit(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            if (replacedExpr != null) {
+                if (!counterMap.containsKey(e)) {
+                    counterMap.put(e, 1);
+                } else {
+                    counterMap.put(e, counterMap.get(e) + 1);
+                }
+                return replacedExpr;
+            }
+            return e;
+        });
     }
 
     /**
