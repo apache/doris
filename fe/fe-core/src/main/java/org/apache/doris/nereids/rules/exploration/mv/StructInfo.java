@@ -100,7 +100,6 @@ public class StructInfo {
     // So if the cascadesContext currently is different form the cascadesContext which generated it.
     // Should regenerate the tableBitSet by current cascadesContext and call withTableBitSet method
     private final BitSet tableBitSet;
-    private final BitSet relationIdBitSet;
     // this is for LogicalCompatibilityContext later
     private final Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap;
     // this recorde the predicates which can pull up, not shuttled
@@ -138,7 +137,6 @@ public class StructInfo {
                     shuttledExpressionsToExpressionsMap,
             Map<ExpressionPosition, Map<Expression, Expression>> expressionToShuttledExpressionToMap,
             BitSet tableIdSet,
-            BitSet relationIdSet,
             SplitPredicate splitPredicate,
             EquivalenceClass equivalenceClass,
             List<? extends Expression> planOutputShuttledExpressions) {
@@ -150,7 +148,6 @@ public class StructInfo {
         this.bottomPlan = bottomPlan;
         this.relations = relations;
         this.tableBitSet = tableIdSet;
-        this.relationIdBitSet = relationIdSet;
         this.relationIdStructInfoNodeMap = relationIdStructInfoNodeMap;
         this.predicates = predicates;
         this.splitPredicate = splitPredicate;
@@ -167,19 +164,7 @@ public class StructInfo {
         return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
                 this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, predicates,
                 this.shuttledExpressionsToExpressionsMap, this.expressionToShuttledExpressionToMap,
-                this.tableBitSet, this.relationIdBitSet, null, null,
-                this.planOutputShuttledExpressions);
-    }
-
-    /**
-     * Construct StructInfo with new tableBitSet
-     */
-    public StructInfo withTableBitSet(BitSet tableBitSet, BitSet relationIdBitSet) {
-        return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
-                this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, this.predicates,
-                this.shuttledExpressionsToExpressionsMap, this.expressionToShuttledExpressionToMap,
-                tableBitSet, relationIdBitSet, this.splitPredicate, this.equivalenceClass,
-                this.planOutputShuttledExpressions);
+                this.tableBitSet, null, null, this.planOutputShuttledExpressions);
     }
 
     private static boolean collectStructInfoFromGraph(HyperGraph hyperGraph,
@@ -190,23 +175,16 @@ public class StructInfo {
             List<CatalogRelation> relations,
             Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap,
             BitSet hyperTableBitSet,
-            BitSet relationBitSet,
             CascadesContext cascadesContext) {
 
         // Collect relations from hyper graph which in the bottom plan firstly
         hyperGraph.getNodes().forEach(node -> {
             // plan relation collector and set to map
-            Plan nodePlan = node.getPlan();
-            List<CatalogRelation> nodeRelations = new ArrayList<>();
-            nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
-            relations.addAll(nodeRelations);
-            nodeRelations.forEach(relation -> {
-                hyperTableBitSet.set(
-                        cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt());
-                relationBitSet.set(relation.getRelationId().asInt());
-            });
-            // plan relation collector and set to map
             StructInfoNode structInfoNode = (StructInfoNode) node;
+            // plan relation collector and set to map
+            Set<CatalogRelation> nodeRelations = structInfoNode.getCatalogRelation();
+            relations.addAll(structInfoNode.getCatalogRelation());
+            nodeRelations.forEach(relation -> hyperTableBitSet.set(relation.getRelationId().asInt()));
             // record expressions in node
             List<Expression> nodeExpressions = structInfoNode.getExpressions();
             if (nodeExpressions != null) {
@@ -221,7 +199,7 @@ public class StructInfo {
             }
             // every node should only have one relation, this is for LogicalCompatibilityContext
             if (!nodeRelations.isEmpty()) {
-                relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), structInfoNode);
+                relationIdStructInfoNodeMap.put(nodeRelations.iterator().next().getRelationId(), structInfoNode);
             }
         });
         // Collect expression from join condition in hyper graph
@@ -290,6 +268,9 @@ public class StructInfo {
      * Maybe return multi structInfo when original plan already be rewritten by mv
      */
     public static StructInfo of(Plan derivedPlan, Plan originalPlan, CascadesContext cascadesContext) {
+        if (originalPlan == null) {
+            originalPlan = derivedPlan;
+        }
         // Split plan by the boundary which contains multi child
         LinkedHashSet<Class<? extends Plan>> set = Sets.newLinkedHashSet();
         set.add(LogicalJoin.class);
@@ -323,14 +304,12 @@ public class StructInfo {
         Map<ExpressionPosition, Multimap<Expression, Pair<Expression, HyperElement>>>
                 shuttledHashConjunctsToConjunctsMap = new LinkedHashMap<>();
         BitSet tableBitSet = new BitSet();
-        BitSet relationBitSet = new BitSet();
         Map<ExpressionPosition, Map<Expression, Expression>> expressionToShuttledExpressionToMap = new HashMap<>();
         boolean valid = collectStructInfoFromGraph(hyperGraph, topPlan, shuttledHashConjunctsToConjunctsMap,
                 expressionToShuttledExpressionToMap,
                 relationList,
                 relationIdStructInfoNodeMap,
                 tableBitSet,
-                relationBitSet,
                 cascadesContext);
         valid = valid
                 && hyperGraph.getNodes().stream().allMatch(n -> ((StructInfoNode) n).getExpressions() != null);
@@ -349,7 +328,8 @@ public class StructInfo {
         return new StructInfo(originalPlan, originalPlanId, hyperGraph, valid, topPlan, bottomPlan,
                 relationList, relationIdStructInfoNodeMap, predicates, shuttledHashConjunctsToConjunctsMap,
                 expressionToShuttledExpressionToMap,
-                tableBitSet, relationBitSet, null, null, planOutputShuttledExpressions);
+                tableBitSet, null, null,
+                planOutputShuttledExpressions);
     }
 
     public List<CatalogRelation> getRelations() {
@@ -451,10 +431,6 @@ public class StructInfo {
 
     public BitSet getTableBitSet() {
         return tableBitSet;
-    }
-
-    public BitSet getRelationIdBitSet() {
-        return relationIdBitSet;
     }
 
     public List<? extends Expression> getPlanOutputShuttledExpressions() {
@@ -766,11 +742,10 @@ public class StructInfo {
         queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
                 (LogicalPlan) queryPlanWithUnionFilter, new DeepCopierContext());
         // rbo rewrite after adding filter on origin plan
-        Plan filterAddedPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
+        return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
-        }, queryPlanWithUnionFilter, queryPlan);
-        return Pair.of(filterAddedPlan, true);
+        }, queryPlanWithUnionFilter, queryPlan, false), true);
     }
 
     /**

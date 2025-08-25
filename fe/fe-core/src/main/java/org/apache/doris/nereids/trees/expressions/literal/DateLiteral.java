@@ -276,7 +276,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
     }
 
     /** parseDateLiteral */
-    public static Result<DateLiteral, AnalysisException> parseDateLiteral(String s) {
+    public static Result<DateLiteral, AnalysisException> parseDateLiteral(String s, boolean isV2) {
         Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
         if (parseResult.isError()) {
             return parseResult.cast();
@@ -289,7 +289,11 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         if (checkDatetime(dateTime) || checkRange(year, month, day) || checkDate(year, month, day)) {
             return Result.err(() -> new AnalysisException("date/datetime literal [" + s + "] is out of range"));
         }
-        return Result.ok(new DateLiteral(year, month, day));
+        if (isV2) {
+            return Result.ok(new DateV2Literal(year, month, day));
+        } else {
+            return Result.ok(new DateLiteral(year, month, day));
+        }
     }
 
     /** parseDateTime */

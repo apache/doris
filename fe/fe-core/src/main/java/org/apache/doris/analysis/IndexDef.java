@@ -92,7 +92,7 @@ public class IndexDef {
     }
 
     public void analyze() throws AnalysisException {
-        if (isBuildDeferred && indexType == IndexDef.IndexType.INVERTED) {
+        if (isBuildDeferred && (indexType == IndexDef.IndexType.INVERTED || indexType == IndexDef.IndexType.ANN)) {
             if (Strings.isNullOrEmpty(indexName)) {
                 throw new AnalysisException("index name cannot be blank.");
             }
@@ -103,7 +103,8 @@ public class IndexDef {
         }
 
         if (indexType == IndexDef.IndexType.BITMAP
-                || indexType == IndexDef.IndexType.INVERTED) {
+                || indexType == IndexDef.IndexType.INVERTED
+                || indexType == IndexDef.IndexType.ANN) {
             if (columns == null || columns.size() != 1) {
                 throw new AnalysisException(indexType.toString() + " index can only apply to a single column.");
             }
@@ -210,11 +211,16 @@ public class IndexDef {
         BITMAP,
         INVERTED,
         BLOOMFILTER,
-        NGRAM_BF
+        NGRAM_BF,
+        ANN
     }
 
     public boolean isInvertedIndex() {
         return (this.indexType == IndexType.INVERTED);
+    }
+
+    public boolean isAnnIndex() {
+        return (this.indexType == IndexType.ANN);
     }
 
     // Check if the column type is supported for inverted index
@@ -235,6 +241,28 @@ public class IndexDef {
 
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (indexType == IndexType.ANN) {
+            if (column.isAllowNull()) {
+                throw new AnalysisException("ANN index must be built on a column that is not nullable");
+            }
+
+            String indexColName = column.getName();
+            caseSensitivityColumns.add(indexColName);
+            PrimitiveType primitiveType = column.getDataType();
+            if (!primitiveType.isArrayType()) {
+                throw new AnalysisException("ANN index column must be array type");
+            }
+            Type columnType = column.getType();
+            Type itemType = ((ArrayType) columnType).getItemType();
+            if (!itemType.isFloatingPointType()) {
+                throw new AnalysisException("ANN index column item type must be float type");
+            }
+            if (keysType != KeysType.DUP_KEYS) {
+                throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
+            }
+            return;
+        }
+
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
                 || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -244,6 +272,10 @@ public class IndexDef {
             if (!isSupportIdxType(columnType)) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
+            }
+
+            if (indexType == IndexType.ANN && !colType.isArrayType()) {
+                throw new AnalysisException("ANN index column must be array type");
             }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
@@ -309,5 +341,12 @@ public class IndexDef {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid value for '" + key + "': " + valueStr, e);
         }
+    }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+            && properties != null
+            && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

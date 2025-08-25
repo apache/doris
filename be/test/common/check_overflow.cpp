@@ -20,7 +20,6 @@
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

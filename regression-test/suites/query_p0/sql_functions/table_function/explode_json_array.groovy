@@ -62,7 +62,7 @@ suite("explode_json_array") {
                                         TMP AS e1) AS T ORDER BY age, e1"""
     qt_outer_join_explode_json_array111 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM
                                         person a LEFT JOIN person b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_JSON('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]')
-                                        TMP AS e1) AS T ORDER BY age, e1"""
+                                        TMP AS e1) AS T ORDER BY age, json_extract_int(e1, '\$.id')"""
 
     qt_outer_join_explode_json_array112 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM
                                         person a LEFT JOIN person b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_JSON(cast('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]' as Json))
@@ -143,4 +143,145 @@ suite("explode_json_array") {
         WHERE id = 4 order by id, e1;
     """ 
 
+    sql """
+        drop table if exists example;
+    """
+
+    sql """
+        create table example(
+            id int
+        ) properties(
+            "replication_num" = "1"
+        );
+    """
+
+    sql """ insert into example values(1); """
+
+    qt_explode_json_array_double1 """
+        select * from example lateral view explode_json_array_double('[4, 5, 5.23, null]') t2 as c order by 2;
+    """
+    qt_explode_json_array_double2 """
+        select * from example
+        lateral view 
+        explode_json_array_double('[123.445, 9223372036854775807.0, 9223372036854775808.0, -9223372036854775808.0, -9223372036854775809.0]') t2 as c
+        order by 2;
+    """
+    qt_explode_json_array_double3 """
+        select * from example lateral view explode_json_array_double('[]') t2 as c;
+    """
+    qt_explode_json_array_double4 """
+        select * from example lateral view explode_json_array_double(NULL) t2 as c;
+    """
+    qt_explode_json_array_double5 """
+        select * from example lateral view explode_json_array_double('{}') t2 as c;
+    """
+
+    qt_explode_json_array_double_outer1 """
+        select * from example lateral view explode_json_array_double_outer('[4, 5, 5.23, null]') t2 as c order by 2;
+    """
+    qt_explode_json_array_double_outer2 """
+        select * from example
+        lateral view 
+        explode_json_array_double_outer('[123.445, 9223372036854775807.0, 9223372036854775808.0, -9223372036854775808.0, -9223372036854775809.0]') t2 as c
+        order by 2;
+    """
+    qt_explode_json_array_double_outer3 """
+        select * from example lateral view explode_json_array_double_outer('[]') t2 as c;
+    """
+    qt_explode_json_array_double_outer4 """
+        select * from example lateral view explode_json_array_double_outer(NULL) t2 as c;
+    """
+    qt_explode_json_array_double_outer5 """
+        select * from example lateral view explode_json_array_double_outer('{}') t2 as c;
+    """
+
+    qt_explode_json_array_int1 """
+        select * from example lateral view explode_json_array_int('[4, 5, 5.23, null]') t2 as c order by 2;
+    """
+    qt_explode_json_array_int2 """
+        select * from example 
+        lateral view 
+        explode_json_array_int('["abc", "123.4", 9223372036854775808.0, 9223372036854775295.999999]') t2 as c
+        order by 2;
+    """
+    qt_explode_json_array_int3 """
+        select * from example lateral view explode_json_array_int('[]') t2 as c;
+    """
+    qt_explode_json_array_int4 """
+        select * from example lateral view explode_json_array_int(NULL) t2 as c;
+    """
+    qt_explode_json_array_int5 """
+        select * from example lateral view explode_json_array_int('{}') t2 as c;
+    """
+
+    qt_explode_json_array_int_outer1 """
+        select * from example lateral view explode_json_array_int_outer('[4, 5, 5.23, null]') t2 as c order by 2;
+    """
+    qt_explode_json_array_int_outer2 """
+        select * from example 
+        lateral view 
+        explode_json_array_int_outer('["abc", "123.4", 9223372036854775808.0, 9223372036854775295.999999]') t2 as c
+        order by 2;
+    """
+    qt_explode_json_array_int_outer3 """
+        select * from example lateral view explode_json_array_int_outer('[]') t2 as c;
+    """
+    qt_explode_json_array_int_outer4 """
+        select * from example lateral view explode_json_array_int_outer(NULL) t2 as c;
+    """
+    qt_explode_json_array_int_outer5 """
+        select * from example lateral view explode_json_array_int_outer('{}') t2 as c;
+    """
+
+    qt_explode_json_array_string1 """
+        select * from example lateral view explode_json_array_string('[4, "5", "abc", 5.23, null]') t2 as c order by 2;
+    """
+    qt_explode_json_array_string2 """
+        select * from example lateral view explode_json_array_string('[]') t2 as c;
+    """
+    qt_explode_json_array_string3 """
+        select * from example lateral view explode_json_array_string(NULL) t2 as c;
+    """
+    qt_explode_json_array_string4 """
+        select * from example lateral view explode_json_array_string('{}') t2 as c;
+    """
+
+    qt_explode_json_array_string_outer1 """
+        select * from example lateral view explode_json_array_string_outer('[4, "5", "abc", 5.23, null]') t2 as c order by 2;
+    """
+    qt_explode_json_array_string_outer2 """
+        select * from example lateral view explode_json_array_string_outer('[]') t2 as c;
+    """
+    qt_explode_json_array_string_outer3 """
+        select * from example lateral view explode_json_array_string_outer(NULL) t2 as c;
+    """
+    qt_explode_json_array_string_outer4 """
+        select * from example lateral view explode_json_array_string_outer('{}') t2 as c;
+    """
+
+    qt_explode_json_array_json1 """
+        select * from example lateral view explode_json_array_json('[4, "abc", {"key": "value"}, 5.23, null]') t2 as c order by 2;
+    """
+    qt_explode_json_array_json2 """
+        select * from example lateral view explode_json_array_json('[]') t2 as c;
+    """
+    qt_explode_json_array_json3 """
+        select * from example lateral view explode_json_array_json(NULL) t2 as c;
+    """
+    qt_explode_json_array_json4 """
+        select * from example lateral view explode_json_array_json('{}') t2 as c;
+    """
+
+    qt_explode_json_array_json_outer1 """
+        select * from example lateral view explode_json_array_json_outer('[4, "5", "abc", 5.23, null]') t2 as c order by 2;
+    """
+    qt_explode_json_array_json_outer2 """
+        select * from example lateral view explode_json_array_json_outer('[]') t2 as c;
+    """
+    qt_explode_json_array_json_outer3 """
+        select * from example lateral view explode_json_array_json_outer(NULL) t2 as c;
+    """
+    qt_explode_json_array_json_outer4 """
+        select * from example lateral view explode_json_array_json_outer('{}') t2 as c;
+    """
 }

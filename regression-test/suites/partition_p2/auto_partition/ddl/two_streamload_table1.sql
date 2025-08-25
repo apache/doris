@@ -8,7 +8,7 @@ CREATE TABLE `two_streamload_list1`(
 AUTO PARTITION BY list(`col1`)
 (
 )
-DISTRIBUTED BY HASH(`col1`) BUCKETS 10
+DISTRIBUTED BY HASH(`col1`) BUCKETS 1
 PROPERTIES (
 "replication_num" = "1"
 );

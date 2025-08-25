@@ -125,4 +125,8 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                 + e.getMessage(), e);
         }
     }
+
+    public CreateTableLikeInfo getInfo() {
+        return info;
+    }
 }

@@ -128,15 +128,7 @@ struct AggregateFunctionArrayAggData {
     }
 
     void merge(const Self& rhs) {
-        const auto size = rhs.null_map->size();
-        null_map->resize(size);
-        nested_column->reserve(size);
-        for (size_t i = 0; i < size; i++) {
-            const auto null_value = rhs.null_map->data()[i];
-            const auto data_value = rhs.nested_column->get_data()[i];
-            null_map->data()[i] = null_value;
-            nested_column->get_data().push_back(data_value);
-        }
+        column_data->insert_range_from(*rhs.column_data, 0, rhs.column_data->size());
     }
 };
 
@@ -229,15 +221,7 @@ struct AggregateFunctionArrayAggData<T> {
     }
 
     void merge(const Self& rhs) {
-        const auto size = rhs.null_map->size();
-        null_map->resize(size);
-        nested_column->reserve(size);
-        for (size_t i = 0; i < size; i++) {
-            const auto null_value = rhs.null_map->data()[i];
-            auto s = rhs.nested_column->get_data_at(i);
-            null_map->data()[i] = null_value;
-            nested_column->insert_data(s.data, s.size);
-        }
+        column_data->insert_range_from(*rhs.column_data, 0, rhs.column_data->size());
     }
 };
 
@@ -296,7 +280,9 @@ struct AggregateFunctionArrayAggData<T> {
 //todo: Supports order by sorting for array_agg
 template <typename Data>
 class AggregateFunctionArrayAgg
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionArrayAgg(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true>(

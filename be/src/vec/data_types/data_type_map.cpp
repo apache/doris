@@ -36,7 +36,6 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

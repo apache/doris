@@ -28,7 +28,6 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris {
 namespace vectorized {

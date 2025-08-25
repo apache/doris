@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.Objects;
@@ -29,7 +31,8 @@ import java.util.Objects;
 /**
  * resume mtmv
  */
-public class ShowCreateMTMVCommand extends Command implements NoForward {
+public class ShowCreateMTMVCommand extends ShowCommand {
+
     private final ShowCreateMTMVInfo showCreateMTMVInfo;
 
     public ShowCreateMTMVCommand(ShowCreateMTMVInfo showCreateMTMVInfo) {
@@ -38,9 +41,14 @@ public class ShowCreateMTMVCommand extends Command implements NoForward {
     }
 
     @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public ShowResultSetMetaData getMetaData() {
+        return showCreateMTMVInfo.getMetaData();
+    }
+
+    @Override
+    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         showCreateMTMVInfo.analyze(ctx);
-        showCreateMTMVInfo.run(executor);
+        return showCreateMTMVInfo.getShowResultSet();
     }
 
     @Override

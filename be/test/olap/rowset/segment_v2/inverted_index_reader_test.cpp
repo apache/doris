@@ -2352,8 +2352,8 @@ public:
         EXPECT_NE(iterator, nullptr);
 
         // Test iterator properties
-        auto inverted_index_reader =
-                std::static_pointer_cast<InvertedIndexReader>(iterator->get_reader());
+        auto inverted_index_reader = std::static_pointer_cast<InvertedIndexReader>(
+                iterator->get_reader(InvertedIndexReaderType::STRING_TYPE));
         EXPECT_EQ(inverted_index_reader->type(), InvertedIndexReaderType::STRING_TYPE);
         EXPECT_FALSE(inverted_index_reader->get_index_properties().empty());
         EXPECT_TRUE(inverted_index_reader->has_null());
@@ -2378,7 +2378,8 @@ public:
         auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
         inverted_index_iterator->set_context(context);
         status = inverted_index_iterator->try_read_from_inverted_index(
-                "c2", &str_ref, InvertedIndexQueryType::EQUAL_QUERY, &count);
+                std::static_pointer_cast<InvertedIndexReader>(inverted_index_reader), "c2",
+                &str_ref, InvertedIndexQueryType::EQUAL_QUERY, &count);
         EXPECT_TRUE(status.ok());
     }
 
@@ -2928,6 +2929,8 @@ public:
         // Test try_read_from_inverted_index with non-BKD compatible query
         size_t count = 0;
         status = inverted_index_iterator->try_read_from_inverted_index(
+                std::static_pointer_cast<InvertedIndexReader>(
+                        iterator->get_reader(InvertedIndexReaderType::STRING_TYPE)),
                 "c1", &query_value, InvertedIndexQueryType::MATCH_ANY_QUERY, &count);
         EXPECT_TRUE(status.ok()); // Should succeed but not do anything for non-BKD queries
     }

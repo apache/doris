@@ -36,6 +36,10 @@ public:
 
     static constexpr size_t number_of_arguments = 2;
 
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
     static FunctionPtr create() { return std::make_shared<FunctionLLMSentiment>(); }
 
     Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,

@@ -53,6 +53,10 @@ public:
                                  _fn.name.function_name, get_child_names(), _data_type->get_name());
     }
 
+#ifdef BE_TEST
+    VCompoundPred() = default;
+#endif
+
     const std::string& expr_name() const override { return _expr_name; }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
@@ -69,18 +73,19 @@ public:
                     all_pass = false;
                     continue;
                 }
-                if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
-                            child.get())) {
+                auto inverted_index_context = context->get_inverted_index_context();
+                if (inverted_index_context->has_inverted_index_result_for_expr(child.get())) {
                     const auto* index_result =
-                            context->get_inverted_index_context()
-                                    ->get_inverted_index_result_for_expr(child.get());
+                            inverted_index_context->get_inverted_index_result_for_expr(child.get());
                     if (res.is_empty()) {
                         res = *index_result;
                     } else {
                         res |= *index_result;
                     }
-                    if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
-                        break; // Early exit if result is full
+                    if (inverted_index_context->get_score_runtime() == nullptr) {
+                        if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
+                            break; // Early exit if result is full
+                        }
                     }
                 } else {
                     all_pass = false;

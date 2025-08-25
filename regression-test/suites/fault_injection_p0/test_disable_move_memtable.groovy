@@ -230,7 +230,7 @@ suite("test_disable_move_memtable", "nonConcurrent") {
         def check_load_result = {checklabel, testTablex, res ->
             def max_try_milli_secs = 10000
             while(max_try_milli_secs) {
-                result = sql "show load where label = '${checklabel}'"
+                def result = sql "show load where label = '${checklabel}'"
                 log.info("result: ${result}")
                 if(result[0][2].toString() == "${res}".toString()) {
                     break

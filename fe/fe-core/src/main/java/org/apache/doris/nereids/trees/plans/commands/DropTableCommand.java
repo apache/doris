@@ -80,6 +80,10 @@ public class DropTableCommand extends Command implements ForwardWithSync {
                 isMaterializedView, ifExists, forceDrop);
     }
 
+    public void setMaterializedView(boolean materializedView) {
+        isMaterializedView = materializedView;
+    }
+
     @Override
     public StmtType stmtType() {
         return StmtType.DROP;

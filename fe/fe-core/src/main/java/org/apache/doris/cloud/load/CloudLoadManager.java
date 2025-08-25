@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.load;
 
-import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -37,6 +36,8 @@ import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CopyIntoInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -77,8 +78,9 @@ public class CloudLoadManager extends LoadManager {
         return super.createLoadJobFromStmt(stmt);
     }
 
-    public LoadJob createLoadJobFromStmt(CopyStmt stmt) throws DdlException {
-        Database database = super.checkDb(stmt.getDbName());
+    public LoadJob createLoadJobFromCopyIntoCommand(CopyIntoCommand command) throws DdlException {
+        CopyIntoInfo copyIntoInfo = command.getCopyIntoInfo();
+        Database database = super.checkDb(copyIntoInfo.getDbName());
         long dbId = database.getId();
         BrokerLoadJob loadJob = null;
         ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStartCurrentCluster();
@@ -88,14 +90,25 @@ public class CloudLoadManager extends LoadManager {
             long unfinishedCopyJobNum = unprotectedGetUnfinishedCopyJobNum();
             if (unfinishedCopyJobNum >= Config.cluster_max_waiting_copy_jobs) {
                 throw new DdlException(
-                        "There are more than " + unfinishedCopyJobNum + " unfinished copy jobs, please retry later.");
+                    "There are more than " + unfinishedCopyJobNum + " unfinished copy jobs, please retry later.");
             }
-            loadJob = new CopyJob(dbId, stmt.getLabel().getLabelName(), ConnectContext.get().queryId(),
-                    stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo(), stmt.getStageId(),
-                    stmt.getStageType(), stmt.getStagePrefix(), stmt.getSizeLimit(), stmt.getPattern(),
-                    stmt.getObjectInfo(), stmt.isForce(), stmt.getUserName());
-            loadJob.setJobProperties(stmt.getProperties());
-            loadJob.checkAndSetDataSourceInfo(database, stmt.getDataDescriptions());
+            loadJob = new CopyJob(
+                dbId,
+                copyIntoInfo.getLabel().getLabelName(),
+                ConnectContext.get().queryId(),
+                copyIntoInfo.getBrokerDesc(),
+                copyIntoInfo.getOriginStmt(),
+                ConnectContext.get().getCurrentUserIdentity(),
+                copyIntoInfo.getStageId(),
+                copyIntoInfo.getStageType(),
+                copyIntoInfo.getStagePrefix(),
+                copyIntoInfo.getSizeLimit(),
+                copyIntoInfo.getPattern(),
+                copyIntoInfo.getObjectInfo(),
+                copyIntoInfo.isForce(),
+                copyIntoInfo.getUserName());
+            loadJob.setJobProperties(copyIntoInfo.getProperties());
+            loadJob.checkAndSetDataSourceInfo(database, copyIntoInfo.getDataDescriptions());
             loadJob.setTimeout(ConnectContext.get().getExecTimeoutS());
             createLoadJob(loadJob);
         } catch (MetaNotFoundException e) {

@@ -368,7 +368,9 @@ Status PipelineTask::execute(bool* done) {
                                      debug_string());
     }
     auto fragment_context = _fragment_context.lock();
-    DCHECK(fragment_context);
+    if (!fragment_context) {
+        return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
+    }
     int64_t time_spent = 0;
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();

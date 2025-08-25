@@ -108,6 +108,9 @@ DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
 
+// Skip writing empty rowset metadata to meta service
+DECLARE_mBool(skip_writing_empty_rowset_metadata);
+
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
 
@@ -141,6 +144,8 @@ DECLARE_mBool(enable_compaction_delay_commit_for_warm_up);
 DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
 
 DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
+
+DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

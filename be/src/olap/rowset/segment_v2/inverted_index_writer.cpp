@@ -218,7 +218,9 @@ Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
     RETURN_IF_ERROR(open_index_directory());
     _char_string_reader =
             DORIS_TRY(create_char_string_reader(_inverted_index_ctx->char_filter_map));
-    _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+    if (_should_analyzer) {
+        _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+    }
     _similarity = std::make_unique<lucene::search::LengthSimilarity>();
     _index_writer = create_index_writer();
     _doc = std::make_unique<lucene::document::Document>();
@@ -708,7 +710,6 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_CHAR>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_STRING>;
-
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TINYINT>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_SMALLINT>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_INT>;
@@ -727,5 +728,7 @@ template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL256>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_BOOL>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV4>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV6>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_FLOAT>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DOUBLE>;
 
 } // namespace doris::segment_v2

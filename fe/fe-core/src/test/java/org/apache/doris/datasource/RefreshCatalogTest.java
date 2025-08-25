@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -34,10 +33,10 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -148,10 +147,11 @@ public class RefreshCatalogTest extends TestWithFeService {
         Assertions.assertFalse(table.isObjectCreated());
         table.makeSureInitialized();
         Assertions.assertTrue(table.isObjectCreated());
-        RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt("test2", null);
-        Assertions.assertTrue(refreshCatalogStmt.isInvalidCache());
+
+        RefreshCatalogCommand refreshCatalogCommand = new RefreshCatalogCommand("test2", null);
+        Assertions.assertTrue(refreshCatalogCommand.isInvalidCache());
         try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+            refreshCatalogCommand.run(connectContext, null);
         } catch (Exception e) {
             // Do nothing
         }
@@ -166,7 +166,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         test2.getDbNullable("db1").getTables();
         Assertions.assertFalse(table.isObjectCreated());
         try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
+            refreshCatalogCommand.run(connectContext, null);
         } catch (Exception e) {
             // Do nothing
         }

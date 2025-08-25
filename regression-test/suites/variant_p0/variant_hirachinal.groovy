@@ -48,4 +48,40 @@ suite("regression_test_variant_hirachinal", "variant_type"){
     sql """insert into ${table_name} values (-3, '{"c" : 12345}')"""
     order_qt_sql1 "select cast(v['c'] as string) from var_rs where k = -3 or k = -2 or k = -4 or (k = 1 and v['c'] = 1024) order by k"
     order_qt_sql2 "select cast(v['c'] as string) from var_rs where k = -3 or k = -2 or k = 1 order by k, cast(v['c'] as text) limit 3"
+
+
+    sql "DROP TABLE IF EXISTS ${table_name}"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${table_name} (
+            k bigint,
+            v variant<properties("variant_max_subcolumns_count" = "2")>
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+    """
+
+    sql """insert into ${table_name} values (1, '{"a": 1, "b": 2, "c" : {"d" : 2}}'), (2, '{"a": 3, "b": 4}');"""
+    sql """insert into ${table_name} values (3, '{"c": {"d": 6}}');"""
+
+    qt_sql """select v['c'] from ${table_name} order by k;"""
+
+    sql "DROP TABLE IF EXISTS ${table_name}"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${table_name} (
+            k bigint,
+            v variant<'c.d' : decimal(10, 5), properties("variant_max_subcolumns_count" = "2", "variant_enable_typed_paths_to_sparse" = "true")>
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+    """
+
+    sql """insert into ${table_name} values (1, '{"a": 1, "b": 2, "c" : {"d" : 2}}'), (2, '{"a": 3, "b": 4}');"""
+    sql """insert into ${table_name} values (3, '{"c": {"d": 6}}');"""
+
+    qt_sql """select v['c'] from ${table_name} order by k;"""
+
 }

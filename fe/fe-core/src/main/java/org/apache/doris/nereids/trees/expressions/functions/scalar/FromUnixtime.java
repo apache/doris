@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
@@ -44,8 +45,12 @@ public class FromUnixtime extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE, StringType.INSTANCE)
-    );
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV3Type.createDecimalV3Type(18, 6)),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV3Type.createDecimalV3Type(18, 6),
+                    VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV3Type.createDecimalV3Type(18, 6),
+                    StringType.INSTANCE));
 
     /**
      * constructor with 1 argument.
@@ -78,6 +83,23 @@ public class FromUnixtime extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        // skip super.computeSignature() to avoid changing the decimal precision
+        // manually set decimal argument's type to always decimal(18, 6)
+        if (this.getArgumentType(0).isDecimalLikeType()) {
+            Preconditions.checkArgument(arity() == 1 || arity() == 2, "FromUnixtime should have 1 or 2 arguments");
+            if (arity() == 1) {
+                return FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                        .args(DecimalV3Type.createDecimalV3Type(18, 6));
+            } else {
+                return FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                        .args(DecimalV3Type.createDecimalV3Type(18, 6), VarcharType.SYSTEM_DEFAULT);
+            }
+        }
+        return signature;
     }
 
     @Override

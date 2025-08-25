@@ -50,6 +50,8 @@ inline std::string types_name(const DataTypes& types) {
     return name;
 }
 
+constexpr std::string DISTINCT_FUNCTION_PREFIX = "multi_distinct_";
+
 class AggregateFunctionSimpleFactory {
 public:
     using Creator = AggregateFunctionCreator;
@@ -164,6 +166,7 @@ public:
         for (const auto& s : combiner_names) {
             function_alias[alias + std::string(s)] = name + std::string(s);
         }
+        function_alias[DISTINCT_FUNCTION_PREFIX + alias] = DISTINCT_FUNCTION_PREFIX + name;
     }
 
     void register_alternative_function(const std::string& name, const Creator& creator,

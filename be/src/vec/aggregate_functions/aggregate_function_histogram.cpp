@@ -20,6 +20,8 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include "runtime/define_primitive_type.h"
+#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
 
@@ -36,24 +38,18 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
                                                          const DataTypes& argument_types,
                                                          const bool result_is_nullable,
                                                          const AggregateFunctionAttr& attr) {
-    AggregateFunctionPtr result;
+    assert_arity_range(name, argument_types, 1, 2);
+    using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                           TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32,
+                                           TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256,
+                                           TYPE_VARCHAR, TYPE_DATEV2, TYPE_DATETIMEV2>;
     if (argument_types.size() == 2) {
-        result = creator_with_any::create<HistogramWithInputParam, AggregateFunctionHistogramData>(
-                argument_types, result_is_nullable, attr);
-    } else if (argument_types.size() == 1) {
-        result = creator_with_any::create<HistogramNormal, AggregateFunctionHistogramData>(
+        return creator::create<HistogramWithInputParam, AggregateFunctionHistogramData>(
                 argument_types, result_is_nullable, attr);
     } else {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Aggregate function histogram requires 1 or 2 arguments, but got {}",
-                        argument_types.size());
+        return creator::create<HistogramNormal, AggregateFunctionHistogramData>(
+                argument_types, result_is_nullable, attr);
     }
-    if (!result) {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                        "Aggregate function histogram does not support type {}",
-                        argument_types[0]->get_primitive_type());
-    }
-    return result;
 }
 
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory) {
