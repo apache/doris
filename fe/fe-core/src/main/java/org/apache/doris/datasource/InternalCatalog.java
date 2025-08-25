@@ -48,6 +48,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
@@ -1768,7 +1769,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     singlePartitionDesc.isInMemory(),
                     singlePartitionDesc.getTabletType(),
                     storagePolicy, idGeneratorBuffer,
-                    binlogConfig, dataProperty.isStorageMediumSpecified());
+                    binlogConfig);
 
             // check again
             olapTable = db.getOlapTableOrDdlException(tableName);
@@ -2106,8 +2107,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                                                    TTabletType tabletType,
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
-                                                   BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified)
+                                                   BinlogConfig binlogConfig)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -2150,7 +2150,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId, indexId,
                     schemaHash, dataProperty.getStorageMedium());
             realStorageMedium = createTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
-                tabletMeta, tabletIdSet, idGeneratorBuffer, dataProperty.isStorageMediumSpecified());
+                tabletMeta, tabletIdSet, idGeneratorBuffer, dataProperty.getMediumAllocationMode());
             if (realStorageMedium != null && !realStorageMedium.equals(dataProperty.getStorageMedium())) {
                 dataProperty.setStorageMedium(realStorageMedium);
                 LOG.info("real medium not eq default "
@@ -3008,6 +3008,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(createTableInfo.getProperties(),
                     new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                 olapTable.setStorageMedium(dataProperty.getStorageMedium());
+                olapTable.setMediumAllocationMode(dataProperty.getMediumAllocationMode());
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -3200,8 +3201,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         isInMemory, tabletType,
                         storagePolicy,
                         idGeneratorBuffer,
-                        binlogConfigForTask,
-                        partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
+                        binlogConfigForTask);
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
                 olapTable.addPartition(partition);
@@ -3219,6 +3219,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
                     olapTable.setStorageMedium(dataProperty.getStorageMedium());
+                    olapTable.setMediumAllocationMode(dataProperty.getMediumAllocationMode());
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkDynamicPartitionPropertyKeysValid(properties);
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
@@ -3284,8 +3285,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             versionInfo, bfColumns, tabletIdSet, isInMemory,
                             partitionInfo.getTabletType(entry.getValue()),
                             partionStoragePolicy, idGeneratorBuffer,
-                            binlogConfigForTask,
-                            dataProperty.isStorageMediumSpecified());
+                            binlogConfigForTask);
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                         .setStoragePolicy(partionStoragePolicy);
@@ -3905,6 +3905,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
                         new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                 olapTable.setStorageMedium(dataProperty.getStorageMedium());
+                olapTable.setMediumAllocationMode(dataProperty.getMediumAllocationMode());
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -4097,8 +4098,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         isInMemory, tabletType,
                         storagePolicy,
                         idGeneratorBuffer,
-                        binlogConfigForTask,
-                        partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
+                        binlogConfigForTask);
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
                 olapTable.addPartition(partition);
@@ -4109,6 +4109,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                             new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     Map<String, String> propertiesCheck = new HashMap<>(properties);
                     propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
+                    // Remove medium_allocation_mode from properties check as it's handled separately
+                    propertiesCheck.entrySet().removeIf(entry -> entry.getKey()
+                            .equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE));
                     if (propertiesCheck != null && !propertiesCheck.isEmpty()) {
                         // here, all properties should be checked
                         throw new DdlException("Unknown properties: " + propertiesCheck);
@@ -4116,6 +4119,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
                     olapTable.setStorageMedium(dataProperty.getStorageMedium());
+                    olapTable.setMediumAllocationMode(dataProperty.getMediumAllocationMode());
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkDynamicPartitionPropertyKeysValid(properties);
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
@@ -4181,8 +4185,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             versionInfo, bfColumns, tabletIdSet, isInMemory,
                             partitionInfo.getTabletType(entry.getValue()),
                             partionStoragePolicy, idGeneratorBuffer,
-                            binlogConfigForTask,
-                            dataProperty.isStorageMediumSpecified());
+                            binlogConfigForTask);
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
@@ -4448,7 +4451,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     @VisibleForTesting
     public TStorageMedium createTablets(MaterializedIndex index, ReplicaState replicaState,
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc, TabletMeta tabletMeta,
-            Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer, boolean isStorageMediumSpecified)
+            Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer, MediumAllocationMode mediumAllocationMode)
             throws DdlException {
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
@@ -4480,7 +4483,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     startPos = 0;
                 } else {
                     startPos = systemInfoService.getStartPosOfRoundRobin(tag, storageMedium,
-                            isStorageMediumSpecified);
+                            mediumAllocationMode);
                 }
                 nextIndexs.put(tag, startPos);
             }
@@ -4502,7 +4505,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Pair<Map<Tag, List<Long>>, TStorageMedium> chosenBackendIdsAndMedium
                         = systemInfoService.selectBackendIdsForReplicaCreation(
                         replicaAlloc, nextIndexs,
-                        storageMedium, isStorageMediumSpecified, false);
+                        storageMedium, mediumAllocationMode, false);
                 chosenBackendIds = chosenBackendIdsAndMedium.first;
                 storageMedium = chosenBackendIdsAndMedium.second;
                 for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
@@ -4714,8 +4717,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         copiedTbl.isInMemory(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
                         olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
-                        idGeneratorBuffer, binlogConfig,
-                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified());
+                        idGeneratorBuffer, binlogConfig);
                 newPartitions.add(newPartition);
             }
 
