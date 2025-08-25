@@ -2199,7 +2199,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storagePageSize());
 
                     task.setStorageFormat(tbl.getStorageFormat());
-                    task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
+                    // Use resolved format that considers global override for new partitions
+                    TInvertedIndexFileStorageFormat effectiveFormat =
+                            (Config.enable_new_partition_inverted_index_v2_format
+                                    && tbl.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1)
+                                    ? TInvertedIndexFileStorageFormat.V2
+                                    : tbl.getInvertedIndexFileStorageFormat();
+                    task.setInvertedIndexFileStorageFormat(effectiveFormat);
                     if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
                         task.setClusterKeyIndexes(clusterKeyIndexes);
                         LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key indexes: {}",
