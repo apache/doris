@@ -276,6 +276,14 @@ Status VTabletWriterV2::_open_streams() {
     bool any_backend = false;
     bool any_success = false;
     for (auto& [dst_id, _] : _tablets_for_node) {
+        std::ostringstream tablet_ids;
+        tablet_ids << "prepare to open stream to backend, load_id=" << print_id(_load_id) << ", dst_id=" << dst_id << ", tablet_ids=";
+        for (auto& [tablet_id, tablet] : _tablets_for_node[dst_id]) {
+            tablet_ids << tablet_id << ", ";
+        }
+        LOG(INFO) << "tablet_ids=" << tablet_ids.str();
+    }
+    for (auto& [dst_id, _] : _tablets_for_node) {
         auto streams = _load_stream_map->get_or_create(dst_id);
         DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_one_backend", {
             if (fault_injection_skip_be < 1) {
@@ -310,6 +318,7 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
     std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
     DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.no_schema_when_open_streams",
                     { tablets_for_schema.clear(); });
+    LOG(INFO) << "prepare to open stream to backend, load_id=" << print_id(_load_id) << ", dst_id=" << dst_id;
     auto st = streams.open(_state->exec_env()->brpc_streaming_client_cache(), *node_info, _txn_id,
                            *_schema, tablets_for_schema, _total_streams, idle_timeout_ms,
                            _state->enable_profile());
@@ -338,6 +347,8 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
                     _tablets_for_node[node].emplace(tablet_id, tablet);
+                    LOG(INFO) << "build tablet_node_mapping, load_id=" << print_id(_load_id)
+                              << ", tablet_id=" << tablet_id << ", node=" << node;
                     constexpr int64_t DUMMY_TABLET_ID = 0;
                     if (tablet_id == DUMMY_TABLET_ID) [[unlikely]] {
                         // ignore fake tablet for auto partition
@@ -522,6 +533,10 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     auto delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
         std::vector<std::shared_ptr<LoadStreamStub>> streams;
         st = _select_streams(tablet_id, rows.partition_id, rows.index_id, streams);
+        for (auto& stream : streams) {
+            LOG(INFO) << "select_streams, load_id=" << print_id(_load_id) << ", tablet_id=" << tablet_id
+                      << ", stream_id=" << stream->dst_id();
+        }
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "select stream failed, " << st << ", load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);

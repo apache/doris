@@ -147,6 +147,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             int64_t idle_timeout_ms, bool enable_profile) {
     std::unique_lock<bthread::Mutex> lock(_open_mutex);
     if (_is_init.load()) {
+        LOG(INFO) << "stream already init, dst_id=" << _dst_id << ", load_id=" << print_id(_load_id);
         return _status;
     }
     _is_init.store(true);
