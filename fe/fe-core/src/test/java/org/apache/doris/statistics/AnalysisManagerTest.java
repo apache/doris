@@ -144,9 +144,7 @@ public class AnalysisManagerTest {
         List<Column> schema = new ArrayList<>();
         schema.add(column1);
         OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
-        db.writeLockOrDdlException();
-        db.createTableWithoutLock(table, true, false);
-        db.writeUnlock();
+        db.createTableWithLock(table, true, false);
 
         new MockUp<Table>() {
             @Mock

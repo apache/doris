@@ -394,8 +394,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     // return pair <success?, table exist?>
-    // caller must hold db lock
-    public Pair<Boolean, Boolean> createTableWithoutLock(
+    public Pair<Boolean, Boolean> createTableWithLock(
             Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed
@@ -412,22 +411,17 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 result = setIfNotExist;
                 isTableExist = true;
             } else {
-                table.writeLock();
-                try {
-                    registerTable(table);
-                    if (table.isTemporary()) {
-                        Env.getCurrentEnv().registerTempTableAndSession(table);
-                    }
-                    if (table instanceof MTMV) {
-                        Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
-                    }
-                    if (!isReplay) {
-                        // Write edit log
-                        CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
-                        Env.getCurrentEnv().getEditLog().logCreateTable(info);
-                    }
-                } finally {
-                    table.writeUnlock();
+                registerTable(table);
+                if (table.isTemporary()) {
+                    Env.getCurrentEnv().registerTempTableAndSession(table);
+                }
+                if (table instanceof MTMV) {
+                    Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
+                }
+                if (!isReplay) {
+                    // Write edit log
+                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
+                    Env.getCurrentEnv().getEditLog().logCreateTable(info);
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
@@ -484,8 +478,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         if (table != null) {
             table.writeLock();
             try {
-                this.nameToTable.remove(tableName);
-                this.lowerCaseToTableName.remove(tableName.toLowerCase());
+                this.nameToTable.remove(table.getName());
+                this.lowerCaseToTableName.remove(table.getName().toLowerCase());
                 this.idToTable.remove(table.getId());
             } finally {
                 table.writeUnlock();
