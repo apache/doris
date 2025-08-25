@@ -74,6 +74,23 @@ suite("test_char_group_tokenizer", "p0") {
         );
     """
 
+    // 4) Comma-separated splitting
+    sql """
+        CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS char_group_comma_tokenizer
+        PROPERTIES
+        (
+            "type" = "char_group",
+            "tokenize_on_chars" = "[,]"
+        );
+    """
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS char_group_comma_analyzer
+        PROPERTIES
+        (
+            "tokenizer" = "char_group_comma_tokenizer"
+        );
+    """
+
     // Wait for analyzers to be ready
     sql """ select sleep(10) """
 
@@ -88,6 +105,10 @@ suite("test_char_group_tokenizer", "p0") {
     // Custom and escaped characters
     qt_tokenize_sql """ select tokenize("hello-world_test", '"analyzer"="char_group_custom_analyzer"'); """
     qt_tokenize_sql """ select tokenize("hello\nworld\ttest\rend", '"analyzer"="char_group_custom_analyzer"'); """
+
+    // Comma-separated
+    qt_tokenize_sql """ select tokenize("a,b,,c", '"analyzer"="char_group_comma_analyzer"'); """
+    qt_tokenize_sql """ select tokenize("a, b , c", '"analyzer"="char_group_comma_analyzer"'); """
 
     // Create a table to validate integration with inverted index + analyzer
     sql "DROP TABLE IF EXISTS ${tbl}"
@@ -125,6 +146,7 @@ suite("test_char_group_tokenizer", "p0") {
         sql "drop inverted index analyzer char_group_ws_punct_analyzer"
         sql "drop inverted index analyzer char_group_cjk_analyzer"
         sql "drop inverted index analyzer char_group_custom_analyzer"
+        sql "drop inverted index analyzer char_group_comma_analyzer"
     } catch (SQLException e) {
         // It may be used by index; ignore
     }

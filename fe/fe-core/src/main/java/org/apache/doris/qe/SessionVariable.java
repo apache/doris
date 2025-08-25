@@ -35,6 +35,7 @@ import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
@@ -616,6 +617,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
+    public static final String PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY
+            = "pre_materialized_view_rewrite_strategy";
+
     public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
             = "enable_dml_materialized_view_rewrite";
 
@@ -786,6 +790,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
     public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
+    public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
+    public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
+    public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
 
     public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
@@ -2278,6 +2285,18 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = true;
 
+    @VariableMgr.VarAttr(name = PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY, needForward = true, fuzzy = true,
+            description = {"在RBO阶段基于结构信息的物化视图透明改写的策略，FORCE_IN_ROB ：强制在 RBO 阶段透明改写，"
+                    + "TRY_IN_RBO ：如果在NEED_PRE_REWRITE_RULE_TYPES中的规则改写成功了，那么就会尝试在 RBO 阶段透明改写"
+                    + "NOT_IN_RBO ：不尝试在 RBO 阶段改写，只在 CBO 阶段改写",
+                    "Whether to enable pre materialized view rewriting based on struct info,"
+                            + "FORCE_IN_RBO : Force transparent rewriting in the RBO phase,"
+                            + "TRY_IN_RBO : Attempt transparent rewriting in the RBO phase "
+                            + "if rules in NEED_PRE_REWRITE_RULE_TYPES, "
+                            + "NOT_IN_RBO : Do not attempt rewriting in the RBO phase; apply only during the CBO phase"
+            })
+    public String preMaterializedViewRewriteStrategy = "TRY_IN_RBO";
+
     @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
             description = {"是否允许修改物化视图的数据",
                     "Is it allowed to modify the data of the materialized view"})
@@ -2790,6 +2809,21 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableAddIndexForNewData = false;
 
+    @VariableMgr.VarAttr(name = HNSW_EF_SEARCH, needForward = true,
+            description = {"HNSW索引的EF搜索参数，控制搜索的精度和速度",
+                    "HNSW index EF search parameter, controls the precision and speed of the search"})
+    public int hnswEFSearch = 32;
+
+    @VariableMgr.VarAttr(name = HNSW_CHECK_RELATIVE_DISTANCE, needForward = true,
+            description = {"是否启用相对距离检查机制，以提升HNSW搜索的准确性",
+                    "Enable relative distance checking to improve HNSW search accuracy"})
+    public boolean hnswCheckRelativeDistance = true;
+
+    @VariableMgr.VarAttr(name = HNSW_BOUNDED_QUEUE, needForward = true,
+            description = {"是否使用有界优先队列来优化HNSW的搜索性能",
+                    "Whether to use a bounded priority queue to optimize HNSW search performance"})
+    public boolean hnswBoundedQueue = true;
+
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
             needForward = true,
@@ -2930,6 +2964,21 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSpill = randomInt % 4 != 0;
         this.enableForceSpill = randomInt % 3 == 0;
         this.enableReserveMemory = randomInt % 5 != 0;
+
+        // random pre materialized view rewrite strategy
+        randomInt = random.nextInt(3);
+        switch (randomInt % 3) {
+            case 0:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.NOT_IN_RBO.name();
+                break;
+            case 1:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.TRY_IN_RBO.name();
+                break;
+            case 2:
+            default:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.FORCE_IN_RBO.name();
+                break;
+        }
         setFuzzyForCatalog(random);
     }
 
@@ -4432,6 +4481,12 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
         tResult.setEnableStrictCast(enableStrictCast);
+        tResult.setNewVersionUnixTimestamp(true); // once FE upgraded, always use new version
+
+        tResult.setHnswEfSearch(hnswEFSearch);
+        tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
+        tResult.setHnswBoundedQueue(hnswBoundedQueue);
+
         return tResult;
     }
 
@@ -4922,6 +4977,15 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
+    }
+
+
+    public String getPreMaterializedViewRewriteStrategy() {
+        return preMaterializedViewRewriteStrategy;
+    }
+
+    public void setPreMaterializedViewRewriteStrategy(String preMaterializedViewRewriteStrategy) {
+        this.preMaterializedViewRewriteStrategy = preMaterializedViewRewriteStrategy;
     }
 
     public boolean isEnableDmlMaterializedViewRewrite() {

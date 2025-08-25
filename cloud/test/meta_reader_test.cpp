@@ -108,6 +108,7 @@ TEST(MetaReaderTest, GetTableVersion) {
         MetaReader meta_reader(instance_id, txn_kv.get());
         TxnErrorCode err = meta_reader.get_table_version(table_id, &version1);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), version1);
     }
 
     {
@@ -126,6 +127,7 @@ TEST(MetaReaderTest, GetTableVersion) {
         MetaReader meta_reader(instance_id, txn_kv.get());
         TxnErrorCode err = meta_reader.get_table_version(txn.get(), table_id, &version2);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), version2);
     }
 
     ASSERT_LT(version1, version2);
@@ -179,6 +181,13 @@ TEST(MetaReaderTest, BatchGetTableVersion) {
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(table_versions.size(), 3); // All except table_ids[1]
 
+        // Check min_read_version
+        Versionstamp min_expected = Versionstamp::max();
+        for (const auto& [table_id, version] : table_versions) {
+            min_expected = std::min(min_expected, version);
+        }
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), min_expected);
+
         for (size_t i = 0; i < table_ids.size(); ++i) {
             if (i == 1) {
                 ASSERT_EQ(table_versions.find(table_ids[i]), table_versions.end());
@@ -206,6 +215,13 @@ TEST(MetaReaderTest, BatchGetTableVersion) {
         TxnErrorCode err = meta_reader.get_table_versions(txn.get(), table_ids, &table_versions);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(table_versions.size(), table_ids.size());
+
+        // Check min_read_version
+        Versionstamp min_expected = Versionstamp::max();
+        for (const auto& [table_id, version] : table_versions) {
+            min_expected = std::min(min_expected, version);
+        }
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), min_expected);
 
         for (int64_t table_id : table_ids) {
             ASSERT_NE(table_versions.find(table_id), table_versions.end());
@@ -249,6 +265,7 @@ TEST(MetaReaderTest, GetPartitionVersion) {
                 meta_reader.get_partition_version(partition_id, &version_pb1, &partition_version1);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(version_pb1.version(), 100);
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), partition_version1);
     }
 
     {
@@ -273,6 +290,7 @@ TEST(MetaReaderTest, GetPartitionVersion) {
                                                              &partition_version2);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(version_pb2.version(), 200);
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), partition_version2);
     }
 
     ASSERT_LT(partition_version1, partition_version2);
@@ -324,6 +342,13 @@ TEST(MetaReaderTest, BatchGetPartitionVersion) {
         ASSERT_EQ(versions.size(), 3); // All except partition_ids[1]
         ASSERT_EQ(versionstamps.size(), 3);
 
+        // Check min_read_version
+        Versionstamp min_expected = Versionstamp::max();
+        for (const auto& [partition_id, version] : versionstamps) {
+            min_expected = std::min(min_expected, version);
+        }
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), min_expected);
+
         for (size_t i = 0; i < partition_ids.size(); ++i) {
             if (i == 1) {
                 ASSERT_EQ(versions.find(partition_ids[i]), versions.end());
@@ -361,6 +386,13 @@ TEST(MetaReaderTest, BatchGetPartitionVersion) {
         ASSERT_EQ(versions.size(), partition_ids.size());
         ASSERT_EQ(versionstamps.size(), partition_ids.size());
 
+        // Check min_read_version
+        Versionstamp min_expected = Versionstamp::max();
+        for (const auto& [partition_id, version] : versionstamps) {
+            min_expected = std::min(min_expected, version);
+        }
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), min_expected);
+
         for (size_t i = 0; i < partition_ids.size(); ++i) {
             int64_t partition_id = partition_ids[i];
             ASSERT_NE(versions.find(partition_id), versions.end());
@@ -378,6 +410,13 @@ TEST(MetaReaderTest, BatchGetPartitionVersion) {
                 meta_reader.get_partition_versions(partition_ids, nullptr, &versionstamps);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(versionstamps.size(), partition_ids.size());
+
+        // Check min_read_version
+        Versionstamp min_expected = Versionstamp::max();
+        for (const auto& [partition_id, version] : versionstamps) {
+            min_expected = std::min(min_expected, version);
+        }
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), min_expected);
     }
 
     {
@@ -387,6 +426,8 @@ TEST(MetaReaderTest, BatchGetPartitionVersion) {
         TxnErrorCode err = meta_reader.get_partition_versions(partition_ids, &versions, nullptr);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(versions.size(), partition_ids.size());
+        // For this case, min_read_version should still be updated even though versionstamps is nullptr
+        ASSERT_NE(meta_reader.min_read_versionstamp(), Versionstamp::max());
     }
 }
 
@@ -588,6 +629,7 @@ TEST(MetaReaderTest, GetTabletLoadStats) {
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(tablet_stats1.num_rows(), 1000);
         ASSERT_EQ(tablet_stats1.data_size(), 500000);
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), tablet_stats_version1);
     }
 
     {
@@ -614,6 +656,7 @@ TEST(MetaReaderTest, GetTabletLoadStats) {
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(tablet_stats2.num_rows(), 2000);
         ASSERT_EQ(tablet_stats2.data_size(), 1000000);
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), tablet_stats_version2);
     }
 
     ASSERT_LT(tablet_stats_version1, tablet_stats_version2);
@@ -657,6 +700,7 @@ TEST(MetaReaderTest, GetTabletCompactStats) {
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(tablet_stats1.num_rows(), 500);
         ASSERT_EQ(tablet_stats1.data_size(), 250000);
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), tablet_stats_version1);
     }
 
     {
@@ -683,6 +727,7 @@ TEST(MetaReaderTest, GetTabletCompactStats) {
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(tablet_stats2.num_rows(), 1000);
         ASSERT_EQ(tablet_stats2.data_size(), 500000);
+        ASSERT_EQ(meta_reader.min_read_versionstamp(), tablet_stats_version2);
     }
     ASSERT_LT(tablet_stats_version1, tablet_stats_version2);
 }
@@ -781,6 +826,9 @@ TEST(MetaReaderTest, GetTabletMergedStats) {
         EXPECT_EQ(merged_stats.data_size(), 750000);    // 500000 + 250000
         EXPECT_EQ(merged_stats.index_size(), 75000);    // 50000 + 25000
         EXPECT_EQ(merged_stats.segment_size(), 900000); // 600000 + 300000
+
+        // Check min_read_version - should be updated after reading both load and compact stats
+        ASSERT_NE(meta_reader.min_read_versionstamp(), Versionstamp::max());
     }
 
     {
@@ -797,11 +845,11 @@ TEST(MetaReaderTest, GetTabletMergedStats) {
         ASSERT_EQ(err1, TxnErrorCode::TXN_OK);
         ASSERT_EQ(err2, TxnErrorCode::TXN_OK);
 
-        // Merged version should be the max of load and compact versions
+        // Merged version should be the min of load and compact versions
         if (load_version < compact_version) {
-            ASSERT_EQ(merged_version, compact_version);
-        } else {
             ASSERT_EQ(merged_version, load_version);
+        } else {
+            ASSERT_EQ(merged_version, compact_version);
         }
     }
 
@@ -1374,9 +1422,9 @@ TEST(MetaReaderTest, GetPartitionPendingTxnId) {
 
         // Create a MetaReader with snapshot
         Versionstamp snapshot_version(current_version.version() + 1, 0);
-        MetaReader snapshot_reader(instance_id, txn_kv.get(), snapshot_version, true);
+        MetaReader snapshot_reader(instance_id, txn_kv.get(), snapshot_version);
         int64_t first_txn_id;
-        err = snapshot_reader.get_partition_pending_txn_id(partition_id, &first_txn_id);
+        err = snapshot_reader.get_partition_pending_txn_id(partition_id, &first_txn_id, true);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(first_txn_id, 2001);
     }
@@ -1579,9 +1627,9 @@ TEST(MetaReaderTest, GetLoadRowsetMeta) {
 
     {
         // Test with snapshot flag
-        MetaReader meta_reader(instance_id, txn_kv.get(), true);
+        MetaReader meta_reader(instance_id, txn_kv.get());
         RowsetMetaCloudPB rowset_meta;
-        TxnErrorCode err = meta_reader.get_load_rowset_meta(tablet_id, version, &rowset_meta);
+        TxnErrorCode err = meta_reader.get_load_rowset_meta(tablet_id, version, &rowset_meta, true);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
 
         // Should get current values since snapshot flag is set but no snapshot version

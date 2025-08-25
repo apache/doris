@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.lowercase;
 
-import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
@@ -28,6 +27,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -113,7 +113,7 @@ public class ExternalTableNameStoredLowercaseMetaCacheTrueTest extends TestWithF
     }
 
     private void switchTest() throws Exception {
-        SwitchStmt switchTest = (SwitchStmt) parseAndAnalyzeStmt("switch test1;");
+        SwitchCommand switchTest = (SwitchCommand) parseStmt("switch test1;");
         Env.getCurrentEnv().changeCatalog(connectContext, switchTest.getCatalogName());
     }
 

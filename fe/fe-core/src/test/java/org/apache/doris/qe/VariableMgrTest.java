@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
@@ -33,6 +32,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -71,17 +71,16 @@ public class VariableMgrTest {
     @Test
     public void testGlobalVariablePersist() throws Exception {
         Config.edit_log_roll_num = 1;
-        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global exec_mem_limit=5678", ctx);
-        SetExecutor executor = new SetExecutor(ctx, stmt);
-        executor.execute();
+        SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                "set global exec_mem_limit=5678", ctx);
+        stmt.run(ctx, null);
         Assert.assertEquals(5678, VariableMgr.newSessionVariable().getMaxExecMemByte());
         // the session var is also changed.
         Assert.assertEquals(5678, ctx.getSessionVariable().getMaxExecMemByte());
 
         Config.edit_log_roll_num = 100;
-        stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global exec_mem_limit=7890", ctx);
-        executor = new SetExecutor(ctx, stmt);
-        executor.execute();
+        stmt = (SetOptionsCommand) UtFrameUtils.parseStmt("set global exec_mem_limit=7890", ctx);
+        stmt.run(ctx, null);
         Assert.assertEquals(7890, VariableMgr.newSessionVariable().getMaxExecMemByte());
 
         // Get currentCatalog first
@@ -113,18 +112,18 @@ public class VariableMgrTest {
 
     @Test
     public void testVariableCallback() throws Exception {
-        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set session_context='trace_id:123'", ctx);
-        SetExecutor executor = new SetExecutor(ctx, stmt);
-        executor.execute();
+        SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                "set session_context='trace_id:123'", ctx);
+        stmt.run(ctx, null);
         Assert.assertEquals("123", ctx.traceId());
     }
 
     @Test
     public void testSetGlobalDefault() throws Exception {
         // Set global variable with default value
-        SetStmt stmt = (SetStmt) UtFrameUtils.parseAndAnalyzeStmt("set global enable_profile = default", ctx);
-        SetExecutor executor = new SetExecutor(ctx, stmt);
-        executor.execute();
+        SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
+                "set global enable_profile = default", ctx);
+        stmt.run(ctx, null);
         SessionVariable defaultSessionVar = new SessionVariable();
         Assert.assertEquals(defaultSessionVar.enableProfile(), VariableMgr.newSessionVariable().enableProfile());
     }

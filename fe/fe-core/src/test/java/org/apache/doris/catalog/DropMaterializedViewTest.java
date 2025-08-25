@@ -18,8 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.MetaNotFoundException;
@@ -116,12 +114,14 @@ public class DropMaterializedViewTest {
     }
 
     private static void dropTable(String db, String tbl, boolean isMaterializedView) throws Exception {
-        DropTableStmt dropTableStmt = new DropTableStmt(false,
-                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, db, tbl), false, false);
-        if (isMaterializedView) {
-            dropTableStmt.setMaterializedView(true);
-        }
-        Env.getCurrentEnv().dropTable(dropTableStmt);
+        Env.getCurrentEnv().dropTable(
+                InternalCatalog.INTERNAL_CATALOG_NAME,
+                db,
+                tbl,
+                false,
+                isMaterializedView,
+                false,
+                false);
     }
 
     private static void checkAlterJob() throws InterruptedException {

@@ -1258,8 +1258,7 @@ class ListCommand(Command):
                 if services is None:
                     return COMPOSE_BAD, {}
                 return COMPOSE_GOOD, {
-                    service:
-                    ComposeService(
+                    service: ComposeService(
                         service, ip_for_host_mode if ip_for_host_mode else
                         list(service_conf["networks"].values())[0]
                         ["ipv4_address"], service_conf["image"])

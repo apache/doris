@@ -149,11 +149,9 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                 properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
             """
             sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
-            try {
+            test {
                 sql """ build index idx_var on var_index"""
-            } catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("The idx_var index can not be built on the v column, because it is a variant type column"))
+                exception "The idx_var index can not be built on the v column, because it is a variant type column"
             }
         }
         

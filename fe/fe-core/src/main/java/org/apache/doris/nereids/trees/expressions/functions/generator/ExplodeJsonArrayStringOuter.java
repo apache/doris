@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -33,11 +35,11 @@ import java.util.List;
 /**
  * explode_json_array_string_outer("['1', '2', '3']"), generate 3 lines include '1', '2' and '3'.
  */
-public class ExplodeJsonArrayStringOuter extends TableGeneratingFunction implements UnaryExpression, AlwaysNullable {
+public class ExplodeJsonArrayStringOuter extends TableGeneratingFunction
+        implements UnaryExpression, AlwaysNullable, RewriteWhenAnalyze {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(JsonType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(JsonType.INSTANCE)
     );
 
     /**
@@ -69,5 +71,11 @@ public class ExplodeJsonArrayStringOuter extends TableGeneratingFunction impleme
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExplodeJsonArrayStringOuter(this, context);
+    }
+
+    @Override
+    public TableGeneratingFunction rewrite() {
+        Expression[] args = {new Cast(children.get(0), ArrayType.of(VarcharType.SYSTEM_DEFAULT))};
+        return new ExplodeOuter(args);
     }
 }

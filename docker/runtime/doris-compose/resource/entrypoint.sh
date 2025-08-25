@@ -58,6 +58,25 @@ create_host_user() {
 
 create_host_user
 
+# Setup core dump directory permissions for non-root users
+setup_core_dump() {
+    # Set fs.suid_dumpable to allow core dumps from setuid programs
+    echo 2 >/proc/sys/fs/suid_dumpable
+    # Set core pattern to save core dumps in the mounted directory
+    echo "/opt/apache-doris/core_dump/core-%e-%p-%t" >/proc/sys/kernel/core_pattern
+    if [ ! -z ${HOST_USER} ]; then
+        # Create core dump directory if it doesn't exist
+        mkdir -p /opt/apache-doris/core_dump
+        # Set permissions to allow core dumps from non-root users
+        chmod 777 /opt/apache-doris/core_dump
+        # Set ownership to the host user
+        chown ${HOST_USER}:${HOST_USER} /opt/apache-doris/core_dump
+        health_log "setup core dump directory for user ${HOST_USER}"
+    fi
+}
+
+setup_core_dump
+
 if command -v gosu 2>&1 >/dev/null; then
     if [ -f ${LOG_FILE} ]; then
         chown ${RUN_USER}:${RUN_USER} ${LOG_FILE}

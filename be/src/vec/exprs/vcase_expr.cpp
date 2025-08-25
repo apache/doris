@@ -44,14 +44,7 @@ namespace doris::vectorized {
 VCaseExpr::VCaseExpr(const TExprNode& node)
         : VExpr(node),
           _has_case_expr(node.case_expr.has_case_expr),
-          _has_else_expr(node.case_expr.has_else_expr) {
-    if (_has_case_expr) {
-        _function_name += "_has_case";
-    }
-    if (_has_else_expr) {
-        _function_name += "_has_else";
-    }
-}
+          _has_else_expr(node.case_expr.has_else_expr) {}
 
 Status VCaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -64,7 +57,7 @@ Status VCaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExprC
     }
 
     _function = SimpleFunctionFactory::instance().get_function(
-            _function_name, argument_template, _data_type,
+            get_function_name(), argument_template, _data_type,
             {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         return Status::NotSupported("vcase_expr Function {} is not implemented",
@@ -98,7 +91,7 @@ void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
     if (is_const_and_have_executed()) { // const have execute in open function
-        return get_result_from_const(block, _expr_name, result_column_id);
+        return get_result_from_const(block, EXPR_NAME, result_column_id);
     }
     DCHECK(_open_finished || _getting_const_col);
     ColumnNumbers arguments(_children.size());
@@ -110,7 +103,7 @@ Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_colum
     RETURN_IF_ERROR(check_constant(*block, arguments));
 
     uint32_t num_columns_without_result = block->columns();
-    block->insert({nullptr, _data_type, _expr_name});
+    block->insert({nullptr, _data_type, EXPR_NAME});
 
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
@@ -120,13 +113,13 @@ Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_colum
 }
 
 const std::string& VCaseExpr::expr_name() const {
-    return _expr_name;
+    return EXPR_NAME;
 }
 
 std::string VCaseExpr::debug_string() const {
     std::stringstream out;
     out << "CaseExpr(has_case_expr=" << _has_case_expr << " has_else_expr=" << _has_else_expr
-        << " function=" << _function_name << "){";
+        << " function=" << FUNCTION_NAME << "){";
     bool first = true;
     for (const auto& input_expr : children()) {
         if (first) {

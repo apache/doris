@@ -26,6 +26,7 @@
 #include "olap/tablet_reader.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
+#include "util/runtime_profile.h"
 
 namespace doris::vectorized {
 class OlapScanner;
@@ -208,6 +209,31 @@ private:
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
+
+    RuntimeProfile::Counter* _ann_topn_filter_counter = nullptr;
+    // topn_search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs
+    RuntimeProfile::Counter* _ann_topn_search_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_search_cnt = nullptr;
+
+    RuntimeProfile::Counter* _ann_index_load_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_pre_process_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_engine_search_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_post_process_costs = nullptr;
+    // post_process_costs = engine_convert_costs + result_convert_costs
+    RuntimeProfile::Counter* _ann_topn_engine_convert_costs = nullptr;
+    RuntimeProfile::Counter* _ann_topn_result_convert_costs = nullptr;
+
+    RuntimeProfile::Counter* _ann_range_search_filter_counter = nullptr;
+    // range_Search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs
+    RuntimeProfile::Counter* _ann_range_search_costs = nullptr;
+    RuntimeProfile::Counter* _ann_range_search_cnt = nullptr;
+
+    RuntimeProfile::Counter* _ann_range_pre_process_costs = nullptr;
+    RuntimeProfile::Counter* _ann_range_engine_search_costs = nullptr;
+    RuntimeProfile::Counter* _ann_range_post_process_costs = nullptr;
+
+    RuntimeProfile::Counter* _ann_range_engine_convert_costs = nullptr;
+    RuntimeProfile::Counter* _ann_range_result_convert_costs = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

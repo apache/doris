@@ -443,12 +443,6 @@ suite("regression_test_variant", "p0"){
         sql """insert into var_as_key values(2, '{"b" : 11}')"""
         qt_sql "select * from var_as_key order by k"
 
-        // TODO(lihangyu): fix this test
-        // test {
-        //     sql """select * from ghdata where cast(v['actor']['url'] as ipv4) = '127.0.0.1'""" 
-        //     exception("Invalid type for variant column: 36")
-        // }
-
         if (!isCloudMode()) {
             test {
                 sql """

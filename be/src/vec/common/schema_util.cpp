@@ -1280,8 +1280,8 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
     return false;
 }
 
-TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetSharedPtr>& rowsets,
-                                                   const TabletSchemaSPtr& base_schema) {
+TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
+        const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema) {
     if (rowsets.empty()) {
         return nullptr;
     }

@@ -19,6 +19,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_group_by_mv_plus") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -34,15 +39,20 @@ suite ("test_dup_group_by_mv_plus") {
         """
 
     sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
+    sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV( "create materialized view k12sp as select k1 as a1,sum(k2+1) from d_table group by k1;")
+    create_sync_mv(db, "d_table", "k12sp",
+            "select k1 as a1,sum(k2+1) from d_table group by k1;")
 
+    sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select -4,-4,-4,'d';"
 
     sql """analyze table d_table with sync;"""
-    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='8');"""
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
@@ -57,4 +67,13 @@ suite ("test_dup_group_by_mv_plus") {
     mv_rewrite_success("select k1,sum(k2+1) from d_table group by k1;", "k12sp")
     mv_rewrite_success("select sum(k2+1) from d_table group by k1;", "k12sp")
 
+    sql """drop materialized view k12sp on d_table"""
+    create_sync_mv(db, "d_table", "k12sp_multi",
+            "select k1 as a1,sum(k2+1), sum(k2+2) from d_table group by k1;")
+
+    mv_rewrite_success("select k1,sum(k2+1), sum(k2+2) from d_table group by k1;", "k12sp_multi",
+            true, [TRY_IN_RBO, FORCE_IN_RBO])
+    mv_rewrite_fail("select k1,sum(k2+1), sum(k2+2) from d_table group by k1;", "k12sp_multi",
+            [NOT_IN_RBO])
+    qt_select_mv "select k1,sum(k2+1), sum(k2+2) from d_table group by k1 order by k1;"
 }

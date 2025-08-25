@@ -32,7 +32,7 @@ Status MetaScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         std::shared_ptr<vectorized::MetaScanner> scanner = vectorized::MetaScanner::create_shared(
                 state(), this, p._tuple_id, scan_range, p._limit, custom_profile(),
                 p._user_identity);
-        RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
+        RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(scanner);
     }
 

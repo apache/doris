@@ -735,7 +735,8 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
         std::string versioned_tablet_key = versioned::meta_tablet_key({instance_id, tablet_id});
         if (!versioned::document_put(txn.get(), versioned_tablet_key, std::move(tablet_meta))) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize versioned tablet meta, key={}", hex(key));
+            msg = fmt::format("failed to serialize versioned tablet meta, key={}",
+                              hex(versioned_tablet_key));
             return;
         }
         LOG(INFO) << "put versioned tablet meta, tablet_id=" << tablet_id
@@ -806,6 +807,11 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
                               hex(load_stats_key));
             return;
         }
+
+        // The compact stats is initialized with zero values
+        stats_pb.set_num_rows(0);
+        stats_pb.set_num_rowsets(0);
+        stats_pb.set_num_segments(0);
         std::string compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, tablet_id});
         if (!versioned::document_put(txn.get(), compact_stats_key, std::move(stats_pb))) {
@@ -1134,80 +1140,6 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
     }
 }
 
-void MetaServiceImpl::update_tablet_schema(::google::protobuf::RpcController* controller,
-                                           const UpdateTabletSchemaRequest* request,
-                                           UpdateTabletSchemaResponse* response,
-                                           ::google::protobuf::Closure* done) {
-    DCHECK(false) << "should not call update_tablet_schema";
-    RPC_PREPROCESS(update_tablet_schema, get, put);
-    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
-        return;
-    }
-
-    RPC_RATE_LIMIT(update_tablet_schema)
-
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to init txn";
-        return;
-    }
-
-    doris::TabletMetaCloudPB tablet_meta;
-    internal_get_tablet(code, msg, instance_id, txn.get(), request->tablet_id(), &tablet_meta,
-                        true);
-    if (code != MetaServiceCode::OK) {
-        return;
-    }
-
-    std::string schema_key, schema_val;
-    while (request->has_tablet_schema()) {
-        if (!config::write_schema_kv) {
-            tablet_meta.mutable_schema()->CopyFrom(request->tablet_schema());
-            break;
-        }
-        tablet_meta.set_schema_version(request->tablet_schema().schema_version());
-        meta_schema_key({instance_id, tablet_meta.index_id(), tablet_meta.schema_version()},
-                        &schema_key);
-        if (txn->get(schema_key, &schema_val, true) == TxnErrorCode::TXN_OK) {
-            break; // schema has already been saved
-        }
-        if (!request->tablet_schema().SerializeToString(&schema_val)) [[unlikely]] {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize tablet schema value";
-            return;
-        }
-        txn->put(schema_key, schema_val);
-        break;
-    }
-
-    int64_t table_id = tablet_meta.table_id();
-    int64_t index_id = tablet_meta.index_id();
-    int64_t partition_id = tablet_meta.partition_id();
-    int64_t tablet_id = tablet_meta.tablet_id();
-    MetaTabletKeyInfo key_info {instance_id, table_id, index_id, partition_id, tablet_id};
-    std::string key;
-    std::string val;
-    meta_tablet_key(key_info, &key);
-    if (!tablet_meta.SerializeToString(&val)) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "failed to serialize tablet meta";
-        return;
-    }
-    txn->put(key, val);
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to update tablet meta, err=" << err;
-        msg = ss.str();
-        return;
-    }
-}
-
 void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
                                  const GetTabletRequest* request, GetTabletResponse* response,
                                  ::google::protobuf::Closure* done) {
@@ -1397,6 +1329,13 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
                                           RestoreJobResponse* response,
                                           ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(prepare_restore_job);
+    if (request->action() != RestoreJobRequest::PREPARE) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid action, expected PREPARE but got " +
+              RestoreJobRequest::Action_Name(request->action());
+        return;
+    }
+
     if (!request->has_tablet_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty tablet_id";
@@ -1578,6 +1517,13 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
                                          RestoreJobResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_restore_job);
+    if (request->action() != RestoreJobRequest::COMMIT) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid action, expected COMMIT but got " +
+              RestoreJobRequest::Action_Name(request->action());
+        return;
+    }
+
     if (!request->has_tablet_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty tablet_id";
@@ -1915,6 +1861,14 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
                                          RestoreJobResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(finish_restore_job);
+    if (request->action() != RestoreJobRequest::COMPLETE &&
+        request->action() != RestoreJobRequest::ABORT) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid action, expected COMPLETE or ABORT but got " +
+              RestoreJobRequest::Action_Name(request->action());
+        return;
+    }
+
     if (!request->has_tablet_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty tablet_id";
@@ -1969,7 +1923,6 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
         return;
     }
 
-    bool is_completed = request->has_is_completed() && request->is_completed();
     if (restore_job_pb.state() == RestoreJobCloudPB::DROPPED ||
         restore_job_pb.state() == RestoreJobCloudPB::COMPLETED) {
         LOG_INFO("restore job already finished")
@@ -1986,10 +1939,21 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
         return;
     } else {
         // PREPARED, COMMITTED state
-        if (is_completed && restore_job_pb.state() != RestoreJobCloudPB::COMMITTED) {
+        if (request->action() == RestoreJobRequest::COMPLETE &&
+            restore_job_pb.state() != RestoreJobCloudPB::COMMITTED) {
             // Only allow COMMITTED -> COMPLETED
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = fmt::format("restore tablet {} in invalid state to complete, state: {}",
+                              tablet_idx.tablet_id(),
+                              RestoreJobCloudPB::State_Name(restore_job_pb.state()));
+            return;
+        }
+        if (request->action() == RestoreJobRequest::ABORT &&
+            (restore_job_pb.state() != RestoreJobCloudPB::PREPARED &&
+             restore_job_pb.state() != RestoreJobCloudPB::COMMITTED)) {
+            // Only allow PREPARED/COMMITTED -> DROPPED
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("restore tablet {} in invalid state to abort, state: {}",
                               tablet_idx.tablet_id(),
                               RestoreJobCloudPB::State_Name(restore_job_pb.state()));
             return;
@@ -1998,6 +1962,7 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
 
     // 2. update restore job
     std::string to_save_val;
+    bool is_completed = request->action() == RestoreJobRequest::COMPLETE;
     restore_job_pb.set_state(is_completed ? RestoreJobCloudPB::COMPLETED
                                           : RestoreJobCloudPB::DROPPED);
     restore_job_pb.set_need_recycle_data(!is_completed);
@@ -2056,7 +2021,13 @@ bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg
             return false;
         }
     } else {
-        CHECK(false) << "versioned read is not supported yet";
+        MetaReader reader(instance_id);
+        TxnErrorCode err = reader.get_tablet_index(txn, tablet_id, &tablet_idx);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet index, tablet_id={} err={}", tablet_id, err);
+            return false;
+        }
     }
 
     std::string job_key = job_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
@@ -2214,9 +2185,9 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     }
 
     // Check if the compaction/sc tablet job has finished
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
         !request->tablet_job_id().empty()) {
-        bool is_versioned_read = is_version_read_enabled(instance_id);
         if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
                                request->tablet_job_id(), is_versioned_read)) {
             return;
@@ -2250,10 +2221,25 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
         if (!existed_rowset_meta->has_index_id()) {
             if (rowset_meta.has_index_id()) {
                 existed_rowset_meta->set_index_id(rowset_meta.index_id());
-            } else {
+            } else if (!is_versioned_read) {
                 TabletIndexPB tablet_idx;
                 get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
                 if (code != MetaServiceCode::OK) return;
+                existed_rowset_meta->set_index_id(tablet_idx.index_id());
+                rowset_meta.set_index_id(tablet_idx.index_id());
+            } else {
+                MetaReader reader(instance_id);
+                TabletIndexPB tablet_idx;
+                TxnErrorCode err = reader.get_tablet_index(txn.get(), tablet_id, &tablet_idx);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                   ? MetaServiceCode::TABLET_NOT_FOUND
+                                   : cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format("failed to get tablet index, tablet_id={}, err={}", tablet_id,
+                                      err);
+                    LOG(WARNING) << msg;
+                    return;
+                }
                 existed_rowset_meta->set_index_id(tablet_idx.index_id());
                 rowset_meta.set_index_id(tablet_idx.index_id());
             }
@@ -2360,9 +2346,9 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     }
 
     // Check if the compaction/sc tablet job has finished
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
         !request->tablet_job_id().empty()) {
-        bool is_versioned_read = is_version_read_enabled(instance_id);
         if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
                                request->tablet_job_id(), is_versioned_read)) {
             return;
@@ -2401,11 +2387,25 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         if (!existed_rowset_meta->has_index_id()) {
             if (rowset_meta.has_index_id()) {
                 existed_rowset_meta->set_index_id(rowset_meta.index_id());
-            } else {
+            } else if (!is_versioned_read) {
                 TabletIndexPB tablet_idx;
                 get_tablet_idx(code, msg, txn.get(), instance_id, rowset_meta.tablet_id(),
                                tablet_idx);
                 if (code != MetaServiceCode::OK) return;
+                existed_rowset_meta->set_index_id(tablet_idx.index_id());
+            } else {
+                MetaReader reader(instance_id);
+                TabletIndexPB tablet_idx;
+                TxnErrorCode err = reader.get_tablet_index(txn.get(), tablet_id, &tablet_idx);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                   ? MetaServiceCode::TABLET_NOT_FOUND
+                                   : cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format("failed to get tablet index, tablet_id={}, err={}", tablet_id,
+                                      err);
+                    LOG(WARNING) << msg;
+                    return;
+                }
                 existed_rowset_meta->set_index_id(tablet_idx.index_id());
             }
         }
@@ -2432,10 +2432,24 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     }
     // write schema kv if rowset_meta has schema
     if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
-        if (!rowset_meta.has_index_id()) {
+        if (!rowset_meta.has_index_id() && !is_versioned_read) {
             TabletIndexPB tablet_idx;
             get_tablet_idx(code, msg, txn.get(), instance_id, rowset_meta.tablet_id(), tablet_idx);
             if (code != MetaServiceCode::OK) return;
+            rowset_meta.set_index_id(tablet_idx.index_id());
+        } else if (!rowset_meta.has_index_id()) {
+            MetaReader reader(instance_id);
+            TabletIndexPB tablet_idx;
+            TxnErrorCode err =
+                    reader.get_tablet_index(txn.get(), rowset_meta.tablet_id(), &tablet_idx);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                              : cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet index, tablet_id={}, err={}",
+                                  rowset_meta.tablet_id(), err);
+                LOG(WARNING) << msg;
+                return;
+            }
             rowset_meta.set_index_id(tablet_idx.index_id());
         }
         DCHECK(rowset_meta.tablet_schema().has_schema_version());
@@ -2756,7 +2770,8 @@ void MetaServiceImpl::get_partition_pending_txn_id(std::string_view instance_id,
                                                    int64_t table_id, int64_t partition_id,
                                                    int64_t tablet_id, std::stringstream& ss,
                                                    MetaServiceCode& code, std::string& msg,
-                                                   int64_t& first_txn_id, Transaction* txn) {
+                                                   int64_t& first_txn_id,
+                                                   int64_t& partition_version, Transaction* txn) {
     std::string ver_val;
     std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
     TxnErrorCode err = txn->get(ver_key, &ver_val);
@@ -2789,6 +2804,7 @@ void MetaServiceImpl::get_partition_pending_txn_id(std::string_view instance_id,
     } else {
         first_txn_id = -1;
     }
+    partition_version = version_pb.version();
 }
 
 void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
@@ -2862,13 +2878,15 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             // there is maybe a lazy commit txn when call get_rowset
             // we need advance lazy commit txn here
             int64_t first_txn_id = -1;
+            int64_t partition_version = -1;
             if (!is_versioned_read) {
                 get_partition_pending_txn_id(instance_id, idx.db_id(), idx.table_id(),
                                              idx.partition_id(), tablet_id, ss, code, msg,
-                                             first_txn_id, txn.get());
+                                             first_txn_id, partition_version, txn.get());
                 if (code != MetaServiceCode::OK) {
                     return;
                 }
+                response->set_partition_max_version(partition_version);
             } else {
                 err = reader.get_partition_pending_txn_id(txn.get(), idx.partition_id(),
                                                           &first_txn_id);
@@ -3045,6 +3063,8 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
     }
     RPC_RATE_LIMIT(get_tablet_stats)
 
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    MetaReader reader(instance_id, txn_kv_.get());
     for (auto& i : request->tablet_idx()) {
         TabletIndexPB idx(i);
         // FIXME(plat1ko): Get all tablet stats in one txn
@@ -3060,16 +3080,30 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             // the txn is not a local variable, if not reset will count last res twice
             txn.reset(nullptr);
         };
-        if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
-              idx.has_partition_id() && i.has_tablet_id())) {
-            get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
-            if (code != MetaServiceCode::OK) return;
-        }
+
         auto tablet_stats = response->add_tablet_stats();
-        internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
-        if (code != MetaServiceCode::OK) {
-            response->clear_tablet_stats();
-            break;
+        if (!is_versioned_read) {
+            if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
+                  idx.has_partition_id() && i.has_tablet_id())) {
+                get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
+                if (code != MetaServiceCode::OK) return;
+            }
+            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
+            if (code != MetaServiceCode::OK) {
+                response->clear_tablet_stats();
+                break;
+            }
+        } else {
+            TxnErrorCode err =
+                    reader.get_tablet_merged_stats(idx.tablet_id(), tablet_stats, nullptr);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get versioned tablet stats, err={}, tablet_id={}", err,
+                                  idx.tablet_id());
+                LOG(WARNING) << msg;
+                response->clear_tablet_stats();
+                return;
+            }
         }
 #ifdef NDEBUG
         // Force data size >= 0 to reduce the losses caused by bugs
@@ -3280,7 +3314,25 @@ static bool check_partition_version_when_update_delete_bitmap(
             }
         }
     } else {
-        CHECK(false) << "versioned read is not supported yet";
+        MetaReader reader(instance_id);
+        VersionPB version_pb;
+        TxnErrorCode err =
+                reader.get_partition_version(txn.get(), partition_id, &version_pb, nullptr);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            cur_max_version = 1; // no version, set to 1
+        } else if (err == TxnErrorCode::TXN_OK) {
+            cur_max_version = version_pb.version();
+            if (version_pb.pending_txn_ids_size() > 0) {
+                DCHECK(version_pb.pending_txn_ids_size() == 1);
+                cur_max_version += version_pb.pending_txn_ids_size();
+            }
+        } else {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get versioned partition version, err={}, partition_id={}",
+                              err, partition_id);
+            LOG(WARNING) << msg;
+            return false;
+        }
     }
 
     if (cur_max_version + 1 != next_visible_version) {
@@ -3876,7 +3928,15 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 return;
             }
         } else {
-            CHECK(false) << "versioned read is not supported yet";
+            MetaReader reader(instance_id);
+            TxnErrorCode err = reader.get_tablet_merged_stats(tablet_id, &tablet_stat, nullptr);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get versioned tablet stats, err={}, tablet_id={}", err,
+                                  tablet_id);
+                LOG(WARNING) << msg;
+                return;
+            }
         }
         // The requested compaction state and the actual compaction state are different, which indicates that
         // the requested rowsets are expired and their delete bitmap may have been deleted.
@@ -3968,6 +4028,7 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
     std::stringstream ss;
     bool is_versioned_read = is_version_read_enabled(instance_id);
     if (!config::enable_batch_get_mow_tablet_stats_and_meta) {
+        MetaReader reader(instance_id, txn_kv_.get());
         for (const auto& tablet_idx : request->tablet_indexes()) {
             // 1. get compaction cnts
             TabletStatsPB tablet_stat;
@@ -4002,7 +4063,27 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
                     return false;
                 }
             } else {
-                CHECK(false) << "versioned read is not supported yet";
+                err = reader.get_tablet_compact_stats(txn.get(), tablet_idx.tablet_id(),
+                                                      &tablet_stat, nullptr);
+                if (err == TxnErrorCode::TXN_TOO_OLD) {
+                    code = MetaServiceCode::OK;
+                    err = txn_kv_->create_txn(&txn);
+                    if (err != TxnErrorCode::TXN_OK) {
+                        code = cast_as<ErrCategory::CREATE>(err);
+                        ss << "failed to init txn when get tablet stats";
+                        msg = ss.str();
+                        return false;
+                    }
+                    err = reader.get_tablet_compact_stats(txn.get(), tablet_idx.tablet_id(),
+                                                          &tablet_stat, nullptr);
+                }
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format("failed to get tablet compact stats, err={}, tablet_id={}",
+                                      err, tablet_idx.tablet_id());
+                    LOG(WARNING) << msg;
+                    return false;
+                }
             }
             response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
             response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
@@ -4033,7 +4114,19 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
                     return false;
                 }
             } else {
-                CHECK(false) << "versioned read is not supported yet";
+                err = reader.get_tablet_meta(txn.get(), tablet_idx.tablet_id(), &tablet_meta,
+                                             nullptr);
+                if (err != TxnErrorCode::TXN_OK) {
+                    ss << "failed to get versioned tablet meta"
+                       << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
+                       << " instance_id=" << instance_id << " tablet_id=" << tablet_idx.tablet_id()
+                       << " err=" << err;
+                    msg = ss.str();
+                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                   ? MetaServiceCode::TABLET_NOT_FOUND
+                                   : cast_as<ErrCategory::READ>(err);
+                    return false;
+                }
             }
             response->add_tablet_states(
                     static_cast<std::underlying_type_t<TabletStatePB>>(tablet_meta.tablet_state()));
@@ -4107,8 +4200,8 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
         }
         for (size_t i = 0; i < tablet_meta_keys.size(); i++) {
             if (!tablet_meta_values[i].has_value()) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get tablet meta, err={} tablet_id={}", err,
+                code = MetaServiceCode::TABLET_NOT_FOUND;
+                msg = fmt::format("failed to get tablet meta (not found), tablet_id={}",
                                   request->tablet_indexes(i).tablet_id());
                 return false;
             }

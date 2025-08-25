@@ -189,7 +189,7 @@ public:
         return _seg_files.get_file_writers();
     }
 
-    std::unordered_map<int, IndexFileWriterPtr>& inverted_index_file_writers() {
+    std::unordered_map<int, IndexFileWriterPtr>& index_file_writers() {
         return this->_idx_files.get_file_writers();
     }
 
