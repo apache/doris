@@ -730,6 +730,16 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     // init iterator by unique id
     RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(iter, &tablet_column, opt));
 
+    auto file_column_type =
+            get_data_type_of(tablet_column, opt->io_ctx.reader_type != ReaderType::READER_QUERY);
+    auto expected_type = Schema::get_data_type_ptr(tablet_column);
+    if (file_column_type && !file_column_type->equals(*expected_type)) {
+        VLOG_DEBUG << fmt::format("Get column {}, file column type {}, exepected type {}",
+                                  tablet_column.name(), file_column_type->get_name(),
+                                  expected_type->get_name());
+        iter->reset(new CastColumnIterator(std::move(*iter), file_column_type, expected_type));
+    }
+
     if (config::enable_column_type_check && !tablet_column.has_path_info() &&
         !tablet_column.is_agg_state_type() &&
         tablet_column.type() != _column_readers.at(unique_id)->get_meta_type()) {
@@ -945,23 +955,6 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     return Status::OK();
 }
 
-bool Segment::same_with_storage_type(int32_t cid, const Schema& schema,
-                                     bool read_flat_leaves) const {
-    const auto* col = schema.column(cid);
-    auto file_column_type = get_data_type_of(col->get_desc(), read_flat_leaves);
-    auto expected_type = Schema::get_data_type_ptr(*col);
-#ifndef NDEBUG
-    if (file_column_type && !file_column_type->equals(*expected_type)) {
-        VLOG_DEBUG << fmt::format("Get column {}, file column type {}, exepected type {}",
-                                  col->name(), file_column_type->get_name(),
-                                  expected_type->get_name());
-    }
-#endif
-    bool same =
-            (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
-    return same;
-}
-
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
                                        uint32_t row_id, vectorized::MutableColumnPtr& result,
                                        OlapReaderStatistics& stats,
@@ -998,13 +991,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         }
         RETURN_IF_ERROR(
                 iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
-        vectorized::ColumnPtr source_ptr;
-        // storage may have different type with schema, so we need to cast the column
-        RETURN_IF_ERROR(vectorized::schema_util::cast_column(
-                vectorized::ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type,
-                                                  column.name()),
-                slot->type(), &source_ptr));
-        RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, 1));
+        RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*file_storage_column, 0, 1));
     } else {
         int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())
                                                  : schema.field_index(slot->col_name());
