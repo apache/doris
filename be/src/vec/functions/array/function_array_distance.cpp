@@ -21,11 +21,66 @@
 
 namespace doris::vectorized {
 
+#if defined(__x86_64__) && (defined(__clang_major__) && (__clang_major__ > 10))
+#define PRAGMA_IMPRECISE_FUNCTION_BEGIN _Pragma("float_control(precise, off, push)")
+#define PRAGMA_IMPRECISE_FUNCTION_END _Pragma("float_control(pop)")
+
+#elif defined(__GNUC__)
+#define PRAGMA_IMPRECISE_FUNCTION_BEGIN \
+    _Pragma("GCC push_options")         \
+            _Pragma("GCC optimize (\"unroll-loops,associative-math,no-signed-zeros\")")
+#define PRAGMA_IMPRECISE_FUNCTION_END _Pragma("GCC pop_options")
+#else
+#define PRAGMA_IMPRECISE_FUNCTION_BEGIN
+#define PRAGMA_IMPRECISE_FUNCTION_END
+#endif
+
+PRAGMA_IMPRECISE_FUNCTION_BEGIN
+float L1Distance::distance(const float* x, const float* y, size_t d) {
+    size_t i;
+    float res = 0;
+    for (i = 0; i < d; i++) {
+        res += fabs(x[i] - y[i]);
+    }
+    return res;
+}
+
+float L2Distance::distance(const float* x, const float* y, size_t d) {
+    size_t i;
+    float res = 0;
+    for (i = 0; i < d; i++) {
+        const float tmp = x[i] - y[i];
+        res += tmp * tmp;
+    }
+    return res;
+}
+
+float CosineDistance::distance(const float* x, const float* y, size_t d) {
+    float dot_prod = 0;
+    float squared_x = 0;
+    float squared_y = 0;
+    for (size_t i = 0; i < d; ++i) {
+        dot_prod += x[i] * y[i];
+        squared_x += x[i] * x[i];
+        squared_y += y[i] * y[i];
+    }
+    return 1 - dot_prod / sqrt(squared_x * squared_y);
+}
+
+float InnerProduct::distance(const float* x, const float* y, size_t d) {
+    float res = 0.F;
+    for (size_t i = 0; i != d; ++i) {
+        res += x[i] * y[i];
+    }
+    return res;
+}
+PRAGMA_IMPRECISE_FUNCTION_END
+
 void register_function_array_distance(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayDistance<L1Distance> >();
-    factory.register_function<FunctionArrayDistance<L2Distance> >();
-    factory.register_function<FunctionArrayDistance<CosineDistance> >();
-    factory.register_function<FunctionArrayDistance<InnerProduct> >();
+    factory.register_function<FunctionArrayDistance<L1Distance>>();
+    factory.register_function<FunctionArrayDistance<L2Distance>>();
+    factory.register_function<FunctionArrayDistance<CosineDistance>>();
+    factory.register_function<FunctionArrayDistance<InnerProduct>>();
 }
 
 } // namespace doris::vectorized
