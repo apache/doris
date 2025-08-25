@@ -29,6 +29,7 @@
 #include "cast_to_string.h"
 #include "cast_to_struct.h"
 #include "cast_to_variant.h"
+#include "common/status.h"
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -310,7 +311,12 @@ public:
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return wrapper_function(context, block, arguments, result, input_rows_count, nullptr);
+        auto st = wrapper_function(context, block, arguments, result, input_rows_count, nullptr);
+        ;
+        if (!st.ok()) {
+            return Status::Conversion(st.msg());
+        }
+        return Status::OK();
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }

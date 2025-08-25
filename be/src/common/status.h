@@ -80,7 +80,8 @@ namespace ErrorCode {
     TStatusError(NOT_MASTER, true);                       \
     TStatusError(OBTAIN_LOCK_FAILED, false);              \
     TStatusError(SNAPSHOT_EXPIRED, false);                \
-    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
+    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);        \
+    TStatusError(CONVERSION, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
     E(OK, 0, false);                                         \
@@ -512,6 +513,7 @@ public:
     ERROR_CTOR_NOSTACK(CgroupError, CGROUP_ERROR)
     ERROR_CTOR_NOSTACK(ObtainLockFailed, OBTAIN_LOCK_FAILED)
     ERROR_CTOR_NOSTACK(NetworkError, NETWORK_ERROR)
+    ERROR_CTOR_NOSTACK(Conversion, CONVERSION)
 #undef ERROR_CTOR
 
     template <int code>
