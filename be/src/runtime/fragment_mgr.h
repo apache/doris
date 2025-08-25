@@ -75,7 +75,7 @@ public:
     using ApplyFunction = std::function<Status(phmap::flat_hash_map<Key, Value>&)>;
     ConcurrentContextMap();
     Value find(const Key& query_id);
-    void insert(const Key& query_id, std::shared_ptr<ValueType>);
+    bool insert(const Key& query_id, std::shared_ptr<ValueType>);
     void clear();
     void erase(const Key& query_id);
     size_t num_items() const {
