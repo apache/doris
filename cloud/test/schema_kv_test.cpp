@@ -285,7 +285,7 @@ TEST(DetachSchemaKVTest, PutSchemaKvTest) {
     fill_schema(&schema, schema_version);
 
     std::unique_ptr<Transaction> txn;
-    MetaServiceCode code;
+    MetaServiceCode code = MetaServiceCode::OK;
     std::string msg;
     Versionstamp commit_versionstamp;
     for (int i = 0; i < 2; ++i) {
