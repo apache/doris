@@ -623,6 +623,7 @@ public class PaimonUtil {
         final FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
         return fileStoreTable.branchManager().branchExists(branchName);
     }
+
     public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<String> partitionKeys = table.partitionKeys();
