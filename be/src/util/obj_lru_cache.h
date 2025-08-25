@@ -72,9 +72,10 @@ public:
         bool valid() { return _cache != nullptr && _handle != nullptr; }
 
         LRUCachePolicy* cache() const { return _cache; }
+
         template <typename T>
-        void* data() const {
-            return (void*)((ObjValue<T>*)_cache->value(_handle))->value;
+        const T* data() const {
+            return ((ObjValue<T>*)_cache->value(_handle))->value;
         }
 
     private:
@@ -98,7 +99,8 @@ public:
                                                   CachePriority::NORMAL);
             *cache_handle = CacheHandle {this, handle};
         } else {
-            cache_handle = nullptr;
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ObjLRUCache disable, can not insert.");
         }
     }
 
@@ -106,8 +108,10 @@ public:
 
     bool exceed_prune_limit() override;
 
+    bool enabled() const { return _enabled; }
+
 private:
-    bool _enabled;
+    const bool _enabled;
 };
 
 } // namespace doris
