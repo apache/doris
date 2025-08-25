@@ -47,6 +47,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
@@ -66,6 +67,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -234,20 +236,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             tableFormatFileDesc.setTableLevelRowCount(paimonSplit.getRowCount().get());
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
-        Map<String, String> partitionValues = paimonSplit.getPaimonPartitionValues();
-        if (partitionValues != null) {
-            List<String> fromPathKeys = new ArrayList<>();
-            List<String> fromPathValues = new ArrayList<>();
-            List<Boolean> fromPathIsNull = new ArrayList<>();
-            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-                fromPathKeys.add(entry.getKey());
-                fromPathValues.add(entry.getValue() != null ? entry.getValue() : "");
-                fromPathIsNull.add(entry.getValue() == null);
-            }
-            rangeDesc.setColumnsFromPathKeys(fromPathKeys);
-            rangeDesc.setColumnsFromPath(fromPathValues);
-            rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
-        }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -270,36 +258,21 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
 
         boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
-        // Used to avoid repeatedly calculating partition info map for the same
-        // partition data.
-        // And for counting the number of selected partitions for this paimon table.
-        Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
+        // Just for counting the number of selected partitions for this paimon table
+        Set<BinaryRow> selectedPartitionValues = Sets.newHashSet();
         // if applyCountPushdown is true, we can't split the DataSplit
         long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());
             BinaryRow partitionValue = dataSplit.partition();
-            Map<String, String> partitionInfoMap = null;
-            if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                // If the partition value is not in the map, we need to calculate the partition
-                // info map and store it in the map.
-                partitionInfoMap = partitionInfoMaps.computeIfAbsent(partitionValue, k -> {
-                    return PaimonUtil.getPartitionInfoMap(
-                            source.getPaimonTable(), partitionValue, sessionVariable.getTimeZone());
-                });
-            } else {
-                partitionInfoMaps.put(partitionValue, null);
-            }
+            selectedPartitionValues.add(partitionValue);
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
             if (applyCountPushdown && dataSplit.mergedRowCountAvailable()) {
                 splitStat.setMergedRowCount(dataSplit.mergedRowCount());
                 PaimonSplit split = new PaimonSplit(dataSplit);
                 split.setRowCount(dataSplit.mergedRowCount());
-                if (partitionInfoMap != null) {
-                    split.setPaimonPartitionValues(partitionInfoMap);
-                }
                 pushDownCountSplits.add(split);
                 pushDownCountSum += dataSplit.mergedRowCount();
             } else if (!forceJniScanner && supportNativeReader(optRawFiles)) {
@@ -324,12 +297,10 @@ public class PaimonScanNode extends FileQueryScanNode {
                                 null,
                                 PaimonSplit.PaimonSplitCreator.DEFAULT);
                         for (Split dorisSplit : dorisSplits) {
-                            PaimonSplit paimonSplit = (PaimonSplit) dorisSplit;
-                            paimonSplit.setSchemaId(file.schemaId());
-                            paimonSplit.setPaimonPartitionValues(partitionInfoMap);
+                            ((PaimonSplit) dorisSplit).setSchemaId(file.schemaId());
                             // try to set deletion file
                             if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
-                                paimonSplit.setDeletionFile(optDeletionFiles.get().get(i));
+                                ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i));
                                 splitStat.setHasDeletionVector(true);
                             }
                         }
@@ -367,7 +338,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         // proportion of each split later.
         splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
 
-        this.selectedPartitionNum = partitionInfoMaps.size();
+        this.selectedPartitionNum = selectedPartitionValues.size();
         return splits;
     }
 

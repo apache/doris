@@ -27,7 +27,6 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -38,7 +37,6 @@ public class PaimonSplit extends FileSplit {
     private Optional<DeletionFile> optDeletionFile = Optional.empty();
     private Optional<Long> optRowCount = Optional.empty();
     private Optional<Long> schemaId = Optional.empty();
-    private Map<String, String> paimonPartitionValues = null;
 
     public PaimonSplit(DataSplit split) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
@@ -101,14 +99,6 @@ public class PaimonSplit extends FileSplit {
 
     public Long getSchemaId() {
         return schemaId.orElse(null);
-    }
-
-    public void setPaimonPartitionValues(Map<String, String> paimonPartitionValues) {
-        this.paimonPartitionValues = paimonPartitionValues;
-    }
-
-    public Map<String, String> getPaimonPartitionValues() {
-        return paimonPartitionValues;
     }
 
     public static class PaimonSplitCreator implements SplitCreator {

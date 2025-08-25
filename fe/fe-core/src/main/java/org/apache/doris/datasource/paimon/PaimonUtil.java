@@ -49,9 +49,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.CoreOptions.StartupMode;
-import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
-import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
@@ -73,14 +71,8 @@ import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
-import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -622,83 +614,5 @@ public class PaimonUtil {
 
         final FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
         return fileStoreTable.branchManager().branchExists(branchName);
-    }
-    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
-        Map<String, String> partitionInfoMap = new HashMap<>();
-        List<String> partitionKeys = table.partitionKeys();
-        RowType partitionType = table.rowType().project(partitionKeys);
-        RowDataToObjectArrayConverter toObjectArrayConverter = new RowDataToObjectArrayConverter(
-                partitionType);
-        Object[] partitionValuesArray = toObjectArrayConverter.convert(partitionValues);
-        for (int i = 0; i < partitionKeys.size(); i++) {
-            try {
-                String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
-                        partitionValuesArray[i], timeZone);
-                partitionInfoMap.put(partitionKeys.get(i), partitionValue);
-            } catch (UnsupportedOperationException e) {
-                LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
-                        partitionKeys.get(i), e.getMessage());
-                return null;
-            }
-        }
-        return partitionInfoMap;
-    }
-
-    private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
-            String timeZone) {
-        switch (type.getTypeRoot()) {
-            case BOOLEAN:
-            case INTEGER:
-            case BIGINT:
-            case SMALLINT:
-            case TINYINT:
-            case DECIMAL:
-            case VARCHAR:
-            case CHAR:
-                if (value == null) {
-                    return null;
-                }
-                return value.toString();
-            case BINARY:
-            case VARBINARY:
-                if (value == null) {
-                    return null;
-                }
-                return new String((byte[]) value, StandardCharsets.UTF_8);
-            case DATE:
-                if (value == null) {
-                    return null;
-                }
-                // Paimon date is stored as days since epoch
-                LocalDate date = LocalDate.ofEpochDay((Integer) value);
-                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
-            case TIME_WITHOUT_TIME_ZONE:
-                if (value == null) {
-                    return null;
-                }
-                // Paimon time is stored as microseconds since midnight in utc
-                long micros = (Long) value;
-                LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
-                return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
-            case TIMESTAMP_WITHOUT_TIME_ZONE:
-                if (value == null) {
-                    return null;
-                }
-                // Paimon timestamp is stored as Timestamp type in utc
-                return ((Timestamp) value).toLocalDateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
-                if (value == null) {
-                    return null;
-                }
-                // Paimon timestamp with local time zone is stored as Timestamp type in utc
-                Timestamp timestamp = (Timestamp) value;
-                return timestamp.toLocalDateTime()
-                        .atZone(ZoneId.of("UTC"))
-                        .withZoneSameInstant(ZoneId.of(timeZone))
-                        .toLocalDateTime()
-                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            default:
-                throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
-        }
     }
 }
