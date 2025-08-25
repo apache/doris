@@ -30,7 +30,6 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.stats.HboPlanStatisticsProvider;
 import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -91,9 +90,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     private final int beNumber;
     private final int parallelInstance;
     private final HboPlanStatisticsProvider hboPlanStatisticsProvider;
-    private final List<PhysicalProperties> requestChildrenProperties;
 
-    public CostModel(ConnectContext connectContext, List<PhysicalProperties> childrenProperties) {
+    public CostModel(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         if (sessionVariable.getBeNumberForTest() != -1) {
             // shape test, fix the BE number and instance number
@@ -105,7 +103,6 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         }
         this.hboPlanStatisticsProvider = Objects.requireNonNull(Env.getCurrentEnv().getHboPlanStatisticsManager()
                 .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
-        this.requestChildrenProperties = childrenProperties;
     }
 
     public static Cost addChildCost(SessionVariable sessionVariable, Cost planCost, Cost childCost) {

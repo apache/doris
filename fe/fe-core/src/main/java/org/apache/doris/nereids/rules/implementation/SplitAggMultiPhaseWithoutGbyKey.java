@@ -156,7 +156,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         Plan anyLocalAgg = new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), localAggOutput,
                 Optional.of(Utils.fastToImmutableList(logicalAgg.getDistinctArguments())), inputToResultParam,
                 AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), inputToResultParam),
-                null, null, logicalAgg.child());
+                null, logicalAgg.child());
 
         AggregateParam param = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
 
@@ -193,7 +193,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
                 });
         return ImmutableList.of(new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), globalOutput, param,
                 AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), param),
-                logicalAgg.getLogicalProperties(), null, anyLocalAgg));
+                logicalAgg.getLogicalProperties(), anyLocalAgg));
     }
 
     private boolean canUseFinalMultiDistinct(Aggregate<? extends Plan> agg) {

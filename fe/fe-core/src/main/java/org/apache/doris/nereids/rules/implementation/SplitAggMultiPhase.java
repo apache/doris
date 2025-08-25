@@ -19,10 +19,10 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.pattern.MatchingContext;
+import org.apache.doris.nereids.properties.ChildrenPropertiesRegulator;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
-import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -55,7 +55,6 @@ import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -120,7 +119,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         if (aggregate.canSkewRewrite()) {
             return ImmutableList.of(aggSkewRewrite(aggregate, ctx.cascadesContext));
         } else {
-            if (shouldUseThreePhase(aggregate)) {
+            if (twoPlusOneBetterThanTwoPlusTwo(aggregate)) {
                 return ImmutableList.<Plan>builder()
                         .addAll(splitToTwoPlusOnePhase(aggregate))
                         .addAll(splitToOnePlusTwoPhase(aggregate))
@@ -227,31 +226,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         return new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), globalOutput,
                 Optional.ofNullable(aggregate.getGroupByExpressions()), inputToResultParamSecond,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), inputToResultParamSecond),
-                aggregate.getLogicalProperties(), null, child);
-    }
-
-    /**public for test*/
-    public boolean shouldUseThreePhase(Aggregate<? extends Plan> aggregate) {
-        Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
-        Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
-        if (aggStats == null || aggChildStats == null) {
-            return true;
-        }
-        for (Expression groupByExpr : aggregate.getGroupByExpressions()) {
-            ColumnStatistic columnStat = aggChildStats.findColumnStatistics(groupByExpr);
-            if (columnStat == null) {
-                columnStat = ExpressionEstimation.estimate(groupByExpr, aggChildStats);
-            }
-            if (columnStat.isUnKnown) {
-                return true;
-            }
-        }
-        double ndv = aggStats.getRowCount();
-        // When ndv is very low, three-stage AGG cannot be used and there will be data skew
-        if (ndv < 1000) {
-            return false;
-        }
-        return true;
+                aggregate.getLogicalProperties(), child);
     }
 
     /**
@@ -278,7 +253,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         AggregateParam localParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
         boolean maybeUsingStreamAgg = AggregateUtils.maybeUsingStreamAgg(localAggGroupBy, localParam);
         PhysicalHashAggregate<Plan> localAgg = new PhysicalHashAggregate<>(localAggGroupBy, localAggOutput,
-                Optional.empty(), localParam, maybeUsingStreamAgg, Optional.empty(), null,
+                Optional.empty(), localParam, maybeUsingStreamAgg,
                 null, logicalAgg.child());
         // add shuffle expr in project
         ImmutableList.Builder<NamedExpression> projections = ImmutableList.builderWithExpectedSize(
@@ -311,7 +286,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         secondPhaseAggOutput.add(multiDistinctAlias);
         PhysicalHashAggregate<Plan> secondPhaseAgg = new PhysicalHashAggregate<>(
                 secondPhaseAggGroupBy, secondPhaseAggOutput.build(),
-                Optional.of(secondPhaseAggGroupBy), secondParam, false, Optional.empty(), null,
+                Optional.of(secondPhaseAggGroupBy), secondParam, false,
                 null, physicalProject);
 
         // 3. third phase agg
@@ -325,7 +300,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         thirdPhaseAggOutput.add(thirdCountAlias);
         PhysicalHashAggregate<Plan> thirdPhaseAgg = new PhysicalHashAggregate<>(
                 thirdPhaseAggGroupBy, thirdPhaseAggOutput.build(),
-                Optional.empty(), thirdParam, false, Optional.empty(), null,
+                Optional.empty(), thirdParam, false,
                 null, secondPhaseAgg);
 
         // 4. fourth phase agg
@@ -339,8 +314,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         fourthPhaseAggOutput.add(sumAliasFour);
         return new PhysicalHashAggregate<>(thirdPhaseAggGroupBy,
                 fourthPhaseAggOutput.build(), Optional.of(logicalAgg.getGroupByExpressions()), fourthParam,
-                false, Optional.empty(), logicalAgg.getLogicalProperties(),
-                null, thirdPhaseAgg);
+                false, logicalAgg.getLogicalProperties(), thirdPhaseAgg);
     }
 
     private static AggregateFunction getAggregateFunction(AggregateFunction aggFunc, Slot child) {
@@ -360,5 +334,23 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
                 aggFunc.child(0), StringType.INSTANCE)), new IntegerLiteral((short) bucket));
         Cast cast = new Cast(mod, type);
         return new Alias(cast, SALT_EXPR + cascadesContext.getStatementContext().generateColumnName());
+    }
+
+    /**shouldUseThreePhase*/
+    private static boolean twoPlusOneBetterThanTwoPlusTwo(Aggregate<? extends Plan> aggregate) {
+        Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
+        Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
+        if (aggStats == null || aggChildStats == null) {
+            return true;
+        }
+        if (AggregateUtils.hasUnknownStatistics(aggregate.getGroupByExpressions(), aggChildStats)) {
+            return true;
+        }
+        double ndv = aggStats.getRowCount();
+        // When ndv is very low, three-stage AGG cannot be used and there will be data skew
+        if (ndv < ChildrenPropertiesRegulator.LOW_NDV_THRESHOLD) {
+            return false;
+        }
+        return true;
     }
 }

@@ -540,3 +540,34 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 -- !null_hash --
 1	\N	0	0.0
 
+-- !same_distinct_arg --
+2	1
+
+-- !same_distinct_arg_2group --
+1	3	2
+
+-- !same_distinct_arg_shape --
+PhysicalResultSink
+--hashAgg[DISTINCT_GLOBAL]
+----hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[test_distinct_multi]
+
+-- !same_distinct_arg_2group_shape --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[test_distinct_multi]
+--PhysicalResultSink
+----NestedLoopJoin[CROSS_JOIN]
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+

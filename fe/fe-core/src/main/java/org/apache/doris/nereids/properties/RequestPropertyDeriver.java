@@ -107,14 +107,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visit(Plan plan, PlanContext context) {
-        // if (plan instanceof RequirePropertiesSupplier) {
-        //     RequireProperties requireProperties = ((RequirePropertiesSupplier<?>) plan).getRequireProperties();
-        //     List<PhysicalProperties> requestPhysicalProperties =
-        //             requireProperties.computeRequirePhysicalProperties(plan, requestPropertyFromParent);
-        //     addRequestPropertyToChildren(requestPhysicalProperties);
-        //     return null;
-        // }
-
         List<PhysicalProperties> requiredPropertyList =
                 Lists.newArrayListWithCapacity(context.arity());
         for (int i = context.arity(); i > 0; --i) {
@@ -417,12 +409,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
-        // 先在这里实现一下
-        // group by a,b
-        // 如果agg收到的请求是a,agg发出的请求是a,b,a是a,b的子集, 那么agg发送a请求给孩子(这里判断一下a的ndv,如果很小的话就还是发a,b)
-        // 如果agg没有收到请求,那还是发出a,b
-        // 如果agg收到了请求,但是没有交集,那么agg仍然发出a,b
-        // 如果是local agg,那么发出any, 如果是global agg,才有要求
         DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
         if (agg.getAggPhase().isLocal()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
@@ -437,25 +423,23 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                 addRequestPropertyToChildren(PhysicalProperties.GATHER);
                 return null;
             }
-            //获得当前的group by key的expr id
             List<ExprId> groupByExprIds = agg.getGroupByExpressions().stream()
                     .filter(SlotReference.class::isInstance)
                     .map(SlotReference.class::cast)
                     .map(SlotReference::getExprId)
                     .collect(Collectors.toList());
+            // If the request received by agg is (a), the request sent by agg is (a,b), and (a) is a subset of (a,b),
+            // then agg sends (a) to the child
             if (parentDist instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
                 List<ExprId> hashExprIds = distributionRequestFromParent.getOrderedShuffledColumns();
-                // 还需加上ndv的判断
                 if (new HashSet<>(groupByExprIds).containsAll(hashExprIds)) {
+                    // TODO: use ndv decide, if ndv low, not send parent
                     addRequestPropertyToChildren(PhysicalProperties.createHash(hashExprIds, ShuffleType.REQUIRE));
-                    addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
                     return null;
                 }
             }
             addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
-            // Statistics statistics = agg.child().getStats();
-            // statistics.findColumnStatistics()
             return null;
         }
         return null;

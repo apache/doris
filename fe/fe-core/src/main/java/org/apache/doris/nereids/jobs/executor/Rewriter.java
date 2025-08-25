@@ -881,8 +881,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                 }
-                // rewriteJobs.addAll(jobs(topic("split multi distinct",
-                //         custom(RuleType.SPLIT_MULTI_DISTINCT, () -> SplitMultiDistinct.INSTANCE))));
 
                 rewriteJobs.addAll(jobs(topic("split multi distinct",
                         custom(RuleType.SPLIT_MULTI_DISTINCT, () -> DistinctAggStrategySelector.INSTANCE))));
