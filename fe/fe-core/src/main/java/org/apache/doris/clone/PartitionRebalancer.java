@@ -102,7 +102,7 @@ public class PartitionRebalancer extends Rebalancer {
         if (!toDeleteKeys.isEmpty()) {
             movesInProgress.get().invalidateAll(toDeleteKeys);
             movesInProgressList = movesInProgressList.stream()
-                    .filter(m -> !toDeleteKeys.contains(m.tabletId)).collect(Collectors.toList());
+                .filter(m -> !toDeleteKeys.contains(m.tabletId)).collect(Collectors.toList());
         }
 
         // The balancing tasks of other cluster or medium might have failed. We use the upper limit value
@@ -140,10 +140,10 @@ public class PartitionRebalancer extends Rebalancer {
 
             BiPredicate<Long, TabletMeta> canMoveTablet = (Long tabletId, TabletMeta tabletMeta) -> {
                 return canBalanceTablet(tabletMeta)
-                        && tabletMeta.getPartitionId() == move.partitionId
-                        && tabletMeta.getIndexId() == move.indexId
-                        && !invalidIds.contains(tabletId)
-                        && !inProgressIds.contains(tabletId);
+                    && tabletMeta.getPartitionId() == move.partitionId
+                    && tabletMeta.getIndexId() == move.indexId
+                    && !invalidIds.contains(tabletId)
+                    && !inProgressIds.contains(tabletId);
             };
 
             // Random pick one candidate to create tabletSchedCtx
@@ -230,7 +230,7 @@ public class PartitionRebalancer extends Rebalancer {
 
             TwoDimensionalGreedyRebalanceAlgo.PartitionMove partitionMove
                     = new TwoDimensionalGreedyRebalanceAlgo.PartitionMove(
-                            meta.getPartitionId(), meta.getIndexId(), move.fromBe, move.toBe);
+                    meta.getPartitionId(), meta.getIndexId(), move.fromBe, move.toBe);
             boolean st = TwoDimensionalGreedyRebalanceAlgo.applyMove(
                     partitionMove, info.beByTotalReplicaCount, info.partitionInfoBySkew);
             if (!st) {
@@ -348,6 +348,7 @@ public class PartitionRebalancer extends Rebalancer {
         // The move should be invalidated by TTL or Algo.CheckMoveCompleted()
         Pair<TabletMove, Long> pair = movesCacheMap.getTabletMove(tabletCtx);
         if (pair != null) {
+            LOG.debug("getToDeleteReplicaId from cache for tablet {}, pair {}", tabletCtx.getTabletId(), pair);
             //Preconditions.checkState(pair.second != -1L);
             return pair.second;
         } else {
@@ -396,10 +397,10 @@ public class PartitionRebalancer extends Rebalancer {
         @Override
         public String toString() {
             return "ReplicaMove{"
-                    + "tabletId=" + tabletId
-                    + ", fromBe=" + fromBe
-                    + ", toBe=" + toBe
-                    + '}';
+                + "tabletId=" + tabletId
+                + ", fromBe=" + fromBe
+                + ", toBe=" + toBe
+                + '}';
         }
     }
 
