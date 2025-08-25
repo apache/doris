@@ -46,11 +46,15 @@ public:
     // Build request payload based on input text strings
     virtual Status build_request_payload(const std::vector<std::string>& inputs,
                                          const char* const system_prompt,
-                                         std::string& request_body) const = 0;
+                                         std::string& request_body) const {
+        return Status::NotSupported("{} don't support text generation", _config.provider_type);
+    }
 
     // Parse response from LLM service and extract generated text results
     virtual Status parse_response(const std::string& response_body,
-                                  std::vector<std::string>& results) const = 0;
+                                  std::vector<std::string>& results) const {
+        return Status::NotSupported("{} don't support text generation", _config.provider_type);
+    }
 
     virtual Status build_embedding_request(const std::vector<std::string>& inputs,
                                            std::string& request_body) const {
@@ -92,17 +96,6 @@ public:
         client->set_content_type("application/json");
 
         return Status::OK();
-    }
-
-    Status build_request_payload(const std::vector<std::string>& inputs,
-                                 const char* const system_prompt,
-                                 std::string& request_body) const override {
-        return Status::NotSupported("VoyageAI only support embedding function");
-    }
-
-    Status parse_response(const std::string& response_body,
-                          std::vector<std::string>& results) const override {
-        return Status::NotSupported("VoyageAI only support embedding function");
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,

@@ -471,6 +471,7 @@ TEST(LLM_ADAPTER_TEST, voyage_adapter_chat_test) {
     VoyageAIAdapter adapter;
     TLLMResource config;
     config.api_key = "test_voyage_key";
+    config.provider_type = "VoyageAI";
 
     adapter.init(config);
     MockHttpClient mock_client;
@@ -484,14 +485,14 @@ TEST(LLM_ADAPTER_TEST, voyage_adapter_chat_test) {
     Status st = adapter.build_request_payload(inputs, "test_system_prompt", request_body);
     ASSERT_FALSE(st.ok());
     ASSERT_STREQ(st.to_string().c_str(),
-                 "[NOT_IMPLEMENTED_ERROR]VoyageAI only support embedding function");
+                 "[NOT_IMPLEMENTED_ERROR]VoyageAI don't support text generation");
 
     std::string response_body = "test_response_body";
     std::vector<std::string> result;
     st = adapter.parse_response(response_body, result);
     ASSERT_FALSE(st.ok());
     ASSERT_STREQ(st.to_string().c_str(),
-                 "[NOT_IMPLEMENTED_ERROR]VoyageAI only support embedding function");
+                 "[NOT_IMPLEMENTED_ERROR]VoyageAI don't support text generation");
 }
 
 } // namespace doris::vectorized
