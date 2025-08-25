@@ -850,7 +850,7 @@ public class SessionVariable implements Serializable, Writable {
     // will be stored to disk.
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
     // 10 min to debug.
-    public int autoProfileThresholdMs = 1000*60*10;
+    public int autoProfileThresholdMs = 1000 * 60 * 10;
 
     @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
     public boolean runtimeFilterPruneForExternal = true;
