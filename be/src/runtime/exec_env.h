@@ -147,6 +147,9 @@ public:
                                      const std::vector<StorePath>& spill_store_paths,
                                      const std::set<std::string>& broken_paths);
 
+    // Add a stop method to stop some services first to allow be exit gracefully.
+    void stop();
+
     // Stop all threads and delete resources.
     void destroy();
 
@@ -384,7 +387,6 @@ private:
     [[nodiscard]] Status _init(const std::vector<StorePath>& store_paths,
                                const std::vector<StorePath>& spill_store_paths,
                                const std::set<std::string>& broken_paths);
-    void _destroy();
 
     Status _init_mem_env();
     Status _check_deploy_mode();
