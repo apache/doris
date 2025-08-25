@@ -336,8 +336,8 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         return new Alias(cast, SALT_EXPR + cascadesContext.getStatementContext().generateColumnName());
     }
 
-    /**shouldUseThreePhase*/
-    private static boolean twoPlusOneBetterThanTwoPlusTwo(Aggregate<? extends Plan> aggregate) {
+    /**twoPlusOneBetterThanTwoPlusTwo*/
+    public boolean twoPlusOneBetterThanTwoPlusTwo(Aggregate<? extends Plan> aggregate) {
         Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
         Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
         if (aggStats == null || aggChildStats == null) {
