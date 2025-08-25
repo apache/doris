@@ -175,17 +175,20 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
     }
 
     if (params.index_type == FaissBuildParameter::IndexType::HNSW) {
+        std::unique_ptr<faiss::IndexHNSWFlat> hnsw_index;
         if (params.metric_type == FaissBuildParameter::MetricType::L2) {
-            _index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
-                                                            faiss::METRIC_L2);
+            hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
+                                                                faiss::METRIC_L2);
         } else if (params.metric_type == FaissBuildParameter::MetricType::IP) {
-            _index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
-                                                            faiss::METRIC_INNER_PRODUCT);
+            hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
+                                                                faiss::METRIC_INNER_PRODUCT);
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Unsupported metric type: {}",
                                    static_cast<int>(params.metric_type));
         }
+        hnsw_index->hnsw.efConstruction = params.ef_construction;
+        _index = std::move(hnsw_index);
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported index type: {}",
                                static_cast<int>(params.index_type));
@@ -350,7 +353,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                     << "row_ids size: " << result.row_ids->size()
                     << ", roaring size: " << result.roaring->cardinality();
         } else if (_metric == AnnIndexMetric::IP) {
-            // For IP, we can use the distance directly.
+            // For IP, we can not use the distance directly.
             // range search on ip gets all vectors with inner product greater than or equal to the radius.
             // so we need to do a convertion.
             const roaring::Roaring& origin_row_ids = *params.roaring;
@@ -365,6 +368,8 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                 // remove all rows that should not be included.
                 *(result.roaring) = origin_row_ids - *roaring;
                 // Just update the roaring. distance can not be used.
+                result.distances = nullptr;
+                result.row_ids = nullptr;
             }
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,

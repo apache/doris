@@ -93,6 +93,7 @@ struct FaissBuildParameter {
     int max_degree = 0; ///< Maximum number of connections per node in HNSW graph
     IndexType index_type = IndexType::HNSW;  ///< Type of index to build
     MetricType metric_type = MetricType::L2; ///< Distance metric to use
+    int ef_construction = 40; ///< Size of dynamic list for nearest neighbors during construction
 };
 
 /**
