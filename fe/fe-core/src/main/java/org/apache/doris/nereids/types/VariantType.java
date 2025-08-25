@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
  */
 public class VariantType extends PrimitiveType {
 
-    public static final VariantType INSTANCE = new VariantType(0, 0);
+    public static final VariantType INSTANCE = new VariantType(0);
 
     public static final int WIDTH = 24;
 
@@ -51,11 +51,11 @@ public class VariantType extends PrimitiveType {
     private final List<VariantField> predefinedFields;
 
     // No predefined fields
-    public VariantType(int variantMaxSubcolumnsCount, int variantMaxSparseColumnStatisticsSize) {
+    public VariantType(int variantMaxSubcolumnsCount) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.predefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
-        this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
+        this.variantMaxSparseColumnStatisticsSize = 0;
     }
 
     /**

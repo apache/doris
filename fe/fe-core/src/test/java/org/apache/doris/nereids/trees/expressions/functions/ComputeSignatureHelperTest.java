@@ -532,7 +532,7 @@ public class ComputeSignatureHelperTest {
 
     @Test
     void testDynamicComputeVariantArgsSingleVariant() {
-        VariantType variantType = new VariantType(100, 100);
+        VariantType variantType = new VariantType(100);
         FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
                 .args(VariantType.INSTANCE, IntegerType.INSTANCE);
 
@@ -544,19 +544,19 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.returnType instanceof VariantType);
         Assertions.assertEquals(100, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(100, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(0, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
 
         Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
     }
 
     @Test
     void testDynamicComputeVariantArgsMultipleVariants() {
-        VariantType variantType1 = new VariantType(150, 100);
-        VariantType variantType2 = new VariantType(250, 100);
+        VariantType variantType1 = new VariantType(150);
+        VariantType variantType2 = new VariantType(250);
         FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
                 .args(VariantType.INSTANCE, VariantType.INSTANCE);
 
@@ -568,16 +568,16 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(150, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.getArgType(1) instanceof VariantType);
         Assertions.assertEquals(250, ((VariantType) signature.getArgType(1)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(100, ((VariantType) signature.getArgType(1)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(0, ((VariantType) signature.getArgType(1)).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.returnType instanceof IntegerType);
     }
 
     @Test
     void testDynamicComputeVariantArgsMixedTypesWithSingleVariant() {
-        VariantType variantType = new VariantType(75, 100);
+        VariantType variantType = new VariantType(75);
         FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
                 .args(VariantType.INSTANCE, IntegerType.INSTANCE, DoubleType.INSTANCE);
 
@@ -590,7 +590,7 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(75, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
         Assertions.assertTrue(signature.getArgType(2) instanceof DoubleType);
 
@@ -610,13 +610,13 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
     }
 
     @Test
     void testDynamicComputeVariantArgsNoVariantReturnType() {
-        VariantType variantType = new VariantType(300, 100);
+        VariantType variantType = new VariantType(300);
         FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
                 .args(VariantType.INSTANCE);
 
@@ -629,13 +629,13 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(300, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
     }
 
     @Test
     void testDynamicComputeVariantArgsWithVarArgsThrowsException() {
-        VariantType variantType1 = new VariantType(150, 100);
-        VariantType variantType2 = new VariantType(250, 100);
+        VariantType variantType1 = new VariantType(150);
+        VariantType variantType2 = new VariantType(250);
         FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
                 .args(VariantType.INSTANCE, VariantType.INSTANCE);
 
@@ -652,7 +652,7 @@ public class ComputeSignatureHelperTest {
 
     @Test
     void testDynamicComputeVariantArgsWithComputeSignature() {
-        VariantType variantType = new VariantType(200, 100);
+        VariantType variantType = new VariantType(200);
         FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
                 .args(VariantType.INSTANCE);
 
@@ -663,10 +663,10 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.returnType instanceof VariantType);
         Assertions.assertEquals(200, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(100, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(0, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(200, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
     }
 
     /**
