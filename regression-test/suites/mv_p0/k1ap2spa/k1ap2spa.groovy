@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("k1ap2spa") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -44,16 +47,14 @@ suite ("k1ap2spa") {
 
     qt_select_star "select * from d_table order by k1;"
 
-    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
 
     sql "analyze table d_table with sync;"
-    sql """set enable_stats=false;"""
-
-    mv_rewrite_success("select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;", "k1ap2spa")
-    qt_select_mv "select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;"
-
     sql """set enable_stats=true;"""
+    mv_rewrite_success_without_check_chosen("select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;", "k1ap2spa")
 
-    mv_rewrite_success("select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;", "k1ap2spa")
+    sql """alter table d_table modify column k1 set stats ('row_count'='6');"""
+    sql """set enable_stats=false;"""
+    mv_rewrite_success_without_check_chosen("select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;", "k1ap2spa")
+    qt_select_mv "select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;"
 
 }
