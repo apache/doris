@@ -21,7 +21,7 @@ suite("distinct_split") {
     sql "drop table if exists test_distinct_multi"
     sql "create table test_distinct_multi(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into test_distinct_multi values(1,2,3,'abc','2024-01-02'),(1,2,4,'abc','2024-01-03'),(2,2,4,'abcd','2024-01-02'),(1,2,3,'abcd','2024-01-04'),(1,2,4,'eee','2024-02-02'),(2,2,4,'abc','2024-01-02');"
-
+    sql "analyze table test_distinct_multi with sync;"
     // first bit 0 means distinct 1 col, 1 means distinct more than 1 col; second bit 0 means without group by, 1 means with group by;
     // third bit 0 means there is 1 count(distinct) in projects, 1 means more than 1 count(distinct) in projects.
 
@@ -197,7 +197,6 @@ suite("distinct_split") {
     qt_has_other_func "explain shape plan select count(distinct b), count(distinct a), max(b),sum(c),min(a)  from test_distinct_multi"
     qt_2_agg """explain shape plan select max(c1), min(c2) from (select count(distinct a,b) c1, count(distinct a,c) c2 from test_distinct_multi group by c) t"""
 
-    // should not rewrite
     qt_multi_count_with_gby """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi group by c"""
     qt_multi_sum_with_gby """explain shape plan select sum(distinct b), sum(distinct a) from test_distinct_multi group by c"""
     qt_sum_count_with_gby """explain shape plan select sum(distinct b), count(distinct a) from test_distinct_multi group by a"""
