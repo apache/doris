@@ -1042,6 +1042,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -4030,16 +4031,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // then ProjectToGlobalAggregate rule can insert agg node as LogicalHaving node's child
                 List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
                 LogicalPlan project = new LogicalProject<>(projects, isDistinct, aggregate);
-                selectPlan = new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
-                        getExpression((havingClause.get().booleanExpression()))), project);
+                // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
+                // unique functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
+                Expression havingExpr = getExpression(havingClause.get().booleanExpression());
+                selectPlan = new LogicalHaving<>(ImmutableSet.of(havingExpr), project);
             } else {
                 LogicalPlan having = withHaving(aggregate, havingClause);
                 selectPlan = withProjection(having, selectColumnCtx, aggClause, isDistinct);
             }
             // support qualify clause
             if (qualifyClause.isPresent()) {
+                // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
+                // unique functions, like 'sum(random()) over() > 0.5 and sum(random()) over() > 0.5'
+                // => 'sum(random()) over() > 0.5'
                 Expression qualifyExpr = getExpression(qualifyClause.get().booleanExpression());
-                selectPlan = new LogicalQualify<>(ExpressionUtils.extractConjunctionToSet(qualifyExpr), selectPlan);
+                selectPlan = new LogicalQualify<>(ImmutableSet.of(qualifyExpr), selectPlan);
             }
             if (!orderKeys.isEmpty()) {
                 selectPlan = new LogicalSort<>(orderKeys, selectPlan);
@@ -4351,9 +4357,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
-        return input.optionalMap(whereCtx, () ->
-                new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(
-                        getExpression(whereCtx.get().booleanExpression())), input));
+        return input.optionalMap(whereCtx,
+                // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
+                // unique functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
+                () -> new LogicalFilter<>(ImmutableSet.of(getExpression(whereCtx.get().booleanExpression())), input));
     }
 
     private LogicalPlan withAggregate(LogicalPlan input, SelectColumnClauseContext selectCtx,
@@ -4401,8 +4408,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (!(input instanceof Aggregate)) {
                 throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
             }
-            return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
-                    getExpression((havingCtx.get().booleanExpression()))), input);
+            // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
+            // unique functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
+            Expression havingExpr = getExpression(havingCtx.get().booleanExpression());
+            return new LogicalHaving<>(ImmutableSet.of(havingExpr), input);
         });
     }
 
