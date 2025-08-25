@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -58,20 +59,28 @@ import java.util.stream.Collectors;
  * After Eager Group By, new plan also can apply `Eager Count`.
  * It's `Double Eager`.
  */
-public class EagerGroupBy implements ExplorationRuleFactory {
+public class EagerGroupBy implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalAggregate(innerLogicalJoin())
+                logicalAggregate(innerLogicalJoin()
+                        .whenNot(join -> join.child(0) instanceof LogicalAggregate ))
                         .when(agg -> agg.child().getOtherJoinConjuncts().size() == 0)
                         .when(agg -> agg.getAggregateFunctions().stream()
                                 .allMatch(f -> f instanceof Sum
                                         && ((Sum) f).child() instanceof SlotReference
                                         && agg.child().left().getOutputSet()
                                         .contains((SlotReference) ((Sum) f).child())))
-                        .then(agg -> eagerGroupBy(agg, agg.child(), ImmutableList.of()))
+                        .then(agg -> {
+                            List<NamedExpression> projects = new ArrayList<>();
+                            for (Slot slot : agg.child().getOutput()) {
+                                projects.add((SlotReference) slot);
+                            }
+                            return eagerGroupBy(agg, agg.child(), projects);
+                        })
                         .toRule(RuleType.EAGER_GROUP_BY),
-                logicalAggregate(logicalProject(innerLogicalJoin()))
+                logicalAggregate(logicalProject(innerLogicalJoin()
+                        .whenNot(join -> join.child(0) instanceof LogicalAggregate)))
                         .when(agg -> agg.child().isAllSlots())
                         .when(agg -> agg.child().child().getOtherJoinConjuncts().size() == 0)
                         .when(agg -> agg.getGroupByExpressions().stream().allMatch(e -> e instanceof Slot))
@@ -86,7 +95,7 @@ public class EagerGroupBy implements ExplorationRuleFactory {
     }
 
     private LogicalAggregate<Plan> eagerGroupBy(LogicalAggregate<? extends Plan> agg,
-            LogicalJoin<GroupPlan, GroupPlan> join, List<NamedExpression> projects) {
+            LogicalJoin<Plan, Plan> join, List<NamedExpression> projects) {
         List<Slot> leftOutput = join.left().getOutput();
         List<Sum> sums = agg.getAggregateFunctions().stream().map(Sum.class::cast)
                 .collect(Collectors.toList());
@@ -106,7 +115,7 @@ public class EagerGroupBy implements ExplorationRuleFactory {
         }
         List<NamedExpression> sumAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(sumAggGroupBy).addAll(bottomSums).build();
-        LogicalAggregate<GroupPlan> sumAgg = new LogicalAggregate<>(
+        LogicalAggregate<Plan> sumAgg = new LogicalAggregate<>(
                 ImmutableList.copyOf(sumAggGroupBy), sumAggOutput, join.left());
         Plan newJoin = join.withChildren(sumAgg, join.right());
 
