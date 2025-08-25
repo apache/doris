@@ -619,7 +619,7 @@ int main(int argc, char** argv) {
     // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
     // It will make sure that graceful shutdown can be done definitely.
     LOG(INFO) << "Doris main exited.";
-    exit(0);
+    _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
     return 0;
 #endif
     daemon.stop();
