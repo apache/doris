@@ -25,7 +25,6 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateOrReplaceBranchClause;
 import org.apache.doris.analysis.CreateOrReplaceTagClause;
 import org.apache.doris.analysis.DropBranchClause;
@@ -134,18 +133,6 @@ public class Alter {
         schemaChangeHandler.start();
         materializedViewHandler.start();
         systemHandler.start();
-    }
-
-    public void processCreateMaterializedView(CreateMaterializedViewStmt stmt)
-            throws DdlException, AnalysisException, MetaNotFoundException {
-        String tableName = stmt.getBaseIndexName();
-        // check db
-        String dbName = stmt.getDBName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        Env.getCurrentInternalCatalog().checkAvailableCapacity(db);
-
-        OlapTable olapTable = (OlapTable) db.getNonTempTableOrMetaException(tableName, TableType.OLAP);
-        ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
     }
 
     public void processCreateMaterializedView(CreateMaterializedViewCommand command)
