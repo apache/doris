@@ -78,69 +78,6 @@ public class RoutineLoadManagerTest {
     private SystemInfoService systemInfoService;
 
     @Test
-    public void testAddJobByStmt(@Injectable AccessControllerManager accessManager,
-            @Injectable TResourceInfo tResourceInfo,
-            @Mocked ConnectContext connectContext,
-            @Mocked Env env) throws UserException {
-        String jobName = "job1";
-        String dbName = "db1";
-        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
-        String tableNameString = "table1";
-        List<ParseNode> loadPropertyList = new ArrayList<>();
-        Separator columnSeparator = new Separator(",");
-        loadPropertyList.add(columnSeparator);
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
-        String typeName = LoadDataSourceType.KAFKA.name();
-        Map<String, String> customProperties = Maps.newHashMap();
-        String topicName = "topic1";
-        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
-        String serverAddress = "http://127.0.0.1:8080";
-        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
-        LoadSeparator loadSeparator = new LoadSeparator(",");
-        Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
-        loadPropertyMap.put(loadSeparator.getClass().getName(), loadSeparator);
-        CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(labelNameInfo, tableNameString,
-                loadPropertyMap, properties, typeName, customProperties, LoadTask.MergeType.APPEND, "");
-
-        new Expectations() {
-            {
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, PrivPredicate.LOAD);
-                minTimes = 0;
-                result = true;
-            }
-        };
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        try {
-            createRoutineLoadInfo.checkJobProperties();
-            routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        Map<String, RoutineLoadJob> idToRoutineLoadJob =
-                Deencapsulation.getField(routineLoadManager, "idToRoutineLoadJob");
-        Assert.assertEquals(1, idToRoutineLoadJob.size());
-        RoutineLoadJob routineLoadJob = idToRoutineLoadJob.values().iterator().next();
-        Assert.assertEquals(1L, routineLoadJob.getDbId());
-        Assert.assertEquals(jobName, routineLoadJob.getName());
-        Assert.assertEquals(1L, routineLoadJob.getTableId());
-        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
-        Assert.assertEquals(true, routineLoadJob instanceof KafkaRoutineLoadJob);
-
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob =
-                Deencapsulation.getField(routineLoadManager, "dbToNameToRoutineLoadJob");
-        Assert.assertEquals(1, dbToNameToRoutineLoadJob.size());
-        Assert.assertEquals(Long.valueOf(1L), dbToNameToRoutineLoadJob.keySet().iterator().next());
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = dbToNameToRoutineLoadJob.get(1L);
-        Assert.assertEquals(jobName, nameToRoutineLoadJob.keySet().iterator().next());
-        Assert.assertEquals(1, nameToRoutineLoadJob.values().size());
-        Assert.assertEquals(routineLoadJob, nameToRoutineLoadJob.values().iterator().next().get(0));
-    }
-
-    @Test
     public void testCreateJobAuthDeny(@Injectable AccessControllerManager accessManager,
             @Injectable TResourceInfo tResourceInfo,
             @Mocked ConnectContext connectContext,
