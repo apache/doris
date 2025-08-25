@@ -1661,7 +1661,10 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
                                       const CreateInstanceRequest* request,
                                       CreateInstanceResponse* response,
                                       ::google::protobuf::Closure* done) {
+    TEST_SYNC_POINT_CALLBACK("create_instance_sk_request",
+                             const_cast<CreateInstanceRequest**>(&request));
     RPC_PREPROCESS(create_instance, get, put);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("create_instance_sk_request_return");
     if (request->has_ram_user()) {
         auto& ram_user = request->ram_user();
         std::string ram_user_id = ram_user.has_user_id() ? ram_user.user_id() : "";
@@ -1978,6 +1981,8 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
                                    const GetInstanceRequest* request, GetInstanceResponse* response,
                                    ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_instance, get);
+    TEST_SYNC_POINT_CALLBACK("get_instance_sk_response", &response);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("get_instance_sk_response_return");
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2603,7 +2608,9 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
 void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller,
                                    const CreateStageRequest* request, CreateStageResponse* response,
                                    ::google::protobuf::Closure* done) {
+    TEST_SYNC_POINT_CALLBACK("create_stage_sk_request", const_cast<CreateStageRequest**>(&request));
     RPC_PREPROCESS(create_stage, get, put);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("create_stage_sk_request_return");
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;

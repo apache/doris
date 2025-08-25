@@ -73,24 +73,69 @@ inline std::string md5(const std::string& str) {
 inline std::string encryt_sk(std::string debug_string) {
     // Start position for searching "sk" fields
     size_t pos = 0;
-    // Iterate through the string and find all occurrences of "sk: "
-    while ((pos = debug_string.find("sk: ", pos)) != std::string::npos) {
-        // Find the start and end of the "sk" value (assumed to be within quotes)
-        // Start after the quote
-        size_t sk_value_start = debug_string.find('\"', pos) + 1;
-        // End at the next quote
-        size_t sk_value_end = debug_string.find('\"', sk_value_start);
+    if ((pos = debug_string.find("sk: ", pos)) != std::string::npos) {
+        // Iterate through the string and find all occurrences of "sk: "
+        do {
+            // Find the start and end of the "sk" value (assumed to be within quotes)
+            // Start after the quote
+            size_t sk_value_start = debug_string.find('\"', pos) + 1;
+            // End at the next quote
+            size_t sk_value_end = debug_string.find('\"', sk_value_start);
 
-        // Extract the "sk" value
-        std::string sk_value = debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
-        // Encrypt the "sk" value with MD5
-        std::string encrypted_sk = "md5: " + md5(sk_value);
+            // Extract the "sk" value
+            std::string sk_value =
+                    debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
+            // Encrypt the "sk" value with MD5
+            std::string encrypted_sk = "md5: " + md5(sk_value);
 
-        // Replace the original "sk" value with the encrypted MD5 value
-        debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
-        // Move the position to the end of the current "sk" field and continue searching
-        pos = sk_value_end;
+            // Replace the original "sk" value with the encrypted MD5 value
+            debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
+            // Move the position to the end of the current "sk" field and continue searching
+            pos = sk_value_end;
+        } while ((pos = debug_string.find("sk: ", pos)) != std::string::npos);
+    } else if ((pos = debug_string.find("\"sk\": ", pos)) != std::string::npos) {
+        // Iterate through the string and find all occurrences of ""sk": "
+        do {
+            // Find the start of the "sk" value (position after ""sk": ")
+            size_t value_start_pos = pos + 6; // 6 is the length of "\"sk\": "
+
+            // Find the opening quote for the value
+            size_t quote_pos = debug_string.find('\"', value_start_pos);
+            if (quote_pos == std::string::npos) {
+                // No opening quote found, move to next occurrence
+                pos = value_start_pos;
+                continue;
+            }
+
+            // Start after the opening quote
+            size_t sk_value_start = quote_pos + 1;
+
+            // Find the closing quote
+            size_t sk_value_end = debug_string.find('\"', sk_value_start);
+            if (sk_value_end == std::string::npos) {
+                // No closing quote found, move to next occurrence
+                pos = sk_value_start;
+                continue;
+            }
+
+            // Extract the "sk" value
+            std::string sk_value =
+                    debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
+
+            // Encrypt the "sk" value with MD5
+            std::string encrypted_sk = "md5: " + md5(sk_value);
+
+            // Calculate the length change after replacement
+            int length_diff = encrypted_sk.length() - (sk_value_end - sk_value_start);
+
+            // Replace the original "sk" value with the encrypted value
+            debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
+
+            // Move the position past the replacement, adjusting for length change
+            pos = sk_value_end + length_diff;
+        } while ((pos = debug_string.find("\"sk\": ", pos)) != std::string::npos);
     }
+
     return debug_string;
 }
 
@@ -134,6 +179,12 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                   << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
                   << " expiration=" << req->expiration()
                   << " require_compaction_stats=" << req->require_compaction_stats();
+    } else if constexpr (std::is_same_v<Request, CreateInstanceRequest> ||
+                         std::is_same_v<Request, CreateStageRequest>) {
+        std::string debug_string = encryt_sk(req->ShortDebugString());
+        TEST_SYNC_POINT_CALLBACK("sk_begin_rpc", &debug_string);
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " request=" << debug_string;
     } else {
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
@@ -179,7 +230,8 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
                   << " original_client_ip=" << req->request_ip()
                   << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
-                         std::is_same_v<Response, GetStageResponse>) {
+                         std::is_same_v<Response, GetStageResponse> ||
+                         std::is_same_v<Response, GetInstanceResponse>) {
         std::string debug_string = encryt_sk(res->DebugString());
         TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
