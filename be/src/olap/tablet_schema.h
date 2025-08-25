@@ -662,6 +662,13 @@ public:
         }
         return 0;
     }
+    inline const std::unordered_map<uint32_t, std::vector<uint32_t>>& seq_map() const {
+        return _seq_map;
+    }
+    inline bool has_seq_map() const { return _seq_map.size() > 0; }
+    inline const std::unordered_map<uint32_t, uint32_t>& value_to_seq() const {
+        return _value_to_seq;
+    }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -741,6 +748,8 @@ private:
     // value: indexes
     using PatternToIndex = std::unordered_map<std::string, std::vector<TabletIndexPtr>>;
     std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
+    std::unordered_map<uint32_t /* seq cid */, std::vector<uint32_t> /* value cids */> _seq_map;
+    std::unordered_map<uint32_t /* cid */, uint32_t /* sequence */> _value_to_seq;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

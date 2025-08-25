@@ -51,6 +51,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -87,7 +88,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                        OriginStatement origStmt) throws AnalysisException {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                 rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
-                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
+                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt, new HashMap<>());
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             String clusterName = "";

@@ -220,13 +220,14 @@ public class MaterializedViewHandler extends AlterHandler {
             long baseIndexId = checkAndGetBaseIndex(baseIndexName, olapTable);
             // Step1.3: mv clause validation
             List<Column> mvColumns = checkAndPrepareMaterializedView(addMVClause, olapTable);
+            Map<String, List<String>> sequenceMapping = processSequenceMapping(olapTable, mvColumns);
 
             // Step2: create mv job
             RollupJobV2 rollupJobV2 =
                     createMaterializedViewJob(addMVClause.toSql(), mvIndexName, baseIndexName, mvColumns,
                             addMVClause.getWhereClauseItemExpr(olapTable),
                             addMVClause.getProperties(), olapTable, db, baseIndexId,
-                            addMVClause.getMVKeysType(), addMVClause.getOrigStmt());
+                            addMVClause.getMVKeysType(), addMVClause.getOrigStmt(), sequenceMapping);
 
             addAlterJobV2(rollupJobV2);
 
@@ -297,13 +298,14 @@ public class MaterializedViewHandler extends AlterHandler {
             long baseIndexId = checkAndGetBaseIndex(baseIndexName, olapTable);
             // Step1.3: mv clause validation
             List<Column> mvColumns = checkAndPrepareMaterializedView(createMvCommand, olapTable);
+            Map<String, List<String>> sequenceMapping = processSequenceMapping(olapTable, mvColumns);
 
             // Step2: create mv job
             RollupJobV2 rollupJobV2 =
                     createMaterializedViewJob(null, mvIndexName, baseIndexName, mvColumns,
                             createMvCommand.getWhereClauseItemColumn(olapTable),
                             createMvCommand.getProperties(), olapTable, db, baseIndexId,
-                            createMvCommand.getMVKeysType(), createMvCommand.getOriginStatement());
+                            createMvCommand.getMVKeysType(), createMvCommand.getOriginStatement(), sequenceMapping);
 
             addAlterJobV2(rollupJobV2);
 
@@ -385,12 +387,13 @@ public class MaterializedViewHandler extends AlterHandler {
                 // step 2.2  check rollup schema
                 List<Column> rollupSchema = checkAndPrepareMaterializedView(
                         addRollupClause, olapTable, baseIndexId, changeStorageFormat);
+                Map<String, List<String>> sequenceMapping = processSequenceMapping(olapTable, rollupSchema);
 
                 // step 3 create rollup job
                 RollupJobV2 alterJobV2 =
                         createMaterializedViewJob(rawSql, rollupIndexName, baseIndexName, rollupSchema, null,
                                 addRollupClause.getProperties(), olapTable, db, baseIndexId, olapTable.getKeysType(),
-                                null);
+                                null, sequenceMapping);
 
                 rollupNameJobMap.put(addRollupClause.getRollupName(), alterJobV2);
                 logJobIdSet.add(alterJobV2.getJobId());
@@ -431,6 +434,20 @@ public class MaterializedViewHandler extends AlterHandler {
         }
     }
 
+    private Map<String, List<String>> processSequenceMapping(OlapTable olapTable, List<Column> rollupSchema) {
+        Set<String> rollupColNames = rollupSchema.stream().map(Column::getName)
+                .map(String::toLowerCase).collect(Collectors.toSet());
+        Map<String, List<String>> sequenceMapping = Maps.newHashMap();
+        if (olapTable.getColumnSeqMapping() != null) {
+            sequenceMapping = new HashMap<>(olapTable.getColumnSeqMapping());
+        }
+        sequenceMapping.entrySet().removeIf(entry -> !rollupColNames.contains(entry.getKey()));
+        for (List<String> colgroup : sequenceMapping.values()) {
+            colgroup.removeIf(c -> !rollupColNames.contains(c));
+        }
+        return sequenceMapping;
+    }
+
     /**
      * Step1: All replicas of the materialized view index will be created in meta and added to TabletInvertedIndex
      * Step2: Set table's state to ROLLUP.
@@ -448,7 +465,8 @@ public class MaterializedViewHandler extends AlterHandler {
     private RollupJobV2 createMaterializedViewJob(String rawSql, String mvName, String baseIndexName,
             List<Column> mvColumns, Column whereColumn, Map<String, String> properties,
             OlapTable olapTable, Database db, long baseIndexId, KeysType mvKeysType,
-            OriginStatement origStmt) throws DdlException, AnalysisException {
+            OriginStatement origStmt,
+            Map<String, List<String>> sequenceMapping) throws DdlException, AnalysisException {
         if (mvKeysType == null) {
             // assign rollup index's key type, same as base index's
             mvKeysType = olapTable.getKeysType();
@@ -478,7 +496,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 rawSql, jobId, dbId, tableId, olapTable.getName(), timeoutMs,
                 baseIndexId, mvIndexId, baseIndexName, mvName,
                 mvColumns, whereColumn, baseSchemaHash, mvSchemaHash,
-                mvKeysType, mvShortKeyColumnCount, origStmt);
+                mvKeysType, mvShortKeyColumnCount, origStmt, sequenceMapping);
         String newStorageFormatIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
         if (mvName.equals(newStorageFormatIndexName)) {
             mvJob.setStorageFormat(TStorageFormat.V2);
@@ -705,6 +723,24 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
+        // add sequence mapping column to rollup table
+        Set<String> mvColNames = newMVColumns.stream().map(Column::getName).map(String::toLowerCase)
+                .collect(Collectors.toSet());
+        Map<String, List<String>> seqMapping = olapTable.getColumnSeqMapping();
+        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && seqMapping != null && !seqMapping.isEmpty()) {
+
+            for (Map.Entry<String, List<String>> seqGroup : seqMapping.entrySet()) {
+                if (mvColNames.contains(seqGroup.getKey())) {
+                    continue;
+                }
+                for (String colMember : seqGroup.getValue()) {
+                    if (mvColNames.contains(colMember) && !mvColNames.contains(seqGroup.getKey())) {
+                        newMVColumns.add(new Column(olapTable.getColumn(seqGroup.getKey())));
+                        break;
+                    }
+                }
+            }
+        }
         if (olapTable.storeRowColumn()) {
             Column newColumn = new Column(olapTable.getRowStoreCol());
             newColumn.setAggregationType(AggregateType.NONE, true);
@@ -880,6 +916,24 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
+        }
+        // add sequence mapping column to rollup table
+        Set<String> mvColNames = newMVColumns.stream().map(Column::getName).map(String::toLowerCase)
+                .collect(Collectors.toSet());
+        Map<String, List<String>> seqMapping = olapTable.getColumnSeqMapping();
+        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && seqMapping != null && !seqMapping.isEmpty()) {
+
+            for (Map.Entry<String, List<String>> seqGroup : seqMapping.entrySet()) {
+                if (mvColNames.contains(seqGroup.getKey())) {
+                    continue;
+                }
+                for (String colMember : seqGroup.getValue()) {
+                    if (mvColNames.contains(colMember) && !mvColNames.contains(seqGroup.getKey())) {
+                        newMVColumns.add(new Column(olapTable.getColumn(seqGroup.getKey())));
+                        break;
+                    }
+                }
+            }
         }
         if (olapTable.storeRowColumn()) {
             Column newColumn = new Column(olapTable.getRowStoreCol());

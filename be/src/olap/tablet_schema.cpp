@@ -1199,6 +1199,41 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _storage_page_size = schema.storage_page_size();
     _storage_dict_page_size = schema.storage_dict_page_size();
     _schema_version = schema.schema_version();
+    auto column_groups_pb = schema.seq_map();
+    _seq_map.clear();
+    _value_to_seq.clear();
+    /*
+     * ColumnGroupsPB is a list of cg_pb, and
+     * ColumnGroupsPB do not have begin() or end() method.
+     * we must use for(i=0;i<xx;i++) loop
+     */
+    for (int i = 0; i < column_groups_pb.cg_size(); i++) {
+        ColumnGroupPB cg_pb = column_groups_pb.cg(i);
+        uint32_t key = cg_pb.sequence_column();
+        for (auto j : cg_pb.columns_in_group()) {
+            _seq_map[key].push_back(j);
+        }
+    }
+
+    if (_seq_map.size() > 0) {
+        /*
+            |** KEY **|        ** VALUE **     |
+            ------------------------------------
+            |** KEY **|  CDE is value| sequence|
+            |----|----|----|----|----|----|----|
+            A    B    C    D    E   S1   S2
+            0    1    2    3    4    5    6
+            for example: _seq_map is {5:{2,3}, 6:{4}}
+            then, _value_to_seq = {2:5,3:5,5:5,4:6,6:6}
+        */
+        for (auto it = _seq_map.cbegin(); it != _seq_map.cend(); it++) {
+            auto k = it->first;
+            for (auto v : it->second) {
+                _value_to_seq[v] = k;
+            }
+            _value_to_seq[k] = k;
+        }
+    }
     // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
     if (!schema.has_inverted_index_storage_format()) {
         _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
@@ -1462,6 +1497,15 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
     tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
+    auto column_groups_pb = tablet_schema_pb->mutable_seq_map();
+    for (const auto& it : _seq_map) {
+        uint32_t key = it.first;
+        ColumnGroupPB* cg_pb = column_groups_pb->add_cg(); // ColumnGroupPB {key: {v1, v2, v3}}
+        cg_pb->set_sequence_column(key);
+        for (auto v : it.second) {
+            cg_pb->add_columns_in_group(v);
+        }
+    }
 }
 
 size_t TabletSchema::row_size() const {

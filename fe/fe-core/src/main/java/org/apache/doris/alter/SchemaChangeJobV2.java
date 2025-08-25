@@ -145,6 +145,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected boolean storeRowColumn = false;
     @SerializedName(value = "hasRowStoreChange")
     protected boolean hasRowStoreChange = false;
+    @SerializedName(value = "columnSeqMapping")
+    protected Map<String, List<String>> columnSeqMapping = Maps.newHashMap();
 
     // save all schema change tasks
     AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
@@ -206,6 +208,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public void setColumnSeqMapping(Map<String, List<String>> columnSeqMapping) {
+        this.columnSeqMapping = columnSeqMapping;
     }
 
     /**
@@ -324,7 +330,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(),
                                     tbl.storagePageSize(),
-                                    tbl.storageDictPageSize());
+                                    tbl.storageDictPageSize(),
+                                    columnSeqMapping);
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -796,6 +803,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (storageFormat == TStorageFormat.V2) {
             tbl.setStorageFormat(storageFormat);
         }
+        tbl.setColumnSeqMapping(columnSeqMapping);
     }
 
     /*

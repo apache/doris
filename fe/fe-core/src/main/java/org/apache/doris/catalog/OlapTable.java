@@ -205,6 +205,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     private boolean hasSequenceCol;
     private Type sequenceType;
+    @Getter
+    @Setter
+    private Map<String, List<String>> columnSeqMapping = null;
 
     @SerializedName(value = "indexes")
     private TableIndexes indexes;
@@ -2910,6 +2913,28 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public DataSortInfo getDataSortInfo() {
         return getOrCreatTableProperty().getDataSortInfo();
+    }
+
+    public boolean isSeqMappingKeyColumn(String column) {
+        return columnSeqMapping.containsKey(column);
+    }
+
+    public boolean isSeqMappingValueColumn(String column) {
+        for (List<String> valueColumns : columnSeqMapping.values()) {
+            if (valueColumns.contains(column)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public String getSeqMappingKey(String column) {
+        for (Map.Entry<String, List<String>> columnSeq : columnSeqMapping.entrySet()) {
+            if (columnSeq.getValue().contains(column)) {
+                return columnSeq.getKey();
+            }
+        }
+        throw new IllegalArgumentException("can't find the corresponding seq mapping key");
     }
 
     public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {
