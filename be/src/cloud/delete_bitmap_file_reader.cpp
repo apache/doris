@@ -33,6 +33,16 @@ DeleteBitmapFileReader::DeleteBitmapFileReader(int64_t tablet_id, const std::str
 DeleteBitmapFileReader::~DeleteBitmapFileReader() = default;
 
 Status DeleteBitmapFileReader::init() {
+#ifdef BE_TEST
+    _path = "./log/" + _rowset_id + "_delete_bitmap.dat";
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(_path, &exists));
+    if (!exists) {
+        return Status::NotFound("{} doesn't exist", _path);
+    }
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(_path, &_file_reader));
+    return Status::OK();
+#endif
     if (!_storage_resource) {
         return Status::InternalError("invalid storage resource for tablet_id={}", _tablet_id);
     }

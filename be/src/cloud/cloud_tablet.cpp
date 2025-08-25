@@ -1079,10 +1079,15 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
     // lock_id != -1 means this is in an explict txn
     bool is_explicit_txn = (lock_id != -1);
     auto ms_lock_id = !is_explicit_txn ? txn_id : lock_id;
-    auto storage_resource = *DORIS_TRY(rowset->rowset_meta()->remote_storage_resource());
+    std::optional<StorageResource> storage_resource;
+    auto storage_resource_result = rowset->rowset_meta()->remote_storage_resource();
+    if (storage_resource_result) {
+        storage_resource = *storage_resource_result.value();
+    }
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(), new_delete_bitmap.get(),
-            rowset->rowset_id().to_string(), storage_resource, txn_id, is_explicit_txn,
+            rowset->rowset_id().to_string(), storage_resource,
+            config::delete_bitmap_store_write_version, txn_id, is_explicit_txn,
             next_visible_version));
     return Status::OK();
 }
@@ -1203,10 +1208,11 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     int64_t t5 = MonotonicMicros();
 
     // 3. store delete bitmap
-    DeleteBitmapPtr delete_bitmap_v2 = std::make_shared<DeleteBitmap>(*output_rowset_delete_bitmap);
+    DeleteBitmapPtr delete_bitmap_v2 = nullptr;
     auto delete_bitmap_size = output_rowset_delete_bitmap->delete_bitmap.size();
-    if (config::delete_bitmap_store_write_version == 2 ||
-        config::delete_bitmap_store_write_version == 3) {
+    auto store_version = config::delete_bitmap_store_write_version;
+    if (store_version == 2 || store_version == 3) {
+        delete_bitmap_v2 = std::make_shared<DeleteBitmap>(*output_rowset_delete_bitmap);
         std::vector<std::pair<RowsetId, int64_t>> retained_rowsets_to_seg_num;
         {
             std::shared_lock rlock(get_header_lock());
@@ -1227,17 +1233,20 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
                     output_rowset->end_version(), delete_bitmap_v2.get());
         }
     }
-    auto storage_resource = *DORIS_TRY(output_rowset->rowset_meta()->remote_storage_resource());
+    std::optional<StorageResource> storage_resource;
+    auto storage_resource_result = output_rowset->rowset_meta()->remote_storage_resource();
+    if (storage_resource_result) {
+        storage_resource = *storage_resource_result.value();
+    }
     auto st = _engine.meta_mgr().update_delete_bitmap(
             *this, -1, initiator, output_rowset_delete_bitmap.get(), delete_bitmap_v2.get(),
-            output_rowset->rowset_id().to_string(), storage_resource);
+            output_rowset->rowset_id().to_string(), storage_resource, store_version);
     int64_t t6 = MonotonicMicros();
     LOG(INFO) << "calc_delete_bitmap_for_compaction, tablet_id=" << tablet_id()
               << ", get lock cost " << (t2 - t1) << " us, sync rowsets cost " << (t3 - t2)
               << " us, calc delete bitmap cost " << (t4 - t3) << " us, check rowid conversion cost "
               << (t5 - t4) << " us, store delete bitmap cost " << (t6 - t5)
-              << " us, st=" << st.to_string()
-              << ". store_version=" << config::delete_bitmap_store_write_version
+              << " us, st=" << st.to_string() << ". store_version=" << store_version
               << ", calculated delete bitmap size=" << delete_bitmap_size
               << ", update delete bitmap size="
               << output_rowset_delete_bitmap->delete_bitmap.size();

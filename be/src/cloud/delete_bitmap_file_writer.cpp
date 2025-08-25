@@ -30,6 +30,18 @@ DeleteBitmapFileWriter::DeleteBitmapFileWriter(int64_t tablet_id, const std::str
 DeleteBitmapFileWriter::~DeleteBitmapFileWriter() {}
 
 Status DeleteBitmapFileWriter::init() {
+#ifdef BE_TEST
+    _path = "./log/" + _rowset_id + "_delete_bitmap.dat";
+    io::Path path = _path;
+    auto parent_path = path.parent_path();
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(parent_path, &exists));
+    if (!exists) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(parent_path));
+    }
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_path, &_file_writer));
+    return Status::OK();
+#endif
     if (!_storage_resource) {
         return Status::InternalError("invalid storage resource for tablet_id={}", _tablet_id);
     }

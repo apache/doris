@@ -1518,14 +1518,17 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                                           int64_t initiator, DeleteBitmap* delete_bitmap,
                                           DeleteBitmap* delete_bitmap_v2, std::string rowset_id,
                                           std::optional<StorageResource> storage_resource,
-                                          int64_t txn_id, bool is_explicit_txn,
-                                          int64_t next_visible_version) {
+                                          int64_t store_version, int64_t txn_id,
+                                          bool is_explicit_txn, int64_t next_visible_version) {
     VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
-    LOG(INFO) << "start update delete bitmap for tablet_id: " << tablet.tablet_id()
-              << ", rowset_id: " << rowset_id
-              << ", delete_bitmap num: " << delete_bitmap->delete_bitmap.size()
-              << ", delete_bitmap v2 num: " << delete_bitmap_v2->delete_bitmap.size()
-              << ", lock_id=" << lock_id << ", initiator=" << initiator;
+    if (config::enable_mow_verbose_log) {
+        LOG(INFO) << "start update delete bitmap for tablet_id: " << tablet.tablet_id()
+                  << ", rowset_id: " << rowset_id
+                  << ", delete_bitmap num: " << delete_bitmap->delete_bitmap.size()
+                  << ", delete_bitmap v2 num: " << delete_bitmap_v2->delete_bitmap.size()
+                  << ", store_version: " << store_version << ", lock_id=" << lock_id
+                  << ", initiator=" << initiator;
+    }
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -1542,10 +1545,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
         req.set_next_visible_version(next_visible_version);
     }
 
-    bool write_v1 = config::delete_bitmap_store_write_version == 1 ||
-                    config::delete_bitmap_store_write_version == 3;
-    bool write_v2 = config::delete_bitmap_store_write_version == 2 ||
-                    config::delete_bitmap_store_write_version == 3;
+    bool write_v1 = store_version == 1 || store_version == 3;
+    bool write_v2 = store_version == 2 || store_version == 3;
     // write v1 kvs
     if (write_v1) {
         for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
@@ -1581,7 +1582,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                    << ", sid=" << delete_bitmap_pb.segment_ids(i)
                    << ", ver=" << delete_bitmap_pb.versions(i) << "}, ";
             }
-            if (config::delete_bitmap_store_v2_max_bytes_in_fdb >= 0 &&
+            if (delete_bitmap_pb.rowset_ids_size() > 0 &&
+                config::delete_bitmap_store_v2_max_bytes_in_fdb >= 0 &&
                 delete_bitmap_pb.ByteSizeLong() > config::delete_bitmap_store_v2_max_bytes_in_fdb) {
                 DeleteBitmapFileWriter file_writer(tablet.tablet_id(), rowset_id, storage_resource);
                 RETURN_IF_ERROR(file_writer.init());
