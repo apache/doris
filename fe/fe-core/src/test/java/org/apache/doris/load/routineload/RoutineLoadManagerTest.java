@@ -116,11 +116,10 @@ public class RoutineLoadManagerTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         try {
             createRoutineLoadInfo.checkJobProperties();
+            routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
         } catch (Exception e) {
             e.printStackTrace();
         }
-        routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
-
         Map<String, RoutineLoadJob> idToRoutineLoadJob =
                 Deencapsulation.getField(routineLoadManager, "idToRoutineLoadJob");
         Assert.assertEquals(1, idToRoutineLoadJob.size());
