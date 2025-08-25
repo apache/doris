@@ -56,7 +56,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
