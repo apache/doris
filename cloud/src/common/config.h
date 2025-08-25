@@ -118,6 +118,7 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+CONF_mBool(enable_meta_rowset_key_check, "false");
 CONF_mBool(enable_restore_job_check, "false");
 
 CONF_mBool(enable_checker_for_meta_key_check, "false");
