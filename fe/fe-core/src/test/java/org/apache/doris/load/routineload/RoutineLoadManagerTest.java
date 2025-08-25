@@ -115,7 +115,7 @@ public class RoutineLoadManagerTest {
         };
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         try {
-            createRoutineLoadInfo.validate(connectContext);
+            createRoutineLoadInfo.checkJobProperties();
         } catch (Exception e) {
             e.printStackTrace();
         }
