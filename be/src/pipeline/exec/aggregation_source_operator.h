@@ -120,6 +120,7 @@ private:
 
     bool _needs_finalize;
     bool _without_key;
+    bool _has_empty_grouping;
 
     // left / full join will change the key nullable make output/input solt
     // nullable diff. so we need make nullable of it.

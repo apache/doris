@@ -993,6 +993,8 @@ struct TAggregationNode {
   8: optional bool is_first_phase
   9: optional bool is_colocate
   10: optional TSortInfo agg_sort_info_by_group_key
+  // Set to true if this aggregation comes from GROUPING SETS/ROLLUP/CUBE with empty grouping ()
+  11: optional bool has_empty_grouping
 }
 
 struct TRepeatNode {

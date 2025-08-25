@@ -308,6 +308,22 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                                                 value_columns[i].get());
                                     *eos = true;
                                 }
+                            } else if (shared_state.input_num_rows == 0 && num_rows == 0) {
+                                // Check if this aggregation has empty grouping from GROUPING SETS/ROLLUP/CUBE
+                                auto& p = _parent->cast<AggSourceOperatorX>();
+                                if (p._has_empty_grouping) {
+                                    // For GROUPING SETS/ROLLUP/CUBE with empty grouping (), when input is empty,
+                                    // we should output 1 row with NULL values representing the "grand total"
+                                    // This matches SQL standard behavior for empty grouping () in these operations
+                                    for (int i = 0; i < key_columns.size(); ++i) {
+                                        key_columns[i]->insert_default();
+                                    }
+                                    for (size_t i = 0; i < shared_state.aggregate_evaluators.size();
+                                         ++i) {
+                                        value_columns[i]->insert_default();
+                                    }
+                                }
+                                *eos = true;
                             } else {
                                 *eos = true;
                             }
@@ -439,7 +455,9 @@ AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
         : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
-          _without_key(tnode.agg_node.grouping_exprs.empty()) {}
+          _without_key(tnode.agg_node.grouping_exprs.empty()),
+          _has_empty_grouping(tnode.agg_node.__isset.has_empty_grouping &&
+                              tnode.agg_node.has_empty_grouping) {}
 
 Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
