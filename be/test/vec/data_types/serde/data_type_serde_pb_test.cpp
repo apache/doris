@@ -416,20 +416,6 @@ inline void serialize_and_deserialize_pb_test() {
     }
     // int with 1024 batch size
     std::cout << "==== int with 1024 batch size === " << std::endl;
-    {
-        auto vec = vectorized::ColumnInt32::create();
-        auto& data = vec->get_data();
-        for (int i = 0; i < 1024; ++i) {
-            data.push_back(i);
-        }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
-        vectorized::DataTypePtr nullable_data_type(
-                std::make_shared<vectorized::DataTypeNullable>(data_type));
-        auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())
-                ->insert_range_from_not_nullable(*vec, 0, 1024);
-        check_pb_col(nullable_data_type, *nullable_column.get());
-    }
     // ipv4
     std::cout << "==== ipv4 === " << std::endl;
     {

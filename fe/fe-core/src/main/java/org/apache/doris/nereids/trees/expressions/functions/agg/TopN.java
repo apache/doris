@@ -85,15 +85,15 @@ public class TopN extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!getArgument(1).isConstant() || !getArgumentType(1).isIntegerLikeType()) {
+        if (!getArgument(1).isConstant()) {
             throw new AnalysisException(
-                    "topn requires second parameter must be a constant Integer Type: " + this.toSql());
+                    "topn requires second parameter must be a constant: "
+                            + this.toSql());
         }
-        if (arity() == 3) {
-            if (!getArgument(2).isConstant() || !getArgumentType(2).isIntegerLikeType()) {
-                throw new AnalysisException(
-                        "topn requires the third parameter must be a constant Integer Type: " + this.toSql());
-            }
+        if (arity() == 3 && !getArgument(2).isConstant()) {
+            throw new AnalysisException(
+                    "topn requires third parameter must be a constant: "
+                            + this.toSql());
         }
     }
 
