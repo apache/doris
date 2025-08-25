@@ -21,7 +21,7 @@ suite("distinct_split") {
     sql "drop table if exists test_distinct_multi"
     sql "create table test_distinct_multi(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into test_distinct_multi values(1,2,3,'abc','2024-01-02'),(1,2,4,'abc','2024-01-03'),(2,2,4,'abcd','2024-01-02'),(1,2,3,'abcd','2024-01-04'),(1,2,4,'eee','2024-02-02'),(2,2,4,'abc','2024-01-02');"
-
+    sql "analyze table test_distinct_multi with sync;"
     // first bit 0 means distinct 1 col, 1 means distinct more than 1 col; second bit 0 means without group by, 1 means with group by;
     // third bit 0 means there is 1 count(distinct) in projects, 1 means more than 1 count(distinct) in projects.
 
@@ -197,20 +197,24 @@ suite("distinct_split") {
     qt_has_other_func "explain shape plan select count(distinct b), count(distinct a), max(b),sum(c),min(a)  from test_distinct_multi"
     qt_2_agg """explain shape plan select max(c1), min(c2) from (select count(distinct a,b) c1, count(distinct a,c) c2 from test_distinct_multi group by c) t"""
 
-    // should not rewrite
     qt_multi_count_with_gby """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi group by c"""
     qt_multi_sum_with_gby """explain shape plan select sum(distinct b), sum(distinct a) from test_distinct_multi group by c"""
     qt_sum_count_with_gby """explain shape plan select sum(distinct b), count(distinct a) from test_distinct_multi group by a"""
     qt_has_grouping """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi group by grouping sets((a,b),(c));"""
-    test {
-        sql """select count(distinct a,b), count(distinct a) from test_distinct_multi
-        group by grouping sets((a,b),(c));"""
-        exception "The query contains multi count distinct or sum distinct, each can't have multi columns"
-    }
+//    test {
+//        sql """select count(distinct a,b), count(distinct a) from test_distinct_multi
+//        group by grouping sets((a,b),(c));"""
+//        exception "The query contains multi count distinct or sum distinct, each can't have multi columns"
+//    }
 
     //----------------test null hash join ------------------------
     sql "drop table if exists test_distinct_multi_null_hash;"
     sql "create table test_distinct_multi_null_hash(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into test_distinct_multi_null_hash values(1,null,null,null,'2024-12-08');"
     qt_null_hash "SELECT a, b, count(distinct c,e), count(distinct concat(d,e))/count(distinct e) FROM test_distinct_multi_null_hash where e = '2024-12-08' GROUP BY a, b;"
+
+    qt_same_distinct_arg "select sum(distinct b), count(distinct b) from test_distinct_multi;"
+    qt_same_distinct_arg_2group "select count(distinct b), sum(distinct a), count(distinct a) from test_distinct_multi;"
+    qt_same_distinct_arg_shape """explain shape plan select sum(distinct b), count(distinct b) from test_distinct_multi;"""
+    qt_same_distinct_arg_2group_shape """explain shape plan select count(distinct b), sum(distinct a), count(distinct a) from test_distinct_multi;"""
 }

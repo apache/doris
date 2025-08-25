@@ -26,7 +26,6 @@ suite("aggregate_strategies") {
 
     test {
         sql """select
-                /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct number)
                 from numbers('number' = '10000000')"""
         result([[10000000L]])
@@ -42,7 +41,6 @@ suite("aggregate_strategies") {
 
     test {
         sql """select
-                /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct number)
                 from numbers('number' = '10000000')"""
         result([[10000000L]])
