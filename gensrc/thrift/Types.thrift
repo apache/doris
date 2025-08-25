@@ -646,6 +646,8 @@ struct TReplicaInfo {
     3: required TPort  http_port
     4: required TPort  brpc_port
     5: required TReplicaId replica_id
+    6: optional bool is_alive
+    7: optional i64 backend_id
 }
 
 struct TResourceInfo {
