@@ -1308,7 +1308,13 @@ Status VFileScanner::_get_next_reader() {
         }
 
         RETURN_IF_ERROR(_generate_missing_columns());
-        RETURN_IF_ERROR(_cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs));
+        if (_fill_partition_from_path) {
+            RETURN_IF_ERROR(
+                    _cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs));
+        } else {
+            // If the partition columns are not from path, we only fill the missing columns.
+            RETURN_IF_ERROR(_cur_reader->set_fill_columns({}, _missing_col_descs));
+        }
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;
             for (auto& col : _missing_cols) {
