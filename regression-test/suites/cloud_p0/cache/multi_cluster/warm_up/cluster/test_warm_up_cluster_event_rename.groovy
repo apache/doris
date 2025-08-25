@@ -89,14 +89,26 @@ suite('test_warm_up_cluster_event_rename', 'docker') {
             def submitted_segment = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_submitted_segment_num")
             def finished_segment = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_finished_segment_num")
             def failed_segment = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_failed_segment_num")
+            def submitted_segment_size = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_submitted_segment_size")
+            def finished_segment_size = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_finished_segment_size")
+            def failed_segment_size = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_failed_segment_size")
             def submitted_index = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_submitted_index_num")
             def finished_index = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_finished_index_num")
             def failed_index = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_failed_index_num")
+            def submitted_index_size = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_submitted_index_size")
+            def finished_index_size = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_finished_index_size")
+            def failed_index_size = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_failed_index_size")
             logger.info("${cluster} be ${ip}:${port}, submitted_segment=${submitted_segment}"
                     + ", finished_segment=${finished_segment}, failed_segment=${failed_segment}"
+                    + ", submitted_segment_size=${submitted_segment_size}"
+                    + ", finished_segment_size=${finished_segment_size}"
+                    + ", failed_segment_size=${failed_segment_size}"
                     + ", submitted_index=${submitted_index}"
                     + ", finished_index=${finished_index}"
-                    + ", failed_index=${failed_index}")
+                    + ", failed_index=${failed_index}"
+                    + ", submitted_index_size=${submitted_index_size}"
+                    + ", finished_index_size=${finished_index_size}"
+                    + ", failed_index_size=${failed_index_size}")
         }
     }
 
@@ -174,7 +186,8 @@ suite('test_warm_up_cluster_event_rename', 'docker') {
         sql """use @${clusterName1}"""
 
         // Simple setup to simulate data load and access
-        sql """CREATE TABLE IF NOT EXISTS customer (id INT, name STRING) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3 PROPERTIES ("file_cache_ttl_seconds" = "3600")"""
+        sql """CREATE TABLE IF NOT EXISTS customer (id INT, name STRING) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true")"""
 
         // Start warm up job
         def jobId_ = sql """
@@ -199,8 +212,8 @@ suite('test_warm_up_cluster_event_rename', 'docker') {
         logFileCacheDownloadMetrics(clusterName2)
         checkTTLCacheSizeSumEqual(clusterName1, clusterName2)
 
-        srcSumOld = getClusterTTLCacheSizeSum(clusterName1)
-        dstSumOld = getClusterTTLCacheSizeSum(clusterName2)
+        def srcSumOld = getClusterTTLCacheSizeSum(clusterName1)
+        def dstSumOld = getClusterTTLCacheSizeSum(clusterName2)
 
         // rename
         sql """ALTER SYSTEM RENAME COMPUTE GROUP ${clusterName2} ${clusterName3}"""

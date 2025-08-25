@@ -274,8 +274,6 @@ private:
     char _enclose = 0;
     bool _trim_double_quotes = false;
     bool _trim_tailing_spaces = false;
-    // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes
-    bool _not_trim_enclose = true;
     bool _keep_cr = false;
 
     io::IOContext* _io_ctx = nullptr;

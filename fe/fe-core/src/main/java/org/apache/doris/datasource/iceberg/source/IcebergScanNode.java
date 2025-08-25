@@ -563,6 +563,9 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private void assignCountToSplits(List<Split> splits, long totalCount) {
+        if (splits.isEmpty()) {
+            return;
+        }
         int size = splits.size();
         long countPerSplit = totalCount / size;
         for (int i = 0; i < size - 1; i++) {

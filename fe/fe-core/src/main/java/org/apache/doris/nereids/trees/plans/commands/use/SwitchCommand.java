@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -62,6 +63,11 @@ public class SwitchCommand extends Command implements NoForward {
     @Override
     public StmtType stmtType() {
         return StmtType.SWITCH;
+    }
+
+    @VisibleForTesting
+    public String getCatalogName() {
+        return catalogName;
     }
 
     public String toSql() {

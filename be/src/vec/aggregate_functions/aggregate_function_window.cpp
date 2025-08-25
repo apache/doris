@@ -387,14 +387,28 @@ CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_last,
 CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_nth_value, NthValueData,
                                           WindowFunctionNthValueImpl);
 
+template <typename AggregateFunctionTemplate>
+AggregateFunctionPtr create_empty_arg_window(const std::string& name,
+                                             const DataTypes& argument_types,
+                                             const bool result_is_nullable,
+                                             const AggregateFunctionAttr& attr) {
+    if (!argument_types.empty()) {
+        throw doris::Exception(
+                Status::InternalError("create_window: argument_types must be empty"));
+    }
+    std::unique_ptr<IAggregateFunction> result =
+            std::make_unique<AggregateFunctionTemplate>(argument_types);
+    CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+    return AggregateFunctionPtr(result.release());
+}
+
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("dense_rank", creator_without_type::creator<WindowFunctionDenseRank>);
-    factory.register_function("rank", creator_without_type::creator<WindowFunctionRank>);
-    factory.register_function("percent_rank",
-                              creator_without_type::creator<WindowFunctionPercentRank>);
-    factory.register_function("row_number", creator_without_type::creator<WindowFunctionRowNumber>);
+    factory.register_function("dense_rank", create_empty_arg_window<WindowFunctionDenseRank>);
+    factory.register_function("rank", create_empty_arg_window<WindowFunctionRank>);
+    factory.register_function("percent_rank", create_empty_arg_window<WindowFunctionPercentRank>);
+    factory.register_function("row_number", create_empty_arg_window<WindowFunctionRowNumber>);
     factory.register_function("ntile", creator_without_type::creator<WindowFunctionNTile>);
-    factory.register_function("cume_dist", creator_without_type::creator<WindowFunctionCumeDist>);
+    factory.register_function("cume_dist", create_empty_arg_window<WindowFunctionCumeDist>);
 }
 
 void register_aggregate_function_window_lead_lag_first_last(

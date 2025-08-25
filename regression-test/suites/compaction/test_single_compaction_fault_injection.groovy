@@ -18,6 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
+    if (isCloudMode()) {
+        logger.info("Skip test in cloud mode")
+        return
+    }
     def tableName = "test_single_compaction"
 
     def backendId_to_backendIP = [:]

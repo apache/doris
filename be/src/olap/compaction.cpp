@@ -77,8 +77,10 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/pretty_printer.h"
 #include "util/time.h"
 #include "util/trace.h"
+#include "vec/common/schema_util.h"
 
 using std::vector;
 
@@ -129,7 +131,9 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
                   MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label)),
           _tablet(std::move(tablet)),
           _is_vertical(config::enable_vertical_compaction),
-          _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
+          _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction),
+          _enable_vertical_compact_variant_subcolumns(
+                  config::enable_vertical_compact_variant_subcolumns) {
     init_profile(label);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _rowid_conversion = std::make_unique<RowIdConversion>();
@@ -232,6 +236,16 @@ Status Compaction::merge_input_rowsets() {
                                    fmt::format("rowset writer build failed. output_version: {}",
                                                _output_version.to_string()));
 
+    // When true, writers should remove variant extracted subcolumns from the
+    // schema stored in RowsetMeta. This is used when compaction temporarily
+    // extends schema to split variant subcolumns for vertical compaction but
+    // the final rowset meta must not persist those extracted subcolumns.
+    if (_enable_vertical_compact_variant_subcolumns &&
+        (_cur_tablet_schema->num_variant_columns() > 0)) {
+        _output_rowset->rowset_meta()->set_tablet_schema(
+                _cur_tablet_schema->copy_without_variant_extracted_columns());
+    }
+
     //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // Now we support delete in cumu compaction, to make all data in rowsets whose version
@@ -306,7 +320,7 @@ Tablet* CompactionMixin::tablet() {
 }
 
 Status CompactionMixin::do_compact_ordered_rowsets() {
-    build_basic_info();
+    RETURN_IF_ERROR(build_basic_info(true));
     RowsetWriterContext ctx;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
@@ -337,11 +351,12 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
     rowset_meta->set_segments_key_bounds(segment_key_bounds);
+
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
     return Status::OK();
 }
 
-void CompactionMixin::build_basic_info() {
+Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     for (auto& rowset : _input_rowsets) {
         const auto& rowset_meta = rowset->rowset_meta();
         auto index_size = rowset_meta->index_disk_size();
@@ -369,7 +384,8 @@ void CompactionMixin::build_basic_info() {
     COUNTER_UPDATE(_input_row_num_counter, _input_row_num);
     COUNTER_UPDATE(_input_segments_num_counter, _input_num_segments);
 
-    TEST_SYNC_POINT_RETURN_WITH_VOID("compaction::CompactionMixin::build_basic_info");
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("compaction::CompactionMixin::build_basic_info",
+                                      Status::OK());
 
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
@@ -380,6 +396,16 @@ void CompactionMixin::build_basic_info() {
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+
+    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
+    // so get_extended_compaction_schema will extended the schema for variant columns
+    // for ordered compaction, we don't need to extend the schema for variant columns
+    if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
+        RETURN_IF_ERROR(
+                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                        _input_rowsets, _cur_tablet_schema));
+    }
+    return Status::OK();
 }
 
 bool CompactionMixin::handle_ordered_data_compaction() {
@@ -509,7 +535,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
         _state = CompactionState::SUCCESS;
         return Status::OK();
     }
-    build_basic_info();
+    RETURN_IF_ERROR(build_basic_info());
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("compaction::CompactionMixin::execute_compact_impl",
                                       Status::OK());
@@ -531,13 +557,19 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     LOG(INFO) << "succeed to do " << compaction_name() << " is_vertical=" << _is_vertical
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << tablet()->max_version().second
-              << ", disk=" << tablet()->data_dir()->path() << ", segments=" << _input_num_segments
-              << ", input_rowsets_data_size=" << _input_rowsets_data_size
-              << ", input_rowsets_index_size=" << _input_rowsets_index_size
-              << ", input_rowsets_total_size=" << _input_rowsets_total_size
-              << ", output_rowset_data_size=" << _output_rowset->data_disk_size()
-              << ", output_rowset_index_size=" << _output_rowset->index_disk_size()
-              << ", output_rowset_total_size=" << _output_rowset->total_disk_size()
+              << ", disk=" << tablet()->data_dir()->path()
+              << ", input_segments=" << _input_num_segments << ", input_rowsets_data_size="
+              << PrettyPrinter::print_bytes(_input_rowsets_data_size)
+              << ", input_rowsets_index_size="
+              << PrettyPrinter::print_bytes(_input_rowsets_index_size)
+              << ", input_rowsets_total_size="
+              << PrettyPrinter::print_bytes(_input_rowsets_total_size)
+              << ", output_rowset_data_size="
+              << PrettyPrinter::print_bytes(_output_rowset->data_disk_size())
+              << ", output_rowset_index_size="
+              << PrettyPrinter::print_bytes(_output_rowset->index_disk_size())
+              << ", output_rowset_total_size="
+              << PrettyPrinter::print_bytes(_output_rowset->total_disk_size())
               << ", input_row_num=" << _input_row_num
               << ", output_row_num=" << _output_rowset->num_rows()
               << ", filtered_row_num=" << _stats.filtered_rows
@@ -744,8 +776,8 @@ Status Compaction::do_inverted_index_compaction() {
 
     // dest index files
     // format: rowsetId_segmentId
-    auto& inverted_index_file_writers = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())
-                                                ->inverted_index_file_writers();
+    auto& inverted_index_file_writers =
+            dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())->index_file_writers();
     DBUG_EXECUTE_IF(
             "Compaction::do_inverted_index_compaction_inverted_index_file_writers_size_error",
             { inverted_index_file_writers.clear(); })
@@ -1277,14 +1309,6 @@ Status CompactionMixin::modify_rowsets() {
                     missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 
-            if (missed_rows) {
-                DCHECK_EQ(missed_rows->size(), missed_rows_size);
-                if (missed_rows->size() != missed_rows_size) {
-                    LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
-                                 << " after: " << missed_rows->size();
-                }
-            }
-
             if (location_map) {
                 RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, *location_map));
             }
@@ -1356,6 +1380,9 @@ Status Compaction::check_correctness() {
                 _tablet->tablet_id(), _input_row_num, _stats.merged_rows, _stats.filtered_rows,
                 _output_rowset->num_rows());
     }
+    // 2. check variant column path stats
+    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+            _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
 
@@ -1399,7 +1426,7 @@ void Compaction::_load_segment_to_cache() {
     }
 }
 
-void CloudCompactionMixin::build_basic_info() {
+Status CloudCompactionMixin::build_basic_info() {
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
 
@@ -1409,6 +1436,14 @@ void CloudCompactionMixin::build_basic_info() {
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
+    // so get_extended_compaction_schema will extended the schema for variant columns
+    if (_enable_vertical_compact_variant_subcolumns) {
+        RETURN_IF_ERROR(
+                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                        _input_rowsets, _cur_tablet_schema));
+    }
+    return Status::OK();
 }
 
 int64_t CloudCompactionMixin::get_compaction_permits() {
@@ -1431,7 +1466,7 @@ CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabl
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     OlapStopWatch watch;
 
-    build_basic_info();
+    RETURN_IF_ERROR(build_basic_info());
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version << ", permits: " << permits;
@@ -1513,8 +1548,16 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     }
 
     // Use the storage resource of the previous rowset
-    ctx.storage_resource =
-            *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
+    // when multiple hole rowsets doing compaction, those rowsets may not have a storage resource.
+    // case:
+    // [0-1, 2-2, 3-3, 4-4, 5-5], 2-5 are hole rowsets.
+    //  0-1 current doesn't have a resource_id, so 2-5 also have no resource_id.
+    // Because there is no data to write, so we can skip setting the storage resource.
+    if (!_input_rowsets.back()->is_hole_rowset() ||
+        !_input_rowsets.back()->rowset_meta()->resource_id().empty()) {
+        ctx.storage_resource =
+                *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
+    }
 
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
@@ -1535,6 +1578,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
                            (config::enable_file_cache_keep_base_compaction_output &&
                             compaction_type() == ReaderType::READER_BASE_COMPACTION);
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
+    ctx.approximate_bytes_to_write = _input_rowsets_total_size;
+
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(
             _engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get(), _uuid));
@@ -1565,6 +1610,17 @@ void CloudCompactionMixin::update_compaction_level() {
                 cumu_policy->get_compaction_level(cloud_tablet(), _input_rowsets, _output_rowset);
         _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
     }
+}
+
+// should skip hole rowsets, ortherwise the count will be wrong in ms
+int64_t CloudCompactionMixin::num_input_rowsets() const {
+    int64_t count = 0;
+    for (const auto& r : _input_rowsets) {
+        if (!r->is_hole_rowset()) {
+            count++;
+        }
+    }
+    return count;
 }
 
 #include "common/compile_check_end.h"

@@ -508,4 +508,9 @@ static inline std::string log_key(const LogKeyInfo& in) { std::string s; log_key
 int decode_key(std::string_view* in,
                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>>* out);
 
+/**
+ * Return the list of single version meta key prefixs.
+ */
+std::vector<std::string> get_single_version_meta_key_prefixs();
+
 } // namespace doris::cloud

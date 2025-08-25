@@ -1021,6 +1021,20 @@ struct FunctionCastToIntTest : public FunctionCastTest {
 
             data_set.push_back({{FromT(std::pow(2, 62))}, ToT(std::pow(2, 62))});
             data_set.push_back({{FromT(-std::pow(2, 62))}, ToT(-std::pow(2, 62))});
+            if constexpr (FromPT == TYPE_DOUBLE) {
+                // 9223372036854775295 == 2^63 - 2^9 - 1
+                data_set.push_back({{FromT(9223372036854775295.0)}, ToT(9223372036854774784)});
+
+                // 9223372036854776832 == 2^63 + 2^10
+                data_set.push_back({{FromT(-9223372036854776832.0)},
+                                    ToT(std::numeric_limits<int64_t>::min())});
+            } else {
+                // 9223371761976868863 == 2^63 - 2^38 - 1
+                data_set.push_back({{FromT(9223371761976868863.0f)}, ToT(9223371487098961920)});
+                // 9223372586610589696 == 2^63 + 2^39
+                data_set.push_back({{FromT(-9223372586610589696.0f)},
+                                    ToT(std::numeric_limits<int64_t>::min())});
+            }
             [[fallthrough]];
         case TYPE_INT:
             data_set.push_back({{FromT {32768.9}}, ToT(32768)});
@@ -1031,10 +1045,29 @@ struct FunctionCastToIntTest : public FunctionCastTest {
 
             data_set.push_back({{FromT(std::pow(2, 30))}, ToT(std::pow(2, 30))});
             data_set.push_back({{FromT(-std::pow(2, 30))}, ToT(-std::pow(2, 30))});
+
+            if constexpr (FromPT == TYPE_DOUBLE) {
+                // 2147483647 == 2^31 - 1
+                data_set.push_back({{FromT(2147483647.0)}, ToT(2147483647)});
+
+                // 2147483648 == 2^31
+                data_set.push_back(
+                        {{FromT(-2147483648.0)}, ToT(std::numeric_limits<int32_t>::min())});
+            } else {
+                // 2147483583 == 2^31 - 2^6 - 1
+                data_set.push_back({{FromT(2147483583.0f)}, ToT(2147483520)});
+                // 2147483776 == 2^31 + 2^7
+                data_set.push_back({{FromT(-2147483776.0f)}, ToT(-2147483648)});
+            }
             [[fallthrough]];
         case TYPE_SMALLINT:
             data_set.push_back({{FromT {32767.9}}, ToT(32767)});
             data_set.push_back({{FromT {-32768.9}}, ToT(-32768)});
+
+            // 32767 == 2^15 - 1
+            data_set.push_back({{FromT(32767.0)}, ToT(32767)});
+            // 32768 == 2^15
+            data_set.push_back({{FromT(-32768.0)}, ToT(std::numeric_limits<int16_t>::min())});
             break;
         default:
             break;
@@ -1093,14 +1126,42 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         case TYPE_SMALLINT:
             test_input_vals.push_back(FromT(32768.0));
             test_input_vals.push_back(FromT(-32769.0));
+
+            // 32768 == 2^15
+            test_input_vals.push_back(FromT(32768.0));
+            // 32769 == 2^15 + 1
+            test_input_vals.push_back(FromT(-32769.0));
             [[fallthrough]];
         case TYPE_INT:
             test_input_vals.push_back(FromT(std::pow(2, 32)));
             test_input_vals.push_back(FromT(-std::pow(2, 32)));
+
+            if constexpr (FromPT == TYPE_DOUBLE) {
+                // 2147483647 == 2^31
+                test_input_vals.push_back(FromT(2147483648.0));
+                // 2147483648 == 2^31 + 1
+                test_input_vals.push_back(FromT(-2147483649.0));
+            } else {
+                // 2147483584 = 2^31 - 2^6
+                test_input_vals.push_back(FromT(2147483584.0f));
+                // 2147483777 = 2^31 + 2^7 + 1
+                test_input_vals.push_back(FromT(-2147483777.0f));
+            }
             [[fallthrough]];
         case TYPE_BIGINT:
             test_input_vals.push_back(FromT(std::pow(2, 64)));
             test_input_vals.push_back(FromT(-std::pow(2, 64)));
+            if constexpr (FromPT == TYPE_DOUBLE) {
+                // 9223372036854775296 == 2^63 - 2^9
+                test_input_vals.push_back(FromT(9223372036854775296.0));
+                // 9223372036854776833 == 2^63 + 2^10 + 1
+                test_input_vals.push_back(FromT(-9223372036854776833.0));
+            } else {
+                // 9223371761976868864 == 2^63 - 2^38
+                test_input_vals.push_back(FromT(9223371761976868864.0f));
+                // 92233725866105896967 = 2^63 + 2^39 + 1
+                test_input_vals.push_back(FromT(-9223372586610589697.0f));
+            }
             [[fallthrough]];
         case TYPE_LARGEINT:
             test_input_vals.push_back(FromT(std::pow(2, 128)));
@@ -1109,6 +1170,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             if constexpr (FromPT == TYPE_DOUBLE) {
                 test_input_vals.push_back(FromT(std::pow(2, 129)));
                 test_input_vals.push_back(FromT(-std::pow(2, 129)));
+                test_input_vals.push_back(FromT(170141183460469250621153235194464960513.0));
+                test_input_vals.push_back(FromT(-170141183460469250621153235194464960513.0));
             }
             [[fallthrough]];
         default:

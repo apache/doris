@@ -125,6 +125,10 @@ public class BuildIndexOp extends AlterTableOp {
                     + " is not partitioned, cannot build index with partitions.");
             }
         }
+        if (indexDef.getIndexType() == IndexDef.IndexType.ANN) {
+            throw new AnalysisException(
+                "ANN index can only be created during table creation, not through BUILD INDEX.");
+        }
         indexDef.validate();
         this.index = existedIdx.clone();
     }

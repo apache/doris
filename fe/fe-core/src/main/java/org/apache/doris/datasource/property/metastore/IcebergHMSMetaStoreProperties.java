@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
@@ -59,25 +60,28 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         hmsBaseProperties = HMSBaseProperties.of(origProps);
-        hmsBaseProperties.initAndCheckParams();
         this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         checkInitialized();
-
         Configuration conf = buildHiveConfiguration(storagePropertiesList);
-        Map<String, String> catalogProps = buildCatalogProperties();
-
         HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(conf);
         storagePropertiesList.forEach(sp -> {
             for (Map.Entry<String, String> entry : sp.getHadoopStorageConfig()) {
                 catalogProps.put(entry.getKey(), entry.getValue());
             }
+            if (sp instanceof HdfsProperties) {
+                HdfsProperties hdfsProps = (HdfsProperties) sp;
+                if (hdfsProps.isKerberos()) {
+                    catalogProps.put(CatalogProperties.FILE_IO_IMPL,
+                            "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
+                }
+            }
         });
-
         try {
             this.executionAuthenticator.execute(() -> hiveCatalog.initialize(catalogName, catalogProps));
             return hiveCatalog;

@@ -131,14 +131,9 @@ struct SubstringUtil {
         bool col_const[3];
         ColumnPtr argument_columns[3];
         for (int i = 0; i < 3; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
-
-        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         const auto* specific_str_column =
                 assert_cast<const ColumnString*>(argument_columns[0].get());
@@ -147,37 +142,31 @@ struct SubstringUtil {
         const auto* specific_len_column =
                 assert_cast<const ColumnInt32*>(argument_columns[2].get());
 
-        auto vectors = vectors_utf8<false>;
-        bool is_ascii = simd::VStringFunctions::is_ascii(
-                {specific_str_column->get_chars().data(), specific_str_column->get_chars().size()});
-        if (col_const[1] && col_const[2] && is_ascii) {
-            vectors = vectors_ascii<true>;
-        } else if (col_const[1] && col_const[2]) {
-            vectors = vectors_utf8<true>;
-        } else if (is_ascii) {
-            vectors = vectors_ascii<false>;
-        }
-        vectors(specific_str_column->get_chars(), specific_str_column->get_offsets(),
-                specific_start_column->get_data(), specific_len_column->get_data(),
-                res->get_chars(), res->get_offsets());
+        bool is_ascii = specific_str_column->is_ascii();
 
+        std::visit(
+                [&](auto is_ascii, auto str_const, auto start_const, auto len_const) {
+                    vectors<is_ascii, str_const, start_const, len_const>(
+                            specific_str_column->get_chars(), specific_str_column->get_offsets(),
+                            specific_start_column->get_data(), specific_len_column->get_data(),
+                            res->get_chars(), res->get_offsets(), input_rows_count);
+                },
+                vectorized::make_bool_variant(is_ascii),
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]),
+                vectorized::make_bool_variant(col_const[2]));
         block.get_by_position(result).column = std::move(res);
     }
 
 private:
-    template <bool is_const>
-    static void vectors_utf8(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
-                             const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                             ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
-        size_t size = offsets.size();
+    template <bool is_ascii, bool str_const, bool start_const, bool len_const>
+    static void vectors(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
+                        const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+                        ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets,
+                        size_t size) {
         res_offsets.resize(size);
-        res_chars.reserve(chars.size());
 
-        std::array<std::byte, 128 * 1024> buf;
-        PMR::monotonic_buffer_resource pool {buf.data(), buf.size()};
-        PMR::vector<size_t> index {&pool};
-
-        if constexpr (is_const) {
+        if constexpr (start_const && len_const) {
             if (start[0] == 0 || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
@@ -186,11 +175,37 @@ private:
             }
         }
 
+        if constexpr (str_const) {
+            res_chars.reserve(size * chars.size());
+        } else {
+            res_chars.reserve(chars.size());
+        }
+
+        if constexpr (is_ascii) {
+            vectors_ascii<str_const, start_const, len_const>(chars, offsets, start, len, res_chars,
+                                                             res_offsets, size);
+        } else {
+            vectors_utf8<str_const, start_const, len_const>(chars, offsets, start, len, res_chars,
+                                                            res_offsets, size);
+        }
+    }
+
+    template <bool str_const, bool start_const, bool len_const>
+    static void vectors_utf8(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
+                             const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+                             ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets,
+                             size_t size) {
+        std::array<std::byte, 128 * 1024> buf;
+        PMR::monotonic_buffer_resource pool {buf.data(), buf.size()};
+        PMR::vector<size_t> index {&pool};
+
         for (size_t i = 0; i < size; ++i) {
-            int str_size = offsets[i] - offsets[i - 1];
-            const char* str_data = (char*)chars.data() + offsets[i - 1];
-            int start_value = is_const ? start[0] : start[i];
-            int len_value = is_const ? len[0] : len[i];
+            int str_size = offsets[index_check_const<str_const>(i)] -
+                           offsets[index_check_const<str_const>(i) - 1];
+            const char* str_data =
+                    (char*)chars.data() + offsets[index_check_const<str_const>(i) - 1];
+            int start_value = start[index_check_const<start_const>(i)];
+            int len_value = len[index_check_const<len_const>(i)];
             // Unsigned numbers cannot be used here because start_value can be negative.
             int char_len = simd::VStringFunctions::get_char_len(str_data, str_size);
             // return empty string if start > src.length
@@ -236,32 +251,19 @@ private:
         }
     }
 
-    template <bool is_const>
+    template <bool str_const, bool start_const, bool len_const>
     static void vectors_ascii(const ColumnString::Chars& chars,
                               const ColumnString::Offsets& offsets,
                               const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                              ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
-        size_t size = offsets.size();
-        res_offsets.resize(size);
-
-        if constexpr (is_const) {
-            if (start[0] == 0 || len[0] <= 0) {
-                for (size_t i = 0; i < size; ++i) {
-                    StringOP::push_empty_string(i, res_chars, res_offsets);
-                }
-                return;
-            }
-            res_chars.reserve(std::min(chars.size(), len[0] * size));
-        } else {
-            res_chars.reserve(chars.size());
-        }
-
+                              ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets,
+                              size_t size) {
         for (size_t i = 0; i < size; ++i) {
-            int str_size = offsets[i] - offsets[i - 1];
-            const char* str_data = (char*)chars.data() + offsets[i - 1];
-
-            int start_value = is_const ? start[0] : start[i];
-            int len_value = is_const ? len[0] : len[i];
+            int str_size = offsets[index_check_const<str_const>(i)] -
+                           offsets[index_check_const<str_const>(i) - 1];
+            const char* str_data =
+                    (char*)chars.data() + offsets[index_check_const<str_const>(i) - 1];
+            int start_value = start[index_check_const<start_const>(i)];
+            int len_value = len[index_check_const<len_const>(i)];
 
             if (start_value > str_size || start_value < -str_size || str_size == 0 ||
                 len_value <= 0) {

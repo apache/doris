@@ -18,23 +18,31 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_list_cache_file") {
-    sql """ use @regression_cluster_name1 """
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+
     String[][] backends = sql """ show backends """
-    String backendId;
+    def backendSockets = []
     def backendIdToBackendIP = [:]
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
+        if (backend[9].equals("true")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
         }
     }
-    assertEquals(backendIdToBackendIP.size(), 1)
+    assertTrue(backendIdToBackendIP.size() > 0, "No alive backends found")
 
-    backendId = backendIdToBackendIP.keySet()[0]
-    def socket = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId)
+    backendIdToBackendIP.each { backendId, ip ->
+        def socket = ip + ":" + backendIdToBackendHttpPort.get(backendId)
+        backendSockets.add(socket)
+    }
 
     sql "drop table IF EXISTS `user`"
 
@@ -52,6 +60,8 @@ suite("test_list_cache_file") {
 
     sql "insert into user select number, cast(rand() as varchar(32)) from numbers(\"number\"=\"1000000\")"
 
+    Thread.sleep(50000)
+
     def get_tablets = { String tbl_name ->
         def res = sql "show tablets from ${tbl_name}"
         List<Long> tablets = new ArrayList<>()
@@ -65,7 +75,7 @@ suite("test_list_cache_file") {
         var ret = []
         httpTest {
             endpoint ""
-            uri socket + "/api/compaction/show?tablet_id=" + tablet_id
+            uri backendSockets[0] + "/api/compaction/show?tablet_id=" + tablet_id
             op "get"
             check {respCode, body ->
                 assertEquals(respCode, 200)
@@ -83,35 +93,50 @@ suite("test_list_cache_file") {
     var rowsets = get_rowsets(tablets.get(0))
     var segment_file = rowsets[rowsets.size() - 1] + "_0.dat"
 
-    httpTest {
-        endpoint ""
-        uri socket + "/api/file_cache?op=list_cache&value=" + segment_file
-        op "get"
-        check {respCode, body ->
-            assertEquals(respCode, 200)
-            var arr = parseJson(body)
-            assertTrue(arr.size() > 0, "There shouldn't be no cache file at all, maybe you need to check disk capacity and modify file_cache_enter_disk_resource_limit_mode_percent in be.conf")
+    def cacheResults = []
+    def clearResults = []
+
+    // Check cache status on all backends
+    backendSockets.each { socket ->
+        httpTest {
+            endpoint ""
+            uri socket + "/api/file_cache?op=list_cache&value=" + segment_file
+            op "get"
+            check {respCode, body ->
+                assertEquals(respCode, 200)
+                var arr = parseJson(body)
+                cacheResults.add(arr.size() > 0)
+            }
         }
     }
+    assertTrue(cacheResults.any(), "At least one backend should have cache file")
 
-    // clear single segment file cache
-    httpTest {
-        endpoint ""
-        uri socket + "/api/file_cache?op=clear&value=" + segment_file
-        op "get"
-        check {respCode, body ->
-            assertEquals(respCode, 200, "clear local cache fail, maybe you can find something in respond: " + parseJson(body))
+    // Clear cache on all backends
+    backendSockets.each { socket ->
+        httpTest {
+            endpoint ""
+            uri socket + "/api/file_cache?op=clear&value=" + segment_file
+            op "get"
+            check {respCode, body ->
+                assertEquals(respCode, 200, "clear local cache fail, maybe you can find something in respond: " + parseJson(body))
+                clearResults.add(true)
+            }
         }
     }
+    assertEquals(clearResults.size(), backendSockets.size(), "Failed to clear cache on some backends")
 
-    httpTest {
-        endpoint ""
-        uri socket + "/api/file_cache?op=list_cache&value=" + segment_file
-        op "get"
-        check {respCode, body ->
-            assertEquals(respCode, 200)
-            var arr = parseJson(body)
-            assertTrue(arr.size() == 0, "local cache files should not greater than 0, because it has already clear")
+    // Verify cache cleared on all backends
+    backendSockets.each { socket ->
+        httpTest {
+            endpoint ""
+            uri socket + "/api/file_cache?op=list_cache&value=" + segment_file
+            op "get"
+            check {respCode, body ->
+                assertEquals(respCode, 200)
+                var arr = parseJson(body)
+                assertTrue(arr.size() == 0, "local cache files should not greater than 0, because it has already clear")
+            }
         }
+    }
     }
 }

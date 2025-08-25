@@ -167,16 +167,6 @@ public class AutoBucketUtilsTest {
                 + ")";
     }
 
-    private void createTable(String sql) throws Exception {
-        // create database first
-        UtFrameUtils.createDatabase(connectContext, databaseName);
-        UtFrameUtils.createTable(connectContext, sql);
-    }
-
-    private void createTableBySize(String estimatePartitionSize) throws Exception {
-        createTable(genCreateTableSql(estimatePartitionSize));
-    }
-
     // Some of these tests will report
     // java.lang.IllegalArgumentException: Value of type org.apache.doris.catalog.
     // Env incompatible with return type com.google.common.collect.

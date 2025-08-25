@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -42,10 +43,11 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     private final Optional<String> schemaCatalog;
     private final Optional<String> schemaDatabase;
     private final Optional<String> schemaTable;
+    private final List<Expression> frontendConjuncts;
 
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier) {
         this(id, table, qualifier, false,
-                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(),
+                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), Optional.empty());
     }
 
@@ -60,12 +62,13 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
      * @param schemaDatabase Optional database name in the schema
      * @param schemaTable Optional table name in the schema
      * @param virtualColumns List of virtual columns to be included in the scan
+     * @param frontendConjuncts conjuncts needed by FrontendService
      * @param groupExpression Optional group expression for memo representation
      * @param logicalProperties Optional logical properties for this plan node
      */
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier, boolean filterPushed,
             Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
-            List<NamedExpression> virtualColumns,
+            List<NamedExpression> virtualColumns, List<Expression> frontendConjuncts,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, ImmutableList.of(), virtualColumns,
                 groupExpression, logicalProperties);
@@ -73,6 +76,7 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
+        this.frontendConjuncts = frontendConjuncts;
     }
 
     public boolean isFilterPushed() {
@@ -91,6 +95,10 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
         return schemaTable;
     }
 
+    public List<Expression> getFrontendConjuncts() {
+        return frontendConjuncts;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalSchemaScan(this, context);
@@ -100,26 +108,28 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
                 schemaCatalog, schemaDatabase, schemaTable, virtualColumns,
-                groupExpression, Optional.of(getLogicalProperties()));
+                frontendConjuncts, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
-                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, groupExpression, logicalProperties);
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, groupExpression,
+                logicalProperties);
     }
 
     @Override
     public LogicalSchemaScan withRelationId(RelationId relationId) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
-                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, Optional.empty(), Optional.empty());
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, Optional.empty(),
+                Optional.empty());
     }
 
-    public LogicalSchemaScan withSchemaIdentifier(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
-            Optional<String> schemaTable) {
+    public LogicalSchemaScan withFrontendConjuncts(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
+            Optional<String> schemaTable, List<Expression> frontendConjuncts) {
         return new LogicalSchemaScan(relationId, table, qualifier, true, schemaCatalog, schemaDatabase, schemaTable,
-                virtualColumns, Optional.empty(), Optional.of(getLogicalProperties()));
+                virtualColumns, frontendConjuncts, Optional.empty(), Optional.of(getLogicalProperties()));
     }
 
     @Override
@@ -140,13 +150,15 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
         }
         LogicalSchemaScan that = (LogicalSchemaScan) o;
         return Objects.equals(schemaCatalog, that.schemaCatalog)
-            && Objects.equals(schemaDatabase, that.schemaDatabase)
-            && Objects.equals(schemaTable, that.schemaTable)
-            && filterPushed == that.filterPushed;
+                && Objects.equals(schemaDatabase, that.schemaDatabase)
+                && Objects.equals(schemaTable, that.schemaTable)
+                && Objects.equals(frontendConjuncts, that.frontendConjuncts)
+                && filterPushed == that.filterPushed;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), schemaCatalog, schemaDatabase, schemaTable, filterPushed);
+        return Objects.hash(super.hashCode(), schemaCatalog, schemaDatabase, schemaTable, filterPushed,
+                frontendConjuncts);
     }
 }

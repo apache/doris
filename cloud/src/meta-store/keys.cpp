@@ -792,4 +792,16 @@ std::set<std::string> get_key_prefix_contants() {
     key_prefix_set.insert(VAULT_KEY_PREFIX);
     return key_prefix_set;
 }
+
+std::vector<std::string> get_single_version_meta_key_prefixs() {
+    std::vector<std::string> key_prefix_list;
+    for (std::string_view prefix : {"meta", "version", "stats"}) {
+        std::string key_prefix;
+        key_prefix.push_back(CLOUD_USER_KEY_SPACE01);
+        encode_bytes(prefix, &key_prefix);
+        key_prefix_list.push_back(std::move(key_prefix));
+    }
+    return key_prefix_list;
+}
+
 } // namespace doris::cloud

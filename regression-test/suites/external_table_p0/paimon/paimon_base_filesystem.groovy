@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_docker_doris") {
+suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
 
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -88,6 +88,27 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         logger.info("catalog " + catalog_oss + " created")
         logger.info("catalog " + catalog_cos + " created")
         logger.info("catalog " + catalog_cosn + " created")
+
+        sql """ switch ${catalog_oss} """
+        sql """ show databases """
+        sql """ use ${catalog_oss}.db1 """
+        // sql """ show tables """
+
+        sql """ switch ${catalog_obs} """
+        sql """ show databases """
+        sql """ use ${catalog_obs}.db1 """
+        // sql """ show tables """
+
+        sql """ switch ${catalog_cos} """
+        sql """ show databases """
+        sql """ use ${catalog_cos}.db1 """
+        // sql """ show tables """
+
+        sql """ switch ${catalog_cosn} """
+        sql """ show databases """
+        sql """ use ${catalog_cosn}.db1 """
+        // sql """ show tables """
+
 
         sql """set force_jni_scanner=false"""
         qt_oss oss

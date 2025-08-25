@@ -21,11 +21,10 @@ import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.iceberg.HiveCompatibleCatalog;
 import org.apache.doris.datasource.iceberg.dlf.client.DLFCachedClientPool;
-import org.apache.doris.datasource.property.constants.OssProperties;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.OSSProperties;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.aliyun.oss.Constants;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -50,22 +49,18 @@ public class DLFCatalog extends HiveCompatibleCatalog {
 
     protected FileIO initializeFileIO(Map<String, String> properties, Configuration hadoopConf) {
         // read from converted properties or default by old s3 aws properties
-        String endpoint = properties.getOrDefault(Constants.ENDPOINT_KEY, properties.get(S3Properties.Env.ENDPOINT));
+        OSSProperties ossProperties = OSSProperties.of(properties);
+        String endpoint = ossProperties.getEndpoint();
         CloudCredential credential = new CloudCredential();
-        credential.setAccessKey(properties.getOrDefault(OssProperties.ACCESS_KEY,
-                properties.get(S3Properties.Env.ACCESS_KEY)));
-        credential.setSecretKey(properties.getOrDefault(OssProperties.SECRET_KEY,
-                properties.get(S3Properties.Env.SECRET_KEY)));
-        if (properties.containsKey(OssProperties.SESSION_TOKEN)
-                || properties.containsKey(S3Properties.Env.TOKEN)) {
-            credential.setSessionToken(properties.getOrDefault(OssProperties.SESSION_TOKEN,
-                    properties.get(S3Properties.Env.TOKEN)));
+        credential.setAccessKey(ossProperties.getAccessKey());
+        credential.setSecretKey(ossProperties.getSecretKey());
+        if (StringUtils.isNotBlank(ossProperties.getSessionToken())) {
+            credential.setSessionToken(ossProperties.getSessionToken());
         }
-        String region = properties.getOrDefault(OssProperties.REGION, properties.get(S3Properties.Env.REGION));
-        boolean isUsePathStyle = properties.getOrDefault("use_path_style", "false")
-                .equalsIgnoreCase("true");
+        String region = ossProperties.getRegion();
+        boolean isUsePathStyle = Boolean.parseBoolean(ossProperties.getUsePathStyle());
         // s3 file io just supports s3-like endpoint
-        String s3Endpoint = endpoint.replace(region, "s3." + region);
+        String s3Endpoint = endpoint.replace("oss-" + region, "s3.oss-" + region);
         if (!s3Endpoint.contains("://")) {
             s3Endpoint = "http://" + s3Endpoint;
         }

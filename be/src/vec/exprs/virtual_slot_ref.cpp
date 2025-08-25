@@ -22,6 +22,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <ostream>
+#include <vector>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -35,9 +36,8 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
-
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 VirtualSlotRef::VirtualSlotRef(const doris::TExprNode& node)
         : VExpr(node),
           _column_id(-1),
@@ -218,4 +218,33 @@ bool VirtualSlotRef::equals(const VExpr& other) {
     return true;
 }
 
+/**
+ * @brief Implements ANN range search evaluation for virtual slot references.
+ * 
+ * This method handles the case where a virtual slot reference wraps a distance
+ * function call that can be optimized using ANN index range search. Instead of
+ * computing distances for all rows, it delegates to the underlying virtual
+ * expression to perform the optimized search.
+ * 
+ * @param range_search_runtime Runtime parameters for the range search
+ * @param cid_to_index_iterators Index iterators for each column
+ * @param idx_to_cid Column ID mapping
+ * @param column_iterators Data column iterators
+ * @param row_bitmap Result bitmap to be updated with matching rows
+ * @param ann_index_stats Performance statistics collector
+ * @return Status::OK() if successful, error status otherwise
+ */
+Status VirtualSlotRef::evaluate_ann_range_search(
+        const segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
+    return _virtual_column_expr->evaluate_ann_range_search(
+            range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators, row_bitmap,
+            ann_index_stats);
+
+    return Status::OK();
+}
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -77,7 +77,7 @@ public:
 
     vectorized::MutableColumnPtr get_empty_mutable_column() const;
 
-    int32_t col_unique_id() const { return _col_unique_id; }
+    MOCK_FUNCTION int32_t col_unique_id() const { return _col_unique_id; }
 
     bool is_key() const { return _is_key; }
     const std::vector<std::string>& column_paths() const { return _column_paths; };
@@ -377,13 +377,18 @@ private:
 
 class DescriptorTbl {
 public:
+#ifdef BE_TEST
+    DescriptorTbl() = default;
+    virtual ~DescriptorTbl() = default;
+#endif
+
     // Creates a descriptor tbl within 'pool' from thrift_tbl and returns it via 'tbl'.
     // Returns OK on success, otherwise error (in which case 'tbl' will be unset).
     static Status create(ObjectPool* pool, const TDescriptorTable& thrift_tbl, DescriptorTbl** tbl);
 
     TableDescriptor* get_table_descriptor(TableId id) const;
     TupleDescriptor* get_tuple_descriptor(TupleId id) const;
-    SlotDescriptor* get_slot_descriptor(SlotId id) const;
+    MOCK_FUNCTION SlotDescriptor* get_slot_descriptor(SlotId id) const;
     const std::vector<TTupleId>& get_row_tuples() const { return _row_tuples; }
 
     // return all registered tuple descriptors
@@ -409,7 +414,9 @@ private:
     SlotDescriptorMap _slot_desc_map;
     std::vector<TTupleId> _row_tuples;
 
+#ifndef BE_TEST
     DescriptorTbl() = default;
+#endif
 };
 
 #define RETURN_IF_INVALID_TUPLE_IDX(tuple_id, tuple_idx)                                         \
