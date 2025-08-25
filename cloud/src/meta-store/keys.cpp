@@ -221,7 +221,7 @@ std::string txn_key_prefix(std::string_view instance_id) {
 
 void txn_label_key(const TxnLabelKeyInfo& in, std::string* out) {
     encode_prefix(in, out);                 // 0x01 "txn" ${instance_id}
-    encode_bytes(TXN_KEY_INFIX_LABEL, out); // "txn_index"
+    encode_bytes(TXN_KEY_INFIX_LABEL, out); // "txn_label"
     encode_int64(std::get<1>(in), out);     // db_id
     encode_bytes(std::get<2>(in), out);     // label
 }
