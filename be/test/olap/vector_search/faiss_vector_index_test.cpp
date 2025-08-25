@@ -262,7 +262,7 @@ TEST_F(VectorSearchTest, SearchAllVectors) {
 
         FaissBuildParameter params;
         params.dim = 64;
-        params.max_degree = 32;
+        params.max_degree = 128;
         params.index_type = FaissBuildParameter::IndexType::HNSW;
         index1->build(params);
 
@@ -289,6 +289,7 @@ TEST_F(VectorSearchTest, SearchAllVectors) {
         for (int i = 0; i < num_vectors; ++i) roaring->add(i);
         search_params.roaring = roaring.get();
         search_params.rows_of_segment = num_vectors;
+        search_params.ef_search = 128;
         IndexSearchResult search_result;
 
         // Search for all vectors - use a vector we know is in the index
