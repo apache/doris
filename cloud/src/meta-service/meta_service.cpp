@@ -1221,9 +1221,8 @@ void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
         response->mutable_tablet_meta()->Clear();
         return;
     }
-    TabletSchemaCloudPB tablet_schema;
     err = reader.get_tablet_schema(txn.get(), tablet_meta.index_id(), tablet_meta.schema_version(),
-                                   &tablet_schema, nullptr);
+                                   tablet_meta.mutable_schema(), nullptr);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get tablet schema, tablet_id={}, err={}", request->tablet_id(),
