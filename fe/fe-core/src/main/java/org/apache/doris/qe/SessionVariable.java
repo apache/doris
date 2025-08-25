@@ -1384,10 +1384,23 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
-    @VariableMgr.VarAttr(name = "enable_topn_lazy_materialization", needForward = true,
+    @VariableMgr.VarAttr(name = "topn_lazy_materialization_threshold", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
-    public boolean enableTopnLazyMaterialization = true;
+    public int topNLazyMaterializationThreshold = 512 * 1024;
+
+    public boolean enableTopnLazyMaterialization() {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold > 0;
+    }
+
+    public static int getTopNLazyMaterializationThreshold() {
+        if (ConnectContext.get()!= null) {
+            return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationThreshold;
+        }
+    }
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;

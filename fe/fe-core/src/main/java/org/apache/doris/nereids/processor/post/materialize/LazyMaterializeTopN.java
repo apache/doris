@@ -32,6 +32,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -64,6 +66,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN topN, CascadesContext ctx) {
         if (hasMaterialized) {
+            return topN;
+        }
+        if (SessionVariable.getTopNLazyMaterializationThreshold() < topN.getLimit() + topN.getOffset()) {
             return topN;
         }
         /*
