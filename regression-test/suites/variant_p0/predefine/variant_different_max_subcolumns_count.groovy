@@ -88,9 +88,19 @@ suite("variant_different_max_subcolumns_count", "p0") {
     sql """INSERT INTO ${table_name} values(2, '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}', '{"c": 2.2, "d": 2.2}')"""
     sql """INSERT INTO ${table_name} values(3, '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
 
-    qt_sql "select v['a'], v['b'], v['c'], v2['a'], v2['b'], v2['c'], v3['a'], v3['b'], v3['c'], v4['a'], v4['b'], v4['c'], v5['a'], v5['b'], v5['c'], * from ${table_name} order by k"
+    qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
 
     trigger_and_wait_compaction(table_name, "full")
-    qt_sql "select v['a'], v['b'], v['c'], v2['a'], v2['b'], v2['c'], v3['a'], v3['b'], v3['c'], v4['a'], v4['b'], v4['c'], v5['a'], v5['b'], v5['c'], * from ${table_name} order by k"
+    qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
+
+    sql """ INSERT INTO ${table_name} values(4, '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
+    sql """ INSERT INTO ${table_name} values(5, '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
+    sql """ INSERT INTO ${table_name} values(6, '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
+    sql """ INSERT INTO ${table_name} values(7, '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}', '{"a": "1", "b": "hello", "c": 1.1, "d": 1.1, "e": "3", "f": "world", "g": 3.3, "h": 3.3}')"""
+
+
+    qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
+    trigger_and_wait_compaction(table_name, "full")
+    qt_sql "select v['a'], v2['b'], v3['c'], v4['d'], v5['e'], v5['g'], * from ${table_name} order by k"
 
 }
