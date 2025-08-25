@@ -1395,7 +1395,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public static int getTopNLazyMaterializationThreshold() {
-        if (ConnectContext.get()!= null) {
+        if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
         } else {
             return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationThreshold;
