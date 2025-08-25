@@ -55,7 +55,7 @@ public abstract class MysqlCompatibleDatabase extends Database {
      * will call this method. And create view should not succeed under this database.
      */
     @Override
-    public Pair<Boolean, Boolean> createTableWithoutLock(Table table, boolean isReplay, boolean setIfNotExist) {
+    public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
         return Pair.of(false, false);
     }
 

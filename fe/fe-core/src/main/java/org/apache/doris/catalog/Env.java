@@ -6345,13 +6345,8 @@ public class Env {
             newView.setComment(createViewInfo.getComment());
             newView.setInlineViewDefWithSqlMode(createViewInfo.getInlineViewDef(),
                     ConnectContext.get().getSessionVariable().getSqlMode());
-            db.writeLockOrDdlException();
-            try {
-                if (!((Database) db).createTableWithoutLock(newView, false, createViewInfo.isIfNotExists()).first) {
-                    throw new DdlException("Failed to create view[" + tableName + "].");
-                }
-            } finally {
-                db.writeUnlock();
+            if (!((Database) db).createTableWithLock(newView, false, createViewInfo.isIfNotExists()).first) {
+                throw new DdlException("Failed to create view[" + tableName + "].");
             }
             LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
         }

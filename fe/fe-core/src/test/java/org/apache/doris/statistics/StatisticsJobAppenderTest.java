@@ -156,10 +156,8 @@ public class StatisticsJobAppenderTest {
             schema.add(column1);
             OlapTable table1 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
             OlapTable table2 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
-            db.writeLockOrDdlException();
-            db.createTableWithoutLock(table1, true, false);
-            db.createTableWithoutLock(table2, true, false);
-            db.writeUnlock();
+            db.createTableWithLock(table1, true, false);
+            db.createTableWithLock(table2, true, false);
         }
 
         new MockUp<Env>() {
@@ -230,10 +228,8 @@ public class StatisticsJobAppenderTest {
             schema.add(column1);
             OlapTable table1 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
             OlapTable table2 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
-            db.writeLockOrDdlException();
-            db.createTableWithoutLock(table1, true, false);
-            db.createTableWithoutLock(table2, true, false);
-            db.writeUnlock();
+            db.createTableWithLock(table1, true, false);
+            db.createTableWithLock(table2, true, false);
         }
 
         new MockUp<Env>() {
@@ -304,9 +300,7 @@ public class StatisticsJobAppenderTest {
         List<Column> schema = new ArrayList<>();
         schema.add(column1);
         OlapTable table1 = new OlapTable(id++, "testTable" + id + "_1", schema, null, null, null);
-        db.writeLockOrDdlException();
-        db.createTableWithoutLock(table1, true, false);
-        db.writeUnlock();
+        db.createTableWithLock(table1, true, false);
         new MockUp<Env>() {
             @Mock
             public InternalCatalog getCurrentInternalCatalog() {
