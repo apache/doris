@@ -22,7 +22,6 @@ suite("with_select_table_auth","p0,auth") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     String user_name = 'with_select_table_auth'
     String pwd = 'test1'
@@ -138,6 +137,7 @@ suite("with_select_table_auth","p0,auth") {
 
     connect(user_name, "${pwd}", context.config.jdbcUrl) {
         sql "use ${db}"
+        sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
         mv_rewrite_success(
             """
             select t1.l_partkey, t1.l_suppkey, o_orderdate,

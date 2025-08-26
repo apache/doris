@@ -77,7 +77,7 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
                 logicalAggregate()
                         .when(agg -> agg.getGroupByExpressions().isEmpty()
                                 && agg.mustUseMultiDistinctAgg())
-                        .then(this::convertToMultiDistinct).toRule(RuleType.DISTINCT_AGGREGATE_SPLIT)
+                        .then(this::convertToMultiDistinct).toRule(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT)
         );
     }
 

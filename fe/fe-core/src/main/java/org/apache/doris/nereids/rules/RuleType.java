@@ -399,7 +399,9 @@ public enum RuleType {
     SHOR_CIRCUIT_POINT_QUERY(RuleTypeClass.REWRITE),
     // skew rewrtie
     SALT_JOIN(RuleTypeClass.REWRITE),
+
     DISTINCT_AGGREGATE_SPLIT(RuleTypeClass.REWRITE),
+    PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT(RuleTypeClass.REWRITE),
 
     // exploration rules
     REORDER_INTERSECT(RuleTypeClass.EXPLORATION),

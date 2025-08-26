@@ -149,7 +149,8 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
             if (aggStats.getRowCount() * 1000 >= row) {
                 return false;
             }
-            // // Also need to consider the size of the group by key. If the group by key size is larger than
+            // // TODO:Also need to consider the size of the group by key.
+            // //If the group by key size is larger than
             // //a certain threshold, the network distribution of CTE will be very slow,
             // so using multi_distinct will be better.
             // double groupByKeyByte = 0;
