@@ -167,11 +167,9 @@ public:
 
     // Get the tablet schema keys.
     TxnErrorCode get_tablet_schema(int64_t index_id, int64_t schema_version,
-                                   TabletSchemaCloudPB* tablet_schema, Versionstamp* versionstamp,
-                                   bool snapshot = false);
+                                   TabletSchemaCloudPB* tablet_schema, bool snapshot = false);
     TxnErrorCode get_tablet_schema(Transaction* txn, int64_t index_id, int64_t schema_version,
-                                   TabletSchemaCloudPB* tablet_schema, Versionstamp* versionstamp,
-                                   bool snapshot = false);
+                                   TabletSchemaCloudPB* tablet_schema, bool snapshot = false);
 
     // Gets the first pending transaction ID from the partition version.
     //
