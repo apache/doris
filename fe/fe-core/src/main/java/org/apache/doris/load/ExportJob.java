@@ -295,7 +295,7 @@ public class ExportJob implements Writable {
             FromClause fromClause = new FromClause(tableRefList);
             // generate outfile clause
             OutFileClause outfile = new OutFileClause(this.exportPath, this.format, convertOutfileProperties());
-            SelectStmt selectStmt = new SelectStmt(list, fromClause, this.whereExpr, null,
+            SelectStmt selectStmt = new SelectStmt(list, fromClause, this.whereExpr.clone(), null,
                     null, null, LimitElement.NO_LIMIT);
             selectStmt.setOutFileClause(outfile);
             selectStmt.setOrigStmt(new OriginStatement(selectStmt.toSql(), 0));
