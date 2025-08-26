@@ -18,15 +18,16 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,6 +36,18 @@ import java.util.Map;
 public class CsvFileFormatProperties extends FileFormatProperties {
     public static final Logger LOG = LogManager.getLogger(
             org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties.class);
+
+    // supported compression types for csv writer
+    public static final Map<String, TFileCompressType> CSV_COMPRESSION_TYPE_MAP = Maps.newHashMap();
+
+    static {
+        CSV_COMPRESSION_TYPE_MAP.put("plain", TFileCompressType.PLAIN);
+        CSV_COMPRESSION_TYPE_MAP.put("gzip", TFileCompressType.GZ);
+        CSV_COMPRESSION_TYPE_MAP.put("bzip2", TFileCompressType.BZ2);
+        CSV_COMPRESSION_TYPE_MAP.put("snappy", TFileCompressType.SNAPPYBLOCK);
+        CSV_COMPRESSION_TYPE_MAP.put("lz4", TFileCompressType.LZ4BLOCK);
+        CSV_COMPRESSION_TYPE_MAP.put("zstd", TFileCompressType.ZSTD);
+    }
 
     public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
@@ -118,8 +131,8 @@ public class CsvFileFormatProperties extends FileFormatProperties {
             }
 
             String compressTypeStr = getOrDefault(formatProperties,
-                    PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
-            compressionType = Util.getFileCompressType(compressTypeStr);
+                    PROP_COMPRESS_TYPE, "plain", isRemoveOriginProperty);
+            compressionType = analyzeCompressionType(compressTypeStr);
 
             // get ENABLE_TEXT_VALIDATE_UTF8 from properties map first,
             // if not exist, try getting from session variable,
@@ -138,10 +151,21 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         }
     }
 
+    private TFileCompressType analyzeCompressionType(String compressTypeStr) throws AnalysisException {
+        if (CSV_COMPRESSION_TYPE_MAP.containsKey(compressTypeStr.toLowerCase())) {
+            this.compressionType = CSV_COMPRESSION_TYPE_MAP.get(compressTypeStr.toLowerCase());
+        } else {
+            throw new AnalysisException("csv compression type ["
+                    + compressTypeStr + "] is invalid,"
+                    + " please choose one among GZIP, BZIP2, SNAPPY, LZ4, ZSTD or PLAIN");
+        }
+    }
+
     @Override
     public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
         sinkOptions.setColumnSeparator(columnSeparator);
         sinkOptions.setLineDelimiter(lineDelimiter);
+        sinkOptions.setCompressType(compressionType);
     }
 
     // The method `analyzeFileFormatProperties` must have been called once before this method

@@ -55,6 +55,8 @@ struct ResultFileOptions {
     bool is_refactor_before_flag = false;
     std::string orc_schema;
     TFileCompressType::type orc_compression_type;
+    // currently only for csv
+    TFileCompressType::type compression_type = TFileCompressType::PLAIN;
 
     bool delete_existing_files = false;
     std::string file_suffix;
@@ -116,6 +118,9 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.orc_writer_version) {
             orc_writer_version = t_opt.orc_writer_version;
+        }
+        if (t_opt.__isset.compression_type) {
+            compression_type = t_opt.compression_type;
         }
     }
 };

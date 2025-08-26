@@ -130,7 +130,8 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         _vfile_writer.reset(new VCSVTransformer(_state, _file_writer_impl.get(),
                                                 _vec_output_expr_ctxs, _output_object_data,
                                                 _header_type, _header, _file_opts->column_separator,
-                                                _file_opts->line_delimiter, _file_opts->with_bom));
+                                                _file_opts->line_delimiter, _file_opts->with_bom,
+                                                _file_opts->compression_type));
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetTransformer(
@@ -196,7 +197,7 @@ void VFileResultWriter::_get_file_url(std::string* file_url) {
 std::string VFileResultWriter::_file_format_to_name() {
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
-        return "csv";
+        return "csv" + _compress_type_to_name();
     case TFileFormatType::FORMAT_PARQUET:
         return "parquet";
     case TFileFormatType::FORMAT_ORC:
@@ -204,6 +205,22 @@ std::string VFileResultWriter::_file_format_to_name() {
     default:
         return "unknown";
     }
+}
+
+std::string VFileResultWriter::_compress_type_to_name() {
+    switch (_file_opts->compress_type) {
+    case TFileFormatType::GZ:
+        return ".gzip";
+    case TFileFormatType::BZ2:
+        return ".bzip2";
+    case TFileFormatType::SNAPPYBLOCK:
+        return ".snappy";
+    case TFileFormatType::LZ4BLOCK:
+        return ".lz4";
+    case TFileFormatType::ZSTD:
+        return ".zstd";
+    default:
+        return "";
 }
 
 Status VFileResultWriter::write(RuntimeState* state, Block& block) {
