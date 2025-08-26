@@ -139,6 +139,7 @@ public class VariantSubPathPruning extends DefaultPlanRewriter<PruneContext> imp
         private final Map<Slot, Map<List<String>, SlotReference>> slotToSlotsMap = Maps.newHashMap();
 
         public boolean hasCircularReference() {
+            // alias(a as b),  alias(b as c), alias(c as a) will cause dead loop
             for (Slot key : slotToOriginalExprMap.keySet()) {
                 Set<Slot> visited = Sets.newHashSet();
                 Expression expr = key;
