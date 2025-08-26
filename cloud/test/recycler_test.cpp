@@ -5574,4 +5574,327 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
               << "ms" << std::endl;
     check_multiple_txn_info_kvs(txn_kv, 5000);
 }
+TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
+    config::label_keep_max_second = 0;
+    config::recycle_pool_parallelism = 20;
+
+    doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
+    auto recycle_txn_label_s3_producer_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_s3_producer_pool->start();
+    auto recycle_txn_label_recycle_tablet_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_recycle_tablet_pool->start();
+    auto recycle_txn_label_group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_group_recycle_function_pool->start();
+    recycle_txn_label_thread_group =
+            RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
+                                    std::move(recycle_txn_label_recycle_tablet_pool),
+                                    std::move(recycle_txn_label_group_recycle_function_pool));
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(mem_txn_kv->init(), 0);
+
+    std::string shared_label = "shared_conflict_label";
+    int64_t shared_db_id = 1000;
+    std::vector<int64_t> shared_txn_ids = {2001, 2002, 2003, 2004, 2005,
+                                           2006, 2007, 2008, 2009, 2010};
+
+    // create shared TxnLabel
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key;
+        std::string label_val;
+        txn_label_key({instance_id, shared_db_id, shared_label}, &label_key);
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : shared_txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        if (!txn_label_pb.SerializeToString(&label_val)) {
+            FAIL() << "Failed to serialize txn label";
+        }
+
+        MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
+        txn->put(label_key, label_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    int64_t current_time = duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+
+    for (auto txn_id : shared_txn_ids) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // RecycleTxnKeyInfo -> RecycleTxnPB (set to expired)
+        std::string recycle_txn_info_key;
+        std::string recycle_txn_info_val;
+        RecycleTxnKeyInfo recycle_txn_key_info {instance_id, shared_db_id, txn_id};
+        recycle_txn_key(recycle_txn_key_info, &recycle_txn_info_key);
+        RecycleTxnPB recycle_txn_pb;
+        recycle_txn_pb.set_creation_time(current_time - 300000);
+        recycle_txn_pb.set_label(shared_label);
+        if (!recycle_txn_pb.SerializeToString(&recycle_txn_info_val)) {
+            FAIL() << "Failed to serialize recycle txn";
+        }
+        txn->put(recycle_txn_info_key, recycle_txn_info_val);
+
+        // TxnIndexKey -> TxnIndexPB
+        std::string txn_idx_key = txn_index_key({instance_id, txn_id});
+        std::string txn_idx_val;
+        TxnIndexPB txn_index_pb;
+        if (!txn_index_pb.SerializeToString(&txn_idx_val)) {
+            FAIL() << "Failed to serialize txn index";
+        }
+        txn->put(txn_idx_key, txn_idx_val);
+
+        // TxnInfoKey -> TxnInfoPB
+        std::string info_key = txn_info_key({instance_id, shared_db_id, txn_id});
+        std::string info_val;
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(shared_label);
+        if (!txn_info_pb.SerializeToString(&info_val)) {
+            FAIL() << "Failed to serialize txn info";
+        }
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::atomic<int> update_label_before_count {0};
+    std::atomic<int> remove_label_before_count {0};
+    std::atomic<int> update_label_after_count {0};
+    std::atomic<int> txn_conflict_count {0};
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.remove_label_before",
+                      [&](auto&& args) {
+                          remove_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(60));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_before",
+                      [&](auto&& args) {
+                          update_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_after",
+                      [&](auto&& args) { update_label_after_count++; });
+
+    sp->set_call_back(
+            "InstanceRecycler::recycle_expired_txn_label.before_commit",
+            [&](auto&& args) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.txn_conflict", [&](auto&& args) {
+        txn_conflict_count++;
+        LOG(WARNING) << "Transaction conflict detected in test";
+    });
+
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(mem_txn_kv, instance, recycle_txn_label_thread_group,
+                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    auto start = std::chrono::steady_clock::now();
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
+    auto finish = std::chrono::steady_clock::now();
+
+    std::cout << "Concurrent recycle cost="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+              << "ms" << std::endl;
+    std::cout << "Update label before count: " << update_label_before_count << std::endl;
+    std::cout << "Update label after count: " << update_label_after_count << std::endl;
+    std::cout << "Transaction conflict count: " << txn_conflict_count << std::endl;
+
+    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+
+    std::unique_ptr<Transaction> verify_txn;
+    ASSERT_EQ(mem_txn_kv->create_txn(&verify_txn), TxnErrorCode::TXN_OK);
+
+    RecycleTxnKeyInfo recycle_txn_key_info0 {instance_id, 0, 0};
+    RecycleTxnKeyInfo recycle_txn_key_info1 {instance_id, INT64_MAX, INT64_MAX};
+    std::string begin_key = recycle_txn_key(recycle_txn_key_info0);
+    std::string end_key = recycle_txn_key(recycle_txn_key_info1);
+
+    std::unique_ptr<RangeGetIterator> it;
+    ASSERT_EQ(verify_txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(it->size(), 0) << "All recycle txn keys should be deleted";
+
+    std::string label_key;
+    std::string label_val;
+    txn_label_key({instance_id, shared_db_id, shared_label}, &label_key);
+    EXPECT_EQ(verify_txn->get(label_key, &label_val), TxnErrorCode::TXN_KEY_NOT_FOUND)
+            << "Shared label should be deleted";
+
+    for (auto txn_id : shared_txn_ids) {
+        std::string info_key = txn_info_key({instance_id, shared_db_id, txn_id});
+        std::string info_val;
+        EXPECT_EQ(verify_txn->get(info_key, &info_val), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "TxnInfo for txn_id " << txn_id << " should be deleted";
+    }
+}
+
+TEST(RecyclerTest, recycle_txn_label_deal_with_conflict_error_test) {
+    config::label_keep_max_second = 0;
+    config::recycle_pool_parallelism = 20;
+
+    doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
+    auto recycle_txn_label_s3_producer_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_s3_producer_pool->start();
+    auto recycle_txn_label_recycle_tablet_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_recycle_tablet_pool->start();
+    auto recycle_txn_label_group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_group_recycle_function_pool->start();
+    recycle_txn_label_thread_group =
+            RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
+                                    std::move(recycle_txn_label_recycle_tablet_pool),
+                                    std::move(recycle_txn_label_group_recycle_function_pool));
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(mem_txn_kv->init(), 0);
+
+    std::string shared_label = "shared_conflict_label";
+    int64_t shared_db_id = 1000;
+    std::vector<int64_t> shared_txn_ids = {2001, 2002, 2003, 2004, 2005,
+                                           2006, 2007, 2008, 2009, 2010};
+
+    // create shared TxnLabel
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key;
+        std::string label_val;
+        txn_label_key({instance_id, shared_db_id, shared_label}, &label_key);
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : shared_txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        if (!txn_label_pb.SerializeToString(&label_val)) {
+            FAIL() << "Failed to serialize txn label";
+        }
+
+        MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
+        txn->put(label_key, label_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    int64_t current_time = duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+
+    for (auto txn_id : shared_txn_ids) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // RecycleTxnKeyInfo -> RecycleTxnPB (set to expired)
+        std::string recycle_txn_info_key;
+        std::string recycle_txn_info_val;
+        RecycleTxnKeyInfo recycle_txn_key_info {instance_id, shared_db_id, txn_id};
+        recycle_txn_key(recycle_txn_key_info, &recycle_txn_info_key);
+        RecycleTxnPB recycle_txn_pb;
+        recycle_txn_pb.set_creation_time(current_time - 300000);
+        recycle_txn_pb.set_label(shared_label);
+        if (!recycle_txn_pb.SerializeToString(&recycle_txn_info_val)) {
+            FAIL() << "Failed to serialize recycle txn";
+        }
+        txn->put(recycle_txn_info_key, recycle_txn_info_val);
+
+        // TxnIndexKey -> TxnIndexPB
+        std::string txn_idx_key = txn_index_key({instance_id, txn_id});
+        std::string txn_idx_val;
+        TxnIndexPB txn_index_pb;
+        if (!txn_index_pb.SerializeToString(&txn_idx_val)) {
+            FAIL() << "Failed to serialize txn index";
+        }
+        txn->put(txn_idx_key, txn_idx_val);
+
+        // TxnInfoKey -> TxnInfoPB
+        std::string info_key = txn_info_key({instance_id, shared_db_id, txn_id});
+        std::string info_val;
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(shared_label);
+        if (!txn_info_pb.SerializeToString(&info_val)) {
+            FAIL() << "Failed to serialize txn info";
+        }
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::atomic<int> update_label_before_count {0};
+    std::atomic<int> remove_label_before_count {0};
+    std::atomic<int> update_label_after_count {0};
+    std::atomic<int> txn_conflict_count {0};
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.remove_label_before",
+                      [&](auto&& args) {
+                          remove_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(60));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_before",
+                      [&](auto&& args) {
+                          update_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_after",
+                      [&](auto&& args) { update_label_after_count++; });
+
+    sp->set_call_back(
+            "InstanceRecycler::recycle_expired_txn_label.before_commit",
+            [&](auto&& args) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.txn_conflict", [&](auto&& args) {
+        txn_conflict_count++;
+        LOG(WARNING) << "Transaction conflict detected in test";
+    });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.delete_recycle_txn_kv_error",
+                      [&](auto&& args) {
+                          auto ret = try_any_cast<int*>(args[0]);
+                          *ret = -1;
+                          LOG(WARNING)
+                                  << "Simulating delete recycle txn kv error in deal with conflict";
+                      });
+
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(mem_txn_kv, instance, recycle_txn_label_thread_group,
+                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    // deal with conflict but error during recycle
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), -1);
+
+    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+}
+
 } // namespace doris::cloud
