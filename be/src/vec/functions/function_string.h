@@ -1739,7 +1739,7 @@ public:
                             num++;
                         } else {
                             offset = str.size;
-                            num = (num == 0) ? 0 : num + 1;
+                            num++;
                             break;
                         }
                     }
@@ -1769,7 +1769,7 @@ public:
                             num++;
                         } else {
                             offset = str.size;
-                            num = (num == 0) ? 0 : num + 1;
+                            num++;
                             break;
                         }
                     }
@@ -1804,14 +1804,12 @@ public:
                         break;
                     }
                 }
-                num = (offset == -1 && num != 0) ? num + 1 : num;
+                num = (offset == -1) ? num + 1 : num;
 
                 if (num == part_number) {
                     if (offset == -1) {
-                        StringOP::push_value_string(
-                                std::string_view {reinterpret_cast<const char*>(str.data),
-                                                  (size_t)pre_offset},
-                                i, res_chars, res_offsets);
+                        StringOP::push_value_string(std::string_view {str.data, (size_t)pre_offset},
+                                                    i, res_chars, res_offsets);
                     } else {
                         StringOP::push_value_string(
                                 std::string_view {str_str.substr(
