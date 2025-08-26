@@ -38,6 +38,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_reader.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -684,7 +685,14 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
         type = _type_info->type();
     }
 
+    if (index_meta->index_type() == IndexType::ANN) {
+        _index_readers[index_meta->index_id()] =
+                std::make_shared<AnnIndexReader>(index_meta, index_file_reader);
+        return Status::OK();
+    }
+
     IndexReaderPtr index_reader;
+
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {

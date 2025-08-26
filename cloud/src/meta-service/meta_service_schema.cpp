@@ -34,6 +34,7 @@
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/blob_message.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -45,17 +46,63 @@ extern int16_t meta_schema_value_version;
 
 constexpr static const char* VARIANT_TYPE_NAME = "VARIANT";
 
+bool check_tablet_schema(const doris::TabletSchemaCloudPB& schema,
+                         doris::TabletSchemaCloudPB& saved_schema) {
+    auto transform = [](std::string_view type) -> std::string_view {
+        if (type == "DECIMALV2") return "DECIMAL";
+        if (type == "BITMAP") return "OBJECT";
+        return type;
+    };
+    if (saved_schema.column_size() != schema.column_size()) {
+        LOG(WARNING) << "saved_schema.column_size()=" << saved_schema.column_size()
+                     << " schema.column_size()=" << schema.column_size();
+        return false;
+    }
+    // Sort by column id
+    std::sort(saved_schema.mutable_column()->begin(), saved_schema.mutable_column()->end(),
+              [](auto& c1, auto& c2) { return c1.unique_id() < c2.unique_id(); });
+    auto& schema_ref = const_cast<doris::TabletSchemaCloudPB&>(schema);
+    std::sort(schema_ref.mutable_column()->begin(), schema_ref.mutable_column()->end(),
+              [](auto& c1, auto& c2) { return c1.unique_id() < c2.unique_id(); });
+    for (int i = 0; i < saved_schema.column_size(); ++i) {
+        auto& saved_column = saved_schema.column(i);
+        auto& column = schema.column(i);
+        if (saved_column.unique_id() != column.unique_id() ||
+            transform(saved_column.type()) != transform(column.type())) {
+            LOG(WARNING) << "existed column: " << saved_column.DebugString()
+                         << "\nto save column: " << column.DebugString();
+            return false;
+        }
+    }
+    if (saved_schema.index_size() != schema.index_size()) {
+        LOG(WARNING) << "saved_schema.index_size()=" << saved_schema.index_size()
+                     << " schema.index_size()=" << schema.index_size();
+        return false;
+    }
+    // Sort by index id
+    std::sort(saved_schema.mutable_index()->begin(), saved_schema.mutable_index()->end(),
+              [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
+    std::sort(schema_ref.mutable_index()->begin(), schema_ref.mutable_index()->end(),
+              [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
+    for (int i = 0; i < saved_schema.index_size(); ++i) {
+        auto& saved_index = saved_schema.index(i);
+        auto& index = schema.index(i);
+        if (saved_index.index_id() != index.index_id() ||
+            saved_index.index_type() != index.index_type()) {
+            LOG(WARNING) << "existed index: " << saved_index.DebugString()
+                         << "\nto save index: " << index.DebugString();
+            return false;
+        }
+    }
+    return true;
+}
+
 void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                    std::string_view schema_key, const doris::TabletSchemaCloudPB& schema) {
     TxnErrorCode err = cloud::key_exists(txn, schema_key);
     if (err == TxnErrorCode::TXN_OK) { // schema has already been saved
         TEST_SYNC_POINT_RETURN_WITH_VOID("put_schema_kv:schema_key_exists_return");
         DCHECK([&] {
-            auto transform = [](std::string_view type) -> std::string_view {
-                if (type == "DECIMALV2") return "DECIMAL";
-                if (type == "BITMAP") return "OBJECT";
-                return type;
-            };
             ValueBuf buf;
             auto err = cloud::blob_get(txn, schema_key, &buf);
             if (err != TxnErrorCode::TXN_OK) {
@@ -67,48 +114,7 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                 LOG(WARNING) << "failed to parse schema value";
                 return false;
             }
-            if (saved_schema.column_size() != schema.column_size()) {
-                LOG(WARNING) << "saved_schema.column_size()=" << saved_schema.column_size()
-                             << " schema.column_size()=" << schema.column_size();
-                return false;
-            }
-            // Sort by column id
-            std::sort(saved_schema.mutable_column()->begin(), saved_schema.mutable_column()->end(),
-                      [](auto& c1, auto& c2) { return c1.unique_id() < c2.unique_id(); });
-            auto& schema_ref = const_cast<doris::TabletSchemaCloudPB&>(schema);
-            std::sort(schema_ref.mutable_column()->begin(), schema_ref.mutable_column()->end(),
-                      [](auto& c1, auto& c2) { return c1.unique_id() < c2.unique_id(); });
-            for (int i = 0; i < saved_schema.column_size(); ++i) {
-                auto& saved_column = saved_schema.column(i);
-                auto& column = schema.column(i);
-                if (saved_column.unique_id() != column.unique_id() ||
-                    transform(saved_column.type()) != transform(column.type())) {
-                    LOG(WARNING) << "existed column: " << saved_column.DebugString()
-                                 << "\nto save column: " << column.DebugString();
-                    return false;
-                }
-            }
-            if (saved_schema.index_size() != schema.index_size()) {
-                LOG(WARNING) << "saved_schema.index_size()=" << saved_schema.index_size()
-                             << " schema.index_size()=" << schema.index_size();
-                return false;
-            }
-            // Sort by index id
-            std::sort(saved_schema.mutable_index()->begin(), saved_schema.mutable_index()->end(),
-                      [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
-            std::sort(schema_ref.mutable_index()->begin(), schema_ref.mutable_index()->end(),
-                      [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
-            for (int i = 0; i < saved_schema.index_size(); ++i) {
-                auto& saved_index = saved_schema.index(i);
-                auto& index = schema.index(i);
-                if (saved_index.index_id() != index.index_id() ||
-                    saved_index.index_type() != index.index_type()) {
-                    LOG(WARNING) << "existed index: " << saved_index.DebugString()
-                                 << "\nto save index: " << index.DebugString();
-                    return false;
-                }
-            }
-            return true;
+            return check_tablet_schema(schema, saved_schema);
         }()) << hex(schema_key)
              << "\n to_save: " << schema.ShortDebugString();
         return;
@@ -124,6 +130,29 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
     } else {
         auto schema_value = schema.SerializeAsString();
         txn->put(schema_key, schema_value);
+    }
+}
+
+void put_versioned_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                             std::string_view schema_key,
+                             const doris::TabletSchemaCloudPB& schema) {
+    doris::TabletSchemaCloudPB saved_schema;
+    TxnErrorCode err = versioned::document_get(txn, schema_key, &saved_schema, nullptr);
+    if (err == TxnErrorCode::TXN_OK) { // schema has already been saved
+        TEST_SYNC_POINT_RETURN_WITH_VOID("put_schema_kv:schema_key_exists_return");
+        DCHECK([&] { return check_tablet_schema(schema, saved_schema); }())
+                << hex(schema_key) << "\n to_save: " << schema.ShortDebugString();
+        return;
+    } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        msg = fmt::format("failed to check that key exists, err={}", err);
+        code = cast_as<ErrCategory::READ>(err);
+        return;
+    }
+    LOG_INFO("put versioned schema kv").tag("key", hex(schema_key));
+    doris::TabletSchemaCloudPB tablet_schema(schema);
+    if (!versioned::document_put(txn, schema_key, std::move(tablet_schema))) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = fmt::format("failed to serialize versioned tablet schema, key={}", hex(schema_key));
     }
 }
 

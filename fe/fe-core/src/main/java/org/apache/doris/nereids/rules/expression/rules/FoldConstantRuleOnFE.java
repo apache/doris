@@ -183,7 +183,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Version.class, this::visitVersion),
                 matches(SessionUser.class, this::visitSessionUser),
                 matches(LastQueryId.class, this::visitLastQueryId),
-                matches(Nvl.class, this::visitNvl)
+                matches(Nvl.class, this::visitNvl),
+                matches(Match.class, this::visitMatch)
         );
     }
 

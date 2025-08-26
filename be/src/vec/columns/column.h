@@ -571,8 +571,8 @@ public:
     // true if column has null element
     virtual bool has_null() const { return false; }
 
-    // true if column has null element [0,size)
-    virtual bool has_null(size_t size) const { return false; }
+    // true if column has null element [begin, end)
+    virtual bool has_null(size_t begin, size_t end) const { return false; }
 
     virtual bool is_exclusive() const { return use_count() == 1; }
 

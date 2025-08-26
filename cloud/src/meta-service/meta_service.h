@@ -429,7 +429,8 @@ private:
     void get_partition_pending_txn_id(std::string_view instance_id, int64_t db_id, int64_t table_id,
                                       int64_t partition_id, int64_t tablet_id,
                                       std::stringstream& ss, MetaServiceCode& code,
-                                      std::string& msg, int64_t& first_txn_id, Transaction* txn);
+                                      std::string& msg, int64_t& first_txn_id,
+                                      int64_t& partition_version, Transaction* txn);
 
     // Get versions in batch, Only for versioned read.
     std::pair<MetaServiceCode, std::string> batch_get_table_versions(
