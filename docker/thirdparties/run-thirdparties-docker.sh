@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -39,7 +39,7 @@ Usage: $0 <options>
      --no-load-data     do not load data into the components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger
   "
     exit 1
 }
@@ -148,6 +148,7 @@ RUN_HIVE2=0
 RUN_HIVE3=0
 RUN_ES=0
 RUN_ICEBERG=0
+RUN_ICEBERG_REST=0
 RUN_HUDI=0
 RUN_TRINO=0
 RUN_KAFKA=0
@@ -184,6 +185,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
         RUN_ICEBERG=1
+    elif [[ "${element}"x == "iceberg-rest"x ]]; then
+        RUN_ICEBERG_REST=1
     elif [[ "${element}"x == "hudi"x ]]; then
         RUN_HUDI=1
     elif [[ "${element}"x == "trino"x ]]; then
@@ -674,6 +677,23 @@ start_ranger() {
     fi
 }
 
+start_iceberg_rest() {
+    echo "RUN_ICEBERG_REST"
+    # iceberg-rest with multiple cloud storage backends
+    ICEBERG_REST_DIR=${ROOT}/docker-compose/iceberg-rest
+    
+    # generate iceberg-rest.yaml
+    export CONTAINER_UID=${CONTAINER_UID}
+    . "${ROOT}"/docker-compose/iceberg-rest/iceberg-rest_settings.env
+    envsubst <"${ICEBERG_REST_DIR}/docker-compose.yaml.tpl" >"${ICEBERG_REST_DIR}/docker-compose.yaml"
+    
+    sudo docker compose -f "${ICEBERG_REST_DIR}/docker-compose.yaml" down
+    if [[ "${STOP}" -ne 1 ]]; then
+        # Start all three REST catalogs (S3, OSS, COS)
+        sudo docker compose -f "${ICEBERG_REST_DIR}/docker-compose.yaml" up -d --remove-orphans --wait
+    fi
+}
+
 echo "starting dockers in parallel"
 
 reserve_ports
@@ -743,6 +763,11 @@ fi
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     start_iceberg > start_iceberg.log 2>&1 &
     pids["iceberg"]=$!
+fi
+
+if [[ "${RUN_ICEBERG_REST}" -eq 1 ]]; then
+    start_iceberg_rest > start_iceberg_rest.log 2>&1 &
+    pids["iceberg-rest"]=$!
 fi
 
 if [[ "${RUN_HUDI}" -eq 1 ]]; then
