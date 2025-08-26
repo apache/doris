@@ -76,6 +76,11 @@ public:
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable,
                  int32_t unique_id, size_t length);
+
+#ifdef BE_TEST
+    virtual ~TabletColumn() = default;
+#endif
+
     void init_from_pb(const ColumnPB& column);
     void init_from_thrift(const TColumn& column);
     void to_schema_pb(ColumnPB* column) const;
@@ -88,7 +93,7 @@ public:
         _col_name = col_name;
         _col_name_lower_case = to_lower(_col_name);
     }
-    FieldType type() const { return _type; }
+    MOCK_FUNCTION FieldType type() const { return _type; }
     void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
@@ -154,7 +159,7 @@ public:
     void add_sub_column(TabletColumn& sub_column);
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
-    const TabletColumn& get_sub_column(uint64_t i) const { return *_sub_columns[i]; }
+    MOCK_FUNCTION const TabletColumn& get_sub_column(uint64_t i) const { return *_sub_columns[i]; }
     const std::vector<TabletColumnPtr>& get_sub_columns() const { return _sub_columns; }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -301,9 +306,11 @@ public:
 
     int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
-    IndexType index_type() const { return _index_type; }
+    MOCK_FUNCTION IndexType index_type() const { return _index_type; }
     const std::vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
-    const std::map<std::string, std::string>& properties() const { return _properties; }
+    MOCK_FUNCTION const std::map<std::string, std::string>& properties() const {
+        return _properties;
+    }
     int32_t get_gram_size() const {
         if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
@@ -498,6 +505,18 @@ public:
         }
         return false;
     }
+
+    bool has_ann_index() const {
+        for (const auto& index : _indexes) {
+            if (index->index_type() == IndexType::ANN) {
+                if (!index->col_unique_ids().empty() && index->col_unique_ids()[0] >= 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     bool has_inverted_index_with_index_id(int64_t index_id) const;
 
     void update_index(const TabletColumn& column, const IndexType& index_type,
@@ -507,6 +526,12 @@ public:
 
     std::vector<const TabletIndex*> inverted_indexs(int32_t col_unique_id,
                                                     const std::string& suffix_path = "") const;
+    const TabletIndex* ann_index(const TabletColumn& col) const;
+
+    // Regardless of whether this column supports inverted index
+    // TabletIndex information will be returned as long as it exists.
+    const TabletIndex* ann_index(int32_t col_unique_id, const std::string& suffix_path = "") const;
+
     std::vector<TabletIndexPtr> inverted_index_by_field_pattern(
             int32_t col_unique_id, const std::string& field_pattern) const;
 

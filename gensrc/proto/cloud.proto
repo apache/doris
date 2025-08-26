@@ -696,7 +696,7 @@ message DropPartitionLogPB {
     optional int64 table_id = 2;
     repeated int64 index_ids = 3;
     repeated int64 partition_ids = 4;
-    optional int64 expiration = 5; // expiration timestamp
+    optional int64 expired_at_s = 5; // expiration timestamp
     optional bool update_table_version = 6;
 }
 
@@ -1233,6 +1233,8 @@ message GetRowsetResponse {
     optional TabletStatsPB stats = 3;
     // Return dict value if SchemaOp is RETURN_DICT
     optional SchemaCloudDictionary schema_dict = 4;
+    // The current max version of the partition
+    optional int64 partition_max_version = 5;
 }
 
 message GetSchemaDictRequest {
@@ -1277,12 +1279,19 @@ message PartitionResponse {
 }
 
 message RestoreJobRequest {
+    enum Action {
+        UNKONWN  = 0;
+        PREPARE = 1;
+        COMMIT = 2;
+        ABORT = 3;
+        COMPLETE = 4;
+    }
     optional string cloud_unique_id = 1;
     optional int64 tablet_id = 2;
     optional doris.TabletMetaCloudPB tablet_meta = 3;
     optional int64 expiration = 4;
     optional string request_ip = 5;
-    optional bool is_completed = 6;
+    optional Action action = 6;
 }
 
 message RestoreJobResponse {

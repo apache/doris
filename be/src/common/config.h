@@ -1633,6 +1633,9 @@ DECLARE_String(fuzzy_test_type);
 // The maximum number of threads supported when executing LLMFunction
 DECLARE_mInt32(llm_max_concurrent_requests);
 
+// Maximum number of OpenMP threads that can be used by each Doris thread
+DECLARE_Int32(omp_threads_limit);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
