@@ -354,6 +354,18 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     _statistics = std::make_unique<VariantStatistics>();
     const ColumnMetaPB& self_column_pb = footer.columns(column_id);
     const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());
+    // record variant_sparse_column_statistics_size from parent column
+    if (self_column_pb.column_path_info().parrent_column_unique_id() != -1) {
+        _variant_sparse_column_statistics_size =
+                opts.tablet_schema
+                        ->column_by_uid(
+                                self_column_pb.column_path_info().parrent_column_unique_id())
+                        .variant_max_sparse_column_statistics_size();
+    } else {
+        _variant_sparse_column_statistics_size =
+                opts.tablet_schema->column_by_uid(self_column_pb.unique_id())
+                        .variant_max_sparse_column_statistics_size();
+    }
     for (const ColumnMetaPB& column_pb : footer.columns()) {
         // Find all columns belonging to the current variant column
         // 1. not the variant column
@@ -378,18 +390,6 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
                 ColumnReader::create(opts, column_pb, footer.num_rows(), file_reader, &reader));
         vectorized::PathInData path;
         path.from_protobuf(column_pb.column_path_info());
-
-        // record variant_sparse_column_statistics_size from parent column
-        if (column_pb.column_path_info().parrent_column_unique_id() != -1) {
-            _variant_sparse_column_statistics_size =
-                    opts.tablet_schema
-                            ->column_by_uid(column_pb.column_path_info().parrent_column_unique_id())
-                            .variant_max_sparse_column_statistics_size();
-        } else {
-            _variant_sparse_column_statistics_size =
-                    opts.tablet_schema->column_by_uid(column_pb.unique_id())
-                            .variant_max_sparse_column_statistics_size();
-        }
 
         // init sparse column
         if (path.copy_pop_front().get_path() == SPARSE_COLUMN_PATH) {
