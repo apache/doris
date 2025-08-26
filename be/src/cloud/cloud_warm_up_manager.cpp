@@ -122,14 +122,6 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
         g_file_cache_once_or_periodic_warm_up_submitted_segment_size << file_size;
     }
 
-    if (is_index) {
-        g_file_cache_once_or_periodic_warm_up_submitted_index_num << 1;
-        g_file_cache_once_or_periodic_warm_up_submitted_index_size << file_size;
-    } else {
-        g_file_cache_once_or_periodic_warm_up_submitted_segment_num << 1;
-        g_file_cache_once_or_periodic_warm_up_submitted_segment_size << file_size;
-    }
-
     const int64_t chunk_size = 10 * 1024 * 1024; // 10MB
     int64_t offset = 0;
     int64_t remaining_size = file_size;
