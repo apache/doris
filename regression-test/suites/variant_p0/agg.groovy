@@ -18,7 +18,7 @@
 suite("regression_test_variant_agg"){
     sql """DROP TABLE IF EXISTS var_agg"""
 
-    int max_subcolumns_count = Math.floor(Math.random() * 10) + 1
+    int max_subcolumns_count = Math.floor(Math.random() * 10)
     def var = "variant<properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
     if (max_subcolumns_count % 2 == 0) {
         var = "variant <'d' : int, 'b.f' : int, 'xxxx' : string, 'point' : bigint, properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"

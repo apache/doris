@@ -986,7 +986,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         TabletSchemaSPtr& output_schema) {
     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
     for (const auto& [path, data_types] : path_to_data_types) {
-        if (data_types.empty() || path.empty()) {
+        if (data_types.empty() || path.empty() || path.has_nested_part()) {
             continue;
         }
         DataTypePtr data_type;
