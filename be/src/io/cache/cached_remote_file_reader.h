@@ -22,6 +22,7 @@
 #include <map>
 #include <shared_mutex>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
