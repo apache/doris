@@ -1174,12 +1174,17 @@ public class OlapScanNode extends ScanNode {
          * The tablet info could be computed only once.
          * So the scanBackendIds should be empty in the beginning.
          */
-        Preconditions.checkState(scanBackendIds.size() == 0);
-        Preconditions.checkState(scanTabletIds.size() == 0);
+        Preconditions.checkState(scanBackendIds.isEmpty());
+        Preconditions.checkState(scanTabletIds.isEmpty());
         Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
         for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
-            backendAlivePathHashs.put(backend.getId(), backend.getDisks().values().stream()
-                    .filter(DiskInfo::isAlive).map(DiskInfo::getPathHash).collect(Collectors.toSet()));
+            Set<Long> hashSet = Sets.newLinkedHashSet();
+            for (DiskInfo diskInfo : backend.getDisks().values()) {
+                if (diskInfo.isAlive()) {
+                    hashSet.add(diskInfo.getPathHash());
+                }
+            }
+            backendAlivePathHashs.put(backend.getId(), hashSet);
         }
 
         for (Long partitionId : selectedPartitionIds) {
