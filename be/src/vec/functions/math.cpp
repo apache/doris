@@ -118,8 +118,8 @@ struct SignImpl {
             return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
         } else if constexpr (IsSignedV<A>) {
             return static_cast<UInt8>(a < 0 ? -1 : a == 0 ? 0 : 1);
-        } else if constexpr (IsUnsignedV<A>) {
-            return static_cast<UInt8>(a == 0 ? 0 : 1);
+        } else {
+            static_assert(std::is_same_v<A, void>, "Unsupported type in SignImpl");
         }
     }
 };
@@ -141,11 +141,13 @@ struct AbsImpl {
                                       ~a) +
                                       1
                             : a;
-        } else if constexpr (IsIntegralV<A> && IsUnsignedV<A>) {
+        } else if constexpr (IsIntegralV<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
         } else if constexpr (std::is_floating_point_v<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                     std::abs(a));
+        } else {
+            static_assert(std::is_same_v<A, void>, "Unsupported type in AbsImpl");
         }
     }
 };
