@@ -814,6 +814,10 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                         // clang-format on
                     }
                 }
+                // check string column length
+                if (filter_map[i] && (skip_bitmaps == nullptr ||
+                                      !skip_bitmaps->at(i).contains(slot_desc->col_unique_id()))) {
+                }
             }
             if (!slot_desc->is_nullable()) {
                 column_ptr = remove_nullable(column_ptr);
@@ -836,6 +840,8 @@ Status FileScanner::_convert_to_output_block(Block* block) {
     RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
 
     _counter.num_rows_filtered += rows - block->rows();
+    LOG(INFO) << "FileScanner::convert_to_output_block, before rows: " << rows
+              << ", after rows: " << block->rows();
     return Status::OK();
 }
 

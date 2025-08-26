@@ -107,6 +107,8 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         _convert_to_dest_desc_block(block.get());
     }
 
+    LOG(INFO) << "validate and convert block. input rows: " << input_block->rows()
+              << ", output rows: " << block->rows() << ", filtered rows: " << filtered_rows;
     return Status::OK();
 }
 
@@ -191,6 +193,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         RuntimeState* state, const DataTypePtr& type, vectorized::ColumnPtr column,
         size_t slot_index, fmt::memory_buffer& error_prefix, const size_t row_count,
         vectorized::IColumn::Permutation* rows) {
+    LOG(INFO) << "load test, OlapTableBlockConvertor::_internal_validate_column";
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](size_t row) {

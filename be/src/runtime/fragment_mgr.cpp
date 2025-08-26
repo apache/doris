@@ -466,6 +466,10 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
     params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
     params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
+    LOG(INFO) << "load test, coordinator_callback, query_id: " << print_id(req.query_id)
+              << ", fragment_instance_id: " << print_id(req.fragment_instance_id)
+              << ", num_rows_load_filtered: " << num_rows_load_filtered
+              << ", num_rows_load_unselected: " << num_rows_load_unselected;
 
     if (!req.load_error_url.empty()) {
         params.__set_tracking_url(req.load_error_url);
@@ -827,8 +831,22 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb,
                                        const TPipelineFragmentParamsList& parent) {
-    VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
+    {
+        // VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
+        //          << apache::thrift::ThriftDebugString(params).c_str();
+        auto dbg_str = apache::thrift::ThriftDebugString(params);
+        constexpr size_t max_log_size = 30000 - 100;
+        size_t pos = 0;
+        size_t total_size = dbg_str.size();
+        size_t tmp_size = std::min(max_log_size, total_size);
+        LOG(WARNING) << "load test, params size: " << total_size;
+        while (pos < total_size) {
+            tmp_size = std::min(max_log_size, total_size - pos);
+            LOG(WARNING) << "load test exec_plan_fragment params:"
+                         << std::string(dbg_str.data() + pos, tmp_size);
+            pos += tmp_size;
+        }
+    }
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
     VLOG_ROW << "Query: " << print_id(params.query_id) << "query options is "

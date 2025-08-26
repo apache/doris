@@ -760,6 +760,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 client->streamLoadPut(ctx->put_result, request);
             }));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
+    if (ctx->put_result.__isset.params) {
+        ctx->put_result.params.query_options.__set_enable_strict_cast(false);
+    }
+    if (ctx->put_result.__isset.pipeline_params) {
+        ctx->put_result.params.query_options.__set_enable_strict_cast(false);
+    }
 #else
     ctx->put_result = k_stream_load_put_result;
 #endif
@@ -795,7 +801,23 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         ctx->put_result.params.__set_content_length(content_length);
     }
 
-    VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    if (ctx->put_result.__isset.params) {
+        VLOG_NOTICE << "load params is "
+                    << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    }
+    if (ctx->put_result.__isset.pipeline_params) {
+        auto dbg_str = apache::thrift::ThriftDebugString(ctx->put_result.params);
+        constexpr size_t max_log_size = 30000 - 100;
+        size_t pos = 0;
+        size_t total_size = dbg_str.size();
+        size_t tmp_size = std::min(max_log_size, total_size);
+        LOG(WARNING) << "load pipeline params size: " << total_size;
+        while (pos < total_size) {
+            tmp_size = std::min(max_log_size, total_size - pos);
+            LOG(WARNING) << "load pipeline params:" << std::string(dbg_str.data() + pos, tmp_size);
+            pos += tmp_size;
+        }
+    }
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {

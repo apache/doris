@@ -283,6 +283,8 @@ Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
 
 Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Block* input_block,
                                            bool eos) {
+    LOG(INFO) << "load test, group commit sink receive block, rows: " << input_block->rows()
+              << ", eos: " << eos;
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
