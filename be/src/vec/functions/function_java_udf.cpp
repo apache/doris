@@ -17,10 +17,11 @@
 
 #include "vec/functions/function_java_udf.h"
 
+#include <bthread/bthread.h>
+
 #include <memory>
 #include <string>
-#include <bthread/bthread.h>
- 
+
 #include "common/exception.h"
 #include "jni.h"
 #include "runtime/user_function_cache.h"
@@ -40,11 +41,11 @@ std::once_flag JavaFunctionCall::close_workers_init_once;
 JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argument_types,
                                    const DataTypePtr& return_type)
         : fn_(fn), _argument_types(argument_types), _return_type(return_type) {
-    std::call_once(close_workers_init_once, [](){
+    std::call_once(close_workers_init_once, []() {
         auto build_st = ThreadPoolBuilder("UDFCloseWorkers")
-                                    .set_min_threads(4)
-                                    .set_max_threads(std::min(32, CpuInfo::num_cores()))
-                                    .build(&close_workers);
+                                .set_min_threads(4)
+                                .set_max_threads(std::min(32, CpuInfo::num_cores()))
+                                .build(&close_workers);
         if (!build_st.ok()) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to build UDFCloseWorkers");
         }
@@ -138,14 +139,14 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
 Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
     auto close_func = [context]() {
-      auto* jni_ctx = reinterpret_cast<JniContext*>(
-              context->get_function_state(FunctionContext::THREAD_LOCAL));
-      // JNIContext own some resource and its release method depend on JavaFunctionCall
-      // has to release the resource before JavaFunctionCall is deconstructed.
-      if (jni_ctx) {
-          RETURN_IF_ERROR(jni_ctx->close());
-      }
-      return Status::OK();
+        auto* jni_ctx = reinterpret_cast<JniContext*>(
+                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        // JNIContext own some resource and its release method depend on JavaFunctionCall
+        // has to release the resource before JavaFunctionCall is deconstructed.
+        if (jni_ctx) {
+            RETURN_IF_ERROR(jni_ctx->close());
+        }
+        return Status::OK();
     };
 
     if (bthread_self() == 0) {
