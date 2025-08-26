@@ -22,7 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
-import org.apache.doris.nereids.rules.implementation.SplitAgg;
+import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -423,7 +423,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
     }
 
     private Rule twoPhaseAggregateWithoutDistinct() {
-        return SplitAgg.INSTANCE.buildRules()
+        return SplitAggWithoutDistinct.INSTANCE.buildRules()
                 .stream()
                 .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG)
                 .findFirst()
