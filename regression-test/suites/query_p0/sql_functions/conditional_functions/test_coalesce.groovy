@@ -33,4 +33,92 @@ suite("test_coalesce", "query,p0") {
     qt_coalesce8 "select * from ${tableName2} where coalesce(k1, k2) in (1, null) order by 1, 2, 3, 4"
     qt_coalesce9 "select * from ${tableName1} where coalesce(k1, null) in (1, null) order by 1, 2, 3, 4, 5, 6"
     qt_coalesce10 "select  coalesce(1, null)"
+    qt_coalesce11 """ select coalesce(null, json_parse('{"k": "v"}')); """
+
+    test {
+        sql """
+            select coalesce(null,to_json('{"k": 123}'), map("a", 123));
+        """
+        exception "cannot cast MAP"
+    }
+
+    sql "drop table if exists `json_test`;"
+    sql """
+        create table `json_test` (
+            id int,
+            value json
+        ) properties('replication_num' = '1');
+    """
+
+    sql """
+        insert into `json_test` values
+            (1, '{"k": 123}'),
+            (2, null),
+            (3, '{"k": 789}');
+    """
+
+    qt_coalesce_json """
+        select id, coalesce(value, '{"k": 0}') from `json_test` order by 1;
+    """
+
+    sql "drop table if exists `map_test`;"
+    sql """
+        create table `map_test` (
+            id int,
+            value map<string, int>
+        ) properties('replication_num' = '1');
+    """
+
+    sql """
+        insert into `map_test` values
+            (1, '{"k": 123}'),
+            (2, null),
+            (3, '{"k": 789}');
+    """
+
+    qt_coalesce_map """
+        select id, coalesce(value, '{"k": 0}') from `map_test` order by 1;
+    """
+
+    sql "drop table if exists `array_test`;"
+    sql """
+        create table `array_test` (
+            id int,
+            value array<int>
+        ) properties('replication_num' = '1');
+    """
+
+    sql """
+        insert into `array_test` values
+            (1, '[123, 456]'),
+            (2, null),
+            (3, '[789]');
+    """
+
+    qt_coalesce_array """
+        select id, coalesce(value, '[0]') from `array_test` order by 1;
+    """
+
+    qt_coalesce_array2 """
+        select id, coalesce(value, value) from `array_test` order by 1;
+    """
+
+    sql "drop table if exists `struct_test`;"
+    sql """
+        create table `struct_test` (
+            id int,
+            value STRUCT<name: VARCHAR(10), age: INT>
+        ) properties('replication_num' = '1');
+    """
+
+    sql """
+        insert into `struct_test` values
+            (1, STRUCT("Alice", 30)),
+            (2, null),
+            (3, STRUCT("Bob", 25));
+    """
+
+    qt_coalesce_struct """
+        select id, coalesce(value, STRUCT("Charlie", 18)) from `struct_test` order by 1;
+    """
 }

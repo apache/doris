@@ -123,10 +123,15 @@ public:
             result_column = remove_nullable(result_type)->create_column();
         }
 
-        // because now the string types does not support random position writing,
-        // so insert into result data have two methods, one is for string types, one is for others type remaining
-        bool is_string_result = result_column->is_column_string();
-        if (is_string_result) {
+        // because now follow below types does not support random position writing,
+        // so insert into result data have two methods, one is for these types, one is for others type remaining
+        bool cannot_random_write =
+                result_column->is_column_string() ||
+                result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+                result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+                result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+                result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
+        if (cannot_random_write) {
             result_column->reserve(input_rows_count);
         }
 
@@ -193,7 +198,7 @@ public:
                 }
             }
 
-            if (!is_string_result) {
+            if (!cannot_random_write) {
                 //if not string type, could check one column firstly,
                 //and then fill the not null value in result column,
                 //this method may result in higher CPU cache
@@ -203,7 +208,7 @@ public:
             }
         }
 
-        if (is_string_result) {
+        if (cannot_random_write) {
             //if string type,  should according to the record results, fill in result one by one,
             for (size_t row = 0; row < input_rows_count; ++row) {
                 if (null_map_data[row]) { //should be null
