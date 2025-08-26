@@ -154,13 +154,24 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Map<ExprId, Slot> replaceMap) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, replaceMap);
-        Optional<List<Expression>> hashConjuncts = updateExpressions(join.getHashJoinConjuncts(), replaceMap, true);
+        return doVisitLogicalJoin(join, replaceMap, isAnalyzedPhase, true);
+    }
+
+    /**
+     * Adjust join nullable attribute of slot reference in expression.
+     */
+    public static LogicalJoin<? extends Plan, ? extends Plan> doVisitLogicalJoin(
+            LogicalJoin<? extends Plan, ? extends Plan> join,
+            Map<ExprId, Slot> replaceMap, boolean isAnalyzedPhase, boolean debugCheck) {
+        Optional<List<Expression>> hashConjuncts = doUpdateExpressions(
+                join.getHashJoinConjuncts(), replaceMap, debugCheck && !isAnalyzedPhase);
         Optional<List<Expression>> markConjuncts = Optional.empty();
         boolean hadUpdatedMarkConjuncts = false;
         if (isAnalyzedPhase || join.getHashJoinConjuncts().isEmpty()) {
             // if hashConjuncts is empty, mark join conjuncts may use to build hash table
             // so need call updateExpressions for mark join conjuncts before adjust nullable by output slot
-            markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap, true);
+            markConjuncts = doUpdateExpressions(
+                    join.getMarkJoinConjuncts(), replaceMap, debugCheck && !isAnalyzedPhase);
             hadUpdatedMarkConjuncts = true;
         }
         // in fact, otherConjuncts shouldn't use join output nullable attribute,
@@ -174,21 +185,21 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         //    Just change it to be consistent with BE.
         Optional<List<Expression>> otherConjuncts = Optional.empty();
         if (isAnalyzedPhase) {
-            otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap, true);
+            otherConjuncts = doUpdateExpressions(join.getOtherJoinConjuncts(), replaceMap, false);
         }
         for (Slot slot : join.getOutput()) {
             replaceMap.put(slot.getExprId(), slot);
         }
         if (!hadUpdatedMarkConjuncts) {
-            markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap, false);
+            markConjuncts = doUpdateExpressions(join.getMarkJoinConjuncts(), replaceMap, false);
         }
         if (!isAnalyzedPhase) {
-            otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap, false);
+            otherConjuncts = doUpdateExpressions(join.getOtherJoinConjuncts(), replaceMap, false);
         }
         if (!hashConjuncts.isPresent() && !markConjuncts.isPresent() && !otherConjuncts.isPresent()) {
             return join;
         }
-        return join.withJoinConjuncts(
+        return (LogicalJoin<? extends Plan, ? extends Plan>) join.withJoinConjuncts(
                 hashConjuncts.orElse(join.getHashJoinConjuncts()),
                 otherConjuncts.orElse(join.getOtherJoinConjuncts()),
                 markConjuncts.orElse(join.getMarkJoinConjuncts()),
@@ -419,15 +430,13 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     private <T extends Expression> Optional<T> updateExpression(T input,
             Map<ExprId, Slot> replaceMap, boolean debugCheck) {
         AtomicBoolean changed = new AtomicBoolean(false);
-        Expression replaced = doUpdateExpression(changed, input, replaceMap, debugCheck, isAnalyzedPhase);
+        Expression replaced = doUpdateExpression(changed, input, replaceMap, !isAnalyzedPhase && debugCheck);
         return changed.get() ? Optional.of((T) replaced) : Optional.empty();
     }
 
-    /**
-     * Adjust nullable attribute of slot reference in expression.
-     */
-    public static Expression doUpdateExpression(AtomicBoolean changed, Expression input,
-            Map<ExprId, Slot> replaceMap, boolean debugCheck, boolean isAnalyzedPhase) {
+    // !isAnalyzedPhase && debugCheck
+    private static Expression doUpdateExpression(AtomicBoolean changed, Expression input,
+            Map<ExprId, Slot> replaceMap, boolean check) {
         return input.rewriteDownShortCircuit(e -> {
             if (e instanceof SlotReference) {
                 SlotReference slotReference = (SlotReference) e;
@@ -457,7 +466,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 // so analyzed phase don't assert not-nullable -> nullable, otherwise adjust plan above
                 // repeat may check fail.
                 if (!slotReference.nullable() && newSlotReference.nullable()
-                        && !isAnalyzedPhase && debugCheck && ConnectContext.get() != null) {
+                        && check && ConnectContext.get() != null) {
                     if (ConnectContext.get().getSessionVariable().feDebug) {
                         throw new AnalysisException("AdjustNullable convert slot " + slotReference
                                 + " from not-nullable to nullable. You can disable check by set fe_debug = false.");
@@ -494,6 +503,23 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             Optional<T> newInput = updateExpression(input, replaceMap, debugCheck);
             changed |= newInput.isPresent();
             result.add(newInput.orElse(input));
+        }
+        return changed ? Optional.of(result.build()) : Optional.empty();
+    }
+
+    /**
+     * Static methods cannot use generics, so the following method was added
+     */
+    private static Optional<List<Expression>> doUpdateExpressions(List<Expression> inputs,
+            Map<ExprId, Slot> replaceMap, boolean check) {
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(inputs.size());
+        boolean changed = false;
+        for (Expression input : inputs) {
+            AtomicBoolean eachChanged = new AtomicBoolean(false);
+            Expression newInput = doUpdateExpression(
+                    eachChanged, input, replaceMap, check);
+            changed |= eachChanged.get();
+            result.add(eachChanged.get() ? newInput : input);
         }
         return changed ? Optional.of(result.build()) : Optional.empty();
     }

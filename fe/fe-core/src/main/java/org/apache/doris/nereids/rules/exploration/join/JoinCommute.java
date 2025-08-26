@@ -74,15 +74,15 @@ public class JoinCommute extends OneExplorationRuleFactory {
                         && NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType()))
                         && !NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType().swap())))
                 .then(join -> {
-                    LogicalJoin<Plan, Plan> newJoin = join.withTypeChildren(join.getJoinType().swap(),
-                            join.right(), join.left(), null);
+                    LogicalJoin<? extends Plan, ? extends Plan> newJoin = join.withTypeChildren(
+                            join.getJoinType().swap(), join.right(), join.left(), null);
                     newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
                     }
                     if (newJoin.getJoinType().isOuterJoin()) {
-                        return JoinUtils.adjustJoinConjunctsNullable(newJoin);
+                        newJoin = JoinUtils.adjustJoinConjunctsNullable(newJoin);
                     }
                     return newJoin;
                 }).toRule(RuleType.LOGICAL_JOIN_COMMUTE);
