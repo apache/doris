@@ -90,7 +90,7 @@ suite("test_llm_functions") {
 
     def test_query_timeout_exception = { sql_text ->
         try {
-            sql """set query_timeout=2;"""
+            sql """set query_timeout=1;"""
             test {
                 sql """${sql_text}"""
                 exception "timeout"
