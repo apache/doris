@@ -43,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -77,14 +76,12 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalAggregate()
-                        .when(Aggregate::hasDistinctFunc)
                         .when(agg -> !agg.getGroupByExpressions().isEmpty())
                         .when(agg -> agg.getDistinctArguments().size() == 1 || agg.distinctFuncNum() == 1)
                         .thenApplyMulti(this::rewrite)
                         .toRule(RuleType.SPLIT_AGG_MULTI_PHASE)
         );
     }
-
 
     private List<Plan> rewrite(MatchingContext<LogicalAggregate<GroupPlan>> ctx) {
         LogicalAggregate<? extends Plan> aggregate = ctx.root;
@@ -344,7 +341,13 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
     }
 
     /**twoPlusOneBetterThanTwoPlusTwo*/
-    public boolean twoPlusOneBetterThanTwoPlusTwo(Aggregate<? extends Plan> aggregate) {
+    public boolean twoPlusOneBetterThanTwoPlusTwo(LogicalAggregate<? extends Plan> aggregate) {
+        // select count(distinct a) from t group by a; should use twoPlusOne
+        Set<NamedExpression> groupBySet = AggregateUtils.getGroupBySetNamedExpr(aggregate);
+        Set<NamedExpression> distinctSet = AggregateUtils.getDistinctNamedExpr(aggregate);
+        if (groupBySet.equals(distinctSet)) {
+            return true;
+        }
         Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
         Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
         if (aggStats == null || aggChildStats == null) {

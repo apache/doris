@@ -120,19 +120,29 @@ public class AggregateUtils {
 
     /**getAllKeySet*/
     public static Set<NamedExpression> getAllKeySet(LogicalAggregate<? extends Plan> aggregate) {
-        Set<NamedExpression> distinctArguments = aggregate.getAggregateFunctions().stream()
+        Set<NamedExpression> distinctArguments = getDistinctNamedExpr(aggregate);
+        Set<NamedExpression> groupBySet = getGroupBySetNamedExpr(aggregate);
+        return ImmutableSet.<NamedExpression>builder()
+                .addAll(groupBySet)
+                .addAll(distinctArguments)
+                .build();
+    }
+
+    /**getGroupBySetNamedExpr*/
+    public static Set<NamedExpression> getGroupBySetNamedExpr(LogicalAggregate<? extends Plan> aggregate) {
+        return aggregate.getGroupByExpressions().stream()
+                .filter(NamedExpression.class::isInstance)
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**getDistinctNamedExpr*/
+    public static Set<NamedExpression> getDistinctNamedExpr(LogicalAggregate<? extends Plan> aggregate) {
+        return aggregate.getAggregateFunctions().stream()
                 .filter(AggregateFunction::isDistinct)
                 .flatMap(aggFunc -> aggFunc.getArguments().stream())
                 .filter(NamedExpression.class::isInstance)
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableSet.toImmutableSet());
-        Set<NamedExpression> groupBySet = aggregate.getGroupByExpressions().stream()
-                .filter(NamedExpression.class::isInstance)
-                .map(NamedExpression.class::cast)
-                .collect(ImmutableSet.toImmutableSet());
-        return ImmutableSet.<NamedExpression>builder()
-                .addAll(groupBySet)
-                .addAll(distinctArguments)
-                .build();
     }
 }
