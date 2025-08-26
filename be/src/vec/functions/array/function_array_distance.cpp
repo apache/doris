@@ -52,7 +52,7 @@ float L2Distance::distance(const float* x, const float* y, size_t d) {
         const float tmp = x[i] - y[i];
         res += tmp * tmp;
     }
-    return res;
+    return std::sqrt(res);
 }
 
 float CosineDistance::distance(const float* x, const float* y, size_t d) {
