@@ -20,10 +20,16 @@
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <string.h>
 
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <cstring>
+#include <functional>
 #include <list>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -36,6 +42,8 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "util/bit_util.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
@@ -47,6 +55,129 @@ bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
 bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
         "cached_remote_reader_skip_local_cache_io_sum_bytes");
+
+// no custom launcher needed when using std::thread
+
+// Controller to race two fetchers (e.g., S3 vs peer BE) and signal on first success
+struct FetchRangeCntl : std::enable_shared_from_this<FetchRangeCntl> {
+    using TaskFn = std::function<void(std::shared_ptr<FetchRangeCntl>)>;
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool done {false};
+    Status st {Status::Error<INTERNAL_ERROR>("uninitialized")};
+    std::atomic<int> finished {0};
+    int total {2};
+
+    void fail_one() {
+        int now = finished.fetch_add(1) + 1;
+        if (now >= total) {
+            std::unique_lock<std::mutex> lock(mtx);
+            if (!done) {
+                // all sources failed
+                done = true;
+                cv.notify_all();
+            }
+        }
+    }
+
+    bool is_done() const { return done; }
+
+    // Atomically commit the first successful result into dst and signal success.
+    bool commit_and_succeed(const char* src, size_t size, char* dst) {
+        std::unique_lock<std::mutex> lock(mtx);
+        if (done) {
+            return false;
+        }
+        std::memcpy(dst, src, size);
+        st = Status::OK();
+        done = true;
+        cv.notify_all();
+        return true;
+    }
+
+    void run_and_wait(TaskFn f1, TaskFn f2) {
+        auto self = shared_from_this();
+        auto runner1 = [self, fn = std::move(f1)] { fn(self); };
+        auto runner2 = [self, fn = std::move(f2)] { fn(self); };
+        bool ok1 = true, ok2 = true;
+        std::thread t1, t2;
+        try {
+            t1 = std::thread(runner1);
+        } catch (...) {
+            ok1 = false;
+            self->fail_one();
+        }
+        try {
+            t2 = std::thread(runner2);
+        } catch (...) {
+            ok2 = false;
+            self->fail_one();
+        }
+        {
+            std::unique_lock<std::mutex> lock(mtx);
+            cv.wait(lock, [&] { return done; });
+        }
+        if (ok1 && t1.joinable()) {
+            t1.join();
+        }
+        if (ok2 && t2.joinable()) {
+            t2.join();
+        }
+    }
+};
+
+// Helper to race two fetch sources and commit the first success into dst
+static Status race_fetch_into_buffer(
+        size_t empty_start, size_t size, char* dst, const IOContext* io_ctx, ReadStatistics* stats,
+        const std::function<Status(size_t, Slice, size_t*, const IOContext*)>& s3_read_fn,
+        const std::function<Status(size_t, Slice, size_t*, const IOContext*)>& peer_read_fn) {
+    auto cntl = std::make_shared<FetchRangeCntl>();
+    auto s3_fetch = [&, size, empty_start, dst, io_ctx](std::shared_ptr<FetchRangeCntl> c) {
+        if (c->is_done()) {
+            return;
+        }
+        size_t read_sz = size;
+        std::unique_ptr<char[]> local_buf(new char[size]);
+        MonotonicStopWatch t;
+        t.start();
+        Status st = s3_read_fn(empty_start, Slice(local_buf.get(), read_sz), &read_sz, io_ctx);
+        auto elapsed = t.elapsed_time();
+        if (st.ok() && read_sz == size) {
+            if (c->commit_and_succeed(local_buf.get(), size, dst)) {
+                s3_read_counter << 1;
+                stats->remote_read_timer += elapsed;
+            }
+        } else {
+            c->fail_one();
+        }
+    };
+    auto peer_fetch = [&, size, empty_start, dst, io_ctx](std::shared_ptr<FetchRangeCntl> c) {
+        if (c->is_done()) {
+            return;
+        }
+        size_t read_sz = size;
+        std::unique_ptr<char[]> local_buf(new char[size]);
+        MonotonicStopWatch t;
+        t.start();
+        Status st = peer_read_fn(empty_start, Slice(local_buf.get(), read_sz), &read_sz, io_ctx);
+        auto elapsed = t.elapsed_time();
+        if (st.ok() && read_sz == size) {
+            if (c->commit_and_succeed(local_buf.get(), size, dst)) {
+                stats->remote_read_timer += elapsed;
+            }
+        } else {
+            c->fail_one();
+        }
+    };
+
+    cntl->run_and_wait(std::move(s3_fetch), std::move(peer_fetch));
+    if (!cntl->st.ok()) {
+        s3_read_counter << 1;
+        SCOPED_RAW_TIMER(&stats->remote_read_timer);
+        RETURN_IF_ERROR(s3_read_fn(empty_start, Slice(dst, size), &size, io_ctx));
+    }
+    return Status::OK();
+}
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -126,6 +257,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         *bytes_read = 0;
         return Status::OK();
     }
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
     ReadStatistics stats;
     auto defer_func = [&](int*) {
         if (io_ctx->file_cache_stats && !is_dryrun) {
@@ -137,7 +269,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             io::FileCacheMetrics::instance().update(&fcache_stats_increment);
         }
     };
-    std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));
+    std::unique_ptr<int, decltype(defer_func)> defer1((int*)0x01, std::move(defer_func));
     stats.bytes_read += bytes_req;
     if (config::enable_read_cache_file_directly) {
         // read directly
@@ -207,9 +339,13 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             stats.skip_cache = true;
             break;
         case FileBlock::State::DOWNLOADING:
+            LOG(INFO) << "dx debug set cache miss downloading";
+            empty_blocks.push_back(block);
             stats.hit_cache = false;
             break;
         case FileBlock::State::DOWNLOADED:
+            LOG(INFO) << "dx debug set cache miss downloaded";
+            empty_blocks.push_back(block);
             break;
         }
     }
@@ -220,12 +356,22 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         empty_end = empty_blocks.back()->range().right;
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
-        {
-            s3_read_counter << 1;
-            SCOPED_RAW_TIMER(&stats.remote_read_timer);
-            RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
-                                                         &size, io_ctx));
-        }
+
+        auto s3_read_fn = [this](size_t off, Slice s, size_t* n, const IOContext* ctx) {
+            return _remote_file_reader->read_at(off, s, n, ctx);
+        };
+#ifdef BE_ENABLE_PEER_CACHE_FETCH
+        auto peer_read_fn = [this](size_t off, Slice s, size_t* n, const IOContext* ctx) {
+            return _fetch_from_peer_cache(off, s, n, ctx);
+        };
+#else
+        auto peer_read_fn = [](size_t, Slice, size_t*, const IOContext*) {
+            return Status::NotSupported("peer cache range fetch not wired");
+        };
+#endif
+        RETURN_IF_ERROR(race_fetch_into_buffer(empty_start, size, buffer.get(), io_ctx, &stats,
+                                               s3_read_fn, peer_read_fn));
+
         for (auto& block : empty_blocks) {
             if (block->state() == FileBlock::State::SKIP_CACHE) {
                 continue;
@@ -328,6 +474,16 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     DCHECK(*bytes_read == bytes_req);
     return Status::OK();
 }
+
+// Optional: peer cache fetch helper, default NotSupported unless macro enabled
+#ifdef BE_ENABLE_PEER_CACHE_FETCH
+Status CachedRemoteFileReader::_fetch_from_peer_cache(size_t offset, Slice result,
+                                                      size_t* bytes_read, const IOContext* io_ctx) {
+    // Implement brpc request to peer BE to fetch file-cache range and fill result
+    // Placeholder: return not supported until wired
+    return Status::NotSupported("peer cache fetch not implemented");
+}
+#endif
 
 void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                                            FileCacheStatistics* statis,

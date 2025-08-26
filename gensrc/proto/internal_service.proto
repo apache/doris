@@ -1063,6 +1063,29 @@ message PAbortRefreshDictionaryResponse {
     optional PStatus status = 1;
 }
 
+message PFetchPeerDataRequest {
+    enum Type {
+        PEER_FILE_CACHE_BLOCK = 1;
+        PEER_FILE_RANGE = 2;
+    }
+    optional Type type = 1;
+    // obj path, let peer calc hash, and download file cache
+    optional string path = 2;
+    optional int64 file_offset = 3;
+    optional int64 size = 4;
+}
+
+message CacheBlock {
+    optional int64 file_offset = 1;
+    optional int64 size = 2;
+    optional bytes data = 3;
+}
+
+message PFetchPeerDataResponse {
+    optional PStatus code = 1;
+    repeated CacheBlock datas = 2;
+}
+
 service PBackendService {
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
@@ -1118,5 +1141,6 @@ service PBackendService {
     rpc delete_dictionary(PDeleteDictionaryRequest) returns (PDeleteDictionaryResponse);
     rpc commit_refresh_dictionary(PCommitRefreshDictionaryRequest) returns (PCommitRefreshDictionaryResponse);
     rpc abort_refresh_dictionary(PAbortRefreshDictionaryRequest) returns (PAbortRefreshDictionaryResponse);
+    rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
 };
 

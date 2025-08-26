@@ -119,6 +119,22 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
     VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
                << ", response=" << response->DebugString();
 }
+
+void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* controller
+                                               [[maybe_unused]],
+                                               const PFetchPeerDataRequest* request,
+                                               PFetchPeerDataResponse* response,
+                                               google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    if (!config::enable_file_cache) {
+        LOG_WARNING("try to access file cache data, but file cache not enabled");
+        return;
+    }
+    LOG(INFO) << "fetch cache " << request->DebugString();
+    VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
+               << ", response=" << response->DebugString();
+}
+
 #include "common/compile_check_end.h"
 
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_segment_num(

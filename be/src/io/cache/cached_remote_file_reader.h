@@ -69,6 +69,11 @@ private:
 
     void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
                        bool is_inverted_index) const;
+
+    // Try fetch data from peer BE for [offset, offset+size), write into result.
+    // Default implementation returns NotSupported and does nothing.
+    // Status _fetch_from_peer(size_t offset, size_t size, Slice result,
+    //                         const IOContext* io_ctx);
 };
 
 } // namespace doris::io
