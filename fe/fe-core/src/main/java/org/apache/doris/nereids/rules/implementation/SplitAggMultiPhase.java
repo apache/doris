@@ -85,35 +85,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         );
     }
 
-    /**
-     * select count(distinct a) group by b (deduplicated agg hashShuffle by group by key b)
-     * splitToTwoPlusOnePhase:
-     *   agg(group by b, count(a); distinct global)
-     *     +--agg(group by a,b; global)
-     *       +--hashShuffle(b)
-     *         +--agg(group by a,b; local)
-     *   agg(group by b, count(a); distinct global)
-     *     +--agg(group by a,b; global)
-     *       +--hashShuffle(b)
-     * splitToTwoPlusTwoPhase:
-     *   agg(group by b, count(a); distinct global)
-     *     +--hashShuffle(b)
-     *       +--agg(group by b, count(a); distinct local)
-     *         +--agg(group by a,b; global)
-     *           +--hashShuffle(a,b)
-     *             +--agg(group by a,b; local)
-     *   agg(group by b, count(a); distinct global)
-     *     +--hashShuffle(b)
-     *       +--agg(group by b, count(a); distinct local)
-     *         +--agg(group by a,b; global)
-     *           +--hashShuffle(a,b)
-     * splitToOnePlusTwoPhase: (deduplicated agg hashShuffle by distinct key a)
-     *   agg(group by b, count(a); distinct global)
-     *     +--hashShuffle(b)
-     *       +--agg(group by b, count(a); distinct local)
-     *         +--agg(group by a,b; global)
-     *           +--hashShuffle(a)
-     */
+
     private List<Plan> rewrite(MatchingContext<LogicalAggregate<GroupPlan>> ctx) {
         LogicalAggregate<? extends Plan> aggregate = ctx.root;
         if (aggregate.canSkewRewrite()) {
@@ -132,6 +104,17 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         }
     }
 
+    /**
+     * select count(distinct a) group by b (deduplicated agg hashShuffle by group by key b)
+     * splitToTwoPlusOnePhase:
+     *   agg(group by b, count(a); distinct global)
+     *     +--agg(group by a,b; global)
+     *       +--hashShuffle(b)
+     *         +--agg(group by a,b; local)
+     *   agg(group by b, count(a); distinct global)
+     *     +--agg(group by a,b; global)
+     *       +--hashShuffle(b)
+     */
     private List<Plan> splitToTwoPlusOnePhase(LogicalAggregate<? extends Plan> aggregate) {
         ImmutableList.Builder<Plan> builder = ImmutableList.builder();
         if (aggregate.supportAggregatePhase(AggregatePhase.THREE)) {
@@ -161,6 +144,21 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
                 partitionExpressions);
     }
 
+    /**
+     * select count(distinct a) group by b (deduplicated agg hashShuffle by group by key b)
+     * splitToTwoPlusTwoPhase:
+     *   agg(group by b, count(a); distinct global)
+     *     +--hashShuffle(b)
+     *       +--agg(group by b, count(a); distinct local)
+     *         +--agg(group by a,b; global)
+     *           +--hashShuffle(a,b)
+     *             +--agg(group by a,b; local)
+     *   agg(group by b, count(a); distinct global)
+     *     +--hashShuffle(b)
+     *       +--agg(group by b, count(a); distinct local)
+     *         +--agg(group by a,b; global)
+     *           +--hashShuffle(a,b)
+     */
     private List<Plan> splitToTwoPlusTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
         ImmutableList.Builder<Plan> builder = ImmutableList.builder();
         Set<NamedExpression> localAggGroupBySet = AggregateUtils.getAllKeySet(aggregate);
@@ -182,6 +180,15 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         return builder.build();
     }
 
+    /**
+     * select count(distinct a) group by b (deduplicated agg hashShuffle by group by key b)
+     * splitToOnePlusTwoPhase: (deduplicated agg hashShuffle by distinct key a)
+     *   agg(group by b, count(a); distinct global)
+     *     +--hashShuffle(b)
+     *       +--agg(group by b, count(a); distinct local)
+     *         +--agg(group by a,b; global)
+     *           +--hashShuffle(a)
+     */
     private List<Plan> splitToOnePlusTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
         if (!aggregate.supportAggregatePhase(AggregatePhase.THREE)) {
             return ImmutableList.of();

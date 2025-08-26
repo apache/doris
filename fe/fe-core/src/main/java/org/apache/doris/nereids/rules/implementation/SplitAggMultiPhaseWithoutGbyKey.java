@@ -79,27 +79,6 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         );
     }
 
-    /**
-     * select count(distinct a) from t
-     * splitToThreePhase:
-     * agg(count(a); distinct global)
-     *   +--gather
-     *     +--agg(count(a); distinct local)
-     *       +--agg(group by a; global)
-     *         +--hashShuffle(a)
-     * splitToFourPhase:
-     * agg(count(a); distinct global)
-     *   +--gather
-     *     +--agg(count(a); distinct local)
-     *       +--agg(group by a; global)
-     *         +--hashShuffle(a)
-     *           +--agg(group by a; local)
-     * twoPhaseAggregateWithFinalMultiDistinct:
-     * agg(sum0(c1))
-     *   +--gather
-     *     +--agg(multi_distinct(a) as c1)
-     *       +--hashShuffle(a)
-     * */
     List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
         if (canUseFinalMultiDistinct(aggregate)) {
             return ImmutableList.<Plan>builder()
@@ -114,6 +93,16 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         }
     }
 
+    /**
+     * select count(distinct a) from t
+     * splitToFourPhase:
+     * agg(count(a); distinct global)
+     *   +--gather
+     *     +--agg(count(a); distinct local)
+     *       +--agg(group by a; global)
+     *         +--hashShuffle(a)
+     *           +--agg(group by a; local)
+     */
     private List<Plan> splitToFourPhase(LogicalAggregate<? extends Plan> aggregate) {
         if (!aggregate.supportAggregatePhase(AggregatePhase.FOUR)) {
             return ImmutableList.of();
@@ -124,6 +113,15 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         return ImmutableList.of(splitDistinctTwoPhase(aggregate, localAggFuncToAlias, secondAgg));
     }
 
+    /**
+     * select count(distinct a) from t
+     * splitToThreePhase:
+     * agg(count(a); distinct global)
+     *   +--gather
+     *     +--agg(count(a); distinct local)
+     *       +--agg(group by a; global)
+     *         +--hashShuffle(a)
+     */
     private List<Plan> splitToThreePhase(LogicalAggregate<? extends Plan> aggregate) {
         if (!aggregate.supportAggregatePhase(AggregatePhase.THREE)) {
             return ImmutableList.of();
@@ -137,6 +135,14 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         return ImmutableList.of(splitDistinctTwoPhase(aggregate, localAggFuncToAlias, localAgg));
     }
 
+    /**
+     * select count(distinct a) from t
+     * twoPhaseAggregateWithFinalMultiDistinct:
+     * agg(sum0(c1))
+     *   +--gather
+     *     +--agg(multi_distinct(a) as c1)
+     *       +--hashShuffle(a)
+     * */
     private List<Plan> twoPhaseAggregateWithFinalMultiDistinct(
             LogicalAggregate<? extends Plan> logicalAgg) {
         Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
