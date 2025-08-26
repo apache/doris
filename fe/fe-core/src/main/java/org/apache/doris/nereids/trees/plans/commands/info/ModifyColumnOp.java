@@ -167,10 +167,6 @@ public class ModifyColumnOp extends AlterTableOp {
         }
     }
 
-    public ColumnDefinition getColumnDef() {
-        return columnDef;
-    }
-
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
         return new ModifyColumnClause(toSql(), column, colPos, rollupName, properties);

@@ -223,6 +223,9 @@ static size_t find_byte(const T* data, size_t start, size_t end, T byte) {
 
 template <typename T>
 bool contain_byte(const T* __restrict data, const size_t length, const signed char byte) {
+    if (length == 0) {
+        return false;
+    }
     return nullptr != std::memchr(reinterpret_cast<const void*>(data), byte, length);
 }
 

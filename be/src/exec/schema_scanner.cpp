@@ -277,7 +277,7 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
             nullable_column->insert_data(nullptr, 0);
             continue;
         } else {
-            nullable_column->get_null_map_data().emplace_back(0);
+            nullable_column->push_false_to_nullmap(1);
         }
         switch (col_desc.type) {
         case TYPE_HLL: {
@@ -461,7 +461,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         return Status::InternalError(ss.str());
     }
     }
-    nullable_column->get_null_map_data().emplace_back(0);
+    nullable_column->push_false_to_nullmap(1);
     return Status::OK();
 }
 

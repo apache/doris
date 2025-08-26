@@ -35,6 +35,7 @@ import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
@@ -277,6 +278,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
 
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+
+    // Force the number of scanners to equal the number of segments in OLAP scan when parallel scan is enabled.
+    public static final String OPTIMIZE_INDEX_SCAN_PARALLELISM =
+            "optimize_index_scan_parallelism";
 
     // Limit the max count of scanners to prevent generate too many scanners.
     public static final String PARALLEL_SCAN_MAX_SCANNERS_COUNT = "parallel_scan_max_scanners_count";
@@ -615,6 +620,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
+
+    public static final String PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY
+            = "pre_materialized_view_rewrite_strategy";
 
     public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
             = "enable_dml_materialized_view_rewrite";
@@ -1239,6 +1247,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
     private boolean enableParallelScan = true;
+
+    @VariableMgr.VarAttr(name = OPTIMIZE_INDEX_SCAN_PARALLELISM,
+            needForward = true,
+            description = {"优化索引扫描时的Scan并行度，该优化目前只对 ann topn 查询生效",
+                "Optimize the Scan parallelism when indexing, this optimization only works for ann topn queries."})
+    private boolean optimizeIndexScanParallelism = true;
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -2281,6 +2295,18 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = true;
 
+    @VariableMgr.VarAttr(name = PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY, needForward = true, fuzzy = true,
+            description = {"在RBO阶段基于结构信息的物化视图透明改写的策略，FORCE_IN_ROB ：强制在 RBO 阶段透明改写，"
+                    + "TRY_IN_RBO ：如果在NEED_PRE_REWRITE_RULE_TYPES中的规则改写成功了，那么就会尝试在 RBO 阶段透明改写"
+                    + "NOT_IN_RBO ：不尝试在 RBO 阶段改写，只在 CBO 阶段改写",
+                    "Whether to enable pre materialized view rewriting based on struct info,"
+                            + "FORCE_IN_RBO : Force transparent rewriting in the RBO phase,"
+                            + "TRY_IN_RBO : Attempt transparent rewriting in the RBO phase "
+                            + "if rules in NEED_PRE_REWRITE_RULE_TYPES, "
+                            + "NOT_IN_RBO : Do not attempt rewriting in the RBO phase; apply only during the CBO phase"
+            })
+    public String preMaterializedViewRewriteStrategy = "TRY_IN_RBO";
+
     @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
             description = {"是否允许修改物化视图的数据",
                     "Is it allowed to modify the data of the materialized view"})
@@ -2948,6 +2974,21 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSpill = randomInt % 4 != 0;
         this.enableForceSpill = randomInt % 3 == 0;
         this.enableReserveMemory = randomInt % 5 != 0;
+
+        // random pre materialized view rewrite strategy
+        randomInt = random.nextInt(3);
+        switch (randomInt % 3) {
+            case 0:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.NOT_IN_RBO.name();
+                break;
+            case 1:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.TRY_IN_RBO.name();
+                break;
+            case 2:
+            default:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.FORCE_IN_RBO.name();
+                break;
+        }
         setFuzzyForCatalog(random);
     }
 
@@ -4396,6 +4437,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
+        tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
 
@@ -4946,6 +4988,15 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
+    }
+
+
+    public String getPreMaterializedViewRewriteStrategy() {
+        return preMaterializedViewRewriteStrategy;
+    }
+
+    public void setPreMaterializedViewRewriteStrategy(String preMaterializedViewRewriteStrategy) {
+        this.preMaterializedViewRewriteStrategy = preMaterializedViewRewriteStrategy;
     }
 
     public boolean isEnableDmlMaterializedViewRewrite() {

@@ -30,6 +30,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized::converter {
@@ -285,10 +286,8 @@ public:
                         (*null_map)[start_idx + i] = 1;
                     }
                 }
-                char buf[128];
-                int strlen;
-                strlen = fast_to_buffer(src_data[i], buf);
-                string_col.insert_data(buf, strlen);
+                auto str = CastToString::from_number(src_data[i]);
+                string_col.insert_data(str.data(), str.size());
             } else {
                 std::string value;
                 if constexpr (SrcPrimitiveType == TYPE_LARGEINT) {

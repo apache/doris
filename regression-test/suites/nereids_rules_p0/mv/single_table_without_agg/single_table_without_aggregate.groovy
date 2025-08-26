@@ -23,8 +23,8 @@ suite("single_table_without_aggregate") {
     sql "set enable_materialized_view_rewrite=true"
     // TODO remove this variable after mv rewrite support defer materialized nodes
     sql 'set enable_two_phase_read_opt = false'
-    // Virtual column will make mv rewrite fail, so we disable the rule
-    sql """set disable_nereids_rules='PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN';"""
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO;"
 
 
     sql """
@@ -53,11 +53,16 @@ suite("single_table_without_aggregate") {
 
     sql """
     INSERT INTO orders VALUES
-    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def")
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def");
     """
 
     sql "analyze table orders with sync;"
-    sql """alter table orders modify column O_COMMENT set stats ('row_count'='2');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='6');"""
     sql """set enable_stats=false;"""
 
     def check_rewrite = { mv_sql, query_sql, mv_name ->

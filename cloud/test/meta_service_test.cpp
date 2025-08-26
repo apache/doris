@@ -9143,6 +9143,16 @@ TEST(MetaServiceTest, CreateVersionedTablet) {
         EXPECT_EQ(compact_stats.cumulative_point(), 2);
     }
 
+    {
+        // verify the tablet schema is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::meta_schema_key({instance_id, index_id, 0});
+        doris::TabletSchemaCloudPB schema;
+        ASSERT_EQ(document_get(txn.get(), key, &schema), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(schema.schema_version(), 0);
+    }
+
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }

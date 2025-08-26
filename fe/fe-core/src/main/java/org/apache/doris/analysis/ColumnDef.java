@@ -32,8 +32,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -268,14 +266,6 @@ public class ColumnDef {
             Optional<GeneratedColumnInfo> generatedColumnInfo) {
         this(name, typeDef, isKey, null, nullableType, -1, DefaultValue.NOT_SET,
                 comment, true, generatedColumnInfo);
-    }
-
-    public ColumnDefinition translateToColumnDefinition() {
-        return new ColumnDefinition(
-            name,
-            DataType.fromCatalogType(typeDef.getType()),
-            isAllowNull,
-            comment);
     }
 
     public static ColumnDef newDeleteSignColumnDef() {

@@ -171,7 +171,7 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, C context) {
-        return visit(cteConsumer, context);
+        return visitLogicalRelation(cteConsumer, context);
     }
 
     public R visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, C context) {

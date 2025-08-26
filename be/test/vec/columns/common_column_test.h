@@ -2357,7 +2357,7 @@ public:
                 if (source_column->size() == 1 && source_column->is_null_at(0)) {
                     EXPECT_EQ(source_column->only_null(), true);
                     EXPECT_EQ(source_column->has_null(), true);
-                    EXPECT_EQ(source_column->has_null(0), true);
+                    EXPECT_EQ(source_column->has_null(0, 0), true);
                 } else {
                     EXPECT_EQ(source_column->only_null(), false);
                 }
