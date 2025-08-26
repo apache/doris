@@ -3946,7 +3946,8 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             }
         } else {
             MetaReader reader(instance_id);
-            TxnErrorCode err = reader.get_tablet_merged_stats(tablet_id, &tablet_stat, nullptr);
+            TxnErrorCode err =
+                    reader.get_tablet_merged_stats(txn.get(), tablet_id, &tablet_stat, nullptr);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get versioned tablet stats, err={}, tablet_id={}", err,
