@@ -444,9 +444,9 @@ public:
         bool is_const_right = is_column_const(*column_right);
 
         ColumnPtr column_result = nullptr;
-        if (is_const_left && is_const_right) {
-            column_result = constant_constant(column_left, column_right);
-        } else if (is_const_left) {
+
+        DCHECK(!(is_const_left && is_const_right)) << "both of column can not be const";
+        if (is_const_left) {
             column_result = constant_vector(column_left, column_right);
         } else if (is_const_right) {
             column_result = vector_constant(column_left, column_right);
@@ -459,27 +459,6 @@ public:
     }
 
 private:
-    ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right) const {
-        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
-        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
-        ColumnPtr column_result = nullptr;
-
-        auto res = column_type::create(1);
-        if constexpr (Impl::is_nullable) {
-            auto null_map = ColumnUInt8::create(1, 0);
-            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<cpp_type>(),
-                                              column_right_ptr->template get_value<cpp_type>(),
-                                              null_map->get_element(0));
-            column_result = ColumnNullable::create(std::move(res), std::move(null_map));
-        } else {
-            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<cpp_type>(),
-                                              column_right_ptr->template get_value<cpp_type>());
-            column_result = std::move(res);
-        }
-
-        return ColumnConst::create(std::move(column_result), column_left->size());
-    }
-
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
         const auto* column_left_ptr = assert_cast<const column_type*>(column_left.get());
