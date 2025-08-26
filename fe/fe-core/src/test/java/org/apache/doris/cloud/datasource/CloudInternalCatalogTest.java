@@ -75,7 +75,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class CloudInternalCatalogTest {
@@ -249,7 +251,7 @@ public class CloudInternalCatalogTest {
                 return new AccessControllerManager(masterEnv.getAuth()) {
                     @Override
                     public boolean checkTblPriv(ConnectContext ctx, String ctl, String db, String tbl,
-                            PrivPredicate wanted) {
+                                                PrivPredicate wanted) {
                         return true; // Allow all access for test
                     }
                 };
@@ -352,27 +354,22 @@ public class CloudInternalCatalogTest {
         new MockUp<CloudInternalCatalog>() {
             @Mock
             public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(
-                    long tableId, long indexId, long partitionId,
-                    Tablet tablet,
-                    TTabletType tabletType, int schemaHash,
-                    KeysType keysType,
-                    short shortKeyColumnCount, java.util.Set<String> bfColumns, double bfFpp,
-                    java.util.List<Index> indexes,
-                    java.util.List<Column> schemaColumns,
-                    DataSortInfo dataSortInfo,
-                    TCompressionType compressionType,
+                    long tableId, long indexId,
+                    long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
+                    short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+                    List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
                     String storagePolicy, boolean isInMemory, boolean isShadow,
                     String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
                     boolean storeRowColumn, int schemaVersion, String compactionPolicy,
                     Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
                     Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
                     Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-                    java.util.List<Integer> rowStoreColumnUniqueIds,
+                    List<Integer> rowStoreColumnUniqueIds,
                     TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-                    boolean variantEnableFlattenNested, java.util.List<Integer> clusterKeyUids,
-                    long storagePageSize, long storageDictPageSize, boolean createInitialRowset)
+                    boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+                    long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
+                    boolean createInitialRowset)
                     throws DdlException {
-
                 // Track format for each partition
                 partitionFormats.put(partitionId, invertedIndexFileStorageFormat);
                 return OlapFile.TabletMetaCloudPB.newBuilder();
@@ -449,6 +446,11 @@ public class CloudInternalCatalogTest {
             public DataSortInfo getDataSortInfo() {
                 return null;
             }
+
+            @Mock
+            public OlapFile.EncryptionAlgorithmPB getTDEAlgorithmPB() {
+                return OlapFile.EncryptionAlgorithmPB.PLAINTEXT;
+            }
         };
 
         // Create initial partition
@@ -467,6 +469,7 @@ public class CloudInternalCatalogTest {
                     "", null, null, false);
         } catch (Exception e) {
             // Expected in test environment
+            e.printStackTrace();
         }
 
         // Verify partition1 uses V1 format (config was disabled)
@@ -491,6 +494,7 @@ public class CloudInternalCatalogTest {
                     "", null, null, false);
         } catch (Exception e) {
             // Expected in test environment
+            e.printStackTrace();
         }
 
         // Step 3: Verify mixed formats
@@ -524,27 +528,22 @@ public class CloudInternalCatalogTest {
         new MockUp<CloudInternalCatalog>() {
             @Mock
             public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(
-                    long tableId, long indexId, long partitionId,
-                    Tablet tablet,
-                    TTabletType tabletType, int schemaHash,
-                    KeysType keysType,
-                    short shortKeyColumnCount, java.util.Set<String> bfColumns, double bfFpp,
-                    java.util.List<Index> indexes,
-                    java.util.List<Column> schemaColumns,
-                    DataSortInfo dataSortInfo,
-                    TCompressionType compressionType,
+                    long tableId, long indexId,
+                    long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
+                    short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+                    List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
                     String storagePolicy, boolean isInMemory, boolean isShadow,
                     String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
                     boolean storeRowColumn, int schemaVersion, String compactionPolicy,
                     Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
                     Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
                     Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-                    java.util.List<Integer> rowStoreColumnUniqueIds,
+                    List<Integer> rowStoreColumnUniqueIds,
                     TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-                    boolean variantEnableFlattenNested, java.util.List<Integer> clusterKeyUids,
-                    long storagePageSize, long storageDictPageSize, boolean createInitialRowset)
+                    boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+                    long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
+                    boolean createInitialRowset)
                     throws DdlException {
-
                 // Capture the actual format passed to createTabletMetaBuilder
                 capturedFormat.set(invertedIndexFileStorageFormat);
                 return OlapFile.TabletMetaCloudPB.newBuilder();
@@ -621,6 +620,11 @@ public class CloudInternalCatalogTest {
             public DataSortInfo getDataSortInfo() {
                 return null;
             }
+
+            @Mock
+            public OlapFile.EncryptionAlgorithmPB getTDEAlgorithmPB() {
+                return OlapFile.EncryptionAlgorithmPB.PLAINTEXT;
+            }
         };
 
         try {
@@ -638,7 +642,7 @@ public class CloudInternalCatalogTest {
                     TTabletType.TABLET_TYPE_DISK,
                     "", null, null, false);
         } catch (Exception e) {
-            // It's expected to fail in test environment, we only care about the format capture
+            e.printStackTrace();
         }
 
         // Verify that V1 table format remains V1 when config is disabled
@@ -668,25 +672,21 @@ public class CloudInternalCatalogTest {
         new MockUp<CloudInternalCatalog>() {
             @Mock
             public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(
-                    long tableId, long indexId, long partitionId,
-                    Tablet tablet,
-                    TTabletType tabletType, int schemaHash,
-                    KeysType keysType,
-                    short shortKeyColumnCount, java.util.Set<String> bfColumns, double bfFpp,
-                    java.util.List<Index> indexes,
-                    java.util.List<Column> schemaColumns,
-                    DataSortInfo dataSortInfo,
-                    TCompressionType compressionType,
+                    long tableId, long indexId,
+                    long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
+                    short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+                    List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
                     String storagePolicy, boolean isInMemory, boolean isShadow,
                     String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
                     boolean storeRowColumn, int schemaVersion, String compactionPolicy,
                     Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
                     Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
                     Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-                    java.util.List<Integer> rowStoreColumnUniqueIds,
+                    List<Integer> rowStoreColumnUniqueIds,
                     TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-                    boolean variantEnableFlattenNested, java.util.List<Integer> clusterKeyUids,
-                    long storagePageSize, long storageDictPageSize, boolean createInitialRowset)
+                    boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+                    long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
+                    boolean createInitialRowset)
                     throws DdlException {
                 // Capture the actual format passed to createTabletMetaBuilder
                 capturedFormat.set(invertedIndexFileStorageFormat);
@@ -762,6 +762,11 @@ public class CloudInternalCatalogTest {
             public DataSortInfo getDataSortInfo() {
                 return null;
             }
+
+            @Mock
+            public OlapFile.EncryptionAlgorithmPB getTDEAlgorithmPB() {
+                return OlapFile.EncryptionAlgorithmPB.PLAINTEXT;
+            }
         };
 
         try {
@@ -779,6 +784,7 @@ public class CloudInternalCatalogTest {
                     TTabletType.TABLET_TYPE_DISK,
                     "", null, null, false);
         } catch (Exception e) {
+            e.printStackTrace();
             // It's expected to fail in test environment, we only care about the format capture
         }
 

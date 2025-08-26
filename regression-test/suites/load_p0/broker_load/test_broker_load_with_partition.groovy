@@ -108,7 +108,7 @@ suite("test_broker_load_with_partition", "load_p0") {
     }
 
     def check_load_result = {checklabel, testTablex ->
-        max_try_milli_secs = 10000
+        def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
             result = sql "show load where label = '${checklabel}'"
             log.info("result: ${result}")
@@ -127,7 +127,7 @@ suite("test_broker_load_with_partition", "load_p0") {
     }
 
     def check_load_tmp_partition_result = {checklabel, testTablex ->
-        max_try_milli_secs = 10000
+        def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
             result = sql "show load where label = '${checklabel}'"
             log.info("result: ${result}")
@@ -148,9 +148,9 @@ suite("test_broker_load_with_partition", "load_p0") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
         def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/broker_load_with_partition.csv"
         //def hdfs_csv_file_path = "hdfs://ip:port/testfile"
 
