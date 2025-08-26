@@ -137,7 +137,7 @@ void put_versioned_schema_kv(MetaServiceCode& code, std::string& msg, Transactio
                              std::string_view schema_key,
                              const doris::TabletSchemaCloudPB& schema) {
     doris::TabletSchemaCloudPB saved_schema;
-    TxnErrorCode err = versioned::document_get(txn, schema_key, &saved_schema, nullptr);
+    TxnErrorCode err = document_get(txn, schema_key, &saved_schema);
     if (err == TxnErrorCode::TXN_OK) { // schema has already been saved
         TEST_SYNC_POINT_RETURN_WITH_VOID("put_schema_kv:schema_key_exists_return");
         DCHECK([&] { return check_tablet_schema(schema, saved_schema); }())
@@ -150,7 +150,7 @@ void put_versioned_schema_kv(MetaServiceCode& code, std::string& msg, Transactio
     }
     LOG_INFO("put versioned schema kv").tag("key", hex(schema_key));
     doris::TabletSchemaCloudPB tablet_schema(schema);
-    if (!versioned::document_put(txn, schema_key, std::move(tablet_schema))) {
+    if (!document_put(txn, schema_key, std::move(tablet_schema))) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         msg = fmt::format("failed to serialize versioned tablet schema, key={}", hex(schema_key));
     }

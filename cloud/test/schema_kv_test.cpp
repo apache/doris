@@ -287,7 +287,6 @@ TEST(DetachSchemaKVTest, PutSchemaKvTest) {
     std::unique_ptr<Transaction> txn;
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg;
-    Versionstamp commit_versionstamp;
     for (int i = 0; i < 2; ++i) {
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         put_schema_kv(code, msg, txn.get(), key, schema);
@@ -303,14 +302,7 @@ TEST(DetachSchemaKVTest, PutSchemaKvTest) {
         ASSERT_EQ(cloud::blob_get(txn.get(), key, &buf), TxnErrorCode::TXN_OK);
 
         // verify the versioned tablet schema is written
-        Versionstamp versionstamp;
-        ASSERT_EQ(versioned::document_get(txn.get(), versioned_key, &saved_schema, &versionstamp),
-                  TxnErrorCode::TXN_OK);
-        if (i == 0) {
-            commit_versionstamp = versionstamp;
-        } else {
-            ASSERT_EQ(versionstamp, commit_versionstamp);
-        }
+        ASSERT_EQ(document_get(txn.get(), versioned_key, &saved_schema), TxnErrorCode::TXN_OK);
         EXPECT_EQ(saved_schema.schema_version(), schema_version);
     }
 
@@ -335,10 +327,7 @@ TEST(DetachSchemaKVTest, PutSchemaKvTest) {
         ASSERT_EQ(cloud::blob_get(txn.get(), key, &buf), TxnErrorCode::TXN_OK);
 
         // verify the versioned tablet schema is written
-        Versionstamp versionstamp;
-        ASSERT_EQ(versioned::document_get(txn.get(), versioned_key, &saved_schema, &versionstamp),
-                  TxnErrorCode::TXN_OK);
-        ASSERT_NE(versionstamp, commit_versionstamp);
+        ASSERT_EQ(document_get(txn.get(), versioned_key, &saved_schema), TxnErrorCode::TXN_OK);
         EXPECT_EQ(saved_schema.schema_version(), schema_version);
     }
 }
