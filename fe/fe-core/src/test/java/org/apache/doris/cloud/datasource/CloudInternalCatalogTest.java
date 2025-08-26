@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.rpc.VersionHelper;
@@ -54,8 +55,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.resource.computegroup.ComputeGroup;
-import org.apache.doris.resource.computegroup.ComputeGroupMgr;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
@@ -75,7 +75,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class CloudInternalCatalogTest {
@@ -240,11 +243,6 @@ public class CloudInternalCatalogTest {
             }
 
             @Mock
-            public ComputeGroupMgr getComputeGroupMgr() {
-                return new ComputeGroupMgr(Env.getCurrentSystemInfo());
-            }
-
-            @Mock
             public AccessControllerManager getAccessManager() {
                 return new AccessControllerManager(masterEnv.getAuth()) {
                     @Override
@@ -264,11 +262,8 @@ public class CloudInternalCatalogTest {
 
             @Mock
             public ComputeGroup getComputeGroup(String user) {
-                try {
-                    return masterEnv.getComputeGroupMgr().getComputeGroupByName("test_group");
-                } catch (Exception e) {
-                    return masterEnv.getComputeGroupMgr().getAllBackendComputeGroup();
-                }
+                // Return a test compute group for the mock
+                return new ComputeGroup("test_id", "test_group", ComputeGroup.ComputeTypeEnum.SQL);
             }
         };
 
@@ -295,33 +290,24 @@ public class CloudInternalCatalogTest {
             }
         };
 
+        // Setup CloudSystemInfoService directly like CloudIndexTest
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
-
-        // Mock addCloudCluster to avoid EditLog issues
-        new MockUp<CloudSystemInfoService>() {
-            @Mock
-            public void addCloudCluster(String clusterName, String clusterId) {
-                // Create backend manually for test
-                Backend backend = new Backend(10001L, "host1", 123);
-                backend.setAlive(true);
-                backend.setBePort(456);
-                backend.setHttpPort(789);
-                backend.setBrpcPort(321);
-                backend.setTagMap(Maps.newHashMap());
-                backend.getTagMap().put("cloud_cluster_id", "test_id");
-                backend.getTagMap().put("cloud_unique_id", "test_cloud");
-                backend.getTagMap().put("cloud_cluster_name", "test_group");
-                backend.getTagMap().put("cloud_cluster_status", "NORMAL");
-                backend.getTagMap().put("location", "default");
-                backend.getTagMap().put("cloud_cluster_private_endpoint", "");
-                backend.getTagMap().put("cloud_cluster_public_endpoint", "");
-                CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
-                systemInfo.addBackend(backend);
-            }
-        };
-
-        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster("test_group", "");
-        ctx.setComputeGroup(masterEnv.getComputeGroupMgr().getAllBackendComputeGroup());
+        CloudSystemInfoService systemInfo = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        Backend backend = new Backend(10001L, "host1", 123);
+        backend.setAlive(true);
+        backend.setBePort(456);
+        backend.setHttpPort(789);
+        backend.setBrpcPort(321);
+        Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+        newTagMap.put(Tag.CLOUD_CLUSTER_STATUS, "NORMAL");
+        newTagMap.put(Tag.CLOUD_CLUSTER_NAME, "test_group");
+        newTagMap.put(Tag.CLOUD_CLUSTER_ID, "test_id");
+        newTagMap.put(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, "");
+        newTagMap.put(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, "");
+        newTagMap.put(Tag.CLOUD_UNIQUE_ID, "test_cloud");
+        backend.setTagMap(newTagMap);
+        List<Backend> backends = Lists.newArrayList(backend);
+        systemInfo.updateCloudClusterMapNoLock(backends, new ArrayList<>());
 
         db = new Database(CatalogTestUtil.testDbId1, TEST_DB_NAME);
         masterEnv.unprotectCreateDb(db);
@@ -351,27 +337,19 @@ public class CloudInternalCatalogTest {
         // Mock createTabletMetaBuilder to capture formats for each partition
         new MockUp<CloudInternalCatalog>() {
             @Mock
-            public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(
-                    long tableId, long indexId, long partitionId,
-                    Tablet tablet,
-                    TTabletType tabletType, int schemaHash,
-                    KeysType keysType,
-                    short shortKeyColumnCount, java.util.Set<String> bfColumns, double bfFpp,
-                    java.util.List<Index> indexes,
-                    java.util.List<Column> schemaColumns,
-                    DataSortInfo dataSortInfo,
-                    TCompressionType compressionType,
+            public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(long tableId, long indexId,
+                    long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
+                    short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+                    List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
                     String storagePolicy, boolean isInMemory, boolean isShadow,
                     String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
                     boolean storeRowColumn, int schemaVersion, String compactionPolicy,
                     Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
                     Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
                     Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-                    java.util.List<Integer> rowStoreColumnUniqueIds,
+                    List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
                     TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-                    boolean variantEnableFlattenNested, java.util.List<Integer> clusterKeyUids,
-                    long storagePageSize, long storageDictPageSize, boolean createInitialRowset)
-                    throws DdlException {
+                    boolean variantEnableFlattenNested, long storagePageSize) throws DdlException {
 
                 // Track format for each partition
                 partitionFormats.put(partitionId, invertedIndexFileStorageFormat);
@@ -523,27 +501,19 @@ public class CloudInternalCatalogTest {
         // Mock createTabletMetaBuilder to capture the actual format used during partition creation
         new MockUp<CloudInternalCatalog>() {
             @Mock
-            public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(
-                    long tableId, long indexId, long partitionId,
-                    Tablet tablet,
-                    TTabletType tabletType, int schemaHash,
-                    KeysType keysType,
-                    short shortKeyColumnCount, java.util.Set<String> bfColumns, double bfFpp,
-                    java.util.List<Index> indexes,
-                    java.util.List<Column> schemaColumns,
-                    DataSortInfo dataSortInfo,
-                    TCompressionType compressionType,
+            public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(long tableId, long indexId,
+                    long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
+                    short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+                    List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
                     String storagePolicy, boolean isInMemory, boolean isShadow,
                     String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
                     boolean storeRowColumn, int schemaVersion, String compactionPolicy,
                     Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
                     Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
                     Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-                    java.util.List<Integer> rowStoreColumnUniqueIds,
+                    List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
                     TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-                    boolean variantEnableFlattenNested, java.util.List<Integer> clusterKeyUids,
-                    long storagePageSize, long storageDictPageSize, boolean createInitialRowset)
-                    throws DdlException {
+                    boolean variantEnableFlattenNested, long storagePageSize) throws DdlException {
 
                 // Capture the actual format passed to createTabletMetaBuilder
                 capturedFormat.set(invertedIndexFileStorageFormat);
@@ -667,27 +637,19 @@ public class CloudInternalCatalogTest {
         // Mock createTabletMetaBuilder to capture the actual format used during partition creation
         new MockUp<CloudInternalCatalog>() {
             @Mock
-            public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(
-                    long tableId, long indexId, long partitionId,
-                    Tablet tablet,
-                    TTabletType tabletType, int schemaHash,
-                    KeysType keysType,
-                    short shortKeyColumnCount, java.util.Set<String> bfColumns, double bfFpp,
-                    java.util.List<Index> indexes,
-                    java.util.List<Column> schemaColumns,
-                    DataSortInfo dataSortInfo,
-                    TCompressionType compressionType,
+            public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(long tableId, long indexId,
+                    long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
+                    short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+                    List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
                     String storagePolicy, boolean isInMemory, boolean isShadow,
                     String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
                     boolean storeRowColumn, int schemaVersion, String compactionPolicy,
                     Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
                     Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
                     Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-                    java.util.List<Integer> rowStoreColumnUniqueIds,
+                    List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
                     TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-                    boolean variantEnableFlattenNested, java.util.List<Integer> clusterKeyUids,
-                    long storagePageSize, long storageDictPageSize, boolean createInitialRowset)
-                    throws DdlException {
+                    boolean variantEnableFlattenNested, long storagePageSize) throws DdlException {
                 // Capture the actual format passed to createTabletMetaBuilder
                 capturedFormat.set(invertedIndexFileStorageFormat);
                 return OlapFile.TabletMetaCloudPB.newBuilder();
