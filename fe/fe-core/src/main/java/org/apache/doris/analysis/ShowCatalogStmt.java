@@ -34,6 +34,7 @@ public class ShowCatalogStmt extends ShowStmt implements NotFallbackInParser {
                     .addColumn(new Column("CreateTime", ScalarType.createStringType()))
                     .addColumn(new Column("LastUpdateTime", ScalarType.createStringType()))
                     .addColumn(new Column("Comment", ScalarType.createStringType()))
+                    .addColumn(new Column("ErrorMsg", ScalarType.createStringType()))
                     .build();
 
     private static final ShowResultSetMetaData META_DATA_SPECIFIC =

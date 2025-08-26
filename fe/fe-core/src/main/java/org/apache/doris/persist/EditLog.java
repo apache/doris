@@ -311,7 +311,14 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_DB: {
                     Database db = (Database) journal.getData();
-                    CreateDbInfo info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    CreateDbInfo info;
+                    if (!Strings.isNullOrEmpty(db.getCtlName())) {
+                        // if ctlName is not empty, it means this db is created in an external catalog
+                        // we just need db name and ctl name
+                        info = new CreateDbInfo(db.getCtlName(), db.getName(), null);
+                    } else {
+                        info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    }
                     env.replayCreateDb(info);
                     break;
                 }
@@ -1615,8 +1622,8 @@ public class EditLog {
         logEdit(OperationType.OP_SAVE_TRANSACTION_ID, new Text(Long.toString(transactionId)));
     }
 
-    public void logCreateDb(CreateDbInfo info) {
-        logEdit(OperationType.OP_NEW_CREATE_DB, info);
+    public void logCreateDb(Database db) {
+        logEdit(OperationType.OP_CREATE_DB, db);
     }
 
     public void logDropDb(DropDbInfo dropDbInfo) {

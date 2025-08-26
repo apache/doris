@@ -1793,7 +1793,8 @@ class Suite implements GroovyInterceptable {
         String closeFoldConstant = "set debug_skip_fold_constant=true";
         sql(closeFoldConstant)
         logger.info(foldSql)
-        List<List<Object>> resultExpected = sql(foldSql)
+        Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult2 = JdbcUtils.executeToStringList(context.getConnection(), foldSql)
+        List<List<Object>> resultExpected = tupleResult2.first
         logger.info("result expected: " + resultExpected.toString())
 
         String errorMsg = null

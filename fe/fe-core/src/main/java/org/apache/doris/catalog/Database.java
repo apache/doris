@@ -131,6 +131,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // from dbProperties;
     private BinlogConfig binlogConfig = new BinlogConfig();
 
+    // ATTN: This field is only used for compatible with old version
+    // Do not use it except for replaying OP_CREATE_DB
+    // it will be removed in version 4.0
+    @SerializedName(value = "cn")
+    private String ctlName;
+
     public Database() {
         this(0, null);
     }
@@ -153,6 +159,19 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
+    }
+
+    // Only used for creating external database.
+    // DO NOT use it for internal database
+    public Database(String ctlName, String dbName) {
+        this(0, dbName);
+        Preconditions.checkState(!Strings.isNullOrEmpty(ctlName), dbName);
+        this.ctlName = ctlName;
+    }
+
+    // DO NOT use it except for replaying OP_CREATE_DB
+    public String getCtlName() {
+        return ctlName;
     }
 
     public void markDropped() {
@@ -460,9 +479,17 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
+        if (table == null) {
+            return;
+        }
+        unregisterTable(table.getId());
+    }
+
+    public void unregisterTable(Long tableId) {
+        Table table = getTableNullable(tableId);
         if (table != null) {
-            this.nameToTable.remove(tableName);
-            this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            this.nameToTable.remove(table.getName());
+            this.lowerCaseToTableName.remove(table.getName().toLowerCase());
             this.idToTable.remove(table.getId());
             if (table.isTemporary()) {
                 Env.getCurrentEnv().unregisterTempTable(table);
