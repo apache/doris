@@ -1347,6 +1347,126 @@ TEST(MetaServiceJobVersionedReadTest, CompactionJobTest) {
     }
 }
 
+TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "test_cloud_instance_id";
+    std::string cloud_unique_id = "1:test_cloud_unique_id:1";
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    int64_t table_id = 1, index_id = 2, partition_id = 3, tablet_id = 4;
+    int64_t new_tablet_id = 14;
+    {
+        // Create tablets
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, true);
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, new_tablet_id, true, true);
+    }
+
+    {
+        // Create rowsets for old tablet
+        insert_rowset(meta_service.get(), 1, "commit_rowset_1", table_id, partition_id, tablet_id);
+        insert_rowset(meta_service.get(), 1, "commit_rowset_2", table_id, partition_id, tablet_id);
+        insert_rowset(meta_service.get(), 1, "commit_rowset_3", table_id, partition_id, tablet_id);
+        insert_rowset(meta_service.get(), 1, "commit_rowset_4", table_id, partition_id, tablet_id);
+    }
+
+    auto get_tablet_stats = [&](int64_t tid) -> TabletStatsPB {
+        GetTabletStatsRequest get_tablet_stats_req;
+        get_tablet_stats_req.set_cloud_unique_id(cloud_unique_id);
+        auto* tablet_idx = get_tablet_stats_req.add_tablet_idx();
+        tablet_idx->set_tablet_id(tid);
+        tablet_idx->set_db_id(1);
+        tablet_idx->set_index_id(index_id);
+        tablet_idx->set_partition_id(partition_id);
+        tablet_idx->set_table_id(table_id);
+        GetTabletStatsResponse get_tablet_stats_resp;
+        brpc::Controller cntl;
+        meta_service->get_tablet_stats(&cntl, &get_tablet_stats_req, &get_tablet_stats_resp,
+                                       nullptr);
+        EXPECT_EQ(get_tablet_stats_resp.status().code(), MetaServiceCode::OK);
+        EXPECT_EQ(get_tablet_stats_resp.tablet_stats_size(), 1);
+        return get_tablet_stats_resp.tablet_stats(0);
+    };
+
+    std::string job_id = "schema_change_job_1";
+    int64_t txn_id = 123456;
+
+    {
+        // Start schema change job
+        StartTabletJobResponse res;
+        start_schema_change_job(meta_service.get(), table_id, index_id, partition_id, 
+                               tablet_id, new_tablet_id, job_id, "ip:port", res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Create output rowsets for new tablet
+    std::vector<doris::RowsetMetaCloudPB> output_rowsets;
+    for (int64_t i = 0; i < 3; ++i) {
+        auto rowset = create_rowset(new_tablet_id, i + 2, i + 2, 100);
+        rowset.set_txn_id(txn_id + i);
+        output_rowsets.push_back(rowset);
+        CreateRowsetResponse res;
+        commit_rowset(meta_service.get(), output_rowsets.back(), res, txn_id + i);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    auto old_tablet_stats_pb = get_tablet_stats(tablet_id);
+    auto new_tablet_stats_pb = get_tablet_stats(new_tablet_id);
+
+    {
+        // Finish schema change job
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        req.set_action(FinishTabletJobRequest::COMMIT);
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        
+        auto schema_change = req.mutable_job()->mutable_schema_change();
+        schema_change->set_id(job_id);
+        schema_change->set_initiator("ip:port");
+        schema_change->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
+        schema_change->mutable_new_tablet_idx()->set_table_id(table_id);
+        schema_change->mutable_new_tablet_idx()->set_index_id(index_id);
+        schema_change->mutable_new_tablet_idx()->set_partition_id(partition_id);
+        schema_change->set_alter_version(output_rowsets.back().end_version());
+
+        // Set output rowsets info
+        for (const auto& rowset : output_rowsets) {
+            schema_change->add_txn_ids(rowset.txn_id());
+            schema_change->add_output_versions(rowset.end_version());
+        }
+        schema_change->set_num_output_rows(300);
+        schema_change->set_num_output_rowsets(3);
+        schema_change->set_num_output_segments(3);
+        schema_change->set_size_output_rowsets(300 * 110);
+        schema_change->set_index_size_output_rowsets(300 * 10);
+        schema_change->set_segment_size_output_rowsets(300 * 110);
+
+        brpc::Controller cntl;
+        meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        // Verify tablet stats are updated correctly
+        auto new_stats = get_tablet_stats(new_tablet_id);
+        
+        EXPECT_EQ(new_stats.num_rows(), 
+                  new_tablet_stats_pb.num_rows() + req.job().schema_change().num_output_rows());
+        EXPECT_EQ(new_stats.data_size(),
+                  new_tablet_stats_pb.data_size() + req.job().schema_change().size_output_rowsets());
+        EXPECT_EQ(new_stats.num_rowsets(), 
+                  new_tablet_stats_pb.num_rowsets() + req.job().schema_change().num_output_rowsets());
+        EXPECT_EQ(new_stats.num_segments(), 
+                  new_tablet_stats_pb.num_segments() + req.job().schema_change().num_output_segments());
+        EXPECT_EQ(new_stats.index_size(),
+                  new_tablet_stats_pb.index_size() + req.job().schema_change().index_size_output_rowsets());
+        EXPECT_EQ(new_stats.segment_size(),
+                  new_tablet_stats_pb.segment_size() + req.job().schema_change().segment_size_output_rowsets());
+    }
+}
+
 void check_delete_bitmap_lock(MetaServiceProxy* meta_service, std::string instance_id,
                               int64_t table_id, int64_t lock_id, bool exist) {
     std::unique_ptr<Transaction> txn;
