@@ -5654,7 +5654,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
               << "ms" << std::endl;
     check_multiple_txn_info_kvs(txn_kv, 5000);
 }
-  
+
 TEST(RecyclerTest, recycle_restore_job_complete_state) {
     // cloud::config::fdb_cluster_file_path = "fdb.cluster";
     // auto txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
