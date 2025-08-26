@@ -64,6 +64,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.List;
@@ -435,8 +436,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             if (parentDist instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
                 List<ExprId> hashExprIds = distributionRequestFromParent.getOrderedShuffledColumns();
-                Set<ExprId> intersectId = new HashSet<>(groupByExprIds);
-                if (intersectId.retainAll(hashExprIds)) {
+                Set<ExprId> intersectId = Sets.intersection(new HashSet<>(hashExprIds), new HashSet<>(groupByExprIds));
+                if (!intersectId.isEmpty() && intersectId.size() < groupByExprIds.size()) {
                     // TODO: use ndv decide, if ndv low, not send parent
                     addRequestPropertyToChildren(PhysicalProperties.createHash(Utils.fastToImmutableList(intersectId),
                             ShuffleType.REQUIRE));
