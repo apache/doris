@@ -314,6 +314,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -3185,16 +3186,29 @@ public class Env {
                 bdbha.addUnReadyElectableNode(nodeName, targetFollowerCount);
             }
 
-            // Only add frontend after removing the conflict nodes, to ensure the exception safety.
-            fe = new Frontend(role, nodeName, host, editLogPort);
-            fe.setCloudUniqueId(cloudUniqueId);
-            frontends.put(nodeName, fe);
+            if (!isFeCatalogReady(host, editLogPort)) {
+                // Only add frontend after removing the conflict nodes, to ensure the exception safety.
+                fe = new Frontend(role, nodeName, host, editLogPort);
+                fe.setCloudUniqueId(cloudUniqueId);
+                frontends.put(nodeName, fe);
 
-            LOG.info("add frontend: {}", fe);
+                LOG.info("add frontend: {}", fe);
 
-            editLog.logAddFrontend(fe);
+                editLog.logAddFrontend(fe);
+            } else {
+                bdbha.removeUnReadyElectableNode(nodeName, getFollowerCount());
+                throw new DdlException("the catalog of " + nodeName " is ready, cannot be added, please check again");
+            }
         } finally {
             unlock();
+        }
+    }
+
+    private boolean isFeCatalogReady(String host, int editLogPort) {
+        try (Socket socket = new Socket(host, editLogPort)) {
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
 
