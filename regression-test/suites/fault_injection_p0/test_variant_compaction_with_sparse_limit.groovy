@@ -70,6 +70,14 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
                 } finally {
                     GetDebugPoint().disableDebugPointForAllBEs("exist_in_sparse_column_must_be_false")
                 }
+            } else if (max_subcolumns_count > 1) {
+                // here will aways false
+                try {
+                    GetDebugPoint().enableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+                    sql """ select v['mmm'] from ${tableName} where k = 30"""
+                } finally {
+                    GetDebugPoint().disableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+                }
             }
         }
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
@@ -127,6 +135,40 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
             qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc limit 10;"
         }
 
+    } catch (e) {
+        logger.info("catch exception: ${e}")
     } finally {
+        sql "DROP TABLE IF EXISTS simple_variant_DUPLICATE"
+        sql "DROP TABLE IF EXISTS simple_variant_UNIQUE"
+        sql "DROP TABLE IF EXISTS simple_variant_AGGREGATE"
+    }
+
+    // test  variant_max_sparse_column_statistics_size debug error case
+    sql "DROP TABLE IF EXISTS tn_simple_variant_DUPLICATE"
+    sql """
+        CREATE TABLE IF NOT EXISTS tn_simple_variant_DUPLICATE (
+            k bigint,
+            v variant <properties(\"variant_max_subcolumns_count\" = \"2\", \"variant_max_sparse_column_statistics_size\" = \"1\")>
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        properties("replication_num" = "1", "disable_auto_compaction" = "true");
+    """
+    sql """insert into tn_simple_variant_DUPLICATE values (1, '{"a" : 1, "b" : 2}');"""
+    sql """insert into tn_simple_variant_DUPLICATE values (2, '{"d" : "ddd",  "s" : "fff", "m": 111}');"""
+    // here will aways false
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+        sql """ select v['a'] from tn_simple_variant_DUPLICATE where k = 1"""
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+    }
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+        sql """ select v['m'] from tn_simple_variant_DUPLICATE where k = 2"""
+    } catch (e) {
+        logger.info("catch exception: ${e}")
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
     }
 }

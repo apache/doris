@@ -129,5 +129,9 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
             sql "set topn_opt_limit_threshold = 10"
             order_qt_select "select * from ${tableName} order by k, cast(v as string) limit 5;"
         }
+    } finally {
+        sql "DROP TABLE IF EXISTS simple_variant_DUPLICATE"
+        sql "DROP TABLE IF EXISTS simple_variant_UNIQUE"
+        sql "DROP TABLE IF EXISTS simple_variant_AGGREGATE"
     }
 }
