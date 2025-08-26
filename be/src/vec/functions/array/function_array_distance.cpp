@@ -64,6 +64,10 @@ float CosineDistance::distance(const float* x, const float* y, size_t d) {
         squared_x += x[i] * x[i];
         squared_y += y[i] * y[i];
     }
+    // division by zero check
+    if (squared_x == 0 || squared_y == 0) [[unlikely]] {
+        return 2.F;
+    }
     return 1 - dot_prod / sqrt(squared_x * squared_y);
 }
 
