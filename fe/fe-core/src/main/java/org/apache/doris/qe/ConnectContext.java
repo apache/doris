@@ -1031,7 +1031,9 @@ public class ConnectContext {
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
         // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
-        cleanup();
+        if (killConnection) {
+            cleanup();
+        }
     }
 
     // kill operation with no protect by timeout.
@@ -1056,7 +1058,9 @@ public class ConnectContext {
                     "query is timeout, killed by timeout checker"));
         }
         // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
-        cleanup();
+        if (killConnection) {
+            cleanup();
+        }
     }
 
     public void cancelQuery(Status cancelReason) {

@@ -81,7 +81,9 @@ public class FlightSqlConnectContext extends ConnectContext {
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "arrow flight query killed by user"));
         // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
-        cleanup();
+        if (killConnection) {
+            cleanup();
+        }
     }
 
     @Override
