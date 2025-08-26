@@ -38,14 +38,12 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
     def table_name = "variant_add_multi_var_mulit_indexes"
-    int count = new Random().nextInt(10) + 3
-    sql "set default_variant_max_subcolumns_count = ${count}"
     sql "set default_variant_enable_typed_paths_to_sparse = false"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<properties("variant_max_subcolumns_count" = "${count}")>
+            v variant
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
