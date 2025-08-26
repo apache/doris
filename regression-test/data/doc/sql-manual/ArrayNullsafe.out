@@ -490,9 +490,9 @@ false
 \N
 
 -- !sql_array_intersect2 --
+[]
 [null]
-[null]
-[null]
+[]
 []
 \N
 
@@ -835,4 +835,49 @@ false
 1
 1
 1
+
+-- !sql_array_product --
+120
+15
+96
+\N
+\N
+
+-- !sql_array_product --
+193.26120000000003
+19.965
+205.78452576000012
+\N
+\N
+
+-- !sql_array_product --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_product --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_product --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_product --
+2
+2
+2
+2
+2
+
+-- !sql_array_product --
+32768
 

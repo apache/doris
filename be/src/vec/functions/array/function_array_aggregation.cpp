@@ -84,14 +84,14 @@ template <PrimitiveType Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::PRODUCT> {
     static constexpr PrimitiveType Result =
             Element == TYPE_DECIMALV2 ? TYPE_DECIMALV2
-                                      : (is_decimal(Element) ? TYPE_DECIMAL128I : TYPE_DOUBLE);
+                                      : (is_decimal(Element) ? TYPE_DECIMAL128I : Element);
 };
 
 template <PrimitiveType Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::PRODUCT, true> {
     static constexpr PrimitiveType Result =
             Element == TYPE_DECIMALV2 ? TYPE_DECIMALV2
-                                      : (is_decimal(Element) ? TYPE_DECIMAL256 : TYPE_DOUBLE);
+                                      : (is_decimal(Element) ? TYPE_DECIMAL256 : Element);
 };
 
 template <PrimitiveType Element>
