@@ -1538,8 +1538,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    // fail because as datetime would be datetime(0), but mv is datetime(6)
-    async_mv_rewrite_fail(db, mv5_1, query5_1, "mv5_1")
+    async_mv_rewrite_success(db, mv5_1, query5_1, "mv5_1")
     order_qt_query5_1_after "${query5_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_1"""
 
