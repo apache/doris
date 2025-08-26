@@ -1358,8 +1358,9 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
     int64_t new_tablet_id = 14;
     {
         // Create tablets
-        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, true);
-        create_tablet(meta_service.get(), table_id, index_id, partition_id, new_tablet_id, true, true);
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false);
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, new_tablet_id, false,
+                      true);
     }
 
     {
@@ -1393,9 +1394,25 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
 
     {
         // Start schema change job
+        StartTabletJobRequest req;
         StartTabletJobResponse res;
-        start_schema_change_job(meta_service.get(), table_id, index_id, partition_id, 
-                               tablet_id, new_tablet_id, job_id, "ip:port", res);
+
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+
+        auto* schema_change = req.mutable_job()->mutable_schema_change();
+        schema_change->set_id(job_id);
+        schema_change->set_initiator("ip:port");
+        schema_change->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
+        schema_change->mutable_new_tablet_idx()->set_table_id(table_id);
+        schema_change->mutable_new_tablet_idx()->set_index_id(index_id);
+        schema_change->mutable_new_tablet_idx()->set_partition_id(partition_id);
+        schema_change->set_expiration(time(nullptr) + 12);
+
+        brpc::Controller cntl;
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 
@@ -1423,8 +1440,8 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         req.mutable_job()->mutable_idx()->set_index_id(index_id);
         req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
         req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
-        
-        auto schema_change = req.mutable_job()->mutable_schema_change();
+
+        auto* schema_change = req.mutable_job()->mutable_schema_change();
         schema_change->set_id(job_id);
         schema_change->set_initiator("ip:port");
         schema_change->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
@@ -1451,19 +1468,22 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
 
         // Verify tablet stats are updated correctly
         auto new_stats = get_tablet_stats(new_tablet_id);
-        
-        EXPECT_EQ(new_stats.num_rows(), 
+
+        EXPECT_EQ(new_stats.num_rows(),
                   new_tablet_stats_pb.num_rows() + req.job().schema_change().num_output_rows());
-        EXPECT_EQ(new_stats.data_size(),
-                  new_tablet_stats_pb.data_size() + req.job().schema_change().size_output_rowsets());
-        EXPECT_EQ(new_stats.num_rowsets(), 
-                  new_tablet_stats_pb.num_rowsets() + req.job().schema_change().num_output_rowsets());
-        EXPECT_EQ(new_stats.num_segments(), 
-                  new_tablet_stats_pb.num_segments() + req.job().schema_change().num_output_segments());
+        EXPECT_EQ(new_stats.data_size(), new_tablet_stats_pb.data_size() +
+                                                 req.job().schema_change().size_output_rowsets());
+        EXPECT_EQ(new_stats.num_rowsets(), new_tablet_stats_pb.num_rowsets() +
+                                                   req.job().schema_change().num_output_rowsets());
+        EXPECT_EQ(new_stats.num_segments(),
+                  new_tablet_stats_pb.num_segments() +
+                          req.job().schema_change().num_output_segments());
         EXPECT_EQ(new_stats.index_size(),
-                  new_tablet_stats_pb.index_size() + req.job().schema_change().index_size_output_rowsets());
+                  new_tablet_stats_pb.index_size() +
+                          req.job().schema_change().index_size_output_rowsets());
         EXPECT_EQ(new_stats.segment_size(),
-                  new_tablet_stats_pb.segment_size() + req.job().schema_change().segment_size_output_rowsets());
+                  new_tablet_stats_pb.segment_size() +
+                          req.job().schema_change().segment_size_output_rowsets());
     }
 }
 
