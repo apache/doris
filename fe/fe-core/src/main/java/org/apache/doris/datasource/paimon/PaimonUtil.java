@@ -703,7 +703,7 @@ public class PaimonUtil {
         if (isDigital) {
             timestampMillis = Long.parseLong(timestamp);
         } else {
-            timestampMillis = TimeUtils.timeStringToLong(timestamp, TimeUtils.getTimeZone());
+            timestampMillis = TimeUtils.msTimeStringToLong(timestamp, TimeUtils.getTimeZone());
             if (timestampMillis < 0) {
                 throw new DateTimeException("can't parse time: " + timestamp);
             }
