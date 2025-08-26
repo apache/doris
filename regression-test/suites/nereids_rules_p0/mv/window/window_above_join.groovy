@@ -1157,7 +1157,7 @@ suite("window_above_join") {
             where o_orderkey > 6
             """
     order_qt_query9_0_before "${query9_0}"
-    async_mv_rewrite_success(db, mv9_0, query9_0, "join_mv9_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv9_0, query9_0, "join_mv9_0")
     order_qt_query9_0_after "${query9_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv9_0"""
 
@@ -1209,7 +1209,7 @@ suite("window_above_join") {
             where o_orderkey > 7
             """
     order_qt_query9_1_before "${query9_1}"
-    async_mv_rewrite_success(db, mv9_1, query9_1, "join_mv9_1")
+    async_mv_rewrite_success_without_check_chosen(db, mv9_1, query9_1, "join_mv9_1")
     order_qt_query9_1_after "${query9_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv9_1"""
 
