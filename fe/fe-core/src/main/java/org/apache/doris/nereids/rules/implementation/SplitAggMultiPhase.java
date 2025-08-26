@@ -22,7 +22,6 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.ChildrenPropertiesRegulator;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -68,7 +67,7 @@ import java.util.Set;
 /**SplitAggMultiPhase
  * only process agg with distinct function, split Agg into multi phase
  * */
-public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationRuleFactory {
+public class SplitAggMultiPhase extends SplitAggBaseRule implements ImplementationRuleFactory {
     public static final SplitAggMultiPhase INSTANCE = new SplitAggMultiPhase();
     private static final String SALT_EXPR = "saltExpr";
 

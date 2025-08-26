@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -110,8 +111,8 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
             if (plan.arity() != 0 && plan.child(0) instanceof LogicalAggregate) {
-                // throw new AnalysisException(String.format("%s not in aggregate's output", notFromChildren
-                //         .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
+                throw new AnalysisException(String.format("%s not in aggregate's output", notFromChildren
+                        .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
             } else {
                 throw new AnalysisException(String.format(
                         "Input slot(s) not in child's output: %s in plan: %s\nchild output is: %s\nplan tree:\n%s",

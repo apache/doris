@@ -87,7 +87,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
-import org.apache.doris.nereids.rules.implementation.SplitAgg;
+import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
@@ -205,7 +205,7 @@ public class RuleSet {
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
             .add(new AggregateStrategies())
-            .add(SplitAgg.INSTANCE)
+            .add(SplitAggWithoutDistinct.INSTANCE)
             .add(SplitAggMultiPhase.INSTANCE)
             .add(SplitAggMultiPhaseWithoutGbyKey.INSTANCE)
             .add(new LogicalUnionToPhysicalUnion())

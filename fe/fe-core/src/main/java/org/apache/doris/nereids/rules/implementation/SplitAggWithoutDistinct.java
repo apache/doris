@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -45,8 +44,8 @@ import java.util.Map;
 /**SplitAgg
  * only process agg without distinct function, split Agg into 2 phase: local agg and global agg
  * */
-public class SplitAgg extends OneExplorationRuleFactory {
-    public static final SplitAgg INSTANCE = new SplitAgg();
+public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
+    public static final SplitAggWithoutDistinct INSTANCE = new SplitAggWithoutDistinct();
 
     @Override
     public Rule build() {
@@ -63,6 +62,12 @@ public class SplitAgg extends OneExplorationRuleFactory {
                 .build();
     }
 
+    /**
+     * select sum(a) from t group by b;
+     * LogicalAggregate(group by b, outputExpr: sum(a), b)
+     * ->
+     * PhysicalHashAggregate(group by b, outputExpr: sum(a), b)
+     * */
     private List<Plan> implementOnePhase(LogicalAggregate<? extends Plan> logicalAgg) {
         if (!logicalAgg.supportAggregatePhase(AggregatePhase.ONE)) {
             return ImmutableList.of();
@@ -87,6 +92,13 @@ public class SplitAgg extends OneExplorationRuleFactory {
                 null, logicalAgg.child()));
     }
 
+    /**
+     * select sum(a) from t group by b;
+     * LogicalAggregate(group by b, outputExpr: sum(a), b)
+     * ->
+     * PhysicalHashAggregate(group by b, outputExpr: sum(a), b)
+     *   +--PhysicalHashAggregate(group by b, outputExpr: partial_sum(a), b)
+     * */
     private List<Plan> splitTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
         if (!aggregate.supportAggregatePhase(AggregatePhase.TWO)) {
             return ImmutableList.of();

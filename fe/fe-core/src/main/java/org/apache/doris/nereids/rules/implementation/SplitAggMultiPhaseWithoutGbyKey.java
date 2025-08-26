@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -60,7 +59,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**SplitAggMultiPhaseWithoutGbyKey*/
-public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements ExplorationRuleFactory {
+public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements ImplementationRuleFactory {
     public static final SplitAggMultiPhaseWithoutGbyKey INSTANCE = new SplitAggMultiPhaseWithoutGbyKey();
     public static final List<Class<? extends AggregateFunction>> finalMultiDistinctSupportFunc =
             ImmutableList.of(Count.class, Sum.class, Sum0.class);
