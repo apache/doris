@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -56,6 +57,8 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -64,6 +67,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
@@ -83,12 +88,21 @@ import java.util.Set;
  * Then, it replaces the element_at with the corresponding slot.
  */
 public class VariantSubPathPruning extends DefaultPlanRewriter<PruneContext> implements CustomRewriter {
+    public static final Logger LOG = LogManager.getLogger(VariantSubPathPruning.class);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         Context context = new Context();
         plan.accept(VariantSubPathCollector.INSTANCE, context);
         if (context.elementAtToSubPathMap.isEmpty()) {
+            return plan;
+        } else if (context.hasCircularReference()) {
+            if (SessionVariable.isFeDebug()) {
+                throw new AnalysisException("prune variant sub path have circular reference");
+            } else if (ConnectContext.get() != null) {
+                LOG.warn("prune variant sub path have circular reference, query id: {} ",
+                        DebugUtil.printId(ConnectContext.get().queryId()));
+            }
             return plan;
         } else {
             return plan.accept(VariantSubPathReplacer.INSTANCE, context);
@@ -124,7 +138,26 @@ public class VariantSubPathPruning extends DefaultPlanRewriter<PruneContext> imp
         // same as elementAtToSlotsMap, record variant slot should be replaced by which slots.
         private final Map<Slot, Map<List<String>, SlotReference>> slotToSlotsMap = Maps.newHashMap();
 
+        public boolean hasCircularReference() {
+            for (Slot key : slotToOriginalExprMap.keySet()) {
+                Set<Slot> visited = Sets.newHashSet();
+                Expression expr = key;
+                while (expr instanceof Slot) {
+                    Slot slot = (Slot) expr;
+                    if (!visited.add(slot)) {
+                        return true;
+                    }
+                    expr = slotToOriginalExprMap.get(slot);
+                }
+            }
+            return false;
+        }
+
         public void putSlotToOriginal(Slot slot, Expression expression) {
+            // alias(a#1 as a#1), skip to avoid dead loop
+            if (slot.equals(expression)) {
+                return;
+            }
             this.slotToOriginalExprMap.put(slot, expression);
             // update existed entry
             //   element_at(3, c) -> 3, ['c']
