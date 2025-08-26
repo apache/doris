@@ -53,6 +53,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -242,6 +243,11 @@ public class InternalCatalogTest {
             public DataSortInfo getDataSortInfo() {
                 return null;
             }
+
+            @Mock
+            public TEncryptionAlgorithm getTDEAlgorithm() {
+                return TEncryptionAlgorithm.PLAINTEXT;
+            }
         };
 
         // Create initial partition
@@ -400,6 +406,11 @@ public class InternalCatalogTest {
             public DataSortInfo getDataSortInfo() {
                 return null;
             }
+
+            @Mock
+            public TEncryptionAlgorithm getTDEAlgorithm() {
+                return TEncryptionAlgorithm.PLAINTEXT;
+            }
         };
 
         try {
@@ -529,6 +540,11 @@ public class InternalCatalogTest {
             @Mock
             public DataSortInfo getDataSortInfo() {
                 return null;
+            }
+
+            @Mock
+            public TEncryptionAlgorithm getTDEAlgorithm() {
+                return TEncryptionAlgorithm.PLAINTEXT;
             }
         };
 
