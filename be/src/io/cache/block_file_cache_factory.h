@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
+#include "gen_cpp/internal_service.pb.h"
 namespace doris {
 class TUniqueId;
 
@@ -63,6 +64,11 @@ public:
     [[nodiscard]] size_t get_cache_instance_size() const { return _caches.size(); }
 
     std::vector<std::string> get_cache_file_by_path(const UInt128Wrapper& hash);
+
+    // Return cached blocks data for a given key hash
+    std::vector<doris::CacheBlock> get_cache_data_by_path(const UInt128Wrapper& hash);
+    // Convenience overload: compute hash from path and return cached blocks data
+    std::vector<doris::CacheBlock> get_cache_data_by_path(const std::string& path);
 
     BlockFileCache* get_by_path(const UInt128Wrapper& hash);
     BlockFileCache* get_by_path(const std::string& cache_base_path);

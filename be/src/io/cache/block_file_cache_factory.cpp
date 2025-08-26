@@ -41,6 +41,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "util/slice.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -117,6 +118,39 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     }
 
     return Status::OK();
+}
+
+std::vector<doris::CacheBlock> FileCacheFactory::get_cache_data_by_path(const std::string& path) {
+    auto cache_hash = BlockFileCache::hash(path);
+    return get_cache_data_by_path(cache_hash);
+}
+
+std::vector<doris::CacheBlock> FileCacheFactory::get_cache_data_by_path(const UInt128Wrapper& hash) {
+    std::vector<doris::CacheBlock> ret;
+    BlockFileCache* cache = FileCacheFactory::instance()->get_by_path(hash);
+    if (cache == nullptr) {
+        return ret;
+    }
+    auto blocks = cache->get_blocks_by_key(hash);
+    for (auto& [offset, fb] : blocks) {
+        doris::CacheBlock cb;
+        cb.set_file_offset(static_cast<int64_t>(offset));
+        cb.set_size(static_cast<int64_t>(fb->range().size()));
+        // try to read data into bytes
+        std::string data;
+        data.resize(fb->range().size());
+        Slice slice(data.data(), data.size());
+        // read from beginning of this block
+        Status st = fb->read(slice, /*read_offset=*/0);
+        if (st.ok()) {
+            cb.set_data(data);
+        } else {
+            // On read failure, skip setting data but still report meta
+            VLOG_DEBUG << "read cache block failed: " << st; 
+        }
+        ret.emplace_back(std::move(cb));
+    }
+    return ret;
 }
 
 std::vector<std::string> FileCacheFactory::get_cache_file_by_path(const UInt128Wrapper& hash) {

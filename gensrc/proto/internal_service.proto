@@ -1070,9 +1070,12 @@ message PFetchPeerDataRequest {
     }
     optional Type type = 1;
     // obj path, let peer calc hash, and download file cache
+    // PEER_FILE_RANGE use
     optional string path = 2;
-    optional int64 file_offset = 3;
-    optional int64 size = 4;
+    // PEER_FILE_CACHE_BLOCK
+    optional bytes hash = 3;
+    optional int64 file_offset = 4;
+    optional int64 size = 5;
 }
 
 message CacheBlock {
@@ -1082,7 +1085,7 @@ message CacheBlock {
 }
 
 message PFetchPeerDataResponse {
-    optional PStatus code = 1;
+    optional PStatus status = 1;
     repeated CacheBlock datas = 2;
 }
 
