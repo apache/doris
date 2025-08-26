@@ -199,7 +199,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             std::chrono::system_clock::time_point tp;
             // time_zone suffix pattern
             // Z/+08:00/-04:30
-            RE2 time_zone_pattern(R"([+-]\d{2}:\d{2}|Z)");
+            RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
             bool ok = false;
             std::string fmt;
             re2::StringPiece value;
