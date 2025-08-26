@@ -252,4 +252,20 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_min "SELECT array_min([null]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_min "SELECT array_min([null, 1, null, 2, null]) FROM fn_test_nullsafe_array order by id"
 
+    // array_product 
+    qt_sql_array_product "SELECT array_product(int_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_product "SELECT array_product(double_array) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_product "SELECT array_product(null) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_product "SELECT array_product([]) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_product "SELECT array_product([null]) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_product "SELECT array_product([null, 1, null, 2, null]) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_product "SELECT array_product([32768])"
+    
+    // overflow in product
+    test {
+       sql "select array_product(cast([32767,2] as array<smallint>))"
+       exception "Product overflow "
+    }
+      
+
 }

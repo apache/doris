@@ -49,13 +49,13 @@ public class ArrayProduct extends ScalarFunction implements ExplicitlyCastableSi
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(DoubleType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(TinyIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(SmallIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(IntegerType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(BigIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(LargeIntType.INSTANCE)),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(ArrayType.of(TinyIntType.INSTANCE)),
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(ArrayType.of(SmallIntType.INSTANCE)),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(ArrayType.of(IntegerType.INSTANCE)),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(BigIntType.INSTANCE)),
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(ArrayType.of(LargeIntType.INSTANCE)),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(ArrayType.of(DecimalV3Type.WILDCARD)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(FloatType.INSTANCE))
+            FunctionSignature.ret(FloatType.INSTANCE).args(ArrayType.of(FloatType.INSTANCE))
     );
 
     /**
