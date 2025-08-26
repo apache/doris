@@ -136,13 +136,11 @@ struct AbsImpl {
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
         if constexpr (IsDecimalNumber<A>) {
             return a < A(0) ? A(-a) : a;
-        } else if constexpr (IsIntegralV<A> && IsSignedV<A>) {
+        } else if constexpr (IsIntegralV<A>) {
             return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                                       ~a) +
                                       1
                             : a;
-        } else if constexpr (IsIntegralV<A>) {
-            return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
         } else if constexpr (std::is_floating_point_v<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                     std::abs(a));
