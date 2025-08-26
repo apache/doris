@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.table.Table;
 
 public class PaimonSnapshot {
@@ -24,13 +25,22 @@ public class PaimonSnapshot {
     private final long snapshotId;
     private final long schemaId;
     private final long timestamp;
+    private final Snapshot.CommitKind commitKind;
+    private final Long deltaRecordCount;
     private final Table table;
 
-    public PaimonSnapshot(long snapshotId, long schemaId, long timestamp, Table table) {
+    public PaimonSnapshot(long snapshotId, long schemaId, long timestamp,
+            Snapshot.CommitKind commitKind, Long deltaRecordCount, Table table) {
         this.snapshotId = snapshotId;
         this.schemaId = schemaId;
         this.table = table;
         this.timestamp = timestamp;
+        this.commitKind = commitKind;
+        this.deltaRecordCount = deltaRecordCount;
+    }
+
+    public PaimonSnapshot(long snapshotId, Snapshot.CommitKind commitKind, Long deltaRecordCount) {
+        this(snapshotId, 0, 0, commitKind, deltaRecordCount, null);
     }
 
     public long getSnapshotId() {
@@ -43,6 +53,14 @@ public class PaimonSnapshot {
 
     public long getTimestamp() {
         return timestamp;
+    }
+
+    public Snapshot.CommitKind getCommitKind() {
+        return commitKind;
+    }
+
+    public Long getDeltaRecordCount() {
+        return deltaRecordCount;
     }
 
     public Table getTable() {

@@ -130,36 +130,6 @@ suite("test_paimon_incremental_mtmv", "p0,external,mtmv,external_docker,external
         exception "mv query must be agg mode on external table"
     }
 
-    // mv sql complex expression column must has alias, such as sum(a) as x
-    test {
-        sql """
-            CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-            partition by(`date`)
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1')
-            AS
-            select date, k1 + 1, sum(a1) as a1
-            FROM ${catalogName}.${paimonDbName}.${paimonAggTableName}
-            GROUP BY 1, 2
-            """
-        exception "complex expression must has alias"
-    }
-    test {
-        sql """
-            CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
-            partition by(`date`)
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1')
-            AS
-            select date, k1, sum(a1)
-            FROM ${catalogName}.${paimonDbName}.${paimonAggTableName}
-            GROUP BY 1, 2
-            """
-        exception "complex expression must has alias"
-    }
-
     // mv sql agg function args must paimon agg columns
     test {
         sql """

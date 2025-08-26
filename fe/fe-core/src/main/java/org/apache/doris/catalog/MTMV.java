@@ -222,6 +222,7 @@ public class MTMV extends OlapTable {
             this.jobInfo.addHistoryTask(task);
             Set<String> partitionNames = getPartitionNames();
             if (getIncrementalRefresh()) {
+                partitionNames.clear();
                 partitionNames.add(this.name);
             }
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, partitionNames);

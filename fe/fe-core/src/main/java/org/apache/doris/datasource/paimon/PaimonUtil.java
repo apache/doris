@@ -77,7 +77,7 @@ public class PaimonUtil {
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
 
     public static List<InternalRow> read(
-            Table table, @Nullable int[] projection, @Nullable Predicate predicate,
+            Table table, @Nullable int[] projection, @Nullable List<Predicate> predicates,
             Pair<ConfigOption<?>, String>... dynamicOptions)
             throws IOException {
         Map<String, String> options = new HashMap<>();
@@ -91,8 +91,8 @@ public class PaimonUtil {
         if (projection != null) {
             readBuilder.withProjection(projection);
         }
-        if (predicate != null) {
-            readBuilder.withFilter(predicate);
+        if (predicates != null) {
+            readBuilder.withFilter(predicates);
         }
         RecordReader<InternalRow> reader =
                 readBuilder.newRead().createReader(readBuilder.newScan().plan());

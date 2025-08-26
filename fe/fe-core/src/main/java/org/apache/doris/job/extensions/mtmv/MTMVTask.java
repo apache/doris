@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -83,6 +84,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -232,13 +234,19 @@ public class MTMVTask extends AbstractTask {
                     MTMVPartitionUtil.addPartition(mtmv, partitionKeyDesc);
                 }
             }
+            this.partitionSnapshots = Maps.newConcurrentMap();
             MetaLockUtils.readLockTables(tableIfs);
-            Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = new HashMap<>();
+            Map<String, MTMVRefreshPartitionSnapshot> execTableSnapshots = new HashMap<>();
             MTMVDataRefreshExec mtmvDataRefreshExec;
             try {
                 context = MTMVRefreshContext.buildContext(mtmv);
                 mtmvDataRefreshExec = getMTMVDataRefreshExec();
-                mtmvDataRefreshExec.prepare(context, execPartitionSnapshots);
+                mtmvDataRefreshExec.prepare(context, execTableSnapshots);
+                Map<String, Set<String>> partitionMappings = context.getPartitionMappings();
+                if (partitionMappings.isEmpty()) {
+                    partitionSnapshots.putAll(execTableSnapshots);
+                    return;
+                }
                 this.needRefreshPartitions = mtmvDataRefreshExec.calculateNeedRefreshPartitions(context);
             } finally {
                 MetaLockUtils.readUnlockTables(tableIfs);
@@ -252,7 +260,6 @@ public class MTMVTask extends AbstractTask {
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();
             long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
                     % refreshPartitionNum) > 0 ? 1 : 0);
-            this.partitionSnapshots = Maps.newConcurrentMap();
             for (int i = 0; i < execNum; i++) {
                 int start = i * refreshPartitionNum;
                 int end = start + refreshPartitionNum;
@@ -260,10 +267,9 @@ public class MTMVTask extends AbstractTask {
                         .subList(start, Math.min(end, needRefreshPartitions.size())));
                 // need get names before exec
                 if (!mtmv.getIncrementalRefresh()) {
-                    execPartitionSnapshots = MTMVPartitionUtil
+                    execTableSnapshots = MTMVPartitionUtil
                             .generatePartitionSnapshots(context,
-                                    relation.getBaseTablesOneLevel(),
-                                    execPartitionNames, false);
+                                    relation.getBaseTablesOneLevel(), execPartitionNames);
                 }
                 try {
                     mtmvDataRefreshExec.executeWithRetry(execPartitionNames, tableWithPartKey);
@@ -272,7 +278,7 @@ public class MTMVTask extends AbstractTask {
                     throw new JobException(e.getMessage(), e);
                 }
                 completedPartitions.addAll(execPartitionNames);
-                partitionSnapshots.putAll(execPartitionSnapshots);
+                partitionSnapshots.putAll(execTableSnapshots);
             }
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
@@ -295,8 +301,8 @@ public class MTMVTask extends AbstractTask {
 
     public abstract class MTMVDataRefreshExec {
 
-        protected abstract void prepare(MTMVRefreshContext context,
-                Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots) throws Exception;
+        protected void prepare(MTMVRefreshContext context,
+                Map<String, MTMVRefreshPartitionSnapshot> execTableSnapshots) throws Exception {}
 
         private void executeWithRetry(Set<String> execPartitionNames, Map<TableIf, String> tableWithPartKey)
                 throws Exception {
@@ -421,10 +427,6 @@ public class MTMVTask extends AbstractTask {
     private class MTMVPartitionRefreshExec extends MTMVDataRefreshExec {
 
         @Override
-        protected void prepare(MTMVRefreshContext context,
-                Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots) {}
-
-        @Override
         protected Command getDataRefreshCommand(
                 Set<String> refreshPartitionNames, Map<TableIf, String> tableWithPartKey) throws UserException {
             return UpdateMvUtils
@@ -438,10 +440,12 @@ public class MTMVTask extends AbstractTask {
         private long tableSnapshotId;
         private long mvSnapshotId;
         private Map<String, String> params;
+        private List<String> needRefreshPartitions;
 
         public void prepare(MTMVRefreshContext context,
-                Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots) throws Exception {
+                Map<String, MTMVRefreshPartitionSnapshot> execTableSnapshots) throws Exception {
             params = new HashMap<>();
+            needRefreshPartitions = new ArrayList<>();
             MTMVSnapshotIf mvSnapshot = MaterializedViewUtils.getIncrementalMVSnapshotInfo(mtmv);
             mvSnapshotId = Optional.ofNullable(mvSnapshot).map(MTMVSnapshotIf::getSnapshotVersion).orElse(0L);
             MTMVExternalTableParamsAssembler paramsAssembler =
@@ -450,20 +454,43 @@ public class MTMVTask extends AbstractTask {
                     && (taskContext.isComplete() || !CollectionUtils.isEmpty(taskContext.getPartitions()))) {
                 paramsAssembler.markReadBySnapshot(params, this.mvSnapshotId);
             } else {
-                // incremental refresh
-                execPartitionSnapshots.putAll(MTMVPartitionUtil.generatePartitionSnapshots(context,
-                        relation.getBaseTablesOneLevel(), Collections.singleton(mtmv.getName()), true));
-                tableSnapshotId = MaterializedViewUtils.getIncrementalMVTableSnapshotInfo(mtmv, execPartitionSnapshots)
-                        .getSnapshotVersion();
+                BaseTableInfo baseTableInfo = MaterializedViewUtils.getIncrementalMVBaseTable(mtmv);
+                TableIf table = MTMVUtil.getTable(baseTableInfo);
+                MvccTable mvccTable = (MvccTable) table;
+
                 // The first data synchronization, based on a full update from the latest snapshot
-                if (mvSnapshotId == 0L) {
-                    paramsAssembler.markReadBySnapshot(params, this.tableSnapshotId);
+                if (this.mvSnapshotId == 0L) {
+                    MTMVSnapshotIf latestSnapshot =
+                            MTMVPartitionUtil.getTableSnapshotFromContext((MTMVRelatedTableIf) table, context);
+                    this.tableSnapshotId = latestSnapshot.getSnapshotVersion();
+                    paramsAssembler.markReadBySnapshot(this.params, this.tableSnapshotId);
                 } else {
-                    // Incremental data update based on snapshot
-                    this.incremental = true;
-                    paramsAssembler.markReadBySnapshotIncremental(params, mvSnapshotId, tableSnapshotId);
+                    Optional<MTMVExternalTableParamsAssembler.RefreshSnapshotInfo> refreshSnapshotInfoOpt =
+                            paramsAssembler.calculateNextSnapshot(mvccTable, mvSnapshotId + 1, 0);
+                    this.tableSnapshotId = this.mvSnapshotId;
+                    if (refreshSnapshotInfoOpt.isPresent()) {
+                        MTMVExternalTableParamsAssembler.RefreshSnapshotInfo refreshSnapshotInfo =
+                                refreshSnapshotInfoOpt.get();
+                        this.tableSnapshotId = refreshSnapshotInfo.getSnapshotId();
+                        Map<String, Set<String>> partitionMappings = context.getPartitionMappings();
+                        this.needRefreshPartitions = paramsAssembler.calculateNeedRefreshPartitions(
+                                refreshSnapshotInfo, partitionMappings, mvccTable);
+                    }
+                    if (this.needRefreshPartitions.isEmpty()) {
+                        paramsAssembler.markReadBySnapshotIncremental(
+                                this.params, this.mvSnapshotId, this.tableSnapshotId);
+                    } else {
+                        paramsAssembler.markReadBySnapshot(this.params, this.tableSnapshotId);
+                    }
                 }
+                MvccSnapshot mvccSnapshot = mvccTable.loadSnapshot(
+                        Optional.of(TableSnapshot.versionOf(String.valueOf(this.tableSnapshotId))), Optional.empty());
+                MTMVRefreshPartitionSnapshot refreshPartitionSnapshot =
+                        MTMVPartitionUtil.generateIncrementalPartitionSnapshotsBySnapshotId(
+                                mvccSnapshot, baseTableInfo, (MTMVRelatedTableIf) table);
+                execTableSnapshots.put(mtmv.getName(), refreshPartitionSnapshot);
             }
+            this.incremental = paramsAssembler.isIncremental();
         }
 
         @Override
@@ -486,6 +513,8 @@ public class MTMVTask extends AbstractTask {
 
             if (incremental) {
                 return Collections.singletonList(mtmv.getName());
+            } else if (!this.needRefreshPartitions.isEmpty()) {
+                return this.needRefreshPartitions;
             }
 
             return super.calculateNeedRefreshPartitionsInternal(context);

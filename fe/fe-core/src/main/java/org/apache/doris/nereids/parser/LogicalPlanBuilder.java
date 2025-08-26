@@ -1495,10 +1495,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (null == intervalUnit) {
             throw new AnalysisException("interval time unit can not be " + ctx.getText());
         }
-        if (intervalUnit.equals(IntervalUnit.SECOND)
-                && !Config.enable_job_schedule_second_for_test) {
-            throw new AnalysisException("interval time unit can not be second");
-        }
         return intervalUnit;
     }
 

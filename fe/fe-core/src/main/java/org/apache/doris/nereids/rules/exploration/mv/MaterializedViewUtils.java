@@ -177,28 +177,6 @@ public class MaterializedViewUtils {
                         "Only Paimon table support incremental mv: " + fileScan.getTable()));
             }
 
-            // select a + 1 from t group a + 1  ->  a + 1 should has alias
-            project.getProjects().forEach(e -> {
-                if (e instanceof Alias) {
-                    Alias alias = (Alias) e;
-                    if (alias.isNameFromChild()) {
-                        throw new NereidsException(
-                                new RuntimeException("complex expression must has alias: " + e));
-                    }
-                }
-            });
-
-            // select a, sum(b) from t group a  ->  sum(b) should has alias
-            aggregate.getOutputExpressions().forEach(e -> {
-                if (e instanceof Alias) {
-                    Alias alias = (Alias) e;
-                    if (alias.isNameFromChild()) {
-                        throw new NereidsException(
-                                new RuntimeException("complex expression must has alias: " + e));
-                    }
-                }
-            });
-
             PaimonExternalTable paimonExternalTable = (PaimonExternalTable) fileScan.getTable();
 
             Table paimonTable = paimonExternalTable.getPaimonTable(Optional.empty());

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -65,7 +66,7 @@ public class PaimonMetadataCache {
     private PaimonSnapshotCacheValue loadSnapshot(PaimonSnapshotCacheKey key) {
         NameMapping nameMapping = key.getNameMapping();
         try {
-            PaimonSnapshot latestSnapshot = loadLatestSnapshot(key);
+            PaimonSnapshot latestSnapshot = loadSnapshot(key, Optional.empty());
             List<Column> partitionColumns = getPaimonSchemaCacheValue(nameMapping,
                     latestSnapshot.getSchemaId()).getPartitionColumns();
             PaimonPartitionInfo partitionInfo = loadPartitionInfo(key, partitionColumns);
@@ -107,25 +108,36 @@ public class PaimonMetadataCache {
         return PaimonUtil.generatePartitionInfo(partitionColumns, paimonPartitions);
     }
 
-    private PaimonSnapshot loadLatestSnapshot(PaimonSnapshotCacheKey key) throws IOException {
+    private PaimonSnapshot loadSnapshot(PaimonSnapshotCacheKey key, Optional<Long> snapshotIdOpt) throws IOException {
         NameMapping nameMapping = key.getNameMapping();
         PaimonExternalCatalog externalCatalog = (PaimonExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(nameMapping.getCtlId(), id -> new IOException("Catalog not found: " + id));
         Table table = externalCatalog.getPaimonTable(nameMapping);
         Table snapshotTable = table;
         // snapshotId and schemaId
-        Long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
-        long latestSchemaId = 0L;
+        Long snapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
+        long schemaId = 0L;
         long snapshotCreateTime = 0L;
-        Optional<Snapshot> optionalSnapshot = table.latestSnapshot();
-        if (optionalSnapshot.isPresent()) {
-            latestSnapshotId = optionalSnapshot.get().id();
-            latestSchemaId = table.snapshot(latestSnapshotId).schemaId();
-            snapshotCreateTime = optionalSnapshot.get().timeMillis();
-            snapshotTable =
-                table.copy(Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), latestSnapshotId.toString()));
+        Snapshot.CommitKind commitKind = null;
+        Long deltaRecordCount = -1L;
+        Optional<Snapshot> optionalSnapshot;
+        if (snapshotIdOpt.isPresent()) {
+            optionalSnapshot = Optional.ofNullable(table.snapshot(snapshotIdOpt.get()));
+        } else {
+            optionalSnapshot = table.latestSnapshot();
         }
-        return new PaimonSnapshot(latestSnapshotId, latestSchemaId, snapshotCreateTime, snapshotTable);
+        if (optionalSnapshot.isPresent()) {
+            Snapshot snapshot = optionalSnapshot.get();
+            snapshotId = snapshot.id();
+            schemaId = table.snapshot(snapshotId).schemaId();
+            snapshotCreateTime = snapshot.timeMillis();
+            commitKind = snapshot.commitKind();
+            deltaRecordCount = snapshot.deltaRecordCount();
+            snapshotTable = table.copy(
+                    Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId.toString()));
+        }
+        return new PaimonSnapshot(snapshotId, schemaId, snapshotCreateTime,
+                commitKind, deltaRecordCount, snapshotTable);
     }
 
     public void invalidateCatalogCache(long catalogId) {
@@ -149,9 +161,18 @@ public class PaimonMetadataCache {
                 .forEach(snapshotCache::invalidate);
     }
 
-    public PaimonSnapshotCacheValue getPaimonSnapshot(ExternalTable dorisTable) {
+    public PaimonSnapshotCacheValue getPaimonSnapshot(ExternalTable dorisTable, Optional<TableSnapshot> tableSnapshot) {
         PaimonSnapshotCacheKey key = new PaimonSnapshotCacheKey(dorisTable.getOrBuildNameMapping());
-        return snapshotCache.get(key);
+        if (tableSnapshot.isPresent()) {
+            try {
+                PaimonSnapshot paimonSnapshot = loadSnapshot(key, tableSnapshot.map(s -> Long.parseLong(s.getValue())));
+                return new PaimonSnapshotCacheValue(null, paimonSnapshot);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            return snapshotCache.get(key);
+        }
     }
 
     public Map<String, Map<String, String>> getCacheStats() {

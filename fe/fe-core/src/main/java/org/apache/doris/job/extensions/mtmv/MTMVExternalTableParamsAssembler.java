@@ -21,14 +21,24 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
-public interface MTMVExternalTableParamsAssembler {
-    public static MTMVExternalTableParamsAssembler getMTMVExternalTableParamsAssembler(MTMV mtmv)
+public abstract class MTMVExternalTableParamsAssembler {
+    private boolean incremental;
+
+    public boolean isIncremental() {
+        return incremental;
+    }
+
+    static MTMVExternalTableParamsAssembler getMTMVExternalTableParamsAssembler(MTMV mtmv)
             throws AnalysisException {
         TableIf table = MTMVUtil.getTable(MaterializedViewUtils.getIncrementalMVBaseTable(mtmv));
         if (table instanceof PaimonExternalTable) {
@@ -39,7 +49,41 @@ public interface MTMVExternalTableParamsAssembler {
         }
     }
 
-    void markReadBySnapshot(Map<String, String> params, long snapshotId);
+    void markReadBySnapshot(Map<String, String> params, long snapshotId) {
+        this.incremental = false;
+    }
 
-    void markReadBySnapshotIncremental(Map<String, String> params, long startSnapshotId, long endSnapshotId);
+    void markReadBySnapshotIncremental(Map<String, String> params, long startSnapshotId, long endSnapshotId) {
+        this.incremental = true;
+    }
+
+    abstract List<String> calculateNeedRefreshPartitions(
+            MTMVExternalTableParamsAssembler.RefreshSnapshotInfo refreshSnapshotInfo,
+            Map<String, Set<String>> partitionMappings, MvccTable table);
+
+    abstract Optional<RefreshSnapshotInfo> calculateNextSnapshot(
+            MvccTable table, long startSnapshotId, long endSnapshotId);
+
+    public enum RefreshType {
+        INCREMENTAL,
+        OVERWRITE
+    }
+
+    public static class RefreshSnapshotInfo {
+        private long snapshotId;
+        private RefreshType refreshType;
+
+        public RefreshSnapshotInfo(long snapshotId, RefreshType refreshType) {
+            this.snapshotId = snapshotId;
+            this.refreshType = refreshType;
+        }
+
+        public long getSnapshotId() {
+            return snapshotId;
+        }
+
+        public RefreshType getRefreshType() {
+            return refreshType;
+        }
+    }
 }

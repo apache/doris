@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.rpc.RpcException;
@@ -55,6 +56,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -530,15 +532,24 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static Map<String, MTMVRefreshPartitionSnapshot> generatePartitionSnapshots(MTMVRefreshContext context,
-            Set<BaseTableInfo> baseTables, Set<String> partitionNames, boolean incremental)
+            Set<BaseTableInfo> baseTables, Set<String> partitionNames)
             throws AnalysisException {
         Map<String, MTMVRefreshPartitionSnapshot> res = Maps.newHashMap();
         for (String partitionName : partitionNames) {
             res.put(partitionName,
                     generatePartitionSnapshot(context, baseTables,
-                            context.getPartitionMappings().get(partitionName), incremental));
+                            context.getPartitionMappings().get(partitionName), false));
         }
         return res;
+    }
+
+    public static MTMVRefreshPartitionSnapshot generateIncrementalPartitionSnapshotsBySnapshotId(
+            MvccSnapshot mvccSnapshot, BaseTableInfo baseTableInfo, MTMVRelatedTableIf mtmvRelatedTable)
+            throws AnalysisException {
+        MTMVSnapshotIf tableSnapshot = mtmvRelatedTable.getTableSnapshot(Optional.of(mvccSnapshot));
+        MTMVRefreshPartitionSnapshot refreshPartitionSnapshot = new MTMVRefreshPartitionSnapshot();
+        refreshPartitionSnapshot.addTableSnapshot(baseTableInfo, tableSnapshot);
+        return refreshPartitionSnapshot;
     }
 
     public static MTMVRefreshPartitionSnapshot generatePartitionSnapshot(MTMVRefreshContext context,
