@@ -251,7 +251,7 @@ public class CloudInternalCatalogTest {
                 return new AccessControllerManager(masterEnv.getAuth()) {
                     @Override
                     public boolean checkTblPriv(ConnectContext ctx, String ctl, String db, String tbl,
-                            PrivPredicate wanted) {
+                                                PrivPredicate wanted) {
                         return true; // Allow all access for test
                     }
                 };
@@ -354,21 +354,21 @@ public class CloudInternalCatalogTest {
         new MockUp<CloudInternalCatalog>() {
             @Mock
             public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(
-                long tableId, long indexId,
-                long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
-                short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
-                List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
-                String storagePolicy, boolean isInMemory, boolean isShadow,
-                String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
-                boolean storeRowColumn, int schemaVersion, String compactionPolicy,
-                Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
-                Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
-                Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-                List<Integer> rowStoreColumnUniqueIds,
-                TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-                boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
-                long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-                boolean createInitialRowset)
+                    long tableId, long indexId,
+                    long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
+                    short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+                    List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
+                    String storagePolicy, boolean isInMemory, boolean isShadow,
+                    String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
+                    boolean storeRowColumn, int schemaVersion, String compactionPolicy,
+                    Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
+                    Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
+                    Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
+                    List<Integer> rowStoreColumnUniqueIds,
+                    TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
+                    boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+                    long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
+                    boolean createInitialRowset)
                     throws DdlException {
                 // Track format for each partition
                 partitionFormats.put(partitionId, invertedIndexFileStorageFormat);
@@ -528,21 +528,21 @@ public class CloudInternalCatalogTest {
         new MockUp<CloudInternalCatalog>() {
             @Mock
             public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(
-                long tableId, long indexId,
-                long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
-                short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
-                List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
-                String storagePolicy, boolean isInMemory, boolean isShadow,
-                String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
-                boolean storeRowColumn, int schemaVersion, String compactionPolicy,
-                Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
-                Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
-                Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-                List<Integer> rowStoreColumnUniqueIds,
-                TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-                boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
-                long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-                boolean createInitialRowset)
+                    long tableId, long indexId,
+                    long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
+                    short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+                    List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
+                    String storagePolicy, boolean isInMemory, boolean isShadow,
+                    String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
+                    boolean storeRowColumn, int schemaVersion, String compactionPolicy,
+                    Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
+                    Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
+                    Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
+                    List<Integer> rowStoreColumnUniqueIds,
+                    TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
+                    boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+                    long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
+                    boolean createInitialRowset)
                     throws DdlException {
                 // Capture the actual format passed to createTabletMetaBuilder
                 capturedFormat.set(invertedIndexFileStorageFormat);
@@ -672,21 +672,21 @@ public class CloudInternalCatalogTest {
         new MockUp<CloudInternalCatalog>() {
             @Mock
             public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(
-                long tableId, long indexId,
-                long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
-                short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
-                List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
-                String storagePolicy, boolean isInMemory, boolean isShadow,
-                String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
-                boolean storeRowColumn, int schemaVersion, String compactionPolicy,
-                Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
-                Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
-                Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-                List<Integer> rowStoreColumnUniqueIds,
-                TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-                boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
-                long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-                boolean createInitialRowset)
+                    long tableId, long indexId,
+                    long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
+                    short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+                    List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
+                    String storagePolicy, boolean isInMemory, boolean isShadow,
+                    String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
+                    boolean storeRowColumn, int schemaVersion, String compactionPolicy,
+                    Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
+                    Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
+                    Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
+                    List<Integer> rowStoreColumnUniqueIds,
+                    TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
+                    boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+                    long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
+                    boolean createInitialRowset)
                     throws DdlException {
                 // Capture the actual format passed to createTabletMetaBuilder
                 capturedFormat.set(invertedIndexFileStorageFormat);
