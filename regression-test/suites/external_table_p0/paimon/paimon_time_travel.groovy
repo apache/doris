@@ -249,15 +249,15 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
         }
         test {
             sql """ select * from ${tableName}@tag('name'='not_exists_tag'); """
-            exception "Tag 'not_exists_tag' does not exist"
+            exception "can't find snapshot by tag: not_exists_tag"
         }
         test {
             sql """ select * from ${tableName}@tag(not_exists_tag); """
-            exception "Tag 'not_exists_tag' does not exist"
+            exception "can't find snapshot by tag: not_exists_tag"
         }
         test {
             sql """ select * from ${tableName} for version as of 'not_exists_tag'; """
-            exception "Tag 'not_exists_tag' does not exist"
+            exception "can't find snapshot by tag: not_exists_tag"
         }
 
         // Use branch function to query tags
