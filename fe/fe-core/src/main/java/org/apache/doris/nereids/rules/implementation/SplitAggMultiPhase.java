@@ -345,7 +345,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         // select count(distinct a) from t group by a; should use twoPlusOne
         Set<NamedExpression> groupBySet = AggregateUtils.getGroupBySetNamedExpr(aggregate);
         Set<NamedExpression> distinctSet = AggregateUtils.getDistinctNamedExpr(aggregate);
-        if (groupBySet.equals(distinctSet)) {
+        if (groupBySet.containsAll(distinctSet)) {
             return true;
         }
         Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
