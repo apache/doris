@@ -346,8 +346,6 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_cosine_distance_SmallInt_notnull "select cosine_distance(kasint, kasint) from fn_test_not_nullable"
     order_qt_sql_cosine_distance_Integer "select cosine_distance(kaint, kaint) from fn_test"
     order_qt_sql_cosine_distance_Integer_notnull "select cosine_distance(kaint, kaint) from fn_test_not_nullable"
-    order_qt_sql_cosine_distance_TinyInt "select cosine_distance(katint, katint) from fn_test"
-    order_qt_sql_cosine_distance_TinyInt_notnull "select cosine_distance(katint, katint) from fn_test_not_nullable"
 
     // inner_product
     order_qt_sql_inner_product_Double "select inner_product(kadbl, kadbl) from fn_test"

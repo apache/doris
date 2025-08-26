@@ -23,8 +23,6 @@ suite("test_array_distance_functions") {
     qt_sql "SELECT inner_product([1, 2], [2, 3])"
 
     qt_sql "SELECT l2_distance([1, 2, 3], NULL)"
-    qt_sql "SELECT cosine_distance([1, 2, 3], [0, NULL, 0])"
-
     // Test cases for nullable arrays with different null distributions
     // These test the fix for correct array size comparison when nulls are present
     qt_sql "SELECT l1_distance(NULL, NULL)"

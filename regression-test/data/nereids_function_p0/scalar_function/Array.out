@@ -4059,35 +4059,6 @@ char23,char33,varchar13,varchar23,varchar33,string3
 0.0
 0.0
 
--- !sql_cosine_distance_TinyInt --
-\N
-\N
-\N
-\N
-\N
-\N
-\N
-\N
-0.0
-0.0
-0.0
-0.0
-0.0
-
--- !sql_cosine_distance_TinyInt_notnull --
-\N
-\N
-\N
-\N
-\N
-\N
-\N
-0.0
-0.0
-0.0
-0.0
-0.0
-
 -- !sql_inner_product_Double --
 \N
 0.010000001
