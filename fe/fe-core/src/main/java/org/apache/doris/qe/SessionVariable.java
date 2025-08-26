@@ -4919,6 +4919,14 @@ public class SessionVariable implements Serializable, Writable {
         return connectContext.getState().isNereids() && sessionVariable.isEnableDecimal256();
     }
 
+    public static int getDecimalOverFlowScale() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return VariableMgr.getDefaultSessionVariable().decimalOverflowScale;
+        }
+        return connectContext.getSessionVariable().decimalOverflowScale;
+    }
+
     public boolean isEnableDecimal256() {
         return enableDecimal256;
     }

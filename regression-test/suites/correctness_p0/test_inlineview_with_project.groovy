@@ -493,7 +493,7 @@ suite("test_inlineview_with_project") {
                 `judgementDate_labelObject`
                 FROM 
                     (SELECT CASE_ID_TABLE.caseId ,
-                JSON_OBJECT('id', `judgementDate_TABLE`.`judgementDateId`, 'content', `judgementDate_TABLE`.`judgementDate`) AS `judgementDate_labelObject`
+                JSON_OBJECT('id', `judgementDate_TABLE`.`judgementDateId`, 'content', cast(`judgementDate_TABLE`.`judgementDate` as string)) AS `judgementDate_labelObject`
                     FROM 
                         (SELECT DISTINCT caseId
                         FROM dr_user_test_t1) CASE_ID_TABLE
