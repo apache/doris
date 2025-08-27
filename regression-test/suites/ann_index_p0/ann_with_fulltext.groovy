@@ -47,15 +47,15 @@ suite("ann_with_fulltext") {
             (9, [76.197945, 60.623528, 84.229805, 31.652937, 71.82595, 48.04684, 71.29212, 30.282396], "This task isn’t about right answers, but about consistency in your judgments over time.", 109);
     """
     qt_q0 """
-        select id, comment from ann_with_fulltext ORDER BY id;
+        select * from ann_with_fulltext ORDER BY id;
     """
 
     qt_q1 """
-        select id, comment from ann_with_fulltext where comment match_any "illustrates comments answers" and l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) < 105.66439056396484
+        select * from ann_with_fulltext where comment match_any "illustrates comments answers" and l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) < 105.66439056396484
     """
 
     qt_q2 """
-        select id, comment, l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) as dist from ann_with_fulltext where comment match_any "illustrates comments answers"  order by dist limit 2
+        select *, l2_distance_approximate(embedding, [26.360261917114258,7.05784273147583,32.361351013183594,86.39714050292969,58.79527282714844,27.189321517944336,99.38946533203125,80.19270324707031]) as dist from ann_with_fulltext where comment match_any "illustrates comments answers"  order by dist limit 2
     """
     // This case should error because score() + another ordering expression is not allowed for TopN push down
     test {

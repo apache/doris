@@ -260,9 +260,6 @@ public class IndexDef {
             if (keysType != KeysType.DUP_KEYS) {
                 throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
             }
-            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                throw new AnalysisException("ANN index is not supported in index format V1");
-            }
             return;
         }
 

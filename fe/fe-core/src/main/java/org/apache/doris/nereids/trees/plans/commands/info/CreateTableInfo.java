@@ -715,12 +715,6 @@ public class CreateTableInfo {
                     throw new AnalysisException(
                             "index only support in olap engine at current version.");
                 }
-                if (indexDef.getIndexType() == IndexType.ANN) {
-                    if (invertedIndexFileStorageFormat != null
-                            && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                        throw new AnalysisException("ANN index is not supported in index format V1");
-                    }
-                }
                 for (String indexColName : indexDef.getColumnNames()) {
                     boolean found = false;
                     for (ColumnDefinition column : columns) {

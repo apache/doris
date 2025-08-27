@@ -61,16 +61,12 @@ Status AnnIndexColumnWriter::init() {
     build_parameter.dim = std::stoi(get_or_default(properties, DIM, "512"));
     build_parameter.max_degree = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
     build_parameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
-    build_parameter.ef_construction = std::stoi(get_or_default(properties, EF_CONSTRUCTION, "40"));
 
     faiss_index->build(build_parameter);
 
     _vector_index = faiss_index;
-    LOG_INFO(
-            "Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}, "
-            "ef_construction {}",
-            index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
-            build_parameter.ef_construction);
+    LOG_INFO("Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}",
+             index_type, build_parameter.dim, metric_type, build_parameter.max_degree);
     return Status::OK();
 }
 

@@ -54,7 +54,7 @@ AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
     const auto index_properties = _index_meta.properties();
     auto it = index_properties.find("index_type");
     DCHECK(it != index_properties.end());
-    _index_type = string_to_ann_index_type(it->second);
+    _index_type = it->second;
     it = index_properties.find("metric_type");
     DCHECK(it != index_properties.end());
     _metric_type = string_to_metric(it->second);
@@ -106,7 +106,7 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
         const float* query_vec = param->query_value;
         const int limit = static_cast<int>(param->limit);
         IndexSearchResult index_search_result;
-        if (_index_type == AnnIndexType::HNSW) {
+        if (string_to_ann_index_type(_index_type) == AnnIndexType::HNSW) {
             HNSWSearchParameters hnsw_search_params;
             hnsw_search_params.roaring = param->roaring;
             hnsw_search_params.rows_of_segment = param->rows_of_segment;
@@ -121,8 +121,7 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
             stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
             stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
         } else {
-            throw Status::NotSupported("Unsupported index type: {}",
-                                       ann_index_type_to_string(_index_type));
+            throw Status::NotSupported("Unsupported index type: {}", _index_type);
         }
 
         DCHECK(index_search_result.roaring != nullptr);
@@ -163,15 +162,14 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
         segment_v2::IndexSearchResult search_result;
         std::unique_ptr<segment_v2::IndexSearchParameters> search_param = nullptr;
 
-        if (_index_type == AnnIndexType::HNSW) {
+        if (string_to_ann_index_type(_index_type) == AnnIndexType::HNSW) {
             auto hnsw_param = std::make_unique<segment_v2::HNSWSearchParameters>();
             hnsw_param->ef_search = custom_params.hnsw_ef_search;
             hnsw_param->check_relative_distance = custom_params.hnsw_check_relative_distance;
             hnsw_param->bounded_queue = custom_params.hnsw_bounded_queue;
             search_param = std::move(hnsw_param);
         } else {
-            throw Status::NotSupported("Unsupported index type: {}",
-                                       ann_index_type_to_string(_index_type));
+            throw Status::NotSupported("Unsupported index type: {}", _index_type);
         }
 
         search_param->is_le_or_lt = params.is_le_or_lt;
@@ -188,12 +186,10 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
         DCHECK(search_result.roaring != nullptr);
         result->roaring = search_result.roaring;
 
-#ifndef NDEBUG
         if (params.is_le_or_lt == false) {
             DCHECK(search_result.distances == nullptr);
             DCHECK(search_result.row_ids == nullptr);
         }
-#endif
 
         {
             SCOPED_TIMER(&(stats->result_process_costs_ns));
