@@ -606,10 +606,10 @@ public:
 private:
     Status _perform_cast(vectorized::MutableColumnPtr& dst);
 
-    std::shared_ptr<ColumnIterator> _child_iterator;
+    std::unique_ptr<ColumnIterator> _child_iterator;
     vectorized::DataTypePtr _src_type;
     vectorized::DataTypePtr _dst_type;
-    vectorized::Block _src_block;
+    vectorized::MutableColumnPtr _src_column;
 };
 
 class RowIdColumnIterator : public ColumnIterator {

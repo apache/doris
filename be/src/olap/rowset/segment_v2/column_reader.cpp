@@ -1710,22 +1710,20 @@ CastColumnIterator::CastColumnIterator(std::unique_ptr<ColumnIterator> child_ite
                                        const vectorized::DataTypePtr& src_type,
                                        const vectorized::DataTypePtr& dst_type)
         : _child_iterator(std::move(child_iterator)), _src_type(src_type), _dst_type(dst_type) {
-    _src_block.insert({src_type->create_column(), src_type, ""});
-    _src_block.insert({dst_type->create_column(), dst_type, ""});
+    _src_column = src_type->create_column();
 }
 
 Status CastColumnIterator::_perform_cast(vectorized::MutableColumnPtr& dst) {
-    auto src_column = _src_block.get_by_position(0);
     vectorized::ColumnPtr cast_res;
-    RETURN_IF_ERROR(vectorized::schema_util::cast_column(src_column, _dst_type, &cast_res));
+    RETURN_IF_ERROR(vectorized::schema_util::cast_column({_src_column->get_ptr(), _src_type, ""},
+                                                         _dst_type, &cast_res));
 
     if ((dst->is_nullable() == cast_res->is_nullable()) && (dst->size() == 0)) {
         dst = cast_res->assume_mutable();
     } else if (!dst->is_nullable() && cast_res->is_nullable()) {
-        dst->insert_range_from(
-                *(check_and_get_column<vectorized::ColumnNullable>(src_column.column.get())
-                          ->get_nested_column_ptr()),
-                0, _src_block.rows());
+        dst->insert_range_from(*(check_and_get_column<vectorized::ColumnNullable>(_src_column.get())
+                                         ->get_nested_column_ptr()),
+                               0, _src_column->size());
     } else {
         dst->insert_range_from(*cast_res, 0, cast_res->size());
     }
@@ -1746,9 +1744,8 @@ Status CastColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
         return _child_iterator->next_batch(n, dst, has_null);
     }
 
-    _src_block.clear_column_data();
-    auto source_column = _src_block.get_by_position(0).column->assume_mutable();
-    RETURN_IF_ERROR(_child_iterator->next_batch(n, source_column));
+    _src_column->clear();
+    RETURN_IF_ERROR(_child_iterator->next_batch(n, _src_column));
     RETURN_IF_ERROR(_perform_cast(dst));
     return Status::OK();
 }
@@ -1766,9 +1763,8 @@ Status CastColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
         return _child_iterator->read_by_rowids(rowids, count, dst);
     }
 
-    _src_block.clear_column_data();
-    auto source_column = _src_block.get_by_position(0).column->assume_mutable();
-    RETURN_IF_ERROR(_child_iterator->read_by_rowids(rowids, count, source_column));
+    _src_column->clear();
+    RETURN_IF_ERROR(_child_iterator->read_by_rowids(rowids, count, _src_column));
     RETURN_IF_ERROR(_perform_cast(dst));
     return Status::OK();
 }
