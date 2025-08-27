@@ -24,7 +24,6 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,7 +45,8 @@ public interface ProjectMergeable extends ProjectProcessor, OutputPrunable, Plan
     static Optional<Plan> mergeContinuedProjects(List<NamedExpression> parentProject, Plan plan) {
         Optional<Plan> result = Optional.empty();
         List<NamedExpression> mergedProjects = parentProject;
-        for (Plan child = plan; child instanceof ProjectMergeable; child = child.child(0)) {
+        for (Plan child = plan; child instanceof ProjectMergeable;
+                child = child.arity() == 1 ? child.child(0) : null) {
             ProjectMergeable projectable = (ProjectMergeable) child;
             if (!projectable.canProcessProject(mergedProjects)) {
                 break;

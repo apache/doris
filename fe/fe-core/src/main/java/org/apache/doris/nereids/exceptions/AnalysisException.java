@@ -29,6 +29,7 @@ public class AnalysisException extends RuntimeException {
     private final Optional<Integer> startPosition;
     private final Optional<LogicalPlan> plan;
 
+    /** Constructor of AnalysisException. */
     public AnalysisException(ErrorCode errorCode, String message, Throwable cause, Optional<Integer> line,
             Optional<Integer> startPosition, Optional<LogicalPlan> plan) {
         super(message, cause);
@@ -39,6 +40,7 @@ public class AnalysisException extends RuntimeException {
         this.plan = plan;
     }
 
+    /** Constructor of AnalysisException. */
     public AnalysisException(ErrorCode errorCode, String message, Optional<Integer> line,
             Optional<Integer> startPosition, Optional<LogicalPlan> plan) {
         super(message);
@@ -81,10 +83,14 @@ public class AnalysisException extends RuntimeException {
         }
     }
 
+    /** get error code.
+     */
     public ErrorCode getErrorCode() {
         return errorCode;
     }
 
+    /** error code enum.
+     */
     public enum ErrorCode {
         NONE,
         EXPRESSION_EXCEEDS_LIMIT,
