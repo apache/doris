@@ -804,7 +804,7 @@ public class SessionVariable implements Serializable, Writable {
                                                             "default_variant_enable_typed_paths_to_sparse";
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
-
+    public static final String AGG_PHASE = "agg_phase";
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2436,8 +2436,25 @@ public class SessionVariable implements Serializable, Writable {
             description = {"cast使用严格模式", "Use strict mode for cast"})
     public boolean enableStrictCast = false;
 
-    @VariableMgr.VarAttr(name = MULTI_DISTINCT_STRATEGY)
+    @VariableMgr.VarAttr(name = MULTI_DISTINCT_STRATEGY, description = {"用于控制在包含多个 DISTINCT 函数的 SQL 查询中所采用的"
+            + "执行策略。默认值为 0，表示由系统自动选择最优策略；设为 1 表示强制使用 MultiDistinct 方式处理；"
+            + "设为 2 表示强制采用 CTE 拆分方式执行。",
+            "Used to control the execution strategy used in SQL queries containing multiple DISTINCT "
+                    + "functions. The default value is 0, which means that the system automatically selects "
+                    + "the optimal strategy; setting it to 1 means forcing the use of MultiDistinct processing;"
+                    + " setting it to 2 means forcing the use of CTE splitting execution"})
     public int multiDistinctStrategy = 0;
+
+    @VariableMgr.VarAttr(name = AGG_PHASE, description = {"用于控制聚合查询的执行阶段划分策略。默认值为 0，"
+            + "表示由系统自动选择最优执行阶段；设为 1 至 4 之间的值则表示强制指定使用对应 1 至 4 阶段进行聚合计算。",
+            "Controls the execution phase strategy for aggregate queries. The default value is 0,"
+                    + "which means the system automatically selects the optimal execution phase. Setting this value"
+                    + "between 1 and 4 forces the use of phases 1 to 4 for aggregate calculations."})
+    public int aggPhase = 0;
+
+    public void setAggPhase(int phase) {
+        aggPhase = phase;
+    }
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();

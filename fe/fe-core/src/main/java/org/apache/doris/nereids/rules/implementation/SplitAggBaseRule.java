@@ -47,6 +47,13 @@ import java.util.stream.Collectors;
 
 /**SplitAggRule*/
 public abstract class SplitAggBaseRule {
+    /**
+     * This functions is used to split bottom deduplicate Aggregate(phase1):
+     * e.g.select count(distinct a) group by b
+     *   agg(group by b, count(a); distinct global) ---phase2
+     *     +--agg(group by a,b; global) ---phase1
+     *       +--hashShuffle(b)
+     * */
     protected PhysicalHashAggregate<? extends Plan> splitDeduplicateOnePhase(LogicalAggregate<? extends Plan> aggregate,
             Set<NamedExpression> localAggGroupBySet, AggregateParam inputToBufferParam, AggregateParam paramForAggFunc,
             Map<AggregateFunction, Alias> localAggFunctionToAlias, Plan child, List<Expression> partitionExpressions) {
@@ -78,6 +85,14 @@ public abstract class SplitAggBaseRule {
                 null, child);
     }
 
+    /**
+     * This functions is used to split bottom deduplicate Aggregate(phase1 and phase2):
+     * e.g.select count(distinct a) group by b
+     *   agg(group by b, count(a); distinct global) ---phase3
+     *     +--agg(group by a,b; global) ---phase2
+     *       +--hashShuffle(b)
+     *         +--agg(group by a,b; local) ---phase1
+     * */
     protected PhysicalHashAggregate<? extends Plan> splitDeduplicateTwoPhase(LogicalAggregate<? extends Plan> aggregate,
             Map<AggregateFunction, Alias> middleAggFunctionToAlias, List<Expression> partitionExpressions,
             Set<NamedExpression> localAggGroupBySet) {
@@ -112,6 +127,15 @@ public abstract class SplitAggBaseRule {
                 null, localAgg);
     }
 
+    /**
+     * This functions is used to split distinct phase Aggregate(phase2 and phase3):
+     * e.g. select count(distinct a) group by b
+     *   agg(group by b, count(a); distinct global) --phase3
+     *     +--hashShuffle(b)
+     *       +--agg(group by b, count(a); distinct local) --phase2
+     *         +--agg(group by a,b; global) --phase1
+     *           +--hashShuffle(a)
+     * */
     protected PhysicalHashAggregate<? extends Plan> splitDistinctTwoPhase(LogicalAggregate<? extends Plan> aggregate,
             Map<AggregateFunction, Alias> middleAggFunctionToAlias, Plan child) {
         AggregateParam thirdParam = new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_BUFFER);

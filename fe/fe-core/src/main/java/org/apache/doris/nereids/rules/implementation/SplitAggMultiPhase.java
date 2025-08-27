@@ -53,6 +53,7 @@ import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -209,7 +210,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
                     if (expr instanceof AggregateFunction) {
                         AggregateFunction aggFunc = (AggregateFunction) expr;
                         if (aggFunc.isDistinct()) {
-                            // 测试一下为什么需要checkArgument here
+                            // TODO: add test about aggFun arity
                             if (aggFunc instanceof Count && aggFunc.arity() > 1) {
                                 Expression countIf = AggregateUtils.countDistinctMultiExprToCountIf((Count) aggFunc);
                                 return new AggregateExpression((Count) countIf, inputToResultParamSecond);
@@ -341,6 +342,18 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
 
     /**twoPlusOneBetterThanTwoPlusTwo*/
     public boolean twoPlusOneBetterThanTwoPlusTwo(LogicalAggregate<? extends Plan> aggregate) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return true;
+        }
+        switch (ctx.getSessionVariable().aggPhase) {
+            case 3:
+                return true;
+            case 4:
+                return false;
+            default:
+                break;
+        }
         // select count(distinct a) from t group by a; should use twoPlusOne
         Set<NamedExpression> groupBySet = AggregateUtils.getGroupBySetNamedExpr(aggregate);
         Set<NamedExpression> distinctSet = AggregateUtils.getDistinctNamedExpr(aggregate);

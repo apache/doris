@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -51,22 +52,33 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
     public Rule build() {
         return logicalAggregate()
                 .whenNot(Aggregate::hasDistinctFunc)
-                .thenApplyMulti(ctx -> rewrite(ctx.root))
+                .thenApplyMulti(ctx -> rewrite(ctx.root, ctx.connectContext))
                 .toRule(RuleType.SPLIT_AGG);
     }
 
-    private List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
-        return ImmutableList.<Plan>builder()
-                .addAll(splitTwoPhase(aggregate))
-                .addAll(implementOnePhase(aggregate))
-                .build();
+    private List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate, ConnectContext ctx) {
+        switch (ctx.getSessionVariable().aggPhase) {
+            case 1:
+                return ImmutableList.<Plan>builder()
+                        .addAll(implementOnePhase(aggregate))
+                        .build();
+            case 2:
+                return ImmutableList.<Plan>builder()
+                        .addAll(splitTwoPhase(aggregate))
+                        .build();
+            default:
+                return ImmutableList.<Plan>builder()
+                        .addAll(implementOnePhase(aggregate))
+                        .addAll(splitTwoPhase(aggregate))
+                        .build();
+        }
     }
 
     /**
      * select sum(a) from t group by b;
      * LogicalAggregate(group by b, outputExpr: sum(a), b)
      * ->
-     * PhysicalHashAggregate(group by b, outputExpr: sum(a), b)
+     * PhysicalHashAggregate(group by b, outputExpr: sum(a), b; AGG_PHASE:GLOBAL)
      * */
     private List<Plan> implementOnePhase(LogicalAggregate<? extends Plan> logicalAgg) {
         if (!logicalAgg.supportAggregatePhase(AggregatePhase.ONE)) {
@@ -96,8 +108,8 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
      * select sum(a) from t group by b;
      * LogicalAggregate(group by b, outputExpr: sum(a), b)
      * ->
-     * PhysicalHashAggregate(group by b, outputExpr: sum(a), b)
-     *   +--PhysicalHashAggregate(group by b, outputExpr: partial_sum(a), b)
+     * PhysicalHashAggregate(group by b, outputExpr: sum(a), b; AGG_PHASE:GLOBAL)
+     *   +--PhysicalHashAggregate(group by b, outputExpr: partial_sum(a), b; AGG_PHASE:LOCAL)
      * */
     private List<Plan> splitTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
         if (!aggregate.supportAggregatePhase(AggregatePhase.TWO)) {

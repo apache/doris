@@ -98,11 +98,11 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, DistinctSelectorContext ctx) {
         Plan newChild = agg.child().accept(this, ctx);
         agg = agg.withChildren(ImmutableList.of(newChild));
-        // process：
+        // not process：
         // count(distinct a,b);
         // count(distinct a), sum(distinct a);
         // count(distinct a)
-        // not process:
+        // process:
         // count(distinct a,b), count(distinct a,c)
         // count(distinct a), sum(distinct b)
         if (agg.distinctFuncNum() < 2 || agg.getDistinctArguments().size() < 2) {
@@ -119,10 +119,17 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
         if (AggregateUtils.containsCountDistinctMultiExpr(agg)) {
             return false;
         }
-        if (ConnectContext.get().getSessionVariable().multiDistinctStrategy == 1) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
             return true;
-        } else if (ConnectContext.get().getSessionVariable().multiDistinctStrategy == 2) {
-            return false;
+        }
+        switch (ctx.getSessionVariable().multiDistinctStrategy) {
+            case 1:
+                return true;
+            case 2:
+                return false;
+            default:
+                break;
         }
         Statistics childStats = agg.child().getStats();
         if (childStats == null) {

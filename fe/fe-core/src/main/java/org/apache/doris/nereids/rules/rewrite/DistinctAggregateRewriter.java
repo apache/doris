@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
@@ -50,19 +51,24 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Rewrites queries containing DISTINCT aggregate functions by splitting them into two processing layers:
- * 1. Lower layer: Performs deduplication on both grouping columns and DISTINCT columns
- * 2. Upper layer: Applies simple aggregation on the deduplicated results
- *
+ * Process aggregate with a DISTINCT AGGFunction
+ * Decide whether to split DISTINCT aggregate into top-bottom aggregation or use multi_distinct;
  * For example, transforms:
  *   SELECT COUNT(DISTINCT a), count(c) FROM t GROUP BY b
- * Into:
+ * 1.Rewrites queries containing DISTINCT aggregate functions by splitting them into two processing layers:
+ *   Lower layer: Performs deduplication on both grouping columns and DISTINCT columns
+ *   Upper layer: Applies simple aggregation on the deduplicated results
+ * rewrite into:
  *   SELECT COUNT(a), sum0(cnt) FROM (
  *     SELECT a, b, count(c) cnt FROM t GROUP BY a, b
  *   ) GROUP BY b
+ *
+ * use multi_distinct:
+ * rewrite into:
+ *.  SELECT MULTI_DISTINCT_COUNT(a), count(c) FROM t GROUP BY b
  */
-public class DistinctAggregateSplitter implements RewriteRuleFactory {
-    public static final DistinctAggregateSplitter INSTANCE = new DistinctAggregateSplitter();
+public class DistinctAggregateRewriter implements RewriteRuleFactory {
+    public static final DistinctAggregateRewriter INSTANCE = new DistinctAggregateRewriter();
     // TODO: add other functions
     private static final Set<Class<? extends AggregateFunction>> supportSplitOtherFunctions = ImmutableSet.of(
             Sum.class, Min.class, Max.class, Count.class, Sum0.class, AnyValue.class);
@@ -73,11 +79,13 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
                 logicalAggregate()
                         .whenNot(agg -> agg.getGroupByExpressions().isEmpty())
                         .whenNot(Aggregate::canSkewRewrite)
-                        .then(this::rewrite).toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
+                        .thenApply(ctx -> rewrite(ctx.root, ctx.connectContext))
+                        .toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
                 logicalAggregate()
                         .when(agg -> agg.getGroupByExpressions().isEmpty()
                                 && agg.mustUseMultiDistinctAgg())
-                        .then(this::convertToMultiDistinct).toRule(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT)
+                        .then(this::convertToMultiDistinct)
+                        .toRule(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT)
         );
     }
 
@@ -87,6 +95,10 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
             return false;
         }
         if (aggregate.mustUseMultiDistinctAgg()) {
+            return true;
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx.getSessionVariable().aggPhase == 1 || ctx.getSessionVariable().aggPhase == 2) {
             return true;
         }
         if (aggregate.getStats() == null) {
@@ -115,8 +127,11 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
         return gbyNdv * 1000 < inputRows && dstNdv * 10 > inputRows;
     }
 
-    private Plan rewrite(LogicalAggregate<? extends Plan> aggregate) {
+    private Plan rewrite(LogicalAggregate<? extends Plan> aggregate, ConnectContext ctx) {
         if (aggregate.distinctFuncNum() == 0) {
+            return null;
+        }
+        if (ctx.getSessionVariable().aggPhase == 3 || ctx.getSessionVariable().aggPhase == 4) {
             return null;
         }
         if (shouldUseMultiDistinct(aggregate)) {

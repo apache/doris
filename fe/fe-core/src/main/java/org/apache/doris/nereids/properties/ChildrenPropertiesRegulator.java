@@ -153,6 +153,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (banAggUnionAll(aggregate)) {
             return true;
         }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable().aggPhase == 1) {
+            return false;
+        }
         if (!onePhaseAggWithDistribute(aggregate)) {
             return false;
         }
@@ -232,8 +236,11 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
     }
 
     private boolean childIsCTEConsumer() {
-        return children.get(0).children().get(0).getPhysicalExpressions().get(0).getPlan()
-                instanceof PhysicalCTEConsumer;
+        List<GroupExpression> groupExpressions = children.get(0).children().get(0).getPhysicalExpressions();
+        if (groupExpressions != null && !groupExpressions.isEmpty()) {
+            return groupExpressions.get(0).getPlan() instanceof PhysicalCTEConsumer;
+        }
+        return false;
     }
 
     private boolean requireGather(PhysicalProperties requiredChildProperty) {

@@ -54,7 +54,7 @@ public class SplitMultiDistinctStrategy {
     public static Plan rewrite(LogicalAggregate<? extends Plan> agg, DistinctSelectorContext ctx) {
         List<List<Alias>> distinctFuncWithAlias = new ArrayList<>();
         List<Alias> otherAggFuncs = new ArrayList<>();
-        collectInfo(agg, distinctFuncWithAlias, otherAggFuncs);
+        collectDistinctAndNonDistinctFunctions(agg, distinctFuncWithAlias, otherAggFuncs);
         LogicalAggregate<Plan> cloneAgg = (LogicalAggregate<Plan>) LogicalPlanDeepCopier.INSTANCE
                 .deepCopy(agg, new DeepCopierContext());
         LogicalCTEProducer<Plan> producer = new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(),
@@ -160,8 +160,8 @@ public class SplitMultiDistinctStrategy {
         return false;
     }
 
-    private static void collectInfo(LogicalAggregate<? extends Plan> agg, List<List<Alias>> aliases,
-            List<Alias> otherAggFuncs) {
+    private static void collectDistinctAndNonDistinctFunctions(LogicalAggregate<? extends Plan> agg,
+            List<List<Alias>> aliases, List<Alias> otherAggFuncs) {
         // TODO with source repeat aggregate need to be supported in future
         // 这个可能也没有关系，可以先注释掉，之后加一下关于grouping的测试
         // if (agg.getSourceRepeat().isPresent()) {
