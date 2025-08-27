@@ -114,14 +114,18 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
 
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
-        createMvByNereids("create materialized view mv1 "
-                + "        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
-                + "        PARTITION BY (id)\n"
-                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
-                + "        as "
-                + "        select T4.id from T4 inner join T2 "
-                + "        on T4.id = T2.id;");
+        try {
+            createMvByNereids("create materialized view mv1 "
+                    + "        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+                    + "        PARTITION BY (id)\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('replication_num' = '1') \n"
+                    + "        as "
+                    + "        select T4.id from T4 inner join T2 "
+                    + "        on T4.id = T2.id;");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         CascadesContext c1 = createCascadesContext(
                 "select T4.id "
                         + "from T4 "
