@@ -498,13 +498,13 @@ public class SchemaTable extends Table {
             .put("workload_groups", new SchemaTable(SystemIdGenerator.getNextId(), "workload_groups", TableType.SCHEMA,
                     builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("NAME", ScalarType.createVarchar(256))
-                            .column("CPU_SHARE", ScalarType.createType(PrimitiveType.BIGINT))
-                            .column("MEMORY_LIMIT", ScalarType.createVarchar(256))
-                            .column("ENABLE_MEMORY_OVERCOMMIT", ScalarType.createVarchar(256))
+                            .column("MIN_CPU_PERCENT", ScalarType.createVarchar(256))
+                            .column("MAX_CPU_PERCENT", ScalarType.createVarchar(256))
+                            .column("MIN_MEMORY_PERCENT", ScalarType.createVarchar(256))
+                            .column("MAX_MEMORY_PERCENT", ScalarType.createVarchar(256))
                             .column("MAX_CONCURRENCY", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MAX_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("QUEUE_TIMEOUT", ScalarType.createType(PrimitiveType.BIGINT))
-                            .column("CPU_HARD_LIMIT", ScalarType.createVarchar(256))
                             .column("SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MAX_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
@@ -587,7 +587,6 @@ public class SchemaTable extends Table {
                                     .column("CPU_USAGE_PERCENT", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("LOCAL_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("WRITE_BUFFER_USAGE_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("file_cache_statistics",
@@ -678,6 +677,21 @@ public class SchemaTable extends Table {
                             .column("REF_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("REF_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .column("REF_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .build())
+            )
+            .put("encryption_keys",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "encryption_keys", TableType.SCHEMA,
+                        builder().column("ID", ScalarType.createStringType())
+                            .column("VERSION", ScalarType.createType(PrimitiveType.INT))
+                            .column("PARENT_ID", ScalarType.createStringType())
+                            .column("PARENT_VERSION", ScalarType.createType(PrimitiveType.INT))
+                            .column("TYPE", ScalarType.createStringType())
+                            .column("ALGORITHM", ScalarType.createStringType())
+                            .column("CIPHER", ScalarType.createStringType())
+                            .column("IV", ScalarType.createStringType())
+                            .column("CRC", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("CTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                            .column("MTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                             .build()))
             .build();
 

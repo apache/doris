@@ -524,7 +524,7 @@ PhysicalResultSink
 ----hashAgg[DISTINCT_LOCAL]
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
 ------------PhysicalOlapScan[test_skew_hint]
 ------------PhysicalOlapScan[test_skew_hint]
 

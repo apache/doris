@@ -57,6 +57,7 @@
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_column_object_pool.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
@@ -128,8 +129,6 @@
 //  #define EINTERNAL 255
 #include "io/fs/hdfs/hdfs_mgr.h"
 // clang-format on
-
-#include "runtime/memory/tcmalloc_hook.h"
 
 namespace doris {
 
@@ -476,8 +475,6 @@ Status ExecEnv::_init_mem_env() {
     _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-
-    init_hook();
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
@@ -876,6 +873,7 @@ void ExecEnv::destroy() {
 
     _s_tracking_memory = false;
 
+    clear_storage_resource();
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

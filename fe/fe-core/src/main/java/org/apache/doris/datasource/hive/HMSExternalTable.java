@@ -601,8 +601,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return catalog.getCatalogProperty().getStoragePropertiesMap();
     }
 
-    public Map<String, String> getHadoopProperties() {
-        return catalog.getCatalogProperty().getHadoopProperties();
+    public Map<String, String> getBackendStorageProperties() {
+        return catalog.getCatalogProperty().getBackendStorageProperties();
     }
 
     public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {

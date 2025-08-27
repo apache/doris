@@ -36,6 +36,7 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_snapshot_mgr.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
@@ -220,8 +221,7 @@ Status CloudStorageEngine::open() {
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
 
-    _schema_cloud_dictionary_cache =
-            std::make_unique<SchemaCloudDictionaryCache>(config::schema_dict_cache_capacity);
+    _cloud_snapshot_mgr = std::make_unique<CloudSnapshotMgr>(*this);
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),
@@ -1175,7 +1175,7 @@ Status CloudStorageEngine::_check_all_root_path_cluster_id() {
             return Status::OK();
         } else {
             // If no cluster id file exists, use the configured cluster id
-            RETURN_IF_ERROR(set_cluster_id(_effective_cluster_id));
+            return set_cluster_id(_effective_cluster_id);
         }
     }
     if (cluster_ids.size() > 1) {
@@ -1184,12 +1184,12 @@ Status CloudStorageEngine::_check_all_root_path_cluster_id() {
                 "different cluster ids: {}",
                 fmt::join(cluster_ids, ", "));
     }
-    if (_effective_cluster_id != -1 && *cluster_ids.begin() != _effective_cluster_id) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::Corruption("multiple cluster ids is not equal. config::cluster_id={}, "
-                                   "storage path cluster_id={}",
-                                   _effective_cluster_id, *cluster_ids.begin()),
-                "cluster id not equal");
+    if (_effective_cluster_id != -1 && !cluster_ids.empty() &&
+        *cluster_ids.begin() != _effective_cluster_id) {
+        return Status::Corruption(
+                "multiple cluster ids is not equal. config::cluster_id={}, "
+                "storage path cluster_id={}",
+                _effective_cluster_id, *cluster_ids.begin());
     }
     return Status::OK();
 }

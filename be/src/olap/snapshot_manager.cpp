@@ -65,6 +65,7 @@ using std::stringstream;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 LocalSnapshotLockGuard LocalSnapshotLock::acquire(const std::string& path) {
@@ -282,7 +283,7 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         const auto& cloned_del_bitmap_pb = cloned_tablet_meta_pb.delete_bitmap();
         DeleteBitmapPB* new_del_bitmap_pb = new_tablet_meta_pb.mutable_delete_bitmap();
         int rst_ids_size = cloned_del_bitmap_pb.rowset_ids_size();
-        for (size_t i = 0; i < rst_ids_size; ++i) {
+        for (int i = 0; i < rst_ids_size; ++i) {
             RowsetId rst_id;
             rst_id.init(cloned_del_bitmap_pb.rowset_ids(i));
             // It should not happen, if we can't convert some rowid in delete bitmap, the
@@ -302,7 +303,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                                           const std::string& new_tablet_path,
                                           TabletSchemaSPtr tablet_schema, const RowsetId& rowset_id,
                                           RowsetMetaPB* new_rs_meta_pb) {
-    Status res = Status::OK();
+    Status st = Status::OK();
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
     rowset_meta->init_from_pb(rs_meta_pb);
     RowsetSharedPtr org_rowset;
@@ -330,11 +331,11 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
 
     auto rs_writer = DORIS_TRY(RowsetFactory::create_rowset_writer(_engine, context, false));
 
-    res = rs_writer->add_rowset(org_rowset);
-    if (!res.ok()) {
+    st = rs_writer->add_rowset(org_rowset);
+    if (!st.ok()) {
         LOG(WARNING) << "failed to add rowset "
                      << " id = " << org_rowset->rowset_id() << " to rowset " << rowset_id;
-        return res;
+        return st;
     }
     RowsetSharedPtr new_rowset;
     RETURN_NOT_OK_STATUS_WITH_WARN(rs_writer->build(new_rowset),
@@ -752,7 +753,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         linked_success_files.push_back(snapshot_segment_index_file_path);
                     }
                 } else {
-                    if (tablet_schema.has_inverted_index()) {
+                    if (tablet_schema.has_inverted_index() || tablet_schema.has_ann_index()) {
                         auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(
                                         segment_file_path));
@@ -783,9 +784,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         LOG(WARNING) << "fail to make snapshot, try to delete the snapshot path. path="
                      << snapshot_id_path.c_str();
 
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(snapshot_id_path, &exists));
-        if (exists) {
+        bool exist = true;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(snapshot_id_path, &exist));
+        if (exist) {
             VLOG_NOTICE << "remove snapshot path. [path=" << snapshot_id_path << "]";
             RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(snapshot_id_path));
         }
@@ -795,5 +796,5 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
     return res;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

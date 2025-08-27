@@ -49,6 +49,9 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "tableName")
     private String tableName;
 
+    @SerializedName(value = "ntn")
+    private String newTableName; // for rename table op
+
     @SerializedName(value = "invalidCache")
     private boolean invalidCache;
 
@@ -74,6 +77,16 @@ public class ExternalObjectLog implements Writable {
         externalObjectLog.setCatalogId(catalogId);
         externalObjectLog.setDbName(dbName);
         externalObjectLog.setTableName(tblName);
+        return externalObjectLog;
+    }
+
+    public static ExternalObjectLog createForRenameTable(long catalogId, String dbName, String tblName,
+            String newTblName) {
+        ExternalObjectLog externalObjectLog = new ExternalObjectLog();
+        externalObjectLog.setCatalogId(catalogId);
+        externalObjectLog.setDbName(dbName);
+        externalObjectLog.setTableName(tblName);
+        externalObjectLog.setNewTableName(newTblName);
         return externalObjectLog;
     }
 

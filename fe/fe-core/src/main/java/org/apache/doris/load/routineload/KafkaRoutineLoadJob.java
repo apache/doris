@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.AlterRoutineLoadStmt;
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -52,7 +50,6 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -67,7 +64,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.BooleanUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -527,33 +523,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return kafkaRoutineLoadJob;
     }
 
-    public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
-        // check db and table
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDBName());
-
-        long id = Env.getCurrentEnv().getNextId();
-        KafkaDataSourceProperties kafkaProperties = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
-        KafkaRoutineLoadJob kafkaRoutineLoadJob;
-        if (kafkaProperties.isMultiTable()) {
-            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                    db.getId(),
-                    kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo(), true);
-        } else {
-            OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
-            checkMeta(olapTable, stmt.getRoutineLoadDesc());
-            long tableId = olapTable.getId();
-            // init kafka routine load job
-            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                    db.getId(), tableId,
-                    kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());
-        }
-        kafkaRoutineLoadJob.setOptional(stmt);
-        kafkaRoutineLoadJob.checkCustomProperties();
-        kafkaRoutineLoadJob.checkCustomPartition();
-
-        return kafkaRoutineLoadJob;
-    }
-
     private void checkCustomPartition() throws UserException {
         if (customKafkaPartitions.isEmpty()) {
             return;
@@ -649,21 +618,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         this.customProperties.putIfAbsent(PROP_GROUP_ID, name + "_" + UUID.randomUUID());
     }
 
-    @Override
-    protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
-        super.setOptional(stmt);
-        KafkaDataSourceProperties kafkaDataSourceProperties
-                = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
-        if (CollectionUtils.isNotEmpty(kafkaDataSourceProperties.getKafkaPartitionOffsets())) {
-            setCustomKafkaPartitions(kafkaDataSourceProperties);
-        }
-        if (MapUtils.isNotEmpty(kafkaDataSourceProperties.getCustomKafkaProperties())) {
-            setCustomKafkaProperties(kafkaDataSourceProperties.getCustomKafkaProperties());
-        }
-        // set group id if not specified
-        this.customProperties.putIfAbsent(PROP_GROUP_ID, name + "_" + UUID.randomUUID());
-    }
-
     // this is an unprotected method which is called in the initialization function
     private void setCustomKafkaPartitions(KafkaDataSourceProperties kafkaDataSourceProperties) throws LoadException {
 
@@ -730,46 +684,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (null != dataSourceProperties) {
             // if the partition offset is set by timestamp, convert it to real offset
             convertOffset(dataSourceProperties);
-        }
-
-        writeLock();
-        try {
-            if (getState() != JobState.PAUSED) {
-                throw new DdlException("Only supports modification of PAUSED jobs");
-            }
-
-            modifyPropertiesInternal(jobProperties, dataSourceProperties);
-
-            AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    jobProperties, dataSourceProperties);
-            Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    @Override
-    public void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException {
-        Map<String, String> jobProperties = stmt.getAnalyzedJobProperties();
-        KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
-        if (null != dataSourceProperties) {
-            // if the partition offset is set by timestamp, convert it to real offset
-            convertOffset(dataSourceProperties);
-        }
-
-        String wgName = jobProperties.get(CreateRoutineLoadStmt.WORKLOAD_GROUP);
-        if (!StringUtils.isEmpty(wgName)) {
-            ConnectContext tmpCtx = new ConnectContext();
-            if (Config.isCloudMode()) {
-                tmpCtx.setCloudCluster(this.getCloudCluster());
-            }
-            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-            tmpCtx.getSessionVariable().setWorkloadGroup(wgName);
-            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroup(tmpCtx);
-            if (wgList.size() == 0) {
-                throw new UserException("Can not find workload group " + wgName);
-            }
         }
 
         writeLock();
@@ -865,8 +779,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
             modifyCommonJobProperties(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
-            if (jobProperties.containsKey(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
-                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadStmt.PARTIAL_COLUMNS));
+            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
             }
         }
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",

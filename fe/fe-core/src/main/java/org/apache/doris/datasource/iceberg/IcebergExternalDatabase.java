@@ -42,7 +42,7 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
 
     public String getLocation() {
         try {
-            return extCatalog.getPreExecutionAuthenticator().execute(() -> {
+            return extCatalog.getExecutionAuthenticator().execute(() -> {
                 Map<String, String> props = ((SupportsNamespaces) ((IcebergExternalCatalog) getCatalog()).getCatalog())
                         .loadNamespaceMetadata(Namespace.of(name));
                 return props.getOrDefault("location", "");

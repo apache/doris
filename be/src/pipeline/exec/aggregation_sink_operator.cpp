@@ -101,8 +101,9 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     }
 
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
-        _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                _agg_profile_arena.alloc(p._total_size_of_aggregate_states));
+        _agg_data->without_key =
+                reinterpret_cast<vectorized::AggregateDataPtr>(_agg_profile_arena.aligned_alloc(
+                        p._total_size_of_aggregate_states, p._align_aggregate_states));
 
         if (p._is_merge) {
             _executor = std::make_unique<Executor<true, true>>();
@@ -285,7 +286,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
     }
 
     if (limit && !_shared_state->do_sort_limit) {
-        _find_in_hash_table(_places.data(), key_columns, rows);
+        _find_in_hash_table(_places.data(), key_columns, (uint32_t)rows);
 
         for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
             if (Base::_shared_state->aggregate_evaluators[i]->is_merge()) {
@@ -327,10 +328,10 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
         bool need_do_agg = true;
         if (limit) {
             need_do_agg = _emplace_into_hash_table_limit(_places.data(), block, key_locs,
-                                                         key_columns, rows);
+                                                         key_columns, (uint32_t)rows);
             rows = block->rows();
         } else {
-            _emplace_into_hash_table(_places.data(), key_columns, rows);
+            _emplace_into_hash_table(_places.data(), key_columns, (uint32_t)rows);
         }
 
         if (need_do_agg) {
@@ -462,7 +463,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
         }
     }
 
-    size_t rows = block->rows();
+    auto rows = (uint32_t)block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -526,7 +527,7 @@ size_t AggSinkLocalState::_get_hash_table_size() const {
 
 void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                                  vectorized::ColumnRawPtrs& key_columns,
-                                                 size_t num_rows) {
+                                                 uint32_t num_rows) {
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
@@ -578,7 +579,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                                        vectorized::Block* block,
                                                        const std::vector<int>& key_locs,
                                                        vectorized::ColumnRawPtrs& key_columns,
-                                                       size_t num_rows) {
+                                                       uint32_t num_rows) {
     return std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) {
@@ -607,7 +608,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                     key_columns[i] =
                                             block->get_by_position(key_locs[i]).column.get();
                                 }
-                                num_rows = block->rows();
+                                num_rows = (uint32_t)block->rows();
                             }
 
                             AggState state(key_columns);
@@ -618,6 +619,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 try {
                                     HashMethodType::try_presis_key_and_origin(key, origin,
                                                                               _agg_arena_pool);
+                                    _shared_state->refresh_top_limit(i, key_columns);
                                     auto mapped =
                                             _shared_state->aggregate_data_container->append_data(
                                                     origin);
@@ -626,7 +628,6 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                         throw Exception(st.code(), st.to_string());
                                     }
                                     ctor(key, mapped);
-                                    _shared_state->refresh_top_limit(i, key_columns);
                                 } catch (...) {
                                     // Exception-safety - if it can not allocate memory or create status,
                                     // the destructors will not be called.
@@ -663,7 +664,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
 
 void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places,
                                             vectorized::ColumnRawPtrs& key_columns,
-                                            size_t num_rows) {
+                                            uint32_t num_rows) {
     std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
                                          throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                                                 "uninited hash table");
@@ -746,7 +747,7 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(
                 _pool, tnode.agg_node.aggregate_functions[i],
                 tnode.agg_node.__isset.agg_sort_infos ? tnode.agg_node.agg_sort_infos[i] : dummy,
-                tnode.agg_node.grouping_exprs.empty(), &evaluator));
+                tnode.agg_node.grouping_exprs.empty(), false, &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
 

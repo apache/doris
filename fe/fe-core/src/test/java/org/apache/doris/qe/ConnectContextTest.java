@@ -33,6 +33,7 @@ import org.junit.Test;
 import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public class ConnectContextTest {
     @Mocked
@@ -118,7 +119,7 @@ public class ConnectContextTest {
         Assert.assertEquals("", row.get(11));
 
         // Start time
-        Assert.assertEquals(0, ctx.getStartTime());
+        Assert.assertEquals(-1, ctx.getStartTime());
         ctx.setStartTime();
         Assert.assertNotSame(0, ctx.getStartTime());
 
@@ -273,5 +274,28 @@ public class ConnectContextTest {
         };
         result = context.getInsertTimeoutS();
         Assert.assertEquals(propertyValue, result);
+    }
+
+    @Test
+    public void testResetQueryId() {
+        ConnectContext context = new ConnectContext();
+        Assert.assertNull(context.queryId);
+        Assert.assertNull(context.lastQueryId);
+
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        context.setQueryId(queryId);
+        Assert.assertEquals(queryId, context.queryId);
+        Assert.assertNull(context.lastQueryId);
+
+        context.resetQueryId();
+        Assert.assertNull(context.queryId);
+        Assert.assertEquals(queryId, context.lastQueryId);
+
+        UUID uuid2 = UUID.randomUUID();
+        TUniqueId queryId2 = new TUniqueId(uuid2.getMostSignificantBits(), uuid2.getLeastSignificantBits());
+        context.setQueryId(queryId2);
+        Assert.assertEquals(queryId2, context.queryId);
+        Assert.assertEquals(queryId, context.lastQueryId);
     }
 }

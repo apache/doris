@@ -69,6 +69,8 @@ add_thirdparty(lz4)
 add_thirdparty(thrift)
 add_thirdparty(thriftnb)
 
+add_thirdparty(libevent_core LIBNAME "lib/libevent_core.a")
+add_thirdparty(libevent_openssl LIBNAME "lib/libevent_openssl.a")
 add_thirdparty(libevent LIBNAME "lib/libevent.a")
 add_thirdparty(libevent_pthreads LIBNAME "lib/libevent_pthreads.a")
 add_thirdparty(libbz2 LIBNAME "lib/libbz2.a")
@@ -176,8 +178,3 @@ add_thirdparty(icudata LIB64)
 
 
 add_thirdparty(pugixml LIB64)
-
-if (BUILD_FAISS)
-    add_thirdparty(openblas LIB64)
-    add_thirdparty(faiss LIB64)
-endif()

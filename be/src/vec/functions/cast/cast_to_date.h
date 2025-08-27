@@ -39,7 +39,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsStringType<FromDataType> && IsDatelikeTypes<ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
@@ -288,7 +288,9 @@ public:
                     // e.g. scale reduce to 4, means we need to round the last 2 digits
                     // 999956: 56 > 100/2, then round up to 1000000
                     uint32_t microseconds = dtmv2.microsecond();
-                    uint32_t divisor = common::exp10_i64(6 - to_scale);
+                    DCHECK(to_scale <= 6)
+                            << "to_scale should be in range [0, 6], but got " << to_scale;
+                    uint32_t divisor = (uint32_t)common::exp10_i64(6 - to_scale);
                     uint32_t remainder = microseconds % divisor;
 
                     if (remainder >= divisor / 2) { // need to round up
@@ -345,7 +347,9 @@ public:
                 if (to_scale < scale) { // need to round
                     // e.g. scale reduce to 4, means we need to round the last 2 digits
                     // 999956: 56 > 100/2, then round up to 1000000
-                    uint32_t divisor = common::exp10_i64(6 - to_scale);
+                    DCHECK(to_scale <= 6)
+                            << "to_scale should be in range [0, 6], but got " << to_scale;
+                    uint32_t divisor = (uint32_t)common::exp10_i64(6 - to_scale);
                     uint32_t remainder = microseconds % divisor;
                     microseconds = (microseconds / divisor) * divisor;
                     if (remainder >= divisor / 2) {
@@ -427,6 +431,6 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
                                               null_map);
     };
 }
-
+#include "common/compile_check_end.h"
 }; // namespace CastWrapper
 } // namespace doris::vectorized

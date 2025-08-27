@@ -32,6 +32,7 @@
 #include "vec/columns/column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct StringRef;
 
 namespace segment_v2 {
@@ -109,7 +110,7 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                     }
                     dict_item.relocate(item_mem);
                 }
-                value_code = _dictionary.size();
+                value_code = cast_set<uint32_t>(_dictionary.size());
                 size_t add_count = 1;
                 RETURN_IF_ERROR(_dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item),
                                                    &add_count));
@@ -328,5 +329,6 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

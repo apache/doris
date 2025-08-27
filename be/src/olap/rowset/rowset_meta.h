@@ -19,12 +19,16 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/config.h"
+#include "common/status.h"
+#include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
@@ -32,8 +36,11 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "util/once.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
@@ -55,13 +62,17 @@ public:
     // If the rowset is a local rowset, return the global local file system.
     // Otherwise, return the remote file system corresponding to rowset's resource id.
     // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
-    io::FileSystemSPtr fs();
+    MOCK_FUNCTION io::FileSystemSPtr fs();
 
     Result<const StorageResource*> remote_storage_resource();
 
     void set_remote_storage_resource(StorageResource resource);
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
+
+    void set_resource_id(const std::string& resource_id) {
+        _rowset_meta_pb.set_resource_id(resource_id);
+    }
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
@@ -96,7 +107,7 @@ public:
 
     int32_t tablet_schema_hash() const { return _rowset_meta_pb.tablet_schema_hash(); }
 
-    void set_tablet_schema_hash(int64_t tablet_schema_hash) {
+    void set_tablet_schema_hash(int32_t tablet_schema_hash) {
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
@@ -271,7 +282,9 @@ public:
         if (!is_segments_overlapping()) {
             score = 1;
         } else {
-            score = num_segments();
+            auto num_seg = num_segments();
+            DCHECK_GT(num_seg, 0);
+            score = cast_set<uint32_t>(num_seg);
             CHECK(score > 0);
         }
         return score;
@@ -286,7 +299,10 @@ public:
                 way_num = 1;
             }
         } else {
-            way_num = num_segments();
+            auto num_seg = num_segments();
+            DCHECK_GT(num_seg, 0);
+
+            way_num = cast_set<uint32_t>(num_seg);
             CHECK(way_num > 0);
         }
         return way_num;
@@ -356,7 +372,7 @@ public:
     void add_segments_file_size(const std::vector<size_t>& seg_file_size);
 
     // Return -1 if segment file size is unknown
-    int64_t segment_file_size(int seg_id);
+    int64_t segment_file_size(int seg_id) const;
 
     const auto& segments_file_size() const { return _rowset_meta_pb.segments_file_size(); }
 
@@ -396,7 +412,10 @@ private:
     RowsetId _rowset_id;
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
+    DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
 

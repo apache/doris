@@ -23,6 +23,13 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
 file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 
+# Remove all cpp files from vector_search subdirectory
+# Since cpp files in vector search subdirs use header files from faiss.
+# The compile check used by doris can not be applied to faiss headers.
+# So vector_search cpp files are compiled in a separate library using different compile options.
+file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS olap/vector_search/*.cpp)
+list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
+
 if(NOT DEFINED DORIS_WITH_LZO)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)
 endif()
@@ -59,48 +66,52 @@ message(STATUS "Disable the metrics collection for orc")
 add_compile_definitions(ENABLE_METRICS=0)
 
 list(APPEND UT_FILES
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/MemoryInputStream.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/MemoryOutputStream.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestAttributes.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestBlockBuffer.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestBufferedOutputStream.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestBloomFilter.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestByteRle.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestByteRLEEncoder.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestColumnPrinter.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestColumnReader.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestColumnStatistics.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestCompression.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestDecompression.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestDecimal.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestDictionaryEncoding.cc
-    #${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestDriver.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestInt128.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestMurmur3.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestPredicateLeaf.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestPredicatePushdown.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestReader.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestRleDecoder.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestRleEncoder.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestRLEV2Util.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestSargsApplier.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestSearchArgument.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestStripeIndexStatistics.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestTimestampStatistics.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestTimezone.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestType.cc
-    ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/TestWriter.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/MemoryInputStream.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/MemoryOutputStream.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestAttributes.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestBlockBuffer.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestBufferedOutputStream.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestBloomFilter.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestByteRle.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestByteRLEEncoder.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnPrinter.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnReader.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnStatistics.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestCompression.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestDecompression.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestDecimal.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestDictionaryEncoding.cc
+    #${CONTRIB_PATH}/apache-orc/c++/test/TestDriver.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestInt128.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestMurmur3.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestPredicateLeaf.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestPredicatePushdown.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestReader.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestRleDecoder.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestRleEncoder.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestRLEV2Util.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestSargsApplier.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestSearchArgument.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestStripeIndexStatistics.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestTimestampStatistics.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestTimezone.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestType.cc
+    ${CONTRIB_PATH}/apache-orc/c++/test/TestWriter.cc
 )
 
 include_directories(
-  ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/src
-  ${CMAKE_BINARY_DIR}/src/apache-orc/c++/src
-  ${CMAKE_BINARY_DIR}/src/apache-orc/c++/include
+  ${CMAKE_SOURCE_DIR}/../contrib/apache-orc/c++/src
+  ${CMAKE_BINARY_DIR}/apache-orc/c++/src
+  ${CMAKE_BINARY_DIR}/apache-orc/c++/include
 )
+
+# Removed test files are added back using separate compile arguments.
+add_subdirectory(olap/vector_search)
 
 add_executable(doris_be_test ${UT_FILES})
 
-target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
+target_link_libraries(doris_be_test ${TEST_LINK_LIBS} 
+    -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 
 if (OS_MACOSX AND ARCH_ARM)

@@ -49,6 +49,8 @@
 #include "cloud/cloud_delete_task.h"
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 #include "cloud/cloud_schema_change_job.h"
+#include "cloud/cloud_snapshot_loader.h"
+#include "cloud/cloud_snapshot_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -93,13 +95,13 @@
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/trace.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -180,7 +182,7 @@ Status get_tablet_info(StorageEngine& engine, const TTabletId tablet_id,
 }
 
 void random_sleep(int second) {
-    Random rnd(UnixMillis());
+    Random rnd(static_cast<uint32_t>(UnixMillis()));
     sleep(rnd.Uniform(second) + 1);
 }
 
@@ -294,7 +296,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                 job.process_alter_tablet(agent_task_req.alter_tablet_req_v2),
                 [&](const doris::Exception& ex) {
                     DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
-                    job.clean_up_on_failed();
+                    job.clean_up_on_failure();
                 });
         return Status::OK();
     }();
@@ -626,13 +628,13 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskReq
             // If it doesn't exist, put it directly into the priority queue
             add_task_count(*req, 1);
             set.insert(signature);
-            std::lock_guard lock(_mtx);
+            std::lock_guard temp_lock(_mtx);
             _high_prior_queue.push_back(std::move(req));
             _high_prior_condv.notify_one();
             _normal_condv.notify_one();
             break;
         } else {
-            std::lock_guard lock(_mtx);
+            std::lock_guard temp_lock(_mtx);
             for (auto it = _normal_queue.begin(); it != _normal_queue.end();) {
                 // If it exists in the normal queue, cancel the task in the normal queue
                 if ((*it)->signature == signature) {
@@ -1320,6 +1322,54 @@ void download_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
     remove_task_info(req.task_type, req.signature);
 }
 
+void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req) {
+    const auto& download_request = req.download_req;
+    LOG(INFO) << "get download task. signature=" << req.signature
+              << ", job_id=" << download_request.job_id
+              << ", task detail: " << apache::thrift::ThriftDebugString(download_request);
+
+    std::vector<int64_t> transferred_tablet_ids;
+
+    auto status = Status::OK();
+    if (download_request.__isset.remote_tablet_snapshots) {
+        status = Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "remote tablet snapshot is not supported.");
+    } else {
+        std::unique_ptr<CloudSnapshotLoader> loader = std::make_unique<CloudSnapshotLoader>(
+                engine, env, download_request.job_id, req.signature, download_request.broker_addr,
+                download_request.broker_prop);
+        status = loader->init(download_request.__isset.storage_backend
+                                      ? download_request.storage_backend
+                                      : TStorageBackendType::type::BROKER,
+                              download_request.__isset.location ? download_request.location : "",
+                              download_request.vault_id);
+        if (status.ok()) {
+            status = loader->download(download_request.src_dest_map, &transferred_tablet_ids);
+        }
+
+        if (!status.ok()) {
+            LOG_WARNING("failed to download")
+                    .tag("signature", req.signature)
+                    .tag("job_id", download_request.job_id)
+                    .error(status);
+        } else {
+            LOG_INFO("successfully download")
+                    .tag("signature", req.signature)
+                    .tag("job_id", download_request.job_id);
+        }
+
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(BackendOptions::get_local_backend());
+        finish_task_request.__set_task_type(req.task_type);
+        finish_task_request.__set_signature(req.signature);
+        finish_task_request.__set_task_status(status.to_thrift());
+        finish_task_request.__set_downloaded_tablet_ids(transferred_tablet_ids);
+
+        finish_task(finish_task_request);
+        remove_task_info(req.task_type, req.signature);
+    }
+}
+
 void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& snapshot_request = req.snapshot_req;
 
@@ -1399,6 +1449,37 @@ void release_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& r
     remove_task_info(req.task_type, req.signature);
 }
 
+void release_snapshot_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    const auto& release_snapshot_request = req.release_snapshot_req;
+
+    LOG(INFO) << "get release snapshot task. signature=" << req.signature;
+
+    Status status = engine.cloud_snapshot_mgr().release_snapshot(
+            release_snapshot_request.tablet_id, release_snapshot_request.is_job_completed);
+
+    if (!status.ok()) {
+        LOG_WARNING("failed to release snapshot")
+                .tag("signature", req.signature)
+                .tag("tablet_id", release_snapshot_request.tablet_id)
+                .tag("is_job_completed", release_snapshot_request.is_job_completed)
+                .error(status);
+    } else {
+        LOG_INFO("successfully release snapshot")
+                .tag("signature", req.signature)
+                .tag("tablet_id", release_snapshot_request.tablet_id)
+                .tag("is_job_completed", release_snapshot_request.is_job_completed);
+    }
+
+    TFinishTaskRequest finish_task_request;
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    finish_task_request.__set_task_status(status.to_thrift());
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
 void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req) {
     const auto& move_dir_req = req.move_dir_req;
 
@@ -1426,6 +1507,36 @@ void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
                 .tag("job_id", move_dir_req.job_id)
                 .tag("tablet_id", move_dir_req.tablet_id)
                 .tag("src", move_dir_req.src);
+    }
+
+    TFinishTaskRequest finish_task_request;
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    finish_task_request.__set_task_status(status.to_thrift());
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
+void move_dir_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req) {
+    const auto& move_dir_req = req.move_dir_req;
+
+    LOG(INFO) << "get move dir task. signature=" << req.signature
+              << ", job_id=" << move_dir_req.job_id;
+
+    Status status = engine.cloud_snapshot_mgr().commit_snapshot(move_dir_req.tablet_id);
+    if (!status.ok()) {
+        LOG_WARNING("failed to move dir")
+                .tag("signature", req.signature)
+                .tag("job_id", move_dir_req.job_id)
+                .tag("tablet_id", move_dir_req.tablet_id)
+                .error(status);
+    } else {
+        LOG_INFO("successfully move dir")
+                .tag("signature", req.signature)
+                .tag("job_id", move_dir_req.job_id)
+                .tag("tablet_id", move_dir_req.tablet_id);
     }
 
     TFinishTaskRequest finish_task_request;
@@ -1612,15 +1723,15 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     RuntimeProfile* profile = &runtime_profile;
     MonotonicStopWatch watch;
     watch.start();
-    SCOPED_CLEANUP({
-        auto elapsed_time = static_cast<int64_t>(watch.elapsed_time());
+    Defer defer = [&] {
+        auto elapsed_time = static_cast<double>(watch.elapsed_time());
         if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
             std::stringstream ss;
             profile->pretty_print(&ss);
             LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
         }
-    });
+    };
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
     VLOG_NOTICE << "start to create tablet " << create_tablet_req.tablet_id;
 
@@ -1739,21 +1850,20 @@ void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& r
             count++;
         }
 
-        CloudTablet::recycle_cached_data(std::move(clean_rowsets));
+        CloudTablet::recycle_cached_data(clean_rowsets);
         break;
     }
 
     if (!found) {
         LOG(WARNING) << "tablet not found when dropping tablet_id=" << drop_tablet_req.tablet_id
-                     << ", cost " << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
+                     << ", cost " << static_cast<double>(watch.elapsed_time()) / 1e9 << "(s)";
         return;
     }
 
     engine.tablet_mgr().erase_tablet(drop_tablet_req.tablet_id);
     LOG(INFO) << "drop cloud tablet_id=" << drop_tablet_req.tablet_id
               << " and clean file cache first 10 rowsets {" << rowset_ids_stream.str() << "}, cost "
-              << static_cast<int64_t>(watch.elapsed_time()) / 1e9 << "(s)";
-    return;
+              << static_cast<double>(watch.elapsed_time()) / 1e9 << "(s)";
 }
 
 void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
@@ -1964,7 +2074,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 }
             }
         }
-        uint32_t cost_second = time(nullptr) - req.recv_time;
+        int64_t cost_second = time(nullptr) - req.recv_time;
         g_publish_version_latency << cost_second;
         LOG_INFO("successfully publish version")
                 .tag("signature", req.signature)
@@ -2254,4 +2364,5 @@ void report_index_policy_callback(const ClusterInfo* cluster_info) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

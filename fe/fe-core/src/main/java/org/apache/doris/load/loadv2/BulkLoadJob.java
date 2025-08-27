@@ -20,8 +20,6 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
@@ -31,8 +29,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
@@ -246,18 +242,22 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 .collect(Collectors.toSet());
     }
 
-    @LogException
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
-        Set<String> result = Sets.newHashSet();
-        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        // The database will not be locked in here.
-        // The getTable is a thread-safe method called without read lock of database
-        for (long tableId : fileGroupAggInfo.getAllTableIds()) {
-            Table table = database.getTableOrMetaException(tableId);
-            result.add(table.getName());
+        try {
+            Set<String> result = Sets.newHashSet();
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            // The database will not be locked in here.
+            // The getTable is a thread-safe method called without read lock of database
+            for (long tableId : fileGroupAggInfo.getAllTableIds()) {
+                Table table = database.getTableOrMetaException(tableId);
+                result.add(table.getName());
+            }
+            return result;
+        } catch (Exception e) {
+            LOG.warn(e);
+            throw e;
         }
-        return result;
     }
 
     @Override
@@ -331,13 +331,13 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         // Reset dataSourceInfo, it will be re-created in analyze
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
         NereidsParser nereidsParser = new NereidsParser();
-        LoadCommand command = (LoadCommand) nereidsParser.parseSingle(originStmt.originStmt);
         ConnectContext ctx = ConnectContext.get();
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
             if (ctx == null) {
                 ctx = ConnectContextUtil.getDummyCtx(db.getName());
             }
+            LoadCommand command = (LoadCommand) nereidsParser.parseSingle(originStmt.originStmt);
             analyzeCommand(command, db, ctx);
         } catch (Exception e) {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
@@ -347,20 +347,6 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                     .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false, true);
         }
-    }
-
-    protected void analyzeStmt(StatementBase stmtBase, Database db) throws UserException {
-        LoadStmt stmt = null;
-        if (stmtBase instanceof UnifiedLoadStmt) {
-            stmt = (LoadStmt) ((UnifiedLoadStmt) stmtBase).getProxyStmt();
-        } else {
-            stmt = (LoadStmt) stmtBase;
-        }
-
-        for (DataDescription dataDescription : stmt.getDataDescriptions()) {
-            dataDescription.analyzeWithoutCheckPriv(db.getFullName());
-        }
-        checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
     }
 
     protected void analyzeCommand(LoadCommand command, Database db, ConnectContext ctx) throws Exception {

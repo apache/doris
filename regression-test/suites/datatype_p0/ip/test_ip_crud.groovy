@@ -46,7 +46,7 @@ suite("test_ip_crud") {
     qt_sql4 "select * from test_unique_ip_crud where ip_v4='119.36.22.147' and ip_v6='2001:4888:1f:e891:161:26::'"
 
     // Only unique table could be updated
-    sql "update test_unique_ip_crud set ip_v4=0, ip_v6='2804:64:0:25::1' where id=3"
+    sql "update test_unique_ip_crud set ip_v4='0.0.0.0', ip_v6='2804:64:0:25::1' where id=3"
     qt_sql5 "select * from test_unique_ip_crud order by id"
 
     // test ip datatype in aggregate table
@@ -100,7 +100,37 @@ suite("test_ip_crud") {
     sql "delete from test_dup_ip_crud where ip_v6='2001:4888:1f:e891:161:26::'"
     qt_sql15 "select * from test_dup_ip_crud order by id"
 
+    sql "DROP TABLE IF EXISTS log"
+    sql """
+      CREATE TABLE IF NOT EXISTS log
+      (
+          type INT,
+          day DATE NOT NULL,
+          timestamp BIGINT NOT NULL,
+          sip IPV6,
+          dip IPV6
+      )
+      DUPLICATE KEY (`type`, `day`, `timestamp`)
+      DISTRIBUTED BY HASH(`type`) BUCKETS 8
+      PROPERTIES (
+          "replication_num" = "1"
+      );
+    """
+    sql "INSERT INTO log VALUES (1, '2025-08-05', 1754386200, '::ffff:10.20.136.244', '::ffff:192.168.1.1');"
+    sql "INSERT INTO log VALUES (2, '2025-08-05', 1754386200, '::ffff:11.20.136.244', '::ffff:192.168.1.2');"
+    sql "INSERT INTO log VALUES (3, '2025-08-05', 1754386200, '::ffff:12.20.136.244', '::1');"
+    qt_sql16 "select * from log order by type;"
+    sql "delete from log where sip='::ffff:10.20.136.244';"
+    qt_sql17 "select * from log order by type;"
+
+    sql "delete from log where sip='0000:0000:0000:0000:0000:FFFF:0B14:88F4';"
+    qt_sql17 "select * from log order by type;"
+
+    sql "delete from log where dip='0000:0000:0000:0000:0000:0000:0000:0001';"
+    qt_sql17 "select * from log order by type;"
+
     sql "DROP TABLE test_unique_ip_crud"
     sql "DROP TABLE test_agg_ip_crud"
     sql "DROP TABLE test_dup_ip_crud"
+    sql "DROP TABLE log"
 }

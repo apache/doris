@@ -25,7 +25,7 @@
 #include <sstream>
 #include <tuple>
 
-#include "gutil/hash/city.h"
+#include "util/hash/city.h"
 #include "util/sse_util.hpp"
 #include "vec/core/extended_types.h"
 #include "vec/core/types.h"
@@ -77,6 +77,6 @@ struct UInt136 {
 template <>
 struct std::hash<doris::vectorized::UInt128> {
     size_t operator()(const doris::vectorized::UInt128& u) const {
-        return util_hash::HashLen16(u.low(), u.high());
+        return doris::util_hash::HashLen16(u.low(), u.high());
     }
 };

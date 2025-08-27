@@ -19,6 +19,7 @@
 #include "mock_query_context.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
+#include "testutil/mock/mock_descriptors.h"
 
 namespace doris {
 
@@ -38,9 +39,16 @@ class MockRuntimeState : public RuntimeState {
 public:
     MockRuntimeState() {
         set_task_execution_context(_mock_context);
+        _query_ctx_uptr->set_mock_llm_resource();
         _query_ctx = _query_ctx_uptr.get();
+
+        _mock_desc_tbl = std::make_unique<MockDescriptorTbl1>();
+        set_desc_tbl(_mock_desc_tbl.get());
     }
-    MockRuntimeState(const TQueryGlobals& query_globals) : RuntimeState(query_globals) {}
+    MockRuntimeState(const TQueryGlobals& query_globals) : RuntimeState(query_globals) {
+        _mock_desc_tbl = std::make_unique<MockDescriptorTbl1>();
+        set_desc_tbl(_mock_desc_tbl.get());
+    }
     MockRuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                      const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                      ExecEnv* exec_env, QueryContext* ctx)
@@ -70,6 +78,7 @@ public:
     std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
     std::shared_ptr<MockQueryContext> _query_ctx_uptr = MockQueryContext::create();
     WorkloadGroupPtr _workload_group = nullptr;
+    std::unique_ptr<MockDescriptorTbl1> _mock_desc_tbl;
 };
 
 } // namespace doris

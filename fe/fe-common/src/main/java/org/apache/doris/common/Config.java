@@ -253,7 +253,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {
             "攒批写 EditLog。", "Batch EditLog writing"})
-    public static boolean enable_batch_editlog = false;
+    public static boolean enable_batch_editlog = true;
 
     @ConfField(description = {"元数据同步的容忍延迟时间，单位为秒。如果元数据的延迟超过这个值，非主 FE 会停止提供服务",
             "The toleration delay time of meta data synchronization, in seconds. "
@@ -560,7 +560,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"是否启用并行发布版本",
             "Whether to enable parallel publish version"})
-    public static boolean enable_parallel_publish_version = false;
+    public static boolean enable_parallel_publish_version = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
@@ -1285,6 +1285,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static String[] force_skip_journal_ids = {};
 
+    @ConfField(description = {"当回放 editlog 时遇到特定操作类型的异常导致 FE 无法启动时，可以配置需要忽略的 editlog 操作类型枚举值，"
+            + "从而跳过这些异常，让 replay 线程可以继续回放其他日志",
+        "When replaying editlog encounters exceptions with specific operation types that prevent FE from starting, "
+            + "you can configure the editlog operation type enum values to be ignored, "
+            + "thereby skipping these exceptions and allowing the replay thread to continue replaying other logs"})
+    public static short[] skip_operation_types_on_replay_exception =  {-1, -1};
+
     /**
      * Decide how often to check dynamic partition
      */
@@ -1700,6 +1707,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static long backup_handler_update_interval_millis = 3000;
 
+
+    /**
+     * Whether to enable cloud restore job.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {"是否开启存算分离恢复功能。",
+        "Whether to enable cloud restore job."}, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_cloud_restore_job = false;
+
     /**
      * Control the default max num of the instance for a user.
      */
@@ -1968,9 +1983,6 @@ public class Config extends ConfigBase {
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = true;
-
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_wg_memory_sum_limit = true;
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
@@ -2267,7 +2279,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg"})
+    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg", "external"})
     public static String fuzzy_test_type = "";
 
     /**
@@ -2534,7 +2546,7 @@ public class Config extends ConfigBase {
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
      * we may delete the DecimalV2 and DateV1 types in the future.
-     * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
+     * At this stage, we use 'disable_decimalv2' and 'disable_datev1'
      * to determine whether these two types take effect.
      */
     @ConfField(mutable = true)
@@ -2648,7 +2660,7 @@ public class Config extends ConfigBase {
                     + "This config is recommended to be used only in the test environment"})
     public static int force_olap_table_replication_num = 0;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
+    @ConfField(mutable = true, description = {
             "用于强制设定内表的副本分布，如果该参数不为空，则用户在建表或者创建分区时指定的副本数及副本标签将被忽略，而使用本参数设置的值。"
                     + "该参数影响包括创建分区、修改表属性、动态分区等操作。该参数建议仅用于测试环境",
             "Used to force set the replica allocation of the internal table. If the config is not empty, "
@@ -3030,6 +3042,13 @@ public class Config extends ConfigBase {
     public static String inverted_index_storage_format = "V2";
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "是否为新分区启用倒排索引 V2 存储格式。启用后，新创建的分区将使用 V2 格式，而不管表的原始格式如何。",
+            "Enable V2 storage format for inverted indexes in new partitions. When enabled, newly created partitions "
+                    + "will use V2 format regardless of the table's original format."
+    })
+    public static boolean enable_new_partition_inverted_index_v2_format = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
                     + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
             "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
@@ -3364,6 +3383,9 @@ public class Config extends ConfigBase {
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
     @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_warm_up_force_all_partitions = false;
+
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_fetch_cluster_cache_hotspot = true;
 
     @ConfField(mutable = true)
@@ -3441,12 +3463,12 @@ public class Config extends ConfigBase {
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
 
-    @ConfField(mutable = true, description = {"存算分离模式下schema change失败是否重试",
-            "Whether to enable retry when schema change failed in cloud model, default is true."})
-    public static boolean enable_schema_change_retry_in_cloud_mode = true;
+    @ConfField(mutable = true, description = {"schema change job 失败是否重试",
+            "Whether to enable retry when a schema change job fails, default is true."})
+    public static boolean enable_schema_change_retry = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下schema change重试次数",
-            "Max retry times when schema change failed in cloud model, default is 3."})
+    @ConfField(mutable = true, description = {"schema change job 重试次数",
+            "Max retry times when a schema change job fails, default is 3."})
     public static int schema_change_max_retry_time = 3;
 
     @ConfField(mutable = true, description = {"是否允许使用ShowCacheHotSpotStmt语句",
@@ -3473,6 +3495,18 @@ public class Config extends ConfigBase {
             + "For example: auto_start_ignore_db_names=__internal_schema, information_schema"
             })
     public static String[] auto_start_ignore_resume_db_names = {"__internal_schema", "information_schema"};
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_mow_load_force_take_ms_lock = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_load_force_take_ms_lock_threshold_ms = 500;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_base = 20;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
@@ -3548,4 +3582,38 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"Prometheus 输出表维度指标的个数限制",
             "Prometheus output table dimension metric count limit"})
     public static int prom_output_table_metrics_limit = 10000;
+
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long create_partition_wait_seconds = 300;
+
+    @ConfField(mutable = true, description = {
+        "KMS 主密钥的 ID，用于生成和加密数据密钥",
+        "The ID of the master key in KMS, used for generating and encrypting data keys"
+    })
+    public static String doris_tde_key_id = "";
+
+    @ConfField(mutable = true, description = {
+        "KMS 服务的访问地址（endpoint），需与密钥所在的 region 匹配",
+        "The endpoint of the KMS service, should match the region of the key"
+    })
+    public static String doris_tde_key_endpoint = "";
+
+    @ConfField(mutable = true, description = {
+        "KMS 密钥所属的区域，用于 SDK 调用时的区域配置",
+        "The region where the KMS key is located, used for SDK configuration"
+    })
+    public static String doris_tde_key_region = "";
+
+    @ConfField(mutable = true, description = {
+        "TDE（透明数据加密）的密钥提供方，目前支持 aws_kms",
+        "The key provider for TDE (Transparent Data Encryption), currently supports aws_kms"
+    })
+    public static String doris_tde_key_provider = "";
+
+    @ConfField(mutable = true, description = {
+        "数据加密所使用的算法，默认 AES256，后续可能置空由 KMS 自动决定",
+        "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
+    })
+    public static String doris_tde_algorithm = "PLAINTEXT";
 }

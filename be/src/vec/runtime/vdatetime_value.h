@@ -33,8 +33,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "common/exception.h"
-#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -111,6 +109,9 @@ struct TimeInterval {
         switch (unit) {
         case YEAR:
             year = count;
+            break;
+        case QUARTER: // reuse month so that we can use the same logic
+            month = 3 * count;
             break;
         case MONTH:
             month = count;
@@ -771,7 +772,8 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone);
+    bool from_date_str_base(const char* date_str, size_t len,
+                            const cctz::time_zone* local_time_zone);
 
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
@@ -913,8 +915,8 @@ public:
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
-    bool from_date_str(const char* str, int len, int scale = -1, bool convert_zero = false);
-    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
+    bool from_date_str(const char* str, size_t len, int scale = -1, bool convert_zero = false);
+    bool from_date_str(const char* str, size_t len, const cctz::time_zone& local_time_zone,
                        int scale = -1, bool convert_zero = false);
 
     // Convert this value to string
@@ -1341,6 +1343,7 @@ public:
                 }
                 date_v2_value_.hour_ = val;
             } else {
+                //TODO: use static_assert since we already upgrade to newer clang
                 DCHECK(false) << "shouldn't set for date";
             }
         } else if constexpr (unit == TimeUnit::MINUTE) {
@@ -1436,7 +1439,7 @@ private:
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);
 
-    bool from_date_str_base(const char* date_str, int len, int scale,
+    bool from_date_str_base(const char* date_str, size_t len, int scale,
                             const cctz::time_zone* local_time_zone, bool convert_zero);
 
     // Used to construct from int value
@@ -1581,7 +1584,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         }
 
         return year;
-    } else if constexpr (UNIT == MONTH) {
+    } else if constexpr (UNIT == QUARTER || UNIT == MONTH) {
         int month = (ts_value2.year() - ts_value1.year()) * 12 +
                     (ts_value2.month() - ts_value1.month());
         if constexpr (std::is_same_v<T0, T1>) {
@@ -1623,7 +1626,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
                            (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             }
         }
-        return month;
+        return UNIT == QUARTER ? month / 3 : month;
     } else if constexpr (UNIT == WEEK) {
         return ts_value2.date_diff_in_days_round_to_zero_by_time(ts_value1) / 7;
     } else if constexpr (UNIT == DAY) {

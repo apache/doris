@@ -133,8 +133,10 @@ class ScanLocalState : public ScanLocalStateBase {
             : ScanLocalStateBase(state, parent) {}
     ~ScanLocalState() override = default;
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status open(RuntimeState* state) override;
+    virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
+
+    virtual Status open(RuntimeState* state) override;
+
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const final;
 

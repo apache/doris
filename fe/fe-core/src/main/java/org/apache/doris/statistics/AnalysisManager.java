@@ -19,7 +19,6 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -598,19 +597,6 @@ public class AnalysisManager implements Writable {
             }
         }
         return result;
-    }
-
-    public List<AnalysisInfo> findAnalysisJobs(ShowAnalyzeStmt stmt) {
-        String ctl = null;
-        String db = null;
-        String table = null;
-        TableName dbTableName = stmt.getDbTableName();
-        if (dbTableName != null) {
-            ctl = dbTableName.getCtl();
-            db = dbTableName.getDb();
-            table = dbTableName.getTbl();
-        }
-        return findAnalysisJobs(stmt.getStateValue(), ctl, db, table, stmt.getJobId(), stmt.isAuto());
     }
 
     public List<AnalysisInfo> findAnalysisJobs(String state, String ctl, String db,

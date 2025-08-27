@@ -133,6 +133,12 @@ public class WindowExpression extends Expression {
                 .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys, isSkew));
     }
 
+    public WindowExpression withFunctionPartitionKeysOrderKeys(Expression function,
+            List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
+        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame, isSkew))
+                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys, isSkew));
+    }
+
     @Override
     public boolean nullable() {
         return function.nullable();

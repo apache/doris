@@ -39,9 +39,13 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -223,7 +227,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
                 || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
-                || expr.getDataType().isIPv6Type()) {
+                || expr.getDataType().isIPv6Type() || expr.getDataType().isJsonType()) {
             return true;
         }
 
@@ -232,8 +236,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             return true;
         }
 
-        // Skip from_base64 function to avoid incorrect binary data processing during constant folding
-        if (expr instanceof FromBase64) {
+        // Skip those function to avoid incorrect binary data processing during constant folding
+        if (expr instanceof FromBase64 || expr instanceof Ipv6StringToNumOrNull
+                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof LLMFunction) {
             return true;
         }
 
@@ -250,6 +255,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Match need give more info rather then as left child a NULL, in
         // match_phrase_prefix/MATCH_PHRASE/MATCH_PHRASE/MATCH_ANY
         if (expr instanceof Match) {
+            return true;
+        }
+
+        // Score function depends on query context and should not be folded to constant.
+        // It needs runtime evaluation with proper search context for relevance scoring.
+        if (expr instanceof Score) {
             return true;
         }
 
@@ -299,6 +310,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
             tQueryOptions.setEnableDecimal256(context.getSessionVariable().isEnableDecimal256());
+            tQueryOptions.setNewVersionUnixTimestamp(true);
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(true);

@@ -21,6 +21,7 @@ suite("sync_async_same_name") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO;"
 
     sql """
     drop table if exists orders
@@ -93,7 +94,7 @@ suite("sync_async_same_name") {
             """
 
     def mv_query = """
-            select o_shippriority, o_comment,
+            select o_shippriority as a1, o_comment as a2,
             sum(o_totalprice),
             max(o_totalprice),
             min(o_totalprice),

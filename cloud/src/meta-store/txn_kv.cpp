@@ -39,6 +39,7 @@
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
 
 // =============================================================================
@@ -52,6 +53,25 @@
     } while (false)
 
 namespace doris::cloud {
+
+static void may_logging_single_version_reading(std::string_view key) {
+    if (!config::enable_logging_for_single_version_reading) {
+        return;
+    }
+
+    if (!key.starts_with(CLOUD_USER_KEY_SPACE01)) {
+        return;
+    }
+
+    std::vector<std::string> single_version_meta_key_prefixs =
+            get_single_version_meta_key_prefixs();
+    for (std::string& prefix : single_version_meta_key_prefixs) {
+        if (key.starts_with(prefix)) {
+            LOG(WARNING) << "Read single version meta key: " << hex(key);
+            return;
+        }
+    }
+}
 
 static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector) {
     // Keep consistent with FDB_KEYSEL_* constants.
@@ -393,6 +413,8 @@ static TxnErrorCode await_future(FDBFuture* fut) {
 }
 
 TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snapshot) {
+    may_logging_single_version_reading(key);
+
     StopWatch sw;
     approximate_bytes_ += key.size() * 2; // See fdbclient/ReadYourWrites.actor.cpp for details
     auto* fut = fdb_transaction_get(txn_, (uint8_t*)key.data(), key.size(), snapshot);
@@ -435,6 +457,8 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
 TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
                               std::unique_ptr<cloud::RangeGetIterator>* iter,
                               const RangeGetOptions& opts) {
+    may_logging_single_version_reading(begin);
+
     StopWatch sw;
     approximate_bytes_ += begin.size() + end.size();
     DORIS_CLOUD_DEFER {
@@ -690,6 +714,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         size_t size = std::min(i + opts.concurrency, num_keys);
         for (size_t j = i; j < size; j++) {
             const auto& k = keys[j];
+            may_logging_single_version_reading(k);
             futures.emplace_back(
                     fdb_transaction_get(txn_, (uint8_t*)k.data(), k.size(), opts.snapshot));
             approximate_bytes_ += k.size() * 2;
@@ -731,10 +756,113 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode Transaction::batch_scan(
+        std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+        const std::vector<std::string>& keys, const BatchGetOptions& opts) {
+    struct FDBFutureDelete {
+        void operator()(FDBFuture* future) { fdb_future_destroy(future); }
+    };
+
+    res->clear();
+    if (keys.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+
+    StopWatch sw;
+    auto stop_watcher = [&sw](int*) { g_bvar_txn_kv_range_get << sw.elapsed_us(); };
+    std::unique_ptr<int, decltype(stop_watcher)> defer((int*)0x01, std::move(stop_watcher));
+
+    size_t num_keys = keys.size();
+    res->reserve(keys.size());
+    g_bvar_txn_kv_get_count_normalized << keys.size();
+    std::vector<std::unique_ptr<FDBFuture, FDBFutureDelete>> futures;
+    futures.reserve(opts.concurrency);
+
+    fdb_bool_t snapshot = opts.snapshot ? 1 : 0;
+    fdb_bool_t reverse = opts.reverse ? 1 : 0;
+    for (size_t i = 0; i < num_keys; i += opts.concurrency) {
+        size_t batch_size = std::min(i + opts.concurrency, num_keys);
+        for (size_t j = i; j < batch_size; j++) {
+            const auto& key = keys[j];
+            FDBFuture* fut;
+            if (reverse) {
+                fut = fdb_transaction_get_range(
+                        txn_, FDB_KEYSEL_FIRST_GREATER_THAN((uint8_t*)"", 0),
+                        FDB_KEYSEL_FIRST_GREATER_THAN((uint8_t*)key.data(), key.size()),
+                        1, // limit: take the first one
+                        0, // target_bytes, unlimited
+                        FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
+                        0,        // iteration
+                        snapshot, // snapshot
+                        reverse   // reverse
+                );
+            } else {
+                fut = fdb_transaction_get_range(
+                        txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)key.data(), key.size()),
+                        FDB_KEYSEL_FIRST_GREATER_THAN((uint8_t*)"\xFF", 1),
+                        1, // limit: take the first one
+                        0, // target_bytes, unlimited
+                        FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
+                        0,        // iteration
+                        snapshot, // snapshot
+                        reverse   // reverse
+                );
+            }
+
+            futures.emplace_back(fut);
+            approximate_bytes_ += key.size() * 2;
+        }
+
+        size_t num_futures = futures.size();
+        for (size_t j = 0; j < num_futures; j++) {
+            FDBFuture* future = futures[j].get();
+            std::string_view key = keys[i + j];
+
+            RETURN_IF_ERROR(await_future(future));
+            fdb_error_t err = fdb_future_get_error(future);
+            if (err) {
+                LOG(WARNING) << __PRETTY_FUNCTION__
+                             << " failed to fdb_future_get_error err=" << fdb_get_error(err)
+                             << " key=" << hex(key);
+                return cast_as_txn_code(err);
+            }
+
+            const FDBKeyValue* kvs;
+            int kvs_size;
+            fdb_bool_t more;
+            err = fdb_future_get_keyvalue_array(future, &kvs, &kvs_size, &more);
+            num_get_keys_++;
+
+            if (err) {
+                LOG(WARNING) << __PRETTY_FUNCTION__
+                             << " failed to fdb_future_get_keyvalue_array err="
+                             << fdb_get_error(err) << " key=" << hex(key);
+                return cast_as_txn_code(err);
+            }
+
+            if (kvs_size == 0) {
+                res->push_back(std::nullopt);
+            } else {
+                const FDBKeyValue& kv = kvs[0];
+                get_bytes_ += kv.value_length + key.size();
+                std::string output_key((char*)kv.key, kv.key_length);
+                std::string output_value((char*)kv.value, kv.value_length);
+                res->emplace_back(std::make_pair(std::move(output_key), std::move(output_value)));
+            }
+        }
+        futures.clear();
+    }
+
+    DCHECK_EQ(res->size(), num_keys);
+    return TxnErrorCode::TXN_OK;
+}
+
 FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
                                            FullRangeGetOptions opts)
         : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {
-    DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
+    if (opts_.txn_kv) {
+        DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
+    }
     DCHECK(!opts_.txn || dynamic_cast<fdb::Transaction*>(opts_.txn)) << opts_.txn;
 }
 

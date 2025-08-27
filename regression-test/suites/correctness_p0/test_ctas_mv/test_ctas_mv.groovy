@@ -67,7 +67,7 @@ suite("test_ctas_mv") {
     sql """ insert into test_table_t2 values(); """
 
     createMV(""" CREATE MATERIALIZED VIEW test_table_view As
-            select a1,a3,a4,DATE_FORMAT(a5, 'yyyyMMdd') QUERY_TIME,DATE_FORMAT(a6 ,'yyyyMMdd') CREATE_TIME
+            select a1 as b1,a3 as b2,a4 as b3,DATE_FORMAT(a5, 'yyyyMMdd') QUERY_TIME,DATE_FORMAT(a6 ,'yyyyMMdd') CREATE_TIME
             from test_table_t1 where DATE_FORMAT(a5, 'yyyyMMdd') =20230131; """)
 
     sql """ create table szjdf_zjb PROPERTIES("replication_num"="1") as

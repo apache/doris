@@ -29,6 +29,13 @@ suite("group_concat") {
 
     test {
         sql """select
+                 group_concat(cast(number as string) order by number separator ',')
+               from numbers('number'='10')"""
+        result([["0,1,2,3,4,5,6,7,8,9"]])
+    }
+
+    test {
+        sql """select
                  group_concat(cast(number as string), ',' order by number)
                from numbers('number'='10')"""
         result([["0,1,2,3,4,5,6,7,8,9"]])
@@ -41,6 +48,11 @@ suite("group_concat") {
 
     test {
         sql "select group_concat(cast(number as string), ' : ') from numbers('number'='10')"
+        result([["0 : 1 : 2 : 3 : 4 : 5 : 6 : 7 : 8 : 9"]])
+    }
+
+    test {
+        sql "select group_concat(cast(number as string) separator ' : ') from numbers('number'='10')"
         result([["0 : 1 : 2 : 3 : 4 : 5 : 6 : 7 : 8 : 9"]])
     }
 

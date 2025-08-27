@@ -49,13 +49,18 @@ public class StPoint extends ScalarFunction
         super("st_point", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StPoint(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StPoint withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new StPoint(children.get(0), children.get(1));
+        return new StPoint(getFunctionParams(children));
     }
 
     @Override

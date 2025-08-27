@@ -228,7 +228,7 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
     /// If no need to filter the `offsets`, here do not reset the end ptr of `offsets`
     if constexpr (!std::is_same_v<ResultOffsetsBuilder, NoResultOffsetsBuilder<OT>>) {
         /// Reset the end ptr to prepare for inserting/pushing elements into `offsets` in `ResultOffsetsBuilder`.
-        offsets.set_end_ptr(offsets.data());
+        offsets.resize(0);
     }
 
     ResultOffsetsBuilder result_offsets_builder(&offsets);
@@ -302,7 +302,7 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
         const size_t result_data_size = result_data - elems.data();
         CHECK_EQ(result_data_size, offsets.back());
     }
-    elems.set_end_ptr(result_data);
+    elems.resize(result_data - elems.data());
     return result_size;
 }
 } // namespace

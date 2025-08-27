@@ -1510,7 +1510,8 @@ TEST(MetaServiceHttpTest, TxnLazyCommit) {
                 "txn_lazy_commit", "instance_id=test_instance&txn_id=1000", "");
 
         std::string msg = "failed to get db id, txn_id=1000 err=KeyNotFound";
-        ASSERT_TRUE(content.find(msg) != std::string::npos);
+        ASSERT_TRUE(content.find(msg) != std::string::npos)
+                << "msg: " << msg << ", content: " << content << ", status_code: " << status_code;
     }
 
     {

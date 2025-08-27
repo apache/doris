@@ -50,13 +50,18 @@ public class ArraysOverlap extends ScalarFunction implements ExplicitlyCastableS
         super("arrays_overlap", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArraysOverlap(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArraysOverlap withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArraysOverlap(children.get(0), children.get(1));
+        return new ArraysOverlap(getFunctionParams(children));
     }
 
     @Override

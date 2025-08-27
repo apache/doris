@@ -36,6 +36,7 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
@@ -49,6 +50,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class NullBitmapBuilder {
 public:
@@ -100,7 +102,7 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
     null_options.meta->set_type(int(null_type));
     null_options.meta->set_is_nullable(false);
     null_options.meta->set_length(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size());
+            cast_set<int32_t>(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size()));
     null_options.meta->set_encoding(DEFAULT_ENCODING);
     null_options.meta->set_compression(opts.meta->compression());
 
@@ -174,8 +176,8 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     length_options.meta->set_unique_id(2);
     length_options.meta->set_type(int(length_type));
     length_options.meta->set_is_nullable(false);
-    length_options.meta->set_length(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
+    length_options.meta->set_length(cast_set<int32_t>(
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size()));
     length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
@@ -238,8 +240,8 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
     length_options.meta->set_unique_id(column->get_subtype_count() + 1);
     length_options.meta->set_type(int(length_type));
     length_options.meta->set_is_nullable(false);
-    length_options.meta->set_length(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size());
+    length_options.meta->set_length(cast_set<int32_t>(
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size()));
     length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
@@ -290,6 +292,20 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
     return Status::OK();
 }
 
+Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
+                                           const TabletColumn* column, io::FileWriter* file_writer,
+                                           std::unique_ptr<ColumnWriter>* writer) {
+    if (column->is_extracted_column()) {
+        VLOG_DEBUG << "gen subwriter for " << column->path_info_ptr()->get_path();
+        *writer = std::make_unique<VariantSubcolumnWriter>(
+                opts, column, std::unique_ptr<Field>(FieldFactory::create(*column)));
+        return Status::OK();
+    }
+    *writer = std::make_unique<VariantColumnWriter>(
+            opts, column, std::unique_ptr<Field>(FieldFactory::create(*column)));
+    return Status::OK();
+}
+
 //Todo(Amory): here should according nullable and offset and need sub to simply this function
 Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn* column,
                             io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer) {
@@ -318,10 +334,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             return Status::OK();
         }
         case FieldType::OLAP_FIELD_TYPE_VARIANT: {
-            // Use ScalarColumnWriter to write it's only root data
-            std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
-                    new ScalarColumnWriter(opts, std::move(field), file_writer));
-            *writer = std::move(writer_local);
+            // Process columns with sparse column
+            RETURN_IF_ERROR(create_variant_writer(opts, column, file_writer, writer));
             return Status::OK();
         }
         default:
@@ -406,6 +420,7 @@ ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
     DCHECK(opts.meta->has_compression());
     DCHECK(opts.meta->has_is_nullable());
     DCHECK(file_writer != nullptr);
+    _inverted_index_builders.resize(_opts.inverted_indexes.size());
 }
 
 ScalarColumnWriter::~ScalarColumnWriter() {
@@ -450,40 +465,43 @@ Status ScalarColumnWriter::init() {
 
     if (_opts.need_inverted_index) {
         do {
-            DBUG_EXECUTE_IF("column_writer.init", {
-                class InvertedIndexColumnWriterEmptyImpl final : public InvertedIndexColumnWriter {
-                public:
-                    Status init() override { return Status::OK(); }
-                    Status add_values(const std::string name, const void* values,
-                                      size_t count) override {
-                        return Status::OK();
-                    }
-                    Status add_array_values(size_t field_size, const CollectionValue* values,
-                                            size_t count) override {
-                        return Status::OK();
-                    }
-                    Status add_array_values(size_t field_size, const void* value_ptr,
-                                            const uint8_t* null_map, const uint8_t* offsets_ptr,
-                                            size_t count) override {
-                        return Status::OK();
-                    }
-                    Status add_nulls(uint32_t count) override { return Status::OK(); }
-                    Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
-                        return Status::OK();
-                    }
-                    Status finish() override { return Status::OK(); }
-                    int64_t size() const override { return 0; }
-                    void close_on_error() override {}
-                };
+            for (size_t i = 0; i < _opts.inverted_indexes.size(); i++) {
+                DBUG_EXECUTE_IF("column_writer.init", {
+                    class InvertedIndexColumnWriterEmpty final : public IndexColumnWriter {
+                    public:
+                        Status init() override { return Status::OK(); }
+                        Status add_values(const std::string name, const void* values,
+                                          size_t count) override {
+                            return Status::OK();
+                        }
+                        Status add_array_values(size_t field_size, const CollectionValue* values,
+                                                size_t count) override {
+                            return Status::OK();
+                        }
+                        Status add_array_values(size_t field_size, const void* value_ptr,
+                                                const uint8_t* null_map, const uint8_t* offsets_ptr,
+                                                size_t count) override {
+                            return Status::OK();
+                        }
+                        Status add_nulls(uint32_t count) override { return Status::OK(); }
+                        Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
+                            return Status::OK();
+                        }
+                        Status finish() override { return Status::OK(); }
+                        int64_t size() const override { return 0; }
+                        void close_on_error() override {}
+                    };
 
-                _inverted_index_builder = std::make_unique<InvertedIndexColumnWriterEmptyImpl>();
+                    _inverted_index_builders[i] =
+                            std::make_unique<InvertedIndexColumnWriterEmpty>();
 
-                break;
-            });
+                    break;
+                });
 
-            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.index_file_writer,
-                                                              _opts.inverted_index));
+                RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builders[i],
+                                                          _opts.index_file_writer,
+                                                          _opts.inverted_indexes[i]));
+            }
         } while (false);
     }
     if (_opts.need_bloom_filter) {
@@ -503,16 +521,18 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
     if (_opts.need_zone_map) {
-        _zone_map_index_builder->add_nulls(num_rows);
+        _zone_map_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
     }
     if (_opts.need_bitmap_index) {
-        _bitmap_index_builder->add_nulls(num_rows);
+        _bitmap_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
     }
     if (_opts.need_inverted_index) {
-        RETURN_IF_ERROR(_inverted_index_builder->add_nulls(num_rows));
+        for (const auto& builder : _inverted_index_builders) {
+            RETURN_IF_ERROR(builder->add_nulls(cast_set<uint32_t>(num_rows)));
+        }
     }
     if (_opts.need_bloom_filter) {
-        _bloom_filter_index_builder->add_nulls(num_rows);
+        _bloom_filter_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
     }
     return Status::OK();
 }
@@ -538,15 +558,16 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* data,
                                                                  size_t* num_written) {
     RETURN_IF_ERROR(_page_builder->add(data, num_written));
-    if (_opts.need_zone_map) {
-        _zone_map_index_builder->add_values(data, *num_written);
-    }
     if (_opts.need_bitmap_index) {
         _bitmap_index_builder->add_values(data, *num_written);
     }
+    if (_opts.need_zone_map) {
+        _zone_map_index_builder->add_values(data, *num_written);
+    }
     if (_opts.need_inverted_index) {
-        RETURN_IF_ERROR(
-                _inverted_index_builder->add_values(get_field()->name(), data, *num_written));
+        for (const auto& builder : _inverted_index_builders) {
+            RETURN_IF_ERROR(builder->add_values(get_field()->name(), data, *num_written));
+        }
     }
     if (_opts.need_bloom_filter) {
         RETURN_IF_ERROR(_bloom_filter_index_builder->add_values(data, *num_written));
@@ -605,7 +626,7 @@ Status ScalarColumnWriter::write_data() {
 
         PageFooterPB footer;
         footer.set_type(DICTIONARY_PAGE);
-        footer.set_uncompressed_size(dict_body.slice().get_size());
+        footer.set_uncompressed_size(cast_set<uint32_t>(dict_body.slice().get_size()));
         footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
 
         PagePointer dict_pp;
@@ -638,7 +659,9 @@ Status ScalarColumnWriter::write_bitmap_index() {
 
 Status ScalarColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
-        return _inverted_index_builder->finish();
+        for (const auto& builder : _inverted_index_builders) {
+            RETURN_IF_ERROR(builder->finish());
+        }
     }
     return Status::OK();
 }
@@ -696,11 +719,11 @@ Status ScalarColumnWriter::finish_current_page() {
     // prepare data page footer
     std::unique_ptr<Page> page(new Page());
     page->footer.set_type(DATA_PAGE);
-    page->footer.set_uncompressed_size(Slice::compute_total_size(body));
+    page->footer.set_uncompressed_size(cast_set<uint32_t>(Slice::compute_total_size(body)));
     auto* data_page_footer = page->footer.mutable_data_page_footer();
     data_page_footer->set_first_ordinal(_first_rowid);
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
-    data_page_footer->set_nullmap_size(nullmap.slice().size);
+    data_page_footer->set_nullmap_size(cast_set<uint32_t>(nullmap.slice().size));
     if (_new_page_callback != nullptr) {
         _new_page_callback->put_extra_info_in_page(data_page_footer);
     }
@@ -896,9 +919,17 @@ Status ArrayColumnWriter::init() {
     if (_opts.need_inverted_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
-            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.index_file_writer,
-                                                              _opts.inverted_index));
+            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
+                                                      _opts.index_file_writer,
+                                                      _opts.inverted_indexes[0]));
+        }
+    }
+    if (_opts.need_ann_index) {
+        auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        if (writer != nullptr) {
+            _ann_index_writer = std::make_unique<AnnIndexColumnWriter>(_opts.index_file_writer,
+                                                                       _opts.ann_index);
+            RETURN_IF_ERROR(_ann_index_writer->init());
         }
     }
     return Status::OK();
@@ -907,6 +938,13 @@ Status ArrayColumnWriter::init() {
 Status ArrayColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
         return _inverted_index_builder->finish();
+    }
+    return Status::OK();
+}
+
+Status ArrayColumnWriter::write_ann_index() {
+    if (_opts.need_ann_index) {
+        return _ann_index_writer->finish();
     }
     return Status::OK();
 }
@@ -934,6 +972,21 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
             RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
                     _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+        }
+    }
+
+    if (_opts.need_ann_index) {
+        auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        // now only support nested type is scala
+        if (writer != nullptr) {
+            //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
+            RETURN_IF_ERROR(_ann_index_writer->add_array_values(
+                    _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
+                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+        } else {
+            return Status::NotSupported(
+                    "Ann index can only be build on array with scalar type. but got {} as nested",
+                    _item_writer->get_field()->type());
         }
     }
 
@@ -1132,7 +1185,7 @@ Status MapColumnWriter::append_nulls(size_t num_rows) {
         RETURN_IF_ERROR(sub_writer->append_nulls(num_rows));
     }
     const ordinal_t offset = _kv_writers[0]->get_next_rowid();
-    std::vector<vectorized::UInt8> offsets_data(num_rows, offset);
+    std::vector<vectorized::UInt8> offsets_data(num_rows, cast_set<uint8_t>(offset));
     const uint8_t* offsets_ptr = offsets_data.data();
     RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
 
@@ -1150,9 +1203,58 @@ Status MapColumnWriter::finish_current_page() {
 
 Status MapColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
-        return _inverted_index_builder->finish();
+        return _index_builder->finish();
     }
     return Status::OK();
 }
+
+VariantColumnWriter::VariantColumnWriter(const ColumnWriterOptions& opts,
+                                         const TabletColumn* column, std::unique_ptr<Field> field)
+        : ColumnWriter(std::move(field), opts.meta->is_nullable()) {
+    _impl = std::make_unique<VariantColumnWriterImpl>(opts, column);
+}
+
+Status VariantColumnWriter::init() {
+    return _impl->init();
+}
+
+Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    _next_rowid += num_rows;
+    return _impl->append_data(ptr, num_rows);
+}
+
+uint64_t VariantColumnWriter::estimate_buffer_size() {
+    return _impl->estimate_buffer_size();
+}
+
+Status VariantColumnWriter::finish() {
+    return _impl->finish();
+}
+Status VariantColumnWriter::write_data() {
+    return _impl->write_data();
+}
+Status VariantColumnWriter::write_ordinal_index() {
+    return _impl->write_ordinal_index();
+}
+
+Status VariantColumnWriter::write_zone_map() {
+    return _impl->write_zone_map();
+}
+
+Status VariantColumnWriter::write_bitmap_index() {
+    return _impl->write_bitmap_index();
+}
+Status VariantColumnWriter::write_inverted_index() {
+    return _impl->write_inverted_index();
+}
+Status VariantColumnWriter::write_bloom_filter_index() {
+    return _impl->write_bloom_filter_index();
+}
+Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                            size_t num_rows) {
+    return _impl->append_nullable(null_map, ptr, num_rows);
+}
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

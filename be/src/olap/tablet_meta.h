@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stdint.h>
 
@@ -115,7 +116,8 @@ public:
                int64_t time_series_compaction_empty_rowsets_threshold = 5,
                int64_t time_series_compaction_level_threshold = 1,
                TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
-                       TInvertedIndexFileStorageFormat::V2);
+                       TInvertedIndexFileStorageFormat::V2,
+               TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -128,6 +130,8 @@ public:
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
+    // Used to create tablet meta from memory buffer.
+    Status create_from_buffer(const uint8_t* buffer, size_t buffer_size);
     static Status load_from_file(const std::string& file_path, TabletMetaPB* tablet_meta_pb);
     Status save(const std::string& file_path);
     Status save_as_json(const std::string& file_path);
@@ -299,6 +303,8 @@ public:
 
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
+    EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
+
 private:
     Status _save_meta(DataDir* data_dir);
     void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
@@ -360,6 +366,8 @@ private:
 
     // cloud
     int64_t _ttl_seconds = 0;
+
+    EncryptionAlgorithmPB _encryption_algorithm = PLAINTEXT;
 
     mutable std::shared_mutex _meta_lock;
 };

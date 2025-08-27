@@ -161,7 +161,8 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
             }
         } else {
             RETURN_IF_ERROR(
-                    local_state._shared_state->in_mem_shared_state->sorter->prepare_for_read());
+                    local_state._shared_state->in_mem_shared_state->sorter->prepare_for_read(
+                            false));
             local_state._dependency->set_ready_to_read();
         }
     }
@@ -176,8 +177,11 @@ size_t SpillSortSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool e
 
 Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
                                               const std::shared_ptr<SpillContext>& spill_context) {
+    auto& parent = Base::_parent->template cast<Parent>();
     if (!_shared_state->is_spilled) {
         _shared_state->is_spilled = true;
+        _shared_state->limit = parent._sort_sink_operator->limit();
+        _shared_state->offset = parent._sort_sink_operator->offset();
         custom_profile()->add_info_string("Spilled", "true");
     }
 
@@ -193,7 +197,6 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
 
     _shared_state->sorted_streams.emplace_back(_spilling_stream);
 
-    auto& parent = Base::_parent->template cast<Parent>();
     auto query_id = state->query_id();
 
     auto spill_func = [this, state, query_id, &parent] {

@@ -45,6 +45,7 @@
 #include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
@@ -132,6 +133,7 @@ class RpcController;
 } // namespace google
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 using namespace ErrorCode;
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
@@ -339,6 +341,8 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
         st = _exec_plan_fragment_impl(request->request(), version, compact);
     } catch (const Exception& e) {
         st = e.to_status();
+    } catch (const std::exception& e) {
+        st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
     } catch (...) {
         st = Status::Error(ErrorCode::INTERNAL_ERROR,
                            "_exec_plan_fragment_impl meet unknown error");
@@ -841,6 +845,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
+        io::FileReaderStats file_reader_stats;
+        io_ctx.file_reader_stats = &file_reader_stats;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
@@ -1153,6 +1159,10 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
     bool ret = _heavy_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::OTHER,
+                fmt::format("InternalService::fetch_remote_tablet_schema"));
+        SCOPED_ATTACH_TASK(mem_tracker);
         if (request->is_coordinator()) {
             // Spawn rpc request to none coordinator nodes, and finally merge them all
             PFetchRemoteSchemaRequest remote_request(*request);
@@ -1204,8 +1214,13 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                static_cast<void>(vectorized::schema_util::get_least_common_schema(schemas, nullptr,
-                                                                                   merged_schema));
+                st = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
+                                                                      merged_schema);
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
+                    st = Status::InternalError("Failed to get least common schema: {}",
+                                               st.to_string());
+                }
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 merged_schema->reserve_extracted_columns();
                 merged_schema->to_schema_pb(response->mutable_merged_schema());
@@ -1233,16 +1248,22 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    auto schema = res.value()->merged_tablet_schema();
-                    if (schema != nullptr) {
-                        tablet_schemas.push_back(schema);
-                    }
+                    auto tablet = res.value();
+                    auto rowsets = tablet->get_snapshot_rowset();
+                    auto schema = vectorized::schema_util::VariantCompactionUtil::
+                            calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
+                    tablet_schemas.push_back(schema);
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    static_cast<void>(vectorized::schema_util::get_least_common_schema(
-                            tablet_schemas, nullptr, merged_schema));
+                    st = vectorized::schema_util::get_least_common_schema(tablet_schemas, nullptr,
+                                                                          merged_schema);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
+                        st = Status::InternalError("Failed to get least common schema: {}",
+                                                   st.to_string());
+                    }
                     merged_schema->to_schema_pb(response->mutable_merged_schema());
                     VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 }
@@ -2106,20 +2127,24 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 
-    st = remote_scan_sched->submit_scan_task(vectorized::SimplifiedScanTask(
-            [request, response, done]() {
-                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
-                signal::set_signal_task_id(request->query_id());
-                // multi get data by rowid
-                MonotonicStopWatch watch;
-                watch.start();
-                brpc::ClosureGuard closure_guard(done);
-                response->mutable_status()->set_status_code(0);
-                Status st = RowIdStorageReader::read_by_rowids(*request, response);
-                st.to_protobuf(response->mutable_status());
-                LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
-            },
-            nullptr));
+    st = remote_scan_sched->submit_scan_task(
+            vectorized::SimplifiedScanTask(
+                    [request, response, done]() {
+                        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+                        signal::set_signal_task_id(request->query_id());
+                        // multi get data by rowid
+                        MonotonicStopWatch watch;
+                        watch.start();
+                        brpc::ClosureGuard closure_guard(done);
+                        response->mutable_status()->set_status_code(0);
+                        Status st = RowIdStorageReader::read_by_rowids(*request, response);
+                        st.to_protobuf(response->mutable_status());
+                        LOG(INFO) << "multiget_data finished, cost(us):"
+                                  << watch.elapsed_time() / 1000;
+                        return true;
+                    },
+                    nullptr, nullptr),
+            fmt::format("{}-multiget_data_v2", print_id(request->query_id())));
 
     if (!st.ok()) {
         brpc::ClosureGuard closure_guard(done);
@@ -2203,6 +2228,8 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                         });
             } catch (const Exception& e) {
                 st = e.to_status();
+            } catch (const std::exception& e) {
+                st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
             } catch (...) {
                 st = Status::Error(ErrorCode::INTERNAL_ERROR,
                                    "_exec_plan_fragment_impl meet unknown error");
@@ -2307,5 +2334,5 @@ void PInternalService::abort_refresh_dictionary(google::protobuf::RpcController*
                                                                            request->version_id());
     st.to_protobuf(response->mutable_status());
 }
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

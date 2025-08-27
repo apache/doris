@@ -22,10 +22,10 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
@@ -39,6 +39,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -49,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -195,7 +197,10 @@ public class StatementContext implements Closeable {
     // if query is: select * from t2 join t5
     // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
+    // collected async mvs
     private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
+    // collected sync mvs
+    private final Set<MaterializedIndexMeta> candidateMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
@@ -210,7 +215,7 @@ public class StatementContext implements Closeable {
             = new TreeMap<>(new Pair.PairComparator<>());
     // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
     // the value is the auto-increment id in the cascades context
-    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
+    private final Map<List<String>, TableId> tableIdMapping = new LinkedHashMap<>();
     // Record the materialization statistics by id which is used for cost estimation.
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
@@ -224,7 +229,7 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
-    private final Set<PlannerHook> plannerHooks = new HashSet<>();
+    private Set<PlannerHook> plannerHooks = new HashSet<>();
 
     private String disableJoinReorderReason;
 
@@ -240,6 +245,7 @@ public class StatementContext implements Closeable {
     // Record used table and it's used partitions
     private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
             HashMultimap.create();
+    private final Map<Integer, Integer> relationIdToCommonTableIdMap = new HashMap<>();
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
@@ -250,6 +256,22 @@ public class StatementContext implements Closeable {
     private boolean partialLoadDictionary = false; // really used partial load.
 
     private boolean prepareStage = false;
+
+    // this record the tmp plan in RBO for later pre materialized view rewrite
+    private final List<Plan> tmpPlanForMvRewrite = new ArrayList<>();
+    // this record the rewritten plan by mv in RBO phase
+    private final List<Plan> rewrittenPlansByMv = new ArrayList<>();
+    private boolean forceRecordTmpPlan = false;
+    // this record the rule in PreMaterializedViewRewriter.NEED_PRE_REWRITE_RULE_TYPES if is applied successfully
+    // or not, if success and in PreRewriteStrategy.FOR_IN_ROB or PreRewriteStrategy.TRY_IN_ROB, mv
+    // would be written in RBO phase
+    private final BitSet needPreMvRewriteRuleMasks = new BitSet(RuleType.SENTINEL.ordinal());
+    // if needed to rewrite in RBO phase, this would be set true
+    private boolean needPreMvRewrite = false;
+    // mark is rewritten in RBO phase, if rewritten in RBO phase should set true
+    private boolean preMvRewritten = false;
+
+    private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -271,10 +293,10 @@ public class StatementContext implements Closeable {
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null
-                && connectContext.queryId() != null
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
             this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity(), connectContext.queryId());
+                    connectContext.getCurrentUserIdentity());
             if (originStatement != null) {
                 this.sqlCacheContext.setOriginSql(originStatement.originStmt);
             }
@@ -326,12 +348,16 @@ public class StatementContext implements Closeable {
         return mtmvRelatedTables;
     }
 
+    public Map<List<String>, TableIf> getTables() {
+        return tables;
+    }
+
     public Set<MTMV> getCandidateMTMVs() {
         return candidateMTMVs;
     }
 
-    public Map<List<String>, TableIf> getTables() {
-        return tables;
+    public Set<MaterializedIndexMeta> getCandidateMVs() {
+        return candidateMVs;
     }
 
     public List<Column> getInsertTargetSchema() {
@@ -718,6 +744,13 @@ public class StatementContext implements Closeable {
         return plannerHooks;
     }
 
+    /**
+     * Clear materialize hooks by targetHooks to control not rewritten by mv
+     */
+    public void clearMaterializedHooksBy(Set<PlannerHook> targetHooks) {
+        this.plannerHooks = targetHooks;
+    }
+
     public void addPlannerHook(PlannerHook plannerHook) {
         this.plannerHooks.add(plannerHook);
     }
@@ -807,13 +840,12 @@ public class StatementContext implements Closeable {
 
     /** Get table id with lazy */
     public TableId getTableId(TableIf tableIf) {
-        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
-        TableId tableId = this.tableIdMapping.get(tableIdentifier);
+        TableId tableId = this.tableIdMapping.get(tableIf.getFullQualifiers());
         if (tableId != null) {
             return tableId;
         }
         tableId = StatementScopeIdGenerator.newTableId();
-        this.tableIdMapping.put(tableIdentifier, tableId);
+        this.tableIdMapping.put(tableIf.getFullQualifiers(), tableId);
         return tableId;
     }
 
@@ -866,8 +898,68 @@ public class StatementContext implements Closeable {
         this.partialLoadDictionary = partialLoadDictionary;
     }
 
+    public List<Plan> getTmpPlanForMvRewrite() {
+        return tmpPlanForMvRewrite;
+    }
+
+    public void addTmpPlanForMvRewrite(Plan tmpPlan) {
+        this.tmpPlanForMvRewrite.add(tmpPlan);
+    }
+
+    public List<Plan> getRewrittenPlansByMv() {
+        return rewrittenPlansByMv;
+    }
+
+    public void addRewrittenPlanByMv(Plan rewrittenPlanByMv) {
+        this.rewrittenPlansByMv.add(rewrittenPlanByMv);
+    }
+
+    public boolean isForceRecordTmpPlan() {
+        return forceRecordTmpPlan;
+    }
+
+    public void setForceRecordTmpPlan(boolean forceRecordTmpPlan) {
+        this.forceRecordTmpPlan = forceRecordTmpPlan;
+    }
+
+    public void ruleSetApplied(RuleType ruleType) {
+        needPreMvRewriteRuleMasks.set(ruleType.ordinal());
+    }
+
+    public BitSet getNeedPreMvRewriteRuleMasks() {
+        return needPreMvRewriteRuleMasks;
+    }
+
+    public boolean isNeedPreMvRewrite() {
+        return needPreMvRewrite;
+    }
+
+    public void setNeedPreMvRewrite(boolean needPreMvRewrite) {
+        this.needPreMvRewrite = needPreMvRewrite;
+    }
+
+    public boolean isPreMvRewritten() {
+        return preMvRewritten;
+    }
+
+    public void setPreMvRewritten(boolean preMvRewritten) {
+        this.preMvRewritten = preMvRewritten;
+    }
+
+    public Set<List<String>> getMaterializationRewrittenSuccessSet() {
+        return materializationRewrittenSuccessSet;
+    }
+
+    public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
+        this.materializationRewrittenSuccessSet.add(materializationQualifier);
+    }
+
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {
         return tableUsedPartitionNameMap;
+    }
+
+    public Map<Integer, Integer> getRelationIdToCommonTableIdMap() {
+        return relationIdToCommonTableIdMap;
     }
 
     public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {

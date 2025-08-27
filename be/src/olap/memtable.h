@@ -245,6 +245,7 @@ private:
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
     size_t _last_sorted_pos = 0;
+    size_t _last_agg_pos = 0;
 
     //return number of same keys
     size_t _sort();
@@ -254,8 +255,24 @@ private:
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);
+    void _init_row_for_agg(RowInBlock* row, vectorized::MutableBlock& mutable_block);
+    void _clear_row_agg(RowInBlock* row);
+
     template <bool is_final, bool has_skip_bitmap_col = false>
     void _aggregate();
+
+    template <bool is_final>
+    void _aggregate_for_flexible_partial_update_without_seq_col(
+            const vectorized::ColumnsWithTypeAndName& block_data,
+            vectorized::MutableBlock& mutable_block,
+            DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
+
+    template <bool is_final>
+    void _aggregate_for_flexible_partial_update_with_seq_col(
+            const vectorized::ColumnsWithTypeAndName& block_data,
+            vectorized::MutableBlock& mutable_block,
+            DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
+
     Status _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
 
@@ -266,8 +283,10 @@ private:
     std::unique_ptr<DorisVector<std::shared_ptr<RowInBlock>>> _row_in_blocks;
 
     size_t _num_columns;
-    int32_t _seq_col_idx_in_block = -1;
+    int32_t _seq_col_idx_in_block {-1};
     int32_t _skip_bitmap_col_idx {-1};
+    int32_t _delete_sign_col_idx {-1};
+    int32_t _delete_sign_col_unique_id {-1};
     int32_t _seq_col_unique_id {-1};
 
     bool _is_partial_update_and_auto_inc = false;

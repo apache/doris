@@ -20,6 +20,7 @@
 #include "arrow/array/builder_nested.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "complex_type_deserialize_util.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "util/simd/bits.h"
@@ -496,8 +497,7 @@ Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                              const NullMap* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                             int64_t end,
-                                             std::vector<StringRef>& buffer_list) const {
+                                             int64_t end, vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -511,10 +511,10 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
 
         RETURN_IF_ERROR(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
                                                        cur_batch->keys.get(), offset, next_offset,
-                                                       buffer_list));
+                                                       arena));
         RETURN_IF_ERROR(value_serde->write_column_to_orc(timezone, nested_values_column, nullptr,
                                                          cur_batch->elements.get(), offset,
-                                                         next_offset, buffer_list));
+                                                         next_offset, arena));
 
         cur_batch->offsets[row_id + 1] = next_offset;
     }
@@ -560,6 +560,83 @@ Status DataTypeMapSerDe::read_column_from_pb(IColumn& column, const PValues& arg
         RETURN_IF_ERROR(value_serde->read_column_from_pb(value_column, arg.child_element(i + 1)));
     }
     return Status::OK();
+}
+
+template <bool is_strict_mode>
+Status DataTypeMapSerDe::_from_string(StringRef& str, IColumn& column,
+                                      const FormatOptions& options) const {
+    if (str.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+    auto& map_column = assert_cast<ColumnMap&>(column);
+    auto& offsets = map_column.get_offsets();
+    IColumn& nested_key_column = map_column.get_keys();
+    IColumn& nested_val_column = map_column.get_values();
+    DCHECK(nested_key_column.is_nullable());
+    DCHECK(nested_val_column.is_nullable());
+    if (str.front() != '{') {
+        std::stringstream ss;
+        ss << str.front() << '\'';
+        return Status::InvalidArgument("Map does not start with '{' character, found '" + ss.str());
+    }
+    if (str.back() != '}') {
+        std::stringstream ss;
+        ss << str.back() << '\'';
+        return Status::InvalidArgument("Map does not end with '}' character, found '" + ss.str());
+    }
+    // empty map
+    if (str.size == 2) {
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
+        return Status::OK();
+    }
+    str = str.substring(1, str.size - 2); // remove '{' '}'
+
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(str, [&](char c) {
+        return c == options.map_key_delim || c == options.collection_delim;
+    });
+
+    // check syntax error
+    if (split_result.size() % 2 != 0) {
+        return Status::InvalidArgument("Map does not have even number of key-value pairs");
+    }
+
+    std::vector<StringRef> key_slices;
+    std::vector<StringRef> value_slices;
+
+    for (int i = 0; i < split_result.size(); i += 2) {
+        // : , : , : , :
+        if (split_result[i].delimiter != options.map_key_delim) {
+            return Status::InvalidArgument("Map key-value pair does not have map key delimiter");
+        }
+        if (i != 0 && split_result[i - 1].delimiter != options.collection_delim) {
+            return Status::InvalidArgument("Map key-value pair does not have collection delimiter");
+        }
+        key_slices.push_back(split_result[i].element);
+        value_slices.push_back(split_result[i + 1].element);
+    }
+
+    DCHECK(nested_key_column.is_nullable());
+    DCHECK(nested_val_column.is_nullable());
+    DCHECK_EQ(key_slices.size(), value_slices.size());
+    uint64_t key_value_size = key_slices.size();
+    for (int i = 0; i < key_value_size; i++) {
+        RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
+                key_serde, nested_key_column, key_slices[i], options));
+        RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
+                value_serde, nested_val_column, value_slices[i], options));
+    }
+    offsets.push_back(offsets.back() + key_value_size);
+    return Status::OK();
+}
+
+Status DataTypeMapSerDe::from_string(StringRef& str, IColumn& column,
+                                     const FormatOptions& options) const {
+    return _from_string<false>(str, column, options);
+}
+Status DataTypeMapSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                 const FormatOptions& options) const {
+    return _from_string<true>(str, column, options);
 }
 
 } // namespace vectorized

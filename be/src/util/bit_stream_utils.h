@@ -25,7 +25,7 @@
 #include "util/faststring.h"
 
 using doris::BitUtil;
-
+#include "common/compile_check_begin.h"
 namespace doris {
 
 // Utility class to write bit/byte streams.  This class can write data to either be
@@ -235,7 +235,7 @@ public:
     bool GetUleb128(UINT_T* v);
 
     /// Returns the number of bytes left in the stream.
-    int bytes_left() { return buffer_end_ - buffer_pos_; }
+    int bytes_left() { return static_cast<int>(buffer_end_ - buffer_pos_); }
 
     /// Maximum byte length of a vlq encoded integer of type T.
     template <typename T>
@@ -253,5 +253,5 @@ private:
     /// Pointer to the byte after the end of the buffer.
     const uint8_t* buffer_end_ = nullptr;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

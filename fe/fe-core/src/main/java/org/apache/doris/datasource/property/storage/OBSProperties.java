@@ -23,6 +23,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 import java.util.Map;
 import java.util.Objects;
@@ -42,11 +45,13 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"obs.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
+            required = false,
             description = "The access key of OBS.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"obs.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+            required = false,
             description = "The secret key of OBS.")
     protected String secretKey = "";
 
@@ -55,6 +60,55 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"obs.region", "s3.region", "AWS_REGION", "region", "REGION"}, required = false,
             description = "The region of OBS.")
     protected String region;
+
+    @Getter
+    @ConnectorProperty(names = {"obs.session_token", "s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of OBS.")
+    protected String sessionToken = "";
+
+    /**
+     * The maximum number of concurrent connections that can be made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"obs.connection.maximum", "s3.connection.maximum"}, required = false,
+            description = "Maximum number of connections.")
+    protected String maxConnections = "100";
+
+    /**
+     * The timeout (in milliseconds) for requests made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"obs.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
+            description = "Request timeout in seconds.")
+    protected String requestTimeoutS = "10000";
+
+    /**
+     * The timeout (in milliseconds) for establishing a connection to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"obs.connection.timeout", "s3.connection.timeout"}, required = false,
+            description = "Connection timeout in seconds.")
+    protected String connectionTimeoutS = "10000";
+
+    /**
+     * Flag indicating whether to use path-style URLs for the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Setter
+    @Getter
+    @ConnectorProperty(names = {"obs.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    protected String usePathStyle = "false";
+
+    @ConnectorProperty(names = {"obs.force_parsing_by_standard_uri", "force_parsing_by_standard_uri"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    @Setter
+    @Getter
+    protected String forceParsingByStandardUrl = "false";
 
     /**
      * Pattern to extract the region from a Huawei Cloud OBS endpoint.
@@ -97,4 +151,32 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
         return ENDPOINT_PATTERN;
     }
 
+    @Override
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
+        AwsCredentialsProvider credentialsProvider = super.getAwsCredentialsProvider();
+        if (credentialsProvider != null) {
+            return credentialsProvider;
+        }
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            // For anonymous access (no credentials required)
+            return AnonymousCredentialsProvider.create();
+        }
+        return null;
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        super.initializeHadoopStorageConfig();
+        hadoopStorageConfig.set("fs.obs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.obs.access.key", accessKey);
+        hadoopStorageConfig.set("fs.obs.secret.key", secretKey);
+        hadoopStorageConfig.set("fs.obs.endpoint", endpoint);
+    }
+
+    protected void setEndpointIfPossible() {
+        super.setEndpointIfPossible();
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Property obs.endpoint is required.");
+        }
+    }
 }

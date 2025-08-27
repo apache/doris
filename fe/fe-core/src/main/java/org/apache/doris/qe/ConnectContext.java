@@ -184,7 +184,7 @@ public class ConnectContext {
     // Command this connection is processing.
     protected volatile MysqlCommand command;
     // Timestamp in millisecond last command starts at
-    protected volatile long startTime;
+    protected volatile long startTime = -1;
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
 
@@ -690,8 +690,10 @@ public class ConnectContext {
     }
 
     public void setStartTime() {
-        startTime = System.currentTimeMillis();
-        returnRows = 0;
+        if (startTime == -1) {
+            startTime = System.currentTimeMillis();
+            returnRows = 0;
+        }
     }
 
     public void updateReturnRows(int returnRows) {
@@ -861,6 +863,9 @@ public class ConnectContext {
         return plSqlOperation;
     }
 
+    /**
+     * This method is idempotent.
+     */
     protected void closeChannel() {
         if (mysqlChannel != null) {
             mysqlChannel.close();
@@ -934,6 +939,13 @@ public class ConnectContext {
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
+    }
+
+    public void resetQueryId() {
+        if (this.queryId != null) {
+            this.lastQueryId = this.queryId.deepCopy();
+        }
+        this.queryId = null;
     }
 
     public void setNeedRegenerateInstanceId(TUniqueId needRegenerateInstanceId) {
@@ -1020,6 +1032,10 @@ public class ConnectContext {
         }
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
+        // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
+        if (killConnection) {
+            cleanup();
+        }
     }
 
     // kill operation with no protect by timeout.
@@ -1042,6 +1058,10 @@ public class ConnectContext {
                     getConnectType(), connectionId);
             executorRef.cancel(new Status(TStatusCode.TIMEOUT,
                     "query is timeout, killed by timeout checker"));
+        }
+        // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
+        if (killConnection) {
+            cleanup();
         }
     }
 

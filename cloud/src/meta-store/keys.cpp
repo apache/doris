@@ -64,6 +64,8 @@ static const char* STATS_KEY_INFIX_TABLET               = "tablet";
 
 static const char* JOB_KEY_INFIX_TABLET                 = "tablet";
 static const char* JOB_KEY_INFIX_RL_PROGRESS            = "routine_load_progress";
+static const char* JOB_KEY_INFIX_RESTORE_TABLET         = "restore_tablet";
+static const char* JOB_KEY_INFIX_RESTORE_ROWSET         = "restore_rowset";
 
 static const char* COPY_JOB_KEY_INFIX                   = "job";
 static const char* COPY_FILE_KEY_INFIX                  = "loading_file";
@@ -141,7 +143,7 @@ static void encode_prefix(const T& t, std::string* key) {
         MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo, MetaTabletKeyInfo, MetaTabletIdxKeyInfo, MetaSchemaKeyInfo,
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
-        StatsTabletKeyInfo, TableVersionKeyInfo,
+        StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
         MowTabletJobInfo>);
@@ -186,6 +188,9 @@ static void encode_prefix(const T& t, std::string* key) {
         encode_bytes(COPY_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>) {
         encode_bytes(VAULT_KEY_PREFIX, key);
+    } else if constexpr (std::is_same_v<T, JobRestoreTabletKeyInfo>
+                      || std::is_same_v<T, JobRestoreRowsetKeyInfo>) {
+        encode_bytes(JOB_KEY_PREFIX, key);
     } else {
         // This branch mean to be unreachable, add an assert(false) here to
         // prevent missing branch match.
@@ -456,6 +461,19 @@ void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out) 
     encode_bytes(JOB_KEY_INFIX_RL_PROGRESS, out); // "routine_load_progress"
     encode_int64(std::get<1>(in), out);           // db_id
     encode_int64(std::get<2>(in), out);           // job_id
+}
+
+void job_restore_tablet_key(const JobRestoreTabletKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                          // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_RESTORE_TABLET, out); // "restore_tablet"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+}
+
+void job_restore_rowset_key(const JobRestoreRowsetKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                          // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_RESTORE_ROWSET, out); // "restore_rowset"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+    encode_int64(std::get<2>(in), out);              // version
 }
 
 //==============================================================================
@@ -774,4 +792,16 @@ std::set<std::string> get_key_prefix_contants() {
     key_prefix_set.insert(VAULT_KEY_PREFIX);
     return key_prefix_set;
 }
+
+std::vector<std::string> get_single_version_meta_key_prefixs() {
+    std::vector<std::string> key_prefix_list;
+    for (std::string_view prefix : {"meta", "version", "stats"}) {
+        std::string key_prefix;
+        key_prefix.push_back(CLOUD_USER_KEY_SPACE01);
+        encode_bytes(prefix, &key_prefix);
+        key_prefix_list.push_back(std::move(key_prefix));
+    }
+    return key_prefix_list;
+}
+
 } // namespace doris::cloud

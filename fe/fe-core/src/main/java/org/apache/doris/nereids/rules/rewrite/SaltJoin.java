@@ -277,8 +277,6 @@ public class SaltJoin extends OneRewriteRuleFactory {
         // lateral view explode_numbers(1000) tmp1 as explodeColumn
         ImmutableList.Builder<List<NamedExpression>> constantExprsList = ImmutableList.builderWithExpectedSize(
                 saltedSkewValues.size());
-        List<NamedExpression> outputs = ImmutableList.of(new SlotReference(
-                SKEW_VALUE_COLUMN_NAME + ctx.generateColumnName(), skewExpr.getDataType(), false));
         boolean saltedSkewValuesHasNull = false;
         for (Expression skewValue : saltedSkewValues) {
             constantExprsList.add(ImmutableList.of(new Alias(skewValue, SKEW_VALUE_COLUMN_NAME
@@ -287,11 +285,13 @@ public class SaltJoin extends OneRewriteRuleFactory {
                 saltedSkewValuesHasNull = true;
             }
         }
+        List<NamedExpression> outputs = ImmutableList.of(new SlotReference(
+                SKEW_VALUE_COLUMN_NAME + ctx.generateColumnName(), skewExpr.getDataType(), saltedSkewValuesHasNull));
         LogicalUnion union = new LogicalUnion(Qualifier.ALL, outputs, ImmutableList.of(), constantExprsList.build(),
                 false, ImmutableList.of());
         List<Function> generators = ImmutableList.of(new ExplodeNumbers(new IntegerLiteral(factor)));
         SlotReference generateSlot = new SlotReference(EXPLODE_NUMBER_COLUMN_NAME + ctx.generateColumnName(),
-                IntegerType.INSTANCE, false);
+                IntegerType.INSTANCE, true);
         LogicalGenerate<Plan> generate = new LogicalGenerate<>(generators, ImmutableList.of(generateSlot), union);
         ImmutableList.Builder<NamedExpression> projectsBuilder = ImmutableList.builderWithExpectedSize(
                 union.getOutput().size() + 1);

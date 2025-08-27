@@ -18,11 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeNameFormat;
 
-import com.google.common.base.Strings;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 // TODO(tsy): maybe better to rename as `LoadLabel`
@@ -52,14 +48,7 @@ public class LabelName {
         return labelName;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(dbName)) {
-            if (Strings.isNullOrEmpty(analyzer.getDefaultDb())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            dbName = analyzer.getDefaultDb();
-        }
-        FeNameFormat.checkLabel(labelName);
+    public void analyze() throws AnalysisException {
     }
 
     @Override

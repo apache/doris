@@ -72,6 +72,7 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -687,6 +688,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private TransactionState commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC)
             throws UserException {
+        checkCommitInfo(commitTxnRequest);
+
         CommitTxnResponse commitTxnResponse = null;
         TransactionState txnState = null;
         int retryTime = 0;
@@ -746,6 +749,73 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         afterCommitTxnResp(commitTxnResponse);
         return txnState;
+    }
+
+    private void checkCommitInfo(CommitTxnRequest commitTxnRequest) throws UserException {
+        List<Long> commitTabletIds = Lists.newArrayList();
+        List<Long> commitIndexIds = Lists.newArrayList();
+        commitTabletIds.addAll(commitTxnRequest.getBaseTabletIdsList());
+        for (SubTxnInfo subTxnInfo : commitTxnRequest.getSubTxnInfosList()) {
+            commitTabletIds.addAll(subTxnInfo.getBaseTabletIdsList());
+        }
+        if (commitTabletIds.isEmpty()) {
+            return;
+        }
+
+        TabletInvertedIndex tabletInvertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
+        List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(commitTabletIds);
+        Map<OlapTable, Set<Long>> tableToPartition = Maps.newHashMap();
+        for (int i = 0; i < tabletMetaList.size(); i++) {
+            TabletMeta tabletMeta = tabletMetaList.get(i);
+            if (tabletMeta == null) {
+                continue;
+            }
+            long tableId = tabletMeta.getTableId();
+            long dbId = tabletMeta.getDbId();
+            Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                // this can happen when dbId == -1 (tablet being dropping) or db really not exist.
+                continue;
+            }
+            OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
+            if (tbl == null) {
+                // this can happen when tableId == -1 (tablet being dropping) or table really not exist.
+                continue;
+            }
+            // check relative partition restore here
+            long partitionId = tabletMeta.getPartitionId();
+            if (tbl.getPartition(partitionId) == null) {
+                // this can happen when partitionId == -1 (tablet being dropping) or partition really not exist.
+                continue;
+            }
+            tableToPartition.computeIfAbsent(tbl, k -> Sets.newHashSet()).add(partitionId);
+            commitIndexIds.add(tabletMeta.getIndexId());
+        }
+
+        for (OlapTable tbl : tableToPartition.keySet()) {
+            for (Partition partition : tbl.getAllPartitions()) {
+                if (!tableToPartition.get(tbl).contains(partition.getId())) {
+                    continue;
+                }
+                List<MaterializedIndex> allIndices
+                            = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                for (MaterializedIndex index : allIndices) {
+                    // Schema change during load will increase partition index number,
+                    // and we need to skip these indexes.
+                    // TODO: judge by transactionState.getLoadedTblIndexes() is better
+                    if (!commitIndexIds.contains(index.getId())) {
+                        continue;
+                    }
+                    for (Tablet tablet : index.getTablets()) {
+                        if (!commitTabletIds.contains(tablet.getId())) {
+                            throw new LoadException("Table [" + tbl.getName() + "], Index ["
+                                    + index.getId() + "], Partition [" + partition.getName()
+                                    + "], tablet " + tablet.getId() + " should be committed");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // return mow tables with contains tablet commit info
@@ -960,13 +1030,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         int totalRetryTime = 0;
         String retryMsg = "";
         boolean res = false;
+        long startTime = System.currentTimeMillis();
         try {
             getPartitionInfo(mowTableList, tabletCommitInfos, lockContext);
             for (Map.Entry<Long, Set<Long>> entry : lockContext.getTableToPartitions().entrySet()) {
                 GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
-                builder.setTableId(entry.getKey()).setLockId(transactionId).setInitiator(-1)
+                long tableId = entry.getKey();
+                builder.setTableId(tableId).setLockId(transactionId).setInitiator(-1)
                         .setExpiration(Config.delete_bitmap_lock_expiration_seconds).setRequireCompactionStats(true);
-                List<Long> tabletList = lockContext.getTableToTabletList().get(entry.getKey());
+                List<Long> tabletList = lockContext.getTableToTabletList().get(tableId);
                 for (Long tabletId : tabletList) {
                     TabletMeta tabletMeta = lockContext.getTabletToTabletMeta().get(tabletId);
                     TabletIndexPB.Builder tabletIndexBuilder = TabletIndexPB.newBuilder();
@@ -977,11 +1049,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     tabletIndexBuilder.setTabletId(tabletId);
                     builder.addTabletIndexes(tabletIndexBuilder);
                 }
-                final GetDeleteBitmapUpdateLockRequest request = builder.build();
                 GetDeleteBitmapUpdateLockResponse response = null;
 
                 int retryTime = 0;
                 while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
+                    long waitTime = System.currentTimeMillis() - startTime;
+                    boolean enableUrgentLock = Config.enable_mow_load_force_take_ms_lock;
+                    long remainedTime = Config.mow_load_force_take_ms_lock_threshold_ms - waitTime;
+                    boolean urgent = enableUrgentLock && remainedTime < 0;
+                    if (urgent) {
+                        LOG.info("try to get delete bitmap lock with urgent flag, tableId={}, txnId={}",
+                                tableId, transactionId);
+                    }
+                    builder.setUrgent(urgent);
+                    GetDeleteBitmapUpdateLockRequest request = builder.build();
                     try {
                         response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
                         if (LOG.isDebugEnabled()) {
@@ -1021,15 +1102,27 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                 "check delete bitmap lock release fail,response is " + response
                                         + ", tableList=(" + StringUtils.join(mowTableList, ",") + ")");
                     }
-                    // sleep random millis [20, 300] ms, avoid txn conflict
-                    int randomMillis = 20 + (int) (Math.random() * (300 - 20));
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("randomMillis:{}", randomMillis);
-                    }
-                    try {
-                        Thread.sleep(randomMillis);
-                    } catch (InterruptedException e) {
-                        LOG.info("InterruptedException: ", e);
+
+                    // don't sleep if it's urgent
+                    if (!urgent) {
+                        long base = Config.mow_get_ms_lock_retry_backoff_base;
+                        long interval = Config.mow_get_ms_lock_retry_backoff_interval;
+                        if (Config.enable_mow_load_force_take_ms_lock
+                                && interval > Config.mow_load_force_take_ms_lock_threshold_ms) {
+                            interval = Config.mow_load_force_take_ms_lock_threshold_ms;
+                        }
+                        long randomMillis = base + (long) (Math.random() * interval);
+                        if (enableUrgentLock && randomMillis > remainedTime) {
+                            randomMillis = remainedTime;
+                        }
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("randomMillis:{}", randomMillis);
+                        }
+                        try {
+                            Thread.sleep(randomMillis);
+                        } catch (InterruptedException e) {
+                            LOG.info("InterruptedException: ", e);
+                        }
                     }
                 }
                 Preconditions.checkNotNull(response);

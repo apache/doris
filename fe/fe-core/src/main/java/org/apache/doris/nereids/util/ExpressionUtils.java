@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
@@ -64,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -300,13 +300,12 @@ public class ExpressionUtils {
     }
 
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(Lists.newArrayList(expression),
-                plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet).get(0);
+        return shuttleExpressionWithLineage(Lists.newArrayList(expression), plan).get(0);
     }
 
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet);
+        return shuttleExpressionWithLineage(expressions, plan);
     }
 
     /**
@@ -319,24 +318,17 @@ public class ExpressionUtils {
      * todo to get from plan struct info
      */
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
-            Plan plan,
-            Set<TableType> targetTypes,
-            Set<String> tableIdentifiers,
-            BitSet tableBitSet) {
+            Plan plan) {
         if (expressions.isEmpty()) {
             return ImmutableList.of();
         }
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
-                new ExpressionLineageReplacer.ExpressionReplaceContext(
-                        expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
-                        targetTypes,
-                        tableIdentifiers,
-                        tableBitSet);
+                new ExpressionLineageReplacer.ExpressionReplaceContext(expressions);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
-        List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
-        if (expressions.size() != replacedExpressions.size()) {
+        List<? extends Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+        if (replacedExpressions == null || expressions.size() != replacedExpressions.size()) {
             throw new NereidsException("shuttle expression fail",
                     new MaterializedViewException("shuttle expression fail"));
         }
@@ -425,6 +417,17 @@ public class ExpressionUtils {
         } else {
             return new Alias(expr.getExprId(), newExpr, expr.getName());
         }
+    }
+
+    /**
+     * Replace expression node with predicate in the expression tree by `replaceMap` in top-down manner.
+     */
+    public static Expression replaceIf(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
+            Predicate<Expression> predicate) {
+        return expr.rewriteDownShortCircuitDown(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            return replacedExpr == null ? e : replacedExpr;
+        }, predicate);
     }
 
     /**
@@ -726,6 +729,12 @@ public class ExpressionUtils {
             }
         }
         return newPredicates.build();
+    }
+
+    public static boolean isGeneratedNotNull(Expression expression) {
+        return expression instanceof Not
+                && ((Not) expression).isGeneratedIsNotNull()
+                && ((Not) expression).child() instanceof IsNull;
     }
 
     /** flatExpressions */
@@ -1073,6 +1082,22 @@ public class ExpressionUtils {
         return true;
     }
 
+    /** check constant value the expression */
+    public static Optional<Literal> checkConstantExpr(Expression expr, Optional<ExpressionRewriteContext> context) {
+        if (expr instanceof Literal) {
+            return Optional.of((Literal) expr);
+        } else if (expr instanceof Alias) {
+            return checkConstantExpr(((Alias) expr).child(), context);
+        } else if (expr.isConstant() && context.isPresent()) {
+            Expression evalExpr = FoldConstantRule.evaluate(expr, context.get());
+            if (evalExpr instanceof Literal) {
+                return Optional.of((Literal) evalExpr);
+            }
+        }
+
+        return Optional.empty();
+    }
+
     /** analyze the unbound expression and fold it to literal */
     public static Literal analyzeAndFoldToLiteral(ConnectContext ctx, Expression expression) throws UserException {
         Scope scope = new Scope(new ArrayList<>());
@@ -1152,5 +1177,24 @@ public class ExpressionUtils {
         }
         shapeBuilder.append(")");
         return shapeBuilder.toString();
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Collection<? extends Expression> expressions) {
+        for (Expression expression : expressions) {
+            if (hasNonWindowAggregateFunction(expression)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Expression expression) {
+        return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
     }
 }

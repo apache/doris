@@ -18,9 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.HelpStmt;
-import org.apache.doris.analysis.ShowEnginesStmt;
-import org.apache.doris.analysis.ShowProcedureStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -43,7 +40,9 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
+import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -60,9 +59,9 @@ import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 import org.junit.rules.ExpectedException;
 
-import java.io.IOException;
 import java.net.URL;
 import java.util.List;
 import java.util.function.Function;
@@ -297,7 +296,6 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDbPriv() throws Exception {
-        AccessTestUtil.fetchAdminAnalyzer(false);
         ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
         ShowDatabasesCommand command = new ShowDatabasesCommand(null, null, null);
         command.doRun(ctx, new StmtExecutor(ctx, ""));
@@ -412,26 +410,16 @@ public class ShowExecutorTest {
     }
 
     @Test
-    public void testShowEngine() throws AnalysisException {
-        ShowEnginesStmt stmt = new ShowEnginesStmt();
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+    public void testShowEngine() throws Exception {
+        ShowStorageEnginesCommand command = new ShowStorageEnginesCommand();
+        ShowResultSet resultSet = command.doRun(ctx, null);
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("Olap engine", resultSet.getString(0));
     }
 
     @Test
-    public void testShowEmpty() throws AnalysisException {
-        ShowProcedureStmt stmt = new ShowProcedureStmt();
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
-    public void testHelp() throws AnalysisException, IOException, UserException {
+    public void testHelp() throws Exception {
         HelpModule module = new HelpModule();
         URL help = getClass().getClassLoader().getResource("test-help-resource-show-help.zip");
         module.setUpByZip(help.getPath());
@@ -444,53 +432,48 @@ public class ShowExecutorTest {
         };
 
         // topic
-        HelpStmt stmt = new HelpStmt("ADD");
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+        HelpCommand command = new HelpCommand("ADD");
+        ShowResultSet resultSet = command.doRun(ctx, null);
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("ADD", resultSet.getString(0));
-        Assert.assertEquals("add function\n", resultSet.getString(1));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("ADD", resultSet.getString(0));
+        Assertions.assertEquals("add function\n", resultSet.getString(1));
+        Assertions.assertFalse(resultSet.next());
 
         // topic
-        stmt = new HelpStmt("logical");
-        executor = new ShowExecutor(ctx, stmt);
-        resultSet = executor.execute();
+        command = new HelpCommand("logical");
+        resultSet = command.doRun(ctx, null);
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("OR", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("OR", resultSet.getString(0));
+        Assertions.assertFalse(resultSet.next());
 
         // keywords
-        stmt = new HelpStmt("MATH");
-        executor = new ShowExecutor(ctx, stmt);
-        resultSet = executor.execute();
+        command = new HelpCommand("MATH");
+        resultSet = command.doRun(ctx, null);
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("ADD", resultSet.getString(0));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("MINUS", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("ADD", resultSet.getString(0));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("MINUS", resultSet.getString(0));
+        Assertions.assertFalse(resultSet.next());
 
         // category
-        stmt = new HelpStmt("functions");
-        executor = new ShowExecutor(ctx, stmt);
-        resultSet = executor.execute();
+        command = new HelpCommand("functions");
+        resultSet = command.doRun(ctx, null);
 
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("HELP", resultSet.getString(0));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("binary function", resultSet.getString(0));
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("bit function", resultSet.getString(0));
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("HELP", resultSet.getString(0));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("binary function", resultSet.getString(0));
+        Assertions.assertTrue(resultSet.next());
+        Assertions.assertEquals("bit function", resultSet.getString(0));
+        Assertions.assertFalse(resultSet.next());
 
         // empty
-        stmt = new HelpStmt("empty");
-        executor = new ShowExecutor(ctx, stmt);
-        resultSet = executor.execute();
+        command = new HelpCommand("empty");
+        resultSet = command.doRun(ctx, null);
 
-        Assert.assertFalse(resultSet.next());
+        Assertions.assertFalse(resultSet.next());
     }
 }

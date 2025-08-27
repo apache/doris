@@ -25,10 +25,12 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -116,9 +118,21 @@ public:
     Version version;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
+
+    std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+    std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
+    std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
+    std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+
+    std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
+    CollectionStatisticsPtr collection_statistics;
+
+    // Cache for sparse column data to avoid redundant reads
+    // col_unique_id -> cached column_ptr
+    std::unordered_map<int32_t, vectorized::ColumnPtr> sparse_column_cache;
 };
 
 struct CompactionSampleInfo {

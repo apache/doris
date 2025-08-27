@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testProjectionMV3") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -38,7 +40,7 @@ suite ("testProjectionMV3") {
 
     def result = "null"
 
-    createMV("create materialized view emps_mv as select deptno, empid, name from emps order by deptno;")
+    createMV("create materialized view emps_mv as select deptno as a1, empid as a2, name as a3 from emps order by deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""

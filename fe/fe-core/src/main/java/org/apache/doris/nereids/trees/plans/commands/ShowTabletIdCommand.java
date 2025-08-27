@@ -44,6 +44,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
@@ -87,7 +88,8 @@ public class ShowTabletIdCommand extends ShowCommand {
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    @VisibleForTesting
+    protected void validate(ConnectContext ctx) throws AnalysisException {
         // check access first
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");

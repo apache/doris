@@ -21,7 +21,6 @@ suite("agg_optimize_when_uniform") {
 
     sql """
         set enable_agg_state=true;
-        set disable_nereids_rules='ELIMINATE_CONST_JOIN_CONDITION';
         SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject';
         set runtime_filter_mode=OFF;
         """
@@ -159,8 +158,9 @@ suite("agg_optimize_when_uniform") {
             o_orderdate;
             """
     order_qt_query1_0_before "${query1_0}"
-    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
-    qt_shape1_0_after """explain shape plan ${query1_0}"""
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    // because constant propagation
+    async_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0", [NOT_IN_RBO])
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
@@ -372,12 +372,12 @@ suite("agg_optimize_when_uniform") {
              bin(o_orderkey);
             """
     order_qt_query6_0_before "${query6_0}"
-    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
+    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv6_0, query6_0, "mv6_0", [NOT_IN_RBO])
 
-    def plan_6 = """explain verbose ${query6_0}"""
+    def plan_6 = sql """explain verbose ${query6_0}"""
     logger.info("plan_6 is " + plan_6)
 
-    qt_shape6_0_after """explain shape plan ${query6_0}"""
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
@@ -412,9 +412,8 @@ suite("agg_optimize_when_uniform") {
             o_comment;
             """
     order_qt_query7_0_before "${query7_0}"
-    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0")
-    // query success and doesn't add aggregate
-    qt_shape7_0_after """explain shape plan ${query7_0}"""
+    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv7_0, query7_0, "mv7_0", [NOT_IN_RBO])
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
 
@@ -484,12 +483,12 @@ suite("agg_optimize_when_uniform") {
             """
     order_qt_query8_0_before "${query8_0}"
     // query success but add agg
-    async_mv_rewrite_success(db, mv8_0, query8_0, "mv8_0")
+    async_mv_rewrite_success(db, mv8_0, query8_0, "mv8_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv8_0, query8_0, "mv8_0", [NOT_IN_RBO])
 
-    def plan_8 = """explain verbose ${query6_0}"""
+    def plan_8 = sql """explain verbose ${query6_0}"""
     logger.info("plan_8 is " + plan_8)
 
-    qt_shape8_0_after """explain shape plan ${query8_0}"""
     order_qt_query8_0_after "${query8_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0;"""
 }

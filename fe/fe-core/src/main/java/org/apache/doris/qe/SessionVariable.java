@@ -27,6 +27,7 @@ import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
@@ -191,6 +193,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
 
     public static final String FORCE_SORT_ALGORITHM = "force_sort_algorithm";
+    public static final String FULL_SORT_MAX_BUFFERED_BYTES = "full_sort_max_buffered_bytes";
 
     // runtime filter run mode
     public static final String RUNTIME_FILTER_MODE = "runtime_filter_mode";
@@ -275,6 +278,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
 
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+
+    // Force the number of scanners to equal the number of segments in OLAP scan when parallel scan is enabled.
+    public static final String OPTIMIZE_INDEX_SCAN_PARALLELISM =
+            "optimize_index_scan_parallelism";
 
     // Limit the max count of scanners to prevent generate too many scanners.
     public static final String PARALLEL_SCAN_MAX_SCANNERS_COUNT = "parallel_scan_max_scanners_count";
@@ -614,6 +621,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
+    public static final String PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY
+            = "pre_materialized_view_rewrite_strategy";
+
     public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
             = "enable_dml_materialized_view_rewrite";
 
@@ -701,6 +711,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
+    // enable variant flatten nested as session variable, default is false,
+    // which means do not flatten nested when create table
+    public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -754,7 +768,40 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
 
+    public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
+
+    @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
+                description = {"value 在每百行中的最低出现次数",
+                        "The minimum number of occurrences of 'value' per hundred lines"})
+    private double hotValueThreshold = 33; // by percentage
+
+    public void setHotValueThreshold(double threshold) {
+        this.hotValueThreshold = threshold;
+    }
+
+    public static double getHotValueThreshold() {
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getState().isInternal()) {
+                return 0.0;
+            } else {
+                return ConnectContext.get().getSessionVariable().hotValueThreshold;
+            }
+        } else {
+            return Double.parseDouble(VariableMgr.getDefaultValue(HOT_VALUE_THRESHOLD));
+        }
+    }
+
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
+
+    public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
+    public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
+    public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
+    public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
+
+    public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
+
+    public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "default_variant_enable_typed_paths_to_sparse";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -868,7 +915,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
     public int autoProfileThresholdMs = -1;
 
-    @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
+    @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external", fuzzy = true)
     public boolean runtimeFilterPruneForExternal = true;
 
     @VariableMgr.VarAttr(name = "runtime_filter_jump_threshold")
@@ -955,7 +1002,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
     public boolean sqlAutoIsNull = false;
 
-    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT, affectQueryResult = true)
+    @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT, needForward = true, affectQueryResult = true)
     private long sqlSelectLimit = Long.MAX_VALUE;
 
     // this is used to make c3p0 library happy
@@ -1201,6 +1248,12 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     private boolean enableParallelScan = true;
 
+    @VariableMgr.VarAttr(name = OPTIMIZE_INDEX_SCAN_PARALLELISM,
+            needForward = true,
+            description = {"优化索引扫描时的Scan并行度，该优化目前只对 ann topn 查询生效",
+                "Optimize the Scan parallelism when indexing, this optimization only works for ann topn queries."})
+    private boolean optimizeIndexScanParallelism = true;
+
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
     private int parallelScanMaxScannersCount = 0;
@@ -1286,14 +1339,14 @@ public class SessionVariable implements Serializable, Writable {
             "Force the sort algorithm of SortNode to be specified" })
     public String forceSortAlgorithm = "";
 
+    @VariableMgr.VarAttr(name = FULL_SORT_MAX_BUFFERED_BYTES, needForward = true,
+            setter = "setFullSortMaxBufferedBytes")
+    public long fullSortMaxBufferedBytes = 64L * 1024L * 1024L;
+
     @VariableMgr.VarAttr(name = "ignore_runtime_filter_error", needForward = true, description = { "在rf遇到错误的时候忽略该rf",
             "Ignore the rf when it encounters an error" })
     public boolean ignoreRuntimeFilterError = false;
 
-    @VariableMgr.VarAttr(name = "enable_fixed_len_to_uint32_v2", needForward = true, description = {
-            "使用新版本fixed_len_to_uint32_v2,对datetimev2类型bloom filter做了优化",
-            "Using the new version fixed_len_to_uint32_v2, the datetimev2 type bloom filter has been optimized" })
-    public boolean enableFixedLenToUint32V2 = true;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
@@ -1337,7 +1390,7 @@ public class SessionVariable implements Serializable, Writable {
                     "set the number of sort phases 1 or 2. if set other value, let cbo decide the sort type"})
     public int sortPhaseNum = 0;
 
-    @VariableMgr.VarAttr(name = HIVE_TEXT_COMPRESSION, needForward = true)
+    @VariableMgr.VarAttr(name = HIVE_TEXT_COMPRESSION, fuzzy = true, needForward = true)
     private String hiveTextCompression = "plain";
 
     @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
@@ -1348,13 +1401,29 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
-    @VariableMgr.VarAttr(name = "enable_topn_lazy_materialization", needForward = true,
+    @VariableMgr.VarAttr(name = "topn_lazy_materialization_threshold", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
-    public boolean enableTopnLazyMaterialization = true;
+    public int topNLazyMaterializationThreshold = 512 * 1024;
+
+    public boolean enableTopnLazyMaterialization() {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold > 0;
+    }
+
+    public static int getTopNLazyMaterializationThreshold() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationThreshold;
+        }
+    }
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_VARIANT_FLATTEN_NESTED, needForward = true)
+    private boolean enableVariantFlattenNested = false;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -1758,7 +1827,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableShareHashTableForBroadcastJoin = true;
 
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
-    public boolean enableUnicodeNameSupport = false;
+    public boolean enableUnicodeNameSupport = true;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN, affectQueryResult = true)
     public long groupConcatMaxLen = 2147483646;
@@ -1907,13 +1976,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,
-            description = {"如果分区数量超过阈值，BE将通过batch方式获取scan ranges",
+            fuzzy = true,
+            description = {"如果分区数量超过阈值，BE将通过batch方式获取scan ranges。作用于 Hive、Hudi、MaxCompute 表。",
                     "If the number of partitions exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
     public int numPartitionsInBatchMode = 1024;
 
     @VariableMgr.VarAttr(
             name = NUM_FILES_IN_BATCH_MODE,
+            fuzzy = true,
             description = {"如果文件数量超过阈值，BE将通过batch方式获取scan ranges",
                     "If the number of files exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
@@ -1928,6 +1999,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
+            fuzzy = true,
             description = {"控制 parquet reader 是否启用延迟物化技术。默认为 true。",
                     "Controls whether to use lazy materialization technology in parquet reader. "
                             + "The default value is true."},
@@ -1936,15 +2008,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ENABLE_ORC_LAZY_MAT,
+            fuzzy = true,
             description = {"控制 orc reader 是否启用延迟物化技术。默认为 true。",
                     "Controls whether to use lazy materialization technology in orc reader. "
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcLazyMat = true;
 
-
     @VariableMgr.VarAttr(
             name = ORC_TINY_STRIPE_THRESHOLD_BYTES,
+            fuzzy = true,
             description = {"在orc文件中如果一个stripe的字节大小小于`orc_tiny_stripe_threshold`,"
                     + "我们认为该stripe为 tiny stripe。对于多个连续的tiny stripe我们会进行读取优化，即一次性读多个tiny stripe."
                     + "如果你不想使用该优化，可以将该值设置为0。默认为 8M。",
@@ -1960,6 +2033,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ORC_ONCE_MAX_READ_BYTES,
+            fuzzy = true,
             description = {"在使用tiny stripe读取优化的时候，会对多个tiny stripe合并成一次IO，"
                     + "该参数用来控制每次IO请求的最大字节大小。你不应该将值设置的小于`orc_tiny_stripe_threshold`。默认为 8M。",
                     "When using tiny stripe read optimization, multiple tiny stripes will be merged into one IO."
@@ -1973,6 +2047,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ORC_MAX_MERGE_DISTANCE_BYTES,
+            fuzzy = true,
             description = {"在使用tiny stripe读取优化的时候，由于tiny stripe并不一定连续。"
                     + "当两个tiny stripe之间距离大于该参数时，我们不会将其合并成一次IO。默认为 1M。",
                     "When using tiny stripe read optimization, since tiny stripes are not necessarily continuous,"
@@ -1985,12 +2060,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_FILTER_BY_MIN_MAX,
+            fuzzy = true,
             description = {"控制 parquet reader 是否启用 min-max 值过滤。默认为 true。",
                     "Controls whether to filter by min-max values in parquet reader. "
                             + "The default value is true."},
             needForward = true)
     public boolean enableParquetFilterByMinMax = true;
-
 
     @VariableMgr.VarAttr(
             name = ENABLE_ORC_FILTER_BY_MIN_MAX,
@@ -2224,6 +2299,7 @@ public class SessionVariable implements Serializable, Writable {
     public long partitionSampleRowCount = 3_000_000_000L;
 
     @VariableMgr.VarAttr(name = FETCH_HIVE_ROW_COUNT_SYNC,
+            fuzzy = true,
             description = {"同步获取Hive外表行数", "Fetch Hive external table row count synchronously"})
     public boolean fetchHiveRowCountSync = true;
 
@@ -2231,6 +2307,18 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否开启基于结构信息的物化视图透明改写",
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = true;
+
+    @VariableMgr.VarAttr(name = PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY, needForward = true, fuzzy = true,
+            description = {"在RBO阶段基于结构信息的物化视图透明改写的策略，FORCE_IN_ROB ：强制在 RBO 阶段透明改写，"
+                    + "TRY_IN_RBO ：如果在NEED_PRE_REWRITE_RULE_TYPES中的规则改写成功了，那么就会尝试在 RBO 阶段透明改写"
+                    + "NOT_IN_RBO ：不尝试在 RBO 阶段改写，只在 CBO 阶段改写",
+                    "Whether to enable pre materialized view rewriting based on struct info,"
+                            + "FORCE_IN_RBO : Force transparent rewriting in the RBO phase,"
+                            + "TRY_IN_RBO : Attempt transparent rewriting in the RBO phase "
+                            + "if rules in NEED_PRE_REWRITE_RULE_TYPES, "
+                            + "NOT_IN_RBO : Do not attempt rewriting in the RBO phase; apply only during the CBO phase"
+            })
+    public String preMaterializedViewRewriteStrategy = "TRY_IN_RBO";
 
     @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
             description = {"是否允许修改物化视图的数据",
@@ -2299,7 +2387,6 @@ public class SessionVariable implements Serializable, Writable {
                             + "by their ordinal position in the Hive table definition."})
     public boolean hiveParquetUseColumnNames = true;
 
-
     @VariableMgr.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES,
             description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
                     "Access Parquet columns by name by default. Set this property to `false` to access columns "
@@ -2317,10 +2404,12 @@ public class SessionVariable implements Serializable, Writable {
     public int exchangeMultiBlocksByteSize = 256 * 1024;
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
+            fuzzy = true,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
+            fuzzy = true,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
     private boolean enableCountPushDownForExternalTable = true;
 
@@ -2334,6 +2423,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
     @VariableMgr.VarAttr(
             name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
+            fuzzy = true,
             description = {"使能外表的batch mode功能", "Enable the batch mode function of the external table."},
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
@@ -2393,6 +2483,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
 
+    public static final String ENABLE_EXPLAIN_NONE = "enable_explain_none";
+
     public static final String DETAIL_SHAPE_NODES = "detail_shape_nodes";
 
     public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
@@ -2414,6 +2506,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"'explain shape plan' 命令中显示详细信息的PlanNode 类型",
                     "the plan node type show detail in 'explain shape plan' command"})
     public String detailShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_EXPLAIN_NONE, needForward = true, description = {
+            "执行explain命令，但不打印explain结果",
+            "execute explain command and return nothing"
+    })
+    public boolean enableExplainNone = false;
 
     private Set<String> detailShapePlanNodesSet = ImmutableSet.of();
 
@@ -2710,6 +2808,14 @@ public class SessionVariable implements Serializable, Writable {
     }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
     public int skewRewriteJoinSaltExplodeFactor = 0;
 
+    @VariableMgr.VarAttr(name = DEFAULT_LLM_RESOURCE, needForward = true,
+            description = {
+                    "当函数参数未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
+                    "Defines the default LLM resource to be used when no specific LLM resource is specified "
+                            + "in the function arguments."
+            })
+    public String defaultLLMResource = "";
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -2718,13 +2824,43 @@ public class SessionVariable implements Serializable, Writable {
         return enableESParallelScroll;
     }
 
-    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, fuzzy = true, description = {
+    @VariableMgr.VarAttr(name = ENABLE_ADD_INDEX_FOR_NEW_DATA, needForward = true, description = {
             "是否启用仅对新数据生效的索引添加模式，开启时新建索引只对后续写入的数据生效，关闭时对全部数据重建索引",
             "Whether to enable add index mode that only affects new data, "
                     + "when enabled new indexes only affect subsequently written data, "
                     + "when disabled rebuild indexes for all data"
     })
     public boolean enableAddIndexForNewData = false;
+
+    @VariableMgr.VarAttr(name = HNSW_EF_SEARCH, needForward = true,
+            description = {"HNSW索引的EF搜索参数，控制搜索的精度和速度",
+                    "HNSW index EF search parameter, controls the precision and speed of the search"})
+    public int hnswEFSearch = 32;
+
+    @VariableMgr.VarAttr(name = HNSW_CHECK_RELATIVE_DISTANCE, needForward = true,
+            description = {"是否启用相对距离检查机制，以提升HNSW搜索的准确性",
+                    "Enable relative distance checking to improve HNSW search accuracy"})
+    public boolean hnswCheckRelativeDistance = true;
+
+    @VariableMgr.VarAttr(name = HNSW_BOUNDED_QUEUE, needForward = true,
+            description = {"是否使用有界优先队列来优化HNSW的搜索性能",
+                    "Whether to use a bounded priority queue to optimize HNSW search performance"})
+    public boolean hnswBoundedQueue = true;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+            needForward = true,
+            checker = "checkDefaultVariantMaxSubcolumnsCount",
+            fuzzy = true
+    )
+    public int defaultVariantMaxSubcolumnsCount = 0;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultEnableTypedPathsToSparse = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2747,6 +2883,7 @@ public class SessionVariable implements Serializable, Writable {
         // 10MB = 10 * 1024 * 1024 bytes
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
+        this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -2850,6 +2987,58 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSpill = randomInt % 4 != 0;
         this.enableForceSpill = randomInt % 3 == 0;
         this.enableReserveMemory = randomInt % 5 != 0;
+
+        // random pre materialized view rewrite strategy
+        randomInt = random.nextInt(3);
+        switch (randomInt % 3) {
+            case 0:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.NOT_IN_RBO.name();
+                break;
+            case 1:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.TRY_IN_RBO.name();
+                break;
+            case 2:
+            default:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.FORCE_IN_RBO.name();
+                break;
+        }
+        setFuzzyForCatalog(random);
+    }
+
+    private void setFuzzyForCatalog(Random random) {
+        if (!Config.fuzzy_test_type.equals("external")) {
+            return;
+        }
+        // parquet
+        this.enableParquetFilterByMinMax = random.nextBoolean();
+        this.enableParquetLazyMat = random.nextBoolean();
+
+        // orc
+        this.enableOrcLazyMat = random.nextBoolean();
+        this.orcTinyStripeThresholdBytes = Util.getRandomLong(0, 8L * 1024L * 1024L);
+        this.orcOnceMaxReadBytes = Util.getRandomLong(0, 8L * 1024L * 1024L, 16L * 1024L * 1024L);
+        this.orcMaxMergeDistanceBytes = Util.getRandomLong(0, 1L * 1024L * 1024L, 10L * 1024L * 1024L);
+
+        // jni
+        this.forceJniScanner = random.nextBoolean();
+
+        // statistics
+        this.fetchHiveRowCountSync = random.nextBoolean();
+
+        // hive
+        this.hiveTextCompression = Util.getRandomString(
+                "gzip", "defalte", "bzip2", "zstd", "lz4", "lzo", "snappy", "plain");
+
+        // batch mode
+        this.enableExternalTableBatchMode = random.nextBoolean();
+        if (this.enableExternalTableBatchMode) {
+            this.numPartitionsInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+            this.numFilesInBatchMode = Util.getRandomInt(0, 1024, Integer.MAX_VALUE);
+        }
+
+        // common
+        this.enableCountPushDownForExternalTable = random.nextBoolean();
+        this.runtimeFilterPruneForExternal = random.nextBoolean();
     }
 
     public String printFuzzyVariables() {
@@ -3213,6 +3402,15 @@ public class SessionVariable implements Serializable, Writable {
     public void setOrcMaxMergeDistanceBytes(String value)  throws Exception {
         long val = checkFieldLongValue(ORC_MAX_MERGE_DISTANCE_BYTES, 0, value);
         this.orcMaxMergeDistanceBytes = val;
+    }
+
+    public void setFullSortMaxBufferedBytes(String value) throws Exception {
+        long val = Long.parseLong(value);
+        if (val < 16L * 1024L * 1024L || val > 1024L * 1024L * 1024L) {
+            throw new Exception(
+                    FULL_SORT_MAX_BUFFERED_BYTES + " value should between 16MB and 1GB , you set value is: " + value);
+        }
+        this.fullSortMaxBufferedBytes = val;
     }
 
     private long checkFieldLongValue(String variableName, long minValue, String value) throws Exception {
@@ -3596,10 +3794,6 @@ public class SessionVariable implements Serializable, Writable {
         return numPartitionsInBatchMode;
     }
 
-    public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
-        this.numPartitionsInBatchMode = numPartitionsInBatchMode;
-    }
-
     public int getNumFilesInBatchMode() {
         return numFilesInBatchMode;
     }
@@ -3612,28 +3806,12 @@ public class SessionVariable implements Serializable, Writable {
         this.fetchSplitsMaxWaitTime = fetchSplitsMaxWaitTime;
     }
 
-    public boolean isEnableParquetLazyMat() {
-        return enableParquetLazyMat;
-    }
-
-    public void setEnableParquetLazyMat(boolean enableParquetLazyMat) {
-        this.enableParquetLazyMat = enableParquetLazyMat;
-    }
-
     public boolean isEnableOrcLazyMat() {
         return enableOrcLazyMat;
     }
 
     public void setEnableOrcLazyMat(boolean enableOrcLazyMat) {
         this.enableOrcLazyMat = enableOrcLazyMat;
-    }
-
-    public boolean isEnableParquetFilterByMinMax() {
-        return enableParquetFilterByMinMax;
-    }
-
-    public void setEnableParquetFilterByMinMax(boolean enableParquetFilterByMinMax) {
-        this.enableParquetFilterByMinMax = enableParquetFilterByMinMax;
     }
 
     public boolean isEnableOrcFilterByMinMax() {
@@ -4272,6 +4450,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
+        tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
 
@@ -4320,13 +4499,18 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
-        tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
         tResult.setProfileLevel(getProfileLevel());
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
         tResult.setEnableStrictCast(enableStrictCast);
+        tResult.setNewVersionUnixTimestamp(true); // once FE upgraded, always use new version
+
+        tResult.setHnswEfSearch(hnswEFSearch);
+        tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
+        tResult.setHnswBoundedQueue(hnswBoundedQueue);
+
         return tResult;
     }
 
@@ -4819,6 +5003,15 @@ public class SessionVariable implements Serializable, Writable {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
     }
 
+
+    public String getPreMaterializedViewRewriteStrategy() {
+        return preMaterializedViewRewriteStrategy;
+    }
+
+    public void setPreMaterializedViewRewriteStrategy(String preMaterializedViewRewriteStrategy) {
+        this.preMaterializedViewRewriteStrategy = preMaterializedViewRewriteStrategy;
+    }
+
     public boolean isEnableDmlMaterializedViewRewrite() {
         return enableDmlMaterializedViewRewrite;
     }
@@ -4960,6 +5153,14 @@ public class SessionVariable implements Serializable, Writable {
         return disableInvertedIndexV1ForVaraint;
     }
 
+    public void setEnableVariantFlattenNested(boolean enableVariantFlattenNested) {
+        this.enableVariantFlattenNested = enableVariantFlattenNested;
+    }
+
+    public boolean getEnableVariantFlattenNested() {
+        return enableVariantFlattenNested;
+    }
+
     public void setProfileLevel(String profileLevel) {
         int profileLevelTmp = Integer.valueOf(profileLevel);
         if (profileLevelTmp < 1 || profileLevelTmp > 3) {
@@ -5015,7 +5216,35 @@ public class SessionVariable implements Serializable, Writable {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
     }
 
-    public boolean enableStrictCast() {
-        return enableStrictCast;
+    public static boolean enableStrictCast() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().enableStrictCast;
+        } else {
+            return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
+        }
+    }
+
+    public void checkDefaultVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+        int value = Integer.valueOf(variantMaxSubcolumnsCount);
+        if (value < 0 || value > 100000) {
+            throw new UnsupportedOperationException(
+                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public boolean getDefaultEnableTypedPathsToSparse() {
+        return defaultEnableTypedPathsToSparse;
+    }
+
+    public int getDefaultVariantMaxSubcolumnsCount() {
+        return defaultVariantMaxSubcolumnsCount;
+    }
+
+    public static boolean isFeDebug() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().feDebug;
+        } else {
+            return false;
+        }
     }
 }

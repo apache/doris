@@ -74,38 +74,38 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
@@ -145,8 +145,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
     std::string func_name = "json_parse_error_to_value";
-    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR},
-                                PrimitiveType::TYPE_VARCHAR};
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}, PrimitiveType::TYPE_JSONB};
 
     DataSet data_set = {
             {{Null(), STRING("{}")}, Null()},
@@ -180,349 +179,6 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
     };
 
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
-}
-
-TEST(FunctionJsonbTEST, JsonbParseErrorToInvalidTest) {
-    std::string func_name = "json_parse_error_to_invalid";
-    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}};
-
-    DataSet data_set = {
-            {{Null()}, Null()},
-            {{STRING("null")}, STRING("null")},
-            {{STRING("true")}, STRING("true")},
-            {{STRING("false")}, STRING("false")},
-            {{STRING("100")}, STRING("100")},                                 //int8
-            {{STRING("10000")}, STRING("10000")},                             // int16
-            {{STRING("1000000000")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")")}, STRING(R"("abcd")")},                     // string
-            {{STRING("{}")}, STRING("{}")},                                   // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})")}, STRING(R"({"k1":"v31","k2":300})")}, // object
-            {{STRING("[]")}, STRING("[]")},                              // empty array
-            {{STRING("[123, 456]")}, STRING("[123,456]")},               // int array
-            {{STRING(R"(["abc", "def"])")}, STRING(R"(["abc","def"])")}, // string array
-            {{STRING(R"([null, true, false, 100, 6.18, "abc"])")},
-             STRING(R"([null,true,false,100,6.18,"abc"])")}, // multi type array
-            {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])")},
-             STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
-            {{STRING("abc")}, STRING("")},                     // invalid string
-            {{STRING("'abc'")}, STRING("")},                   // invalid string
-            {{STRING("100x")}, STRING("")},                    // invalid int
-            {{STRING("6.a8")}, STRING("")},                    // invalid double
-            {{STRING("{x")}, STRING("")},                      // invalid object
-            {{STRING("[123, abc]")}, STRING("")}               // invalid array
-    };
-
-    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
-}
-
-TEST(FunctionJsonbTEST, JsonbParseNullableTest) {
-    std::string func_name = "json_parse_nullable";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
-
-    DataSet data_set_valid = {
-            {{Null()}, Null()},
-            {{STRING("null")}, STRING("null")},
-            {{STRING("true")}, STRING("true")},
-            {{STRING("false")}, STRING("false")},
-            {{STRING("100")}, STRING("100")},                                 //int8
-            {{STRING("10000")}, STRING("10000")},                             // int16
-            {{STRING("1000000000")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")")}, STRING(R"("abcd")")},                     // string
-            {{STRING("{}")}, STRING("{}")},                                   // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})")}, STRING(R"({"k1":"v31","k2":300})")}, // object
-            {{STRING("[]")}, STRING("[]")},                              // empty array
-            {{STRING("[123, 456]")}, STRING("[123,456]")},               // int array
-            {{STRING(R"(["abc", "def"])")}, STRING(R"(["abc","def"])")}, // string array
-            {{STRING(R"([null, true, false, 100, 6.18, "abc"])")},
-             STRING(R"([null,true,false,100,6.18,"abc"])")}, // multi type array
-            {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])")},
-             STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
-    };
-
-    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_valid));
-
-    DataSet data_set_invalid = {
-            {{STRING("abc")}, Null()}, // invalid string
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("'abc'")}, Null()}, // invalid string
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("100x")}, Null()}, // invalid int
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("6.a8")}, Null()}, // invalid double
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("{x")}, Null()}, // invalid object
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("[123, abc]")}, Null()} // invalid array
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
-}
-
-TEST(FunctionJsonbTEST, JsonbParseNullableErrorToNullTest) {
-    std::string func_name = "json_parse_nullable_error_to_null";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
-
-    DataSet data_set = {
-            {{Null()}, Null()},
-            {{STRING("null")}, STRING("null")},
-            {{STRING("true")}, STRING("true")},
-            {{STRING("false")}, STRING("false")},
-            {{STRING("100")}, STRING("100")},                                 //int8
-            {{STRING("10000")}, STRING("10000")},                             // int16
-            {{STRING("1000000000")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")")}, STRING(R"("abcd")")},                     // string
-            {{STRING("{}")}, STRING("{}")},                                   // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})")}, STRING(R"({"k1":"v31","k2":300})")}, // object
-            {{STRING("[]")}, STRING("[]")},                              // empty array
-            {{STRING("[123, 456]")}, STRING("[123,456]")},               // int array
-            {{STRING(R"(["abc", "def"])")}, STRING(R"(["abc","def"])")}, // string array
-            {{STRING(R"([null, true, false, 100, 6.18, "abc"])")},
-             STRING(R"([null,true,false,100,6.18,"abc"])")}, // multi type array
-            {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])")},
-             STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
-            {{STRING("abc")}, Null()},                         // invalid string
-            {{STRING("'abc'")}, Null()},                       // invalid string
-            {{STRING("100x")}, Null()},                        // invalid int
-            {{STRING("6.a8")}, Null()},                        // invalid double
-            {{STRING("{x")}, Null()},                          // invalid object
-            {{STRING("[123, abc]")}, Null()}                   // invalid array
-    };
-
-    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
-}
-
-TEST(FunctionJsonbTEST, JsonbParseNullableErrorToValueTest) {
-    std::string func_name = "json_parse_nullable_error_to_value";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
-
-    DataSet data_set = {
-            {{Null(), STRING("{}")}, Null()},
-            {{STRING("null"), STRING("{}")}, STRING("null")},
-            {{STRING("true"), STRING("{}")}, STRING("true")},
-            {{STRING("false"), STRING("{}")}, STRING("false")},
-            {{STRING("100"), STRING("{}")}, STRING("100")},                                 //int8
-            {{STRING("10000"), STRING("{}")}, STRING("10000")},                             // int16
-            {{STRING("1000000000"), STRING("{}")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976"), STRING("{}")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18"), STRING("{}")}, STRING("6.18")},           // double
-            {{STRING(R"("abcd")"), STRING("{}")}, STRING(R"("abcd")")}, // string
-            {{STRING("{}"), STRING("{}")}, STRING("{}")},               // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("{}")},
-             STRING(R"({"k1":"v31","k2":300})")},                        // object
-            {{STRING("[]"), STRING("{}")}, STRING("[]")},                // empty array
-            {{STRING("[123, 456]"), STRING("{}")}, STRING("[123,456]")}, // int array
-            {{STRING(R"(["abc", "def"])"), STRING("{}")},
-             STRING(R"(["abc","def"])")}, // string array
-            {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("{}")},
-             STRING(R"([null,true,false,100,6.18,"abc"])")}, // multi type array
-            {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("{}")},
-             STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")},           // complex array
-            {{STRING("abc"), STRING(R"("abc")")}, STRING(R"("abc")")},   // invalid string
-            {{STRING("'abc'"), STRING(R"("abc")")}, STRING(R"("abc")")}, // invalid string
-            {{STRING("100x"), STRING("100")}, STRING("100")},            // invalid int
-            {{STRING("6.a8"), STRING("6.18")}, STRING("6.18")},          // invalid double
-            {{STRING("{x"), STRING("{}")}, STRING("{}")},                // invalid object
-            {{STRING("[123, abc]"), STRING(R"([123,"abc"])")},
-             STRING(R"([123,"abc"])")} // invalid array
-    };
-
-    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
-}
-
-TEST(FunctionJsonbTEST, JsonbParseNullableErrorToInvalidTest) {
-    std::string func_name = "json_parse_nullable_error_to_invalid";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
-
-    DataSet data_set = {
-            {{Null()}, Null()},
-            {{STRING("null")}, STRING("null")},
-            {{STRING("true")}, STRING("true")},
-            {{STRING("false")}, STRING("false")},
-            {{STRING("100")}, STRING("100")},                                 //int8
-            {{STRING("10000")}, STRING("10000")},                             // int16
-            {{STRING("1000000000")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")")}, STRING(R"("abcd")")},                     // string
-            {{STRING("{}")}, STRING("{}")},                                   // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})")}, STRING(R"({"k1":"v31","k2":300})")}, // object
-            {{STRING("[]")}, STRING("[]")},                              // empty array
-            {{STRING("[123, 456]")}, STRING("[123,456]")},               // int array
-            {{STRING(R"(["abc", "def"])")}, STRING(R"(["abc","def"])")}, // string array
-            {{STRING(R"([null, true, false, 100, 6.18, "abc"])")},
-             STRING(R"([null,true,false,100,6.18,"abc"])")}, // multi type array
-            {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])")},
-             STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
-            {{STRING("abc")}, STRING("")},                     // invalid string
-            {{STRING("'abc'")}, STRING("")},                   // invalid string
-            {{STRING("100x")}, STRING("")},                    // invalid int
-            {{STRING("6.a8")}, STRING("")},                    // invalid double
-            {{STRING("{x")}, STRING("")},                      // invalid object
-            {{STRING("[123, abc]")}, STRING("")}               // invalid array
-    };
-
-    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
-}
-
-TEST(FunctionJsonbTEST, JsonbParseNotnullTest) {
-    std::string func_name = "json_parse_notnull";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
-
-    DataSet data_set_valid = {
-            {{STRING("null")}, STRING("null")},
-            {{STRING("true")}, STRING("true")},
-            {{STRING("false")}, STRING("false")},
-            {{STRING("100")}, STRING("100")},                                 //int8
-            {{STRING("10000")}, STRING("10000")},                             // int16
-            {{STRING("1000000000")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")")}, STRING(R"("abcd")")},                     // string
-            {{STRING("{}")}, STRING("{}")},                                   // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})")}, STRING(R"({"k1":"v31","k2":300})")}, // object
-            {{STRING("[]")}, STRING("[]")},                              // empty array
-            {{STRING("[123, 456]")}, STRING("[123,456]")},               // int array
-            {{STRING(R"(["abc", "def"])")}, STRING(R"(["abc","def"])")}, // string array
-            {{STRING(R"([null, true, false, 100, 6.18, "abc"])")},
-             STRING(R"([null,true,false,100,6.18,"abc"])")}, // multi type array
-            {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])")},
-             STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
-    };
-
-    static_cast<void>(check_function<DataTypeJsonb, false>(func_name, input_types, data_set_valid));
-
-    DataSet data_set_invalid = {
-            {{STRING("abc")}, Null()}, // invalid string
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("'abc'")}, Null()}, // invalid string
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("100x")}, Null()}, // invalid int
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("6.a8")}, Null()}, // invalid double
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("{x")}, Null()}, // invalid object
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
-
-    data_set_invalid = {
-            {{STRING("[123, abc]")}, Null()} // invalid array
-    };
-    static_cast<void>(
-            check_function<DataTypeJsonb, false>(func_name, input_types, data_set_invalid, true));
-}
-
-TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToValueTest) {
-    std::string func_name = "json_parse_notnull_error_to_value";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
-
-    DataSet data_set = {
-            {{STRING("null"), STRING("{}")}, STRING("null")},
-            {{STRING("true"), STRING("{}")}, STRING("true")},
-            {{STRING("false"), STRING("{}")}, STRING("false")},
-            {{STRING("100"), STRING("{}")}, STRING("100")},                                 //int8
-            {{STRING("10000"), STRING("{}")}, STRING("10000")},                             // int16
-            {{STRING("1000000000"), STRING("{}")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976"), STRING("{}")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18"), STRING("{}")}, STRING("6.18")},           // double
-            {{STRING(R"("abcd")"), STRING("{}")}, STRING(R"("abcd")")}, // string
-            {{STRING("{}"), STRING("{}")}, STRING("{}")},               // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("{}")},
-             STRING(R"({"k1":"v31","k2":300})")},                        // object
-            {{STRING("[]"), STRING("{}")}, STRING("[]")},                // empty array
-            {{STRING("[123, 456]"), STRING("{}")}, STRING("[123,456]")}, // int array
-            {{STRING(R"(["abc", "def"])"), STRING("{}")},
-             STRING(R"(["abc","def"])")}, // string array
-            {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("{}")},
-             STRING(R"([null,true,false,100,6.18,"abc"])")}, // multi type array
-            {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("{}")},
-             STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")},           // complex array
-            {{STRING("abc"), STRING(R"("abc")")}, STRING(R"("abc")")},   // invalid string
-            {{STRING("'abc'"), STRING(R"("abc")")}, STRING(R"("abc")")}, // invalid string
-            {{STRING("100x"), STRING("100")}, STRING("100")},            // invalid int
-            {{STRING("6.a8"), STRING("6.18")}, STRING("6.18")},          // invalid double
-            {{STRING("{x"), STRING("{}")}, STRING("{}")},                // invalid object
-            {{STRING("[123, abc]"), STRING(R"([123,"abc"])")},
-             STRING(R"([123,"abc"])")} // invalid array
-    };
-
-    static_cast<void>(check_function<DataTypeJsonb, false>(func_name, input_types, data_set));
-}
-
-TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToInvalidTest) {
-    std::string func_name = "json_parse_notnull_error_to_invalid";
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
-
-    DataSet data_set = {
-            {{STRING("null")}, STRING("null")},
-            {{STRING("true")}, STRING("true")},
-            {{STRING("false")}, STRING("false")},
-            {{STRING("100")}, STRING("100")},                                 //int8
-            {{STRING("10000")}, STRING("10000")},                             // int16
-            {{STRING("1000000000")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")")}, STRING(R"("abcd")")},                     // string
-            {{STRING("{}")}, STRING("{}")},                                   // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})")}, STRING(R"({"k1":"v31","k2":300})")}, // object
-            {{STRING("[]")}, STRING("[]")},                              // empty array
-            {{STRING("[123, 456]")}, STRING("[123,456]")},               // int array
-            {{STRING(R"(["abc", "def"])")}, STRING(R"(["abc","def"])")}, // string array
-            {{STRING(R"([null, true, false, 100, 6.18, "abc"])")},
-             STRING(R"([null,true,false,100,6.18,"abc"])")}, // multi type array
-            {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])")},
-             STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
-            {{STRING("abc")}, STRING("")},                     // invalid string
-            {{STRING("'abc'")}, STRING("")},                   // invalid string
-            {{STRING("100x")}, STRING("")},                    // invalid int
-            {{STRING("6.a8")}, STRING("")},                    // invalid double
-            {{STRING("{x")}, STRING("")},                      // invalid object
-            {{STRING("[123, abc]")}, STRING("")}               // invalid array
-    };
-
-    static_cast<void>(check_function<DataTypeJsonb, false>(func_name, input_types, data_set));
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractTest) {
@@ -722,13 +378,12 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("true"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(1)},
             {{STRING("false"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(0)},
             {{STRING("100"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(100)}, //int8
-            {{STRING("10000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(16)}, // int16
+             TINYINT(100)},                                                                //int8
+            {{STRING("10000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, Null()}, // int16
             {{STRING("1000000000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(0)}, // int32
+             Null()}, // int32
             {{STRING("1152921504606846976"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(0)}, // int64
+             Null()}, // int64
             {{STRING("6.18"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
              TINYINT(6)}, // double
             {{STRING(R"("abcd")"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
@@ -768,9 +423,9 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("10000"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              SMALLINT(10000)}, // int16
             {{STRING("1000000000"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
-             SMALLINT(-13824)}, // int32
+             Null()}, // int32
             {{STRING("1152921504606846976"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
-             SMALLINT(0)}, // int64
+             Null()}, // int64
             {{STRING("6.18"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              SMALLINT(6)}, // double
             {{STRING(R"("abcd")"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
@@ -810,7 +465,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("1000000000"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              INT(1000000000)}, // int32
             {{STRING("1152921504606846976"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
-             INT(0)},                                                                  // int64
+             Null()},                                                                  // int64
             {{STRING("6.18"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(6)}, // double
             {{STRING(R"("abcd")"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              Null()},                                                                // string
@@ -894,7 +549,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     input_types = {Nullable {PrimitiveType::TYPE_JSONB}, Consted {PrimitiveType::TYPE_VARCHAR}};
     // cast to STRING
     data_set = {
-            {{STRING("null"), STRING("1")}, STRING("null")},
+            {{STRING("null"), STRING("1")}, Null()},
             {{STRING("true"), STRING("1")}, STRING("true")},
             {{STRING("false"), STRING("1")}, STRING("false")},
             {{STRING("100"), STRING("1")}, STRING("100")},                                 //int8
@@ -902,7 +557,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("1000000000"), STRING("1")}, STRING("1000000000")},                   // int32
             {{STRING("1152921504606846976"), STRING("1")}, STRING("1152921504606846976")}, // int64
             {{STRING("6.18"), STRING("1")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")"), STRING("1")}, STRING(R"("abcd")")},                     // string
+            {{STRING(R"("abcd")"), STRING("1")}, STRING(R"(abcd)")},                       // string
             {{STRING("{}"), STRING("1")}, STRING("{}")}, // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("1")},
              STRING(R"({"k1":"v31","k2":300})")},                       // object

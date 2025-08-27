@@ -22,7 +22,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Maps;
-import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,7 +47,7 @@ public class MetaServiceProxy {
 
     static {
         if (Config.isCloudMode() && (Config.meta_service_endpoint == null || Config.meta_service_endpoint.isEmpty())) {
-            throw new RuntimeException("in cloud mode, please configure cloud_unique_id and meta_service_endpoint");
+            throw new RuntimeException("in cloud mode, please configure meta_service_endpoint in fe.conf");
         }
     }
 
@@ -176,46 +175,51 @@ public class MetaServiceProxy {
         }
 
         public <Response> Response executeRequest(Function<MetaServiceClient, Response> function) throws RpcException {
-            int tried = 0;
-            while (tried++ < Config.meta_service_rpc_retry_cnt) {
+            long maxRetries = Config.meta_service_rpc_retry_cnt;
+            for (long tried = 1; tried <= maxRetries; tried++) {
                 MetaServiceClient client = null;
                 try {
                     client = proxy.getProxy();
                     return function.apply(client);
                 } catch (StatusRuntimeException sre) {
-                    LOG.info("failed to request meta servive code {}, msg {}, trycnt {}", sre.getStatus().getCode(),
+                    LOG.warn("failed to request meta service code {}, msg {}, trycnt {}", sre.getStatus().getCode(),
                             sre.getMessage(), tried);
-                    if ((tried > Config.meta_service_rpc_retry_cnt
-                                || (sre.getStatus().getCode() != Status.Code.UNAVAILABLE
-                                    && sre.getStatus().getCode() != Status.Code.UNKNOWN))
-                            && (tried > Config.meta_service_rpc_timeout_retry_times
-                                || sre.getStatus().getCode() != Status.Code.DEADLINE_EXCEEDED)) {
+                    boolean shouldRetry = false;
+                    switch (sre.getStatus().getCode()) {
+                        case UNAVAILABLE:
+                        case UNKNOWN:
+                            shouldRetry = true;
+                            break;
+                        case DEADLINE_EXCEEDED:
+                            shouldRetry = tried <= Config.meta_service_rpc_timeout_retry_times;
+                            break;
+                        default:
+                            shouldRetry = false;
+                    }
+                    if (!shouldRetry || tried >= maxRetries) {
                         throw new RpcException("", sre.getMessage(), sre);
                     }
                 } catch (Exception e) {
-                    LOG.info("failed to request meta servive trycnt {}", tried, e);
-                    if (tried > Config.meta_service_rpc_retry_cnt) {
+                    LOG.warn("failed to request meta servive trycnt {}", tried, e);
+                    if (tried >= maxRetries) {
                         throw new RpcException("", e.getMessage(), e);
                     }
-                } catch (Throwable t) {
-                    LOG.info("failed to request meta servive trycnt {}", tried, t);
-                    if (tried > Config.meta_service_rpc_retry_cnt) {
-                        throw new RpcException("", t.getMessage());
+                } finally {
+                    if (proxy.needReconn() && client != null) {
+                        client.shutdown(true);
                     }
-                }
-
-                if (proxy.needReconn() && client != null) {
-                    client.shutdown(true);
                 }
 
                 int delay = 20 + random.nextInt(200 - 20 + 1);
                 try {
                     Thread.sleep(delay);
                 } catch (InterruptedException interruptedException) {
-                    // ignore
+                    Thread.currentThread().interrupt();
+                    throw new RpcException("", interruptedException.getMessage(), interruptedException);
                 }
             }
-            return null; // impossible and unreachable, just make the compiler happy
+            // impossible and unreachable, just make the compiler happy
+            throw new RpcException("", "All retries exhausted", null);
         }
     }
 

@@ -48,7 +48,7 @@ struct TTabletSchema {
     // col unique id for row store column
     20: optional list<i32> row_store_col_cids
     21: optional i64 row_store_page_size = 16384
-    22: optional bool variant_enable_flatten_nested = false 
+    22: optional bool variant_enable_flatten_nested = false
     23: optional i64 storage_page_size = 65536
     24: optional i64 storage_dict_page_size = 262144
 }
@@ -60,6 +60,12 @@ enum TStorageFormat {
     DEFAULT = 0,
     V1 = 1,
     V2 = 2
+}
+
+enum TEncryptionAlgorithm {
+    PLAINTEXT = 0,
+    AES256 = 1,
+    SM4 = 2
 }
 
 enum TTabletType {
@@ -216,6 +222,7 @@ struct TCreateTabletReq {
     27: optional i64 time_series_compaction_level_threshold = 1
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
+    30: optional TEncryptionAlgorithm tde_algorithm
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -403,6 +410,7 @@ struct TDownloadReq {
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
     6: optional string location // root path
     7: optional list<TRemoteTabletSnapshot> remote_tablet_snapshots
+    8: optional string vault_id // for cloud restore
 }
 
 struct TSnapshotRequest {
@@ -426,6 +434,9 @@ struct TSnapshotRequest {
 
 struct TReleaseSnapshotRequest {
     1: required string snapshot_path
+    2: optional Types.TTabletId tablet_id
+    // indicates the job is completed or cancelled
+    3: optional bool is_job_completed
 }
 
 struct TClearRemoteFileReq {

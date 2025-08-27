@@ -44,11 +44,13 @@
 #include "olap/schema_cache.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
@@ -100,6 +102,12 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.push_down_agg_type_opt = _read_context->push_down_agg_type_opt;
     _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;
     _read_options.common_expr_ctxs_push_down = _read_context->common_expr_ctxs_push_down;
+    _read_options.virtual_column_exprs = _read_context->virtual_column_exprs;
+    _read_options.ann_topn_runtime = _read_context->ann_topn_runtime;
+    _read_options.vir_cid_to_idx_in_block = _read_context->vir_cid_to_idx_in_block;
+    _read_options.vir_col_idx_to_type = _read_context->vir_col_idx_to_type;
+    _read_options.score_runtime = _read_context->score_runtime;
+    _read_options.collection_statistics = _read_context->collection_statistics;
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
@@ -297,7 +305,7 @@ Status BetaRowsetReader::_init_iterator() {
     if (_is_merge_iterator()) {
         auto sequence_loc = -1;
         if (_read_context->sequence_id_idx != -1) {
-            for (size_t loc = 0; loc < _read_context->return_columns->size(); loc++) {
+            for (int loc = 0; loc < _read_context->return_columns->size(); loc++) {
                 if (_read_context->return_columns->at(loc) == _read_context->sequence_id_idx) {
                     sequence_loc = loc;
                     break;
@@ -388,4 +396,5 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
              _read_context->sequence_id_idx == -1) ||
             _read_context->enable_unique_key_merge_on_write);
 }
+#include "common/compile_check_end.h"
 } // namespace doris

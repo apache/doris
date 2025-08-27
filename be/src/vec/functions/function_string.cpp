@@ -67,6 +67,72 @@ struct StringASCII {
     }
 };
 
+struct NameParseDataSize {
+    static constexpr auto name = "parse_data_size";
+};
+
+static const std::map<std::string_view, Int128> UNITS = {
+        {"B", static_cast<Int128>(1)},        {"kB", static_cast<Int128>(1) << 10},
+        {"MB", static_cast<Int128>(1) << 20}, {"GB", static_cast<Int128>(1) << 30},
+        {"TB", static_cast<Int128>(1) << 40}, {"PB", static_cast<Int128>(1) << 50},
+        {"EB", static_cast<Int128>(1) << 60}, {"ZB", static_cast<Int128>(1) << 70},
+        {"YB", static_cast<Int128>(1) << 80}};
+
+struct ParseDataSize {
+    using ReturnType = DataTypeInt128;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
+    using Type = String;
+    using ReturnColumnType = ColumnInt128;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<Int128>& res) {
+        auto size = offsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            int str_size = offsets[i] - offsets[i - 1];
+            res[i] = parse_data_size(std::string_view(raw_str, str_size));
+        }
+        return Status::OK();
+    }
+
+    static Int128 parse_data_size(const std::string_view& dataSize) {
+        int digit_length = 0;
+        for (char c : dataSize) {
+            if (isdigit(c) || c == '.') {
+                digit_length++;
+            } else {
+                break;
+            }
+        }
+
+        if (digit_length == 0) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid Input argument \"{}\" of function parse_data_size",
+                                   dataSize);
+        }
+        // 123.45MB--->123.45 : MB
+        double value = 0.0;
+        try {
+            value = std::stod(std::string(dataSize.substr(0, digit_length)));
+        } catch (const std::exception& e) {
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Invalid Input argument \"{}\" of function parse_data_size, error: {}",
+                    dataSize, e.what());
+        }
+        auto unit = dataSize.substr(digit_length);
+        auto it = UNITS.find(unit);
+        if (it != UNITS.end()) {
+            return static_cast<__int128>(static_cast<long double>(it->second) * value);
+        } else {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid Input argument \"{}\" of function parse_data_size",
+                                   dataSize);
+        }
+    }
+};
+
 struct NameQuote {
     static constexpr auto name = "quote";
 };
@@ -167,9 +233,7 @@ struct StartsWithOp {
     using ResultPaddedPODArray = PaddedPODArray<UInt8>;
 
     static void execute(const std::string_view& strl, const std::string_view& strr, uint8_t& res) {
-        re2::StringPiece str_sp(const_cast<char*>(strl.data()), strl.length());
-        re2::StringPiece prefix_sp(const_cast<char*>(strr.data()), strr.length());
-        res = str_sp.starts_with(prefix_sp);
+        res = strl.starts_with(strr);
     }
 };
 
@@ -182,9 +246,7 @@ struct EndsWithOp {
     using ResultPaddedPODArray = PaddedPODArray<UInt8>;
 
     static void execute(const std::string_view& strl, const std::string_view& strr, uint8_t& res) {
-        re2::StringPiece str_sp(const_cast<char*>(strl.data()), strl.length());
-        re2::StringPiece prefix_sp(const_cast<char*>(strr.data()), strr.length());
-        res = str_sp.ends_with(prefix_sp);
+        res = strl.ends_with(strr);
     }
 };
 
@@ -1282,6 +1344,7 @@ template <typename LeftDataType, typename RightDataType>
 using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
 // ready for regist function
+using FunctionStringParseDataSize = FunctionUnaryToType<ParseDataSize, NameParseDataSize>;
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
 using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
 using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
@@ -1318,6 +1381,7 @@ using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
 
 void register_function_string(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionStringParseDataSize>();
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
     factory.register_function<FunctionCrc32>();
@@ -1368,7 +1432,9 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionFromBase64>();
     factory.register_function<FunctionSplitPart>();
     factory.register_function<FunctionSplitByString>();
-    factory.register_function<FunctionCountSubString>();
+    factory.register_function<FunctionCountSubString<FunctionCountSubStringType::TWO_ARGUMENTS>>();
+    factory.register_function<
+            FunctionCountSubString<FunctionCountSubStringType::THREE_ARGUMENTS>>();
     factory.register_function<FunctionSubstringIndex>();
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
@@ -1408,6 +1474,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrcmp>();
     factory.register_function<FunctionNgramSearch>();
     factory.register_function<FunctionXPathString>();
+    factory.register_function<FunctionCrc32Internal>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

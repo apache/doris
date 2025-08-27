@@ -62,7 +62,6 @@ TEST_F(BloomFilterFuncTest, Init) {
                                 256,
                                 0,
                                 0,
-                                false,
                                 false};
     bloom_filter_func.init_params(&params);
 
@@ -88,74 +87,18 @@ TEST_F(BloomFilterFuncTest, Init) {
     bloom_filter_func2.light_copy(&bloom_filter_func);
 }
 
-#define TEST_NUMERIC_VALUES32(type)              \
-    do {                                         \
-        type a {};                               \
-        type b = type_limit<type>::min();        \
-        type c = type_limit<type>::max();        \
-                                                 \
-        ASSERT_EQ(fixed_len(a), fixed_lenv2(a)); \
-        ASSERT_EQ(fixed_len(b), fixed_lenv2(b)); \
-        ASSERT_EQ(fixed_len(c), fixed_lenv2(c)); \
-        ASSERT_EQ(fixed_len(a), (uint32_t)(a));  \
-        ASSERT_EQ(fixed_len(b), (uint32_t)(b));  \
-        ASSERT_EQ(fixed_len(c), (uint32_t)(c));  \
-    } while (0)
-
-#define TEST_NUMERIC_VALUES_BIG(type)                            \
-    do {                                                         \
-        type a {};                                               \
-        type b = type_limit<type>::min();                        \
-        type c = type_limit<type>::max();                        \
-        ASSERT_EQ(fixed_len(a), fixed_lenv2(a));                 \
-        ASSERT_EQ(fixed_len(b), fixed_lenv2(b));                 \
-        ASSERT_EQ(fixed_len(c), fixed_lenv2(c));                 \
-        ASSERT_EQ(fixed_len(a), (uint32_t)std::hash<type>()(a)); \
-        ASSERT_EQ(fixed_len(b), (uint32_t)std::hash<type>()(b)); \
-        ASSERT_EQ(fixed_len(c), (uint32_t)std::hash<type>()(c)); \
-    } while (0)
-
 TEST_F(BloomFilterFuncTest, FixedLenToUInt32) {
-    fixed_len_to_uint32 fixed_len;
     fixed_len_to_uint32_v2 fixed_lenv2;
-
-    TEST_NUMERIC_VALUES32(int8_t);
-    TEST_NUMERIC_VALUES32(int16_t);
-    TEST_NUMERIC_VALUES32(int32_t);
-    TEST_NUMERIC_VALUES32(uint8_t);
-    TEST_NUMERIC_VALUES32(uint16_t);
-    TEST_NUMERIC_VALUES32(uint32_t);
-    TEST_NUMERIC_VALUES32(float);
-    TEST_NUMERIC_VALUES32(vectorized::Decimal32);
-
-    TEST_NUMERIC_VALUES_BIG(int64_t);
-    TEST_NUMERIC_VALUES_BIG(uint64_t);
-    TEST_NUMERIC_VALUES_BIG(double);
-    TEST_NUMERIC_VALUES_BIG(int128_t);
-    TEST_NUMERIC_VALUES_BIG(uint128_t);
-    TEST_NUMERIC_VALUES_BIG(wide::UInt128);
-    TEST_NUMERIC_VALUES_BIG(wide::UInt256);
-    TEST_NUMERIC_VALUES_BIG(wide::Int256);
-    TEST_NUMERIC_VALUES_BIG(vectorized::Decimal64);
-    TEST_NUMERIC_VALUES_BIG(vectorized::Decimal128V2);
-    TEST_NUMERIC_VALUES_BIG(vectorized::Decimal128V3);
-    TEST_NUMERIC_VALUES_BIG(vectorized::Decimal256);
-    TEST_NUMERIC_VALUES_BIG(VecDateTimeValue);
-    TEST_NUMERIC_VALUES_BIG(DateV2Value<DateTimeV2ValueType>);
-
     {
         DateV2Value<DateV2ValueType> date;
         date.from_date_str("2021-01-01", strlen("2021-01-01"));
         auto min = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(MIN_DATE_V2);
         auto max = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(MAX_DATE_V2);
 
-        ASSERT_EQ(fixed_len(date), (uint32_t)date.to_int64());
         ASSERT_EQ(fixed_lenv2(date), (uint32_t)date.to_date_int_val());
 
-        ASSERT_EQ(fixed_len(min), (uint32_t)min.to_int64());
         ASSERT_EQ(fixed_lenv2(min), (uint32_t)min.to_date_int_val());
 
-        ASSERT_EQ(fixed_len(max), (uint32_t)max.to_int64());
         ASSERT_EQ(fixed_lenv2(max), (uint32_t)max.to_date_int_val());
     }
 }
@@ -173,7 +116,6 @@ TEST_F(BloomFilterFuncTest, InsertSet) {
                                 256,
                                 0,
                                 0,
-                                false,
                                 false};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(runtime_length);
@@ -203,7 +145,6 @@ TEST_F(BloomFilterFuncTest, InsertSet) {
     }
 
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func2(false);
-    params.enable_fixed_len_to_uint32_v2 = true;
     bloom_filter_func2.init_params(&params);
     st = bloom_filter_func2.init_with_fixed_length(runtime_length);
     ASSERT_TRUE(st.ok()) << "Failed to init bloom filter with fixed length: " << st.to_string();
@@ -229,7 +170,6 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
                                 256,
                                 0,
                                 0,
-                                false,
                                 false};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(runtime_length);
@@ -304,7 +244,6 @@ TEST_F(BloomFilterFuncTest, Merge) {
                                 256,
                                 0,
                                 0,
-                                false,
                                 false};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(runtime_length);
@@ -387,7 +326,8 @@ TEST_F(BloomFilterFuncTest, HashAlgorithm) {
             "AAAAQAAAAIAACAAAAABAACAAAAAAQAAAAQAAAACAAAAAACAEAACAAgAACAQEAAAgAASAAAABAgAAEAAIDAAAAA"
             "CQAQAAYgAAAAIBAiBAgAABAgBABAAICAAABCGAAIABBAAAAAAAIABAAAAACAAAAAAAABAAQAAAAAAAIBAAAAAA"
             "AQAiABEAAQBAIgAAgBAQEEAAACACAQAABEgAAggAAQAAAUAQAAEQECCAAABAAIgHAAAACAEAAgAJQABAIAEAAA"
-            "gAAEAAAAAAEAAAAAAQAAABAAAQAAAAAEAAAAAEAACAEAAAAAUAAAAAIBAgCAAAQAAIAAAACBAIABAAAAAABg";
+            "gAAEAAAAAAEAAAAAAQAAABAAAQAAAAAEAAAAAEAACAEAAAAAUAAAAAIBAgCAAAQAAIAAAACBAIABAAAAAABg="
+            "=";
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func(false);
     const size_t runtime_length = 1024;
     RuntimeFilterParams params {1,
@@ -400,7 +340,6 @@ TEST_F(BloomFilterFuncTest, HashAlgorithm) {
                                 256,
                                 0,
                                 0,
-                                false,
                                 false};
     bloom_filter_func.init_params(&params);
 
@@ -421,8 +360,6 @@ TEST_F(BloomFilterFuncTest, HashAlgorithm) {
     ASSERT_EQ(memcmp(BloomFilterBinary.data(), encode_string.data(),
                      strlen(BloomFilterBinary.c_str())),
               0);
-
-    params.enable_fixed_len_to_uint32_v2 = true;
 
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func2(false);
     bloom_filter_func2.init_params(&params);
@@ -451,7 +388,6 @@ TEST_F(BloomFilterFuncTest, MergeLargeData) {
                                 256,
                                 0,
                                 0,
-                                false,
                                 false};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(runtime_length);
@@ -555,7 +491,6 @@ TEST_F(BloomFilterFuncTest, FindDictOlapEngine) {
                                 256,
                                 0,
                                 0,
-                                false,
                                 false};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(0);
@@ -597,7 +532,6 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
                                 256,
                                 0,
                                 0,
-                                false,
                                 false};
     bloom_filter_func.init_params(&params);
     auto st = bloom_filter_func.init_with_fixed_length(0);

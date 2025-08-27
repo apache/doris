@@ -37,7 +37,7 @@ public:
     IKSegmenter(std::shared_ptr<Configuration> config);
     bool next(Lexeme& lexeme);
     void reset(lucene::util::Reader* newInput);
-    int getLastUselessCharNum();
+    size_t getLastUselessCharNum();
 
 private:
     std::vector<std::unique_ptr<ISegmenter>> loadSegmenters();

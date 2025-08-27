@@ -22,37 +22,40 @@
 
 #include "cast_to_basic_number_common.h"
 #include "common/status.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
-// cast bool, int, float, double and time to int
+#include "common/compile_check_begin.h"
+
+// Types that can be cast to int: string, bool, int, float, double, decimal, date, datetime and time.
+// It's not supported to cast date to tinyint and smallint, because it will definitely overflow.
+// It's not supported to cast datetime to tinyint and smallint, because it will definitely overflow.
+// Casting from string and decimal types are handled in `cast_to_basic_number_common.h`.
+
+// may overflow if:
+// 1. from wider int to narrower int
+// 2. from float/double to int
+// 3. from time to tinyint, smallint and int
+template <typename FromDataType, typename ToDataType>
+constexpr bool CastToIntMayOverflow =
+        (IsDataTypeInt<FromDataType> &&
+         sizeof(typename FromDataType::FieldType) > sizeof(typename ToDataType::FieldType)) ||
+        IsDataTypeFloat<FromDataType> ||
+        (std::is_same_v<FromDataType, DataTypeTimeV2> &&
+         (std::is_same_v<ToDataType, DataTypeInt32> || std::is_same_v<ToDataType, DataTypeInt16> ||
+          std::is_same_v<ToDataType, DataTypeInt8>));
+
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
-    requires((IsDataTypeNumber<FromDataType> || std::is_same_v<FromDataType, DataTypeTimeV2>) &&
-             IsDataTypeInt<ToDataType>)
+    requires(IsDataTypeInt<ToDataType> &&
+             (IsDataTypeNumber<FromDataType> || std::is_same_v<FromDataType, DataTypeTimeV2>) &&
+             CastToIntMayOverflow<FromDataType, ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        // may overflow if:
-        // 1. from wider int to narrower int
-        // 2. from float/double to int
-        // 3. from time to tinyint, smallint and int
-        constexpr bool may_overflow =
-                (IsDataTypeInt<FromDataType> && sizeof(typename FromDataType::FieldType) >
-                                                        sizeof(typename ToDataType::FieldType)) ||
-                IsDataTypeFloat<FromDataType> ||
-                (std::is_same_v<FromDataType, DataTypeTimeV2> &&
-                 (std::is_same_v<ToDataType, DataTypeInt32> ||
-                  std::is_same_v<ToDataType, DataTypeInt16> ||
-                  std::is_same_v<ToDataType, DataTypeInt8>));
-        constexpr bool result_is_nullable =
-                (CastMode == CastModeType::NonStrictMode) && may_overflow;
-
         const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
         if (!col_from) {
@@ -64,7 +67,7 @@ public:
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
         auto& vec_to = col_to->get_data();
-
+        constexpr bool result_is_nullable = (CastMode == CastModeType::NonStrictMode);
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* vec_null_map_to = nullptr;
         if constexpr (result_is_nullable) {
@@ -72,50 +75,41 @@ public:
             vec_null_map_to = col_null_map_to->get_data().data();
         }
 
-        using ToFieldType = typename ToDataType::FieldType;
-        constexpr auto min_to_value = std::numeric_limits<ToFieldType>::min();
-        constexpr auto max_to_value = std::numeric_limits<ToFieldType>::max();
-
+        CastParameters params;
+        params.is_strict = (CastMode == CastModeType::StrictMode);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if constexpr (may_overflow) {
-                if constexpr (IsDataTypeFloat<FromDataType>) {
-                    if (std::isinf(vec_from[i]) || std::isnan(vec_from[i])) {
-                        if constexpr (CastMode == CastModeType::NonStrictMode) {
-                            vec_null_map_to[i] = 1;
-                            continue;
-                        } else {
-                            return Status::InternalError(
-                                    fmt::format("Value {} out of range for type {}", vec_from[i],
-                                                type_to_string(ToDataType::PType)));
-                        }
-                    }
-                    auto truncated_value = std::trunc(vec_from[i]);
-                    if (truncated_value < min_to_value || truncated_value > max_to_value) {
-                        // overflow
-                        if constexpr (CastMode == CastModeType::NonStrictMode) {
-                            vec_null_map_to[i] = 1;
-                            continue;
-                        } else {
-                            return Status::InternalError(
-                                    fmt::format("Value {} out of range for type {}", vec_from[i],
-                                                type_to_string(ToDataType::PType)));
-                        }
-                    }
-                } else {
-                    if (vec_from[i] < min_to_value || vec_from[i] > max_to_value) {
-                        // overflow
-                        if constexpr (CastMode == CastModeType::NonStrictMode) {
-                            vec_null_map_to[i] = 1;
-                            continue;
-                        } else {
-                            return Status::InternalError(
-                                    fmt::format("Value {} out of range for type {}", vec_from[i],
-                                                type_to_string(ToDataType::PType)));
-                        }
+            if constexpr (IsDataTypeInt<FromDataType>) {
+                if (!CastToInt::from_int(vec_from[i], vec_to[i], params)) {
+                    if constexpr (CastMode == CastModeType::NonStrictMode) {
+                        vec_null_map_to[i] = 1;
+                        continue;
+                    } else {
+                        return params.status;
                     }
                 }
+            } else if constexpr (IsDataTypeFloat<FromDataType>) {
+                if (!CastToInt::from_float(vec_from[i], vec_to[i], params)) {
+                    if constexpr (CastMode == CastModeType::NonStrictMode) {
+                        vec_null_map_to[i] = 1;
+                        continue;
+                    } else {
+                        return params.status;
+                    }
+                }
+            } else if constexpr (std::is_same_v<FromDataType, DataTypeTimeV2>) {
+                if (!CastToInt::from_time(vec_from[i], vec_to[i], params)) {
+                    if constexpr (CastMode == CastModeType::NonStrictMode) {
+                        vec_null_map_to[i] = 1;
+                        continue;
+                    } else {
+                        return params.status;
+                    }
+                }
+            } else {
+                return Status::InternalError(fmt::format("Unsupported cast from {} to {}",
+                                                         type_to_string(FromDataType::PType),
+                                                         type_to_string(ToDataType::PType)));
             }
-            CastUtil::static_cast_set(vec_to[i], vec_from[i]);
         }
         if constexpr (result_is_nullable) {
             block.get_by_position(result).column =
@@ -124,6 +118,95 @@ public:
             block.get_by_position(result).column = std::move(col_to);
         }
 
+        return Status::OK();
+    }
+};
+
+/// cast to int, will not overflow:
+/// 1. from bool;
+/// 2. from narrow int to wider int
+/// 3. from time to bigint and largeint
+template <CastModeType CastMode, typename FromDataType, typename ToDataType>
+    requires(IsDataTypeInt<ToDataType> &&
+             (IsDataTypeNumber<FromDataType> || std::is_same_v<FromDataType, DataTypeTimeV2>) &&
+             !CastToIntMayOverflow<FromDataType, ToDataType>)
+class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        return static_cast_no_overflow<FromDataType, ToDataType>(context, block, arguments, result,
+                                                                 input_rows_count);
+    }
+};
+
+// cast decimal to integer
+template <CastModeType CastMode, typename FromDataType, typename ToDataType>
+    requires(IsDataTypeInt<ToDataType> && IsDataTypeDecimal<FromDataType>)
+class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        using ToFieldType = typename ToDataType::FieldType;
+        using FromFieldType = typename FromDataType::FieldType;
+
+        const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
+        const auto* col_from =
+                check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
+        if (!col_from) {
+            return Status::InternalError(fmt::format("Column type mismatch: expected {}, got {}",
+                                                     type_to_string(FromDataType::PType),
+                                                     named_from.column->get_name()));
+        }
+        const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
+        UInt32 from_precision = from_decimal_type.get_precision();
+        UInt32 from_scale = from_decimal_type.get_scale();
+
+        constexpr UInt32 to_max_digits = NumberTraits::max_ascii_len<ToFieldType>();
+        bool narrow_integral = (from_precision - from_scale) >= to_max_digits;
+
+        // may overflow if integer part of decimal is larger than to_max_digits
+        bool may_overflow = (from_precision - from_scale) >= to_max_digits;
+        bool result_is_nullable = (CastMode == CastModeType::NonStrictMode) && may_overflow;
+
+        auto col_to = ToDataType::ColumnType::create(input_rows_count);
+        const auto& vec_from = col_from->get_data();
+        const auto* vec_from_data = vec_from.data();
+        auto& vec_to = col_to->get_data();
+        auto* vec_to_data = vec_to.data();
+
+        ColumnUInt8::MutablePtr col_null_map_to;
+        NullMap::value_type* null_map_data = nullptr;
+        if (result_is_nullable) {
+            col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
+            null_map_data = col_null_map_to->get_data().data();
+        }
+
+        CastParameters params;
+        params.is_strict = (CastMode == CastModeType::StrictMode);
+        size_t size = vec_from.size();
+        typename FromFieldType::NativeType scale_multiplier =
+                DataTypeDecimal<FromFieldType::PType>::get_scale_multiplier(from_scale);
+        for (size_t i = 0; i < size; i++) {
+            if (!CastToInt::_from_decimal<typename FromDataType::FieldType,
+                                          typename ToDataType::FieldType>(
+                        vec_from_data[i], from_precision, from_scale, vec_to_data[i],
+                        scale_multiplier, narrow_integral, params)) {
+                if (result_is_nullable) {
+                    null_map_data[i] = 1;
+                } else {
+                    return params.status;
+                }
+            }
+        }
+
+        if (result_is_nullable) {
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
+        } else {
+            block.get_by_position(result).column = std::move(col_to);
+        }
         return Status::OK();
     }
 };
@@ -181,11 +264,12 @@ WrapperType create_int_wrapper(FunctionContext* context, const DataTypePtr& from
     }
 
     return [cast_impl](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       size_t result, size_t input_rows_count,
+                       uint32_t result, size_t input_rows_count,
                        const NullMap::value_type* null_map = nullptr) {
         return cast_impl->execute_impl(context, block, arguments, result, input_rows_count,
                                        null_map);
     };
 }
 } // namespace CastWrapper
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -41,6 +42,25 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
         Assertions.assertDoesNotThrow(() -> ((AdminSetFrontendConfigCommand) plan).validate());
+        Assertions.assertTrue(((AdminSetFrontendConfigCommand) plan).getLocalSetStmt().originStmt
+                .startsWith("ADMIN SET FRONTEND CONFIG"));
+    }
+
+    @Test
+    public void testRedirectStatus() {
+        String sql = "admin set frontend config(\"alter_table_timeout_second\" = \"60\");";
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
+        AdminSetFrontendConfigCommand command = (AdminSetFrontendConfigCommand) plan;
+        Assertions.assertEquals(command.toRedirectStatus(), RedirectStatus.FORWARD_NO_SYNC);
+        Assertions.assertDoesNotThrow(() -> ((AdminSetFrontendConfigCommand) plan).validate());
+
+        sql = "admin set frontend config('workload_runtime_status_thread_interval_ms' = '100');";
+        LogicalPlan plan1 = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan1 instanceof AdminSetFrontendConfigCommand);
+        command = (AdminSetFrontendConfigCommand) plan1;
+        Assertions.assertEquals(command.toRedirectStatus(), RedirectStatus.NO_FORWARD);
+        Assertions.assertDoesNotThrow(() -> ((AdminSetFrontendConfigCommand) plan1).validate());
     }
 
     @Test
@@ -62,7 +82,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
 
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan);
+        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan, false);
         Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
 
         // 2. set with experimental
@@ -71,7 +91,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
         plan = new NereidsParser().parseSingle(sql);
 
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan);
+        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan, false);
         Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
 
         // 3. show config
@@ -95,5 +115,20 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
 
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
         Assertions.assertEquals("60", ((AdminSetFrontendConfigCommand) plan).getConfigs().get("alter_table_timeout_second"));
+    }
+
+    @Test
+    public void testSetAllFrontendsConfig() throws Exception {
+        String sql = "admin set all frontends config(\" alter_table_timeout_second \" = \"77\");";
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+
+        Assertions.assertInstanceOf(AdminSetFrontendConfigCommand.class, plan);
+        AdminSetFrontendConfigCommand command = (AdminSetFrontendConfigCommand) plan;
+        Assertions.assertTrue(command.isApplyToAll());
+        Assertions.assertEquals(command.toRedirectStatus(), RedirectStatus.NO_FORWARD);
+        Assertions.assertTrue(command.getLocalSetStmt().originStmt.startsWith("ADMIN SET ALL FRONTENDS CONFIG"));
+
+        Env.getCurrentEnv().setConfig(command, true);
+        Assertions.assertEquals(77, Config.alter_table_timeout_second);
     }
 }

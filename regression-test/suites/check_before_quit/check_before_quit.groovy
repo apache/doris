@@ -246,6 +246,10 @@ suite("check_before_quit", "nonConcurrent,p0") {
     def failureList = []
 
     sql "set enable_decimal256 = true;"
+    sql "set enable_variant_flatten_nested = true;"
+    sql """
+        ADMIN SET ALL FRONTENDS CONFIG ('enable_inverted_index_v1_for_variant' = 'true');
+    """
 
     for (int i = 0; i < num; i++) {
         def db = allDataBases[i][0]

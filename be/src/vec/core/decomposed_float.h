@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "common/compile_check_begin.h"
 #include "extended_types.h"
 
 /// Allows to check the internals of IEEE-754 floating point number.
@@ -138,7 +139,7 @@ struct DecomposedFloat {
 
         using UInt = std::conditional_t<(sizeof(Int) > sizeof(typename Traits::UInt)),
                                         std::make_unsigned_t<Int>, typename Traits::UInt>;
-        UInt uint_rhs = rhs < 0 ? -rhs : rhs;
+        UInt uint_rhs = rhs < 0 ? static_cast<UInt>(-rhs) : rhs;
 
         /// Smaller octave: abs(rhs) < abs(float)
         /// FYI, TIL: octave is also called "binade", https://en.wikipedia.org/wiki/Binade
@@ -215,3 +216,5 @@ struct DecomposedFloat {
 
 using DecomposedFloat64 = DecomposedFloat<double>;
 using DecomposedFloat32 = DecomposedFloat<float>;
+
+#include "common/compile_check_end.h"

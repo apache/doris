@@ -52,6 +52,7 @@ namespace ErrorCode {
     TStatusError(END_OF_FILE, false);                     \
     TStatusError(INTERNAL_ERROR, true);                   \
     TStatusError(RUNTIME_ERROR, true);                    \
+    TStatusError(JNI_ERROR, true);                        \
     TStatusError(CANCELLED, false);                       \
     TStatusError(ANALYSIS_ERROR, false);                  \
     TStatusError(MEM_LIMIT_EXCEEDED, false);              \
@@ -496,6 +497,7 @@ public:
     ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
+    ERROR_CTOR(JniError, JNI_ERROR)
     ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
@@ -607,7 +609,7 @@ public:
             return false;
         }
         error_st_ = new_status;
-        error_code_.store(new_status.code(), std::memory_order_release);
+        error_code_.store(static_cast<int16_t>(new_status.code()), std::memory_order_release);
         return true;
     }
 
@@ -743,6 +745,16 @@ using ResultError = unexpected<Status>;
         }                                        \
         std::forward<T>(res).value();            \
     });
+
+#define TEST_TRY(stmt)                                                                          \
+    ({                                                                                          \
+        auto&& res = (stmt);                                                                    \
+        using T = std::decay_t<decltype(res)>;                                                  \
+        if (!res.has_value()) [[unlikely]] {                                                    \
+            ASSERT_TRUE(res.has_value()) << "Expected success, but got error: " << res.error(); \
+        }                                                                                       \
+        std::forward<T>(res).value();                                                           \
+    })
 
 } // namespace doris
 

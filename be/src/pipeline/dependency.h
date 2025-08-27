@@ -17,6 +17,11 @@
 
 #pragma once
 
+#ifdef __APPLE__
+#include <netinet/in.h>
+#include <sys/_types/_u_int.h>
+#endif
+
 #include <concurrentqueue.h>
 #include <sqltypes.h>
 
@@ -529,6 +534,8 @@ struct SpillSortSharedState : public BasicSharedState,
     SortSharedState* in_mem_shared_state = nullptr;
     bool enable_spill = false;
     bool is_spilled = false;
+    int64_t limit = -1;
+    int64_t offset = 0;
     std::atomic_bool is_closed = false;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 

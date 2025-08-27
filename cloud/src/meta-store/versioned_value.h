@@ -128,6 +128,9 @@ void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v);
 // Remove a versioned document from the transaction by key with versionstamp.
 void versioned_remove(Transaction* txn, std::string_view key_with_versionstamp);
 
+// Remove all versioned documents from the transaction by key.
+void versioned_remove_all(Transaction* txn, std::string_view key);
+
 // Put a versioned value into the transaction with a specific versionstamp.
 void versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value);
 
@@ -156,6 +159,29 @@ static inline TxnErrorCode versioned_get(Transaction* txn, std::string_view key,
                                          Versionstamp* value_version, std::string* value,
                                          bool snapshot = false) {
     return versioned_get(txn, key, Versionstamp::max(), value_version, value, snapshot);
+}
+
+// Get a batch of versioned values from the transaction by keys and versionstamp.
+//
+// For each key, it returns the latest version of the document for the given key.
+//
+// The value and versionstamp for each key will be returned in `values`, in the same order likes keys.
+TxnErrorCode versioned_batch_get(
+        Transaction* txn, const std::vector<std::string>& keys, Versionstamp snapshot_version,
+        std::vector<std::optional<std::pair<std::string, Versionstamp>>>* values,
+        bool snapshot = false);
+
+// Get a batch of versioned values from the transaction by keys and versionstamp.
+//
+// For each key, it returns the latest version of the document for the given key,
+// which is equivalent to calling `versioned_batch_get` with `snapshot_version` set to Versionstamp::max().
+//
+// The value and versionstamp for each key will be returned in `values`, in the same order likes keys.
+static inline TxnErrorCode versioned_batch_get(
+        Transaction* txn, const std::vector<std::string>& keys,
+        std::vector<std::optional<std::pair<std::string, Versionstamp>>>* values,
+        bool snapshot = false) {
+    return versioned_batch_get(txn, keys, Versionstamp::max(), values, snapshot);
 }
 
 // Encode a versioned key with the given versionstamp.

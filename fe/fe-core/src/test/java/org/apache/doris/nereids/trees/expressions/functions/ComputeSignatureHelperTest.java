@@ -18,19 +18,23 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -40,6 +44,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
@@ -516,6 +521,191 @@ public class ComputeSignatureHelperTest {
         Assertions.assertTrue(((MapType) signature.returnType).getValueType() instanceof ArrayType);
         Assertions.assertEquals(TimeV2Type.of(4),
                         ((ArrayType) ((MapType) signature.returnType).getValueType()).getItemType());
+    }
+
+    @Test
+    void testNoDynamicComputeVariantArgs() {
+        FunctionSignature signature = FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE);
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, Collections.emptyList());
+        Assertions.assertTrue(signature.returnType instanceof DoubleType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsSingleVariant() {
+        VariantType variantType = new VariantType(100);
+        FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
+                .args(VariantType.INSTANCE, IntegerType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType),
+                new IntegerLiteral(42));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.returnType instanceof VariantType);
+        Assertions.assertEquals(100, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+
+        Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsMultipleVariants() {
+        VariantType variantType1 = new VariantType(150);
+        VariantType variantType2 = new VariantType(250);
+        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                .args(VariantType.INSTANCE, VariantType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType1),
+                new MockVariantExpression(variantType2));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(150, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+        Assertions.assertTrue(signature.getArgType(1) instanceof VariantType);
+        Assertions.assertEquals(250, ((VariantType) signature.getArgType(1)).getVariantMaxSubcolumnsCount());
+        Assertions.assertTrue(signature.returnType instanceof IntegerType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsMixedTypesWithSingleVariant() {
+        VariantType variantType = new VariantType(75);
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(VariantType.INSTANCE, IntegerType.INSTANCE, DoubleType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType),
+                new IntegerLiteral(10),
+                new DoubleLiteral(3.14));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(75, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+
+        Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
+        Assertions.assertTrue(signature.getArgType(2) instanceof DoubleType);
+
+        Assertions.assertTrue(signature.returnType instanceof BooleanType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsWithNullLiteral() {
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .args(VariantType.INSTANCE, IntegerType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new NullLiteral(),
+                new IntegerLiteral(10));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+        Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsNoVariantReturnType() {
+        VariantType variantType = new VariantType(300);
+        FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
+                .args(VariantType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.returnType instanceof IntegerType);
+
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(300, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsWithVarArgsThrowsException() {
+        VariantType variantType1 = new VariantType(150);
+        VariantType variantType2 = new VariantType(250);
+        FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
+                .args(VariantType.INSTANCE, VariantType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType1),
+                new MockVariantExpression(variantType2));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
+            ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+        });
+
+        Assertions.assertEquals("variant type is not supported in multiple arguments", exception.getMessage());
+    }
+
+    @Test
+    void testDynamicComputeVariantArgsWithComputeSignature() {
+        VariantType variantType = new VariantType(200);
+        FunctionSignature signature = FunctionSignature.ret(VariantType.INSTANCE)
+                .args(VariantType.INSTANCE);
+
+        List<Expression> arguments = Lists.newArrayList(
+                new MockVariantExpression(variantType));
+
+        signature = ComputeSignatureHelper.dynamicComputeVariantArgs(signature, arguments);
+
+        Assertions.assertTrue(signature.returnType instanceof VariantType);
+        Assertions.assertEquals(200, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
+        Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
+        Assertions.assertEquals(200, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
+    }
+
+    /**
+     * Mock Expression class for testing VariantType
+     */
+    private static class MockVariantExpression extends Expression {
+        private final VariantType variantType;
+
+        public MockVariantExpression(VariantType variantType) {
+            super(Collections.emptyList());
+            this.variantType = variantType;
+        }
+
+        @Override
+        public DataType getDataType() {
+            return variantType;
+        }
+
+        @Override
+        public boolean nullable() {
+            return true;
+        }
+
+        @Override
+        public Expression withChildren(List<Expression> children) {
+            return this;
+        }
+
+        @Override
+        public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+            return visitor.visit(this, context);
+        }
+
+        @Override
+        public int arity() {
+            return 0;
+        }
+
+        @Override
+        public Expression child(int index) {
+            throw new IndexOutOfBoundsException("MockVariantExpression has no children");
+        }
+
+        @Override
+        public List<Expression> children() {
+            return Collections.emptyList();
+        }
     }
 
     private static class FakeComputeSignature implements ComputeSignature {

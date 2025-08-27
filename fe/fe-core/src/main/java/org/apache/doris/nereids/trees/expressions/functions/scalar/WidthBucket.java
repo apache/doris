@@ -23,12 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -56,19 +50,7 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
             FunctionSignature.ret(BigIntType.INSTANCE).args(FloatType.INSTANCE,
                     FloatType.INSTANCE, FloatType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE,
-                    DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DecimalV2Type.SYSTEM_DEFAULT,
-                    DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DecimalV3Type.WILDCARD,
-                    DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateType.INSTANCE,
-                    DateType.INSTANCE, DateType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE,
-                    DateV2Type.INSTANCE, DateV2Type.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeType.INSTANCE,
-                    DateTimeType.INSTANCE, DateTimeType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT,
-                    DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, TinyIntType.INSTANCE)
+                    DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE)
             );
 
     /**
@@ -78,13 +60,18 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
         super("width_bucket", arg0, arg1, arg2, arg3);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private WidthBucket(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public WidthBucket withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 4);
-        return new WidthBucket(children.get(0), children.get(1), children.get(2), children.get(3));
+        return new WidthBucket(getFunctionParams(children));
     }
 
     @Override

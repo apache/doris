@@ -60,6 +60,7 @@
 #include "runtime/runtime_state.h" // RuntimeState
 #include "runtime/types.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "semaphore"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -251,7 +252,7 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     std::vector<brpc::Controller> cntls(_stubs.size());
     bthread::CountdownEvent counter(cast_set<int>(_stubs.size()));
     for (size_t i = 0; i < _stubs.size(); ++i) {
-        cntls[i].set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
+        cntls[i].set_timeout_ms(_fetch_option.runtime_state->execution_timeout() * 1000);
         auto callback = brpc::NewCallback(fetch_callback, &counter);
         _stubs[i]->multiget_data(&cntls[i], &mget_req, &resps[i], callback);
     }
@@ -469,16 +470,17 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
     LOG(INFO) << "Query stats: "
               << fmt::format(
+                         "query_id:{}, "
                          "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
                          "io_latency:{}ns, "
                          "uncompressed_bytes_read:{},"
                          "bytes_read:{},"
                          "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
                          "lookup_row_data_ms:{}",
-                         stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
-                         stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
-                         acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
-                         lookup_row_data_ms);
+                         print_id(request.query_id()), stats.cached_pages_num,
+                         stats.total_pages_num, stats.compressed_bytes_read, stats.io_ns,
+                         stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
+                         acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms);
     return Status::OK();
 }
 
@@ -583,6 +585,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
         LOG(INFO) << "Query stats: "
                   << fmt::format(
+                             "query_id:{}, "
                              "Internal table:"
                              "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
                              "io_latency:{}ns, uncompressed_bytes_read:{}, bytes_read:{}, "
@@ -590,8 +593,8 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                              "lookup_row_data_ms:{}, file_types:[{}]; "
                              "External table : init_reader_ms:{}, get_block_ms:{}, "
                              "external_scan_range_cnt:{}",
-                             stats.cached_pages_num, stats.total_pages_num,
-                             stats.compressed_bytes_read, stats.io_ns,
+                             print_id(request.query_id()), stats.cached_pages_num,
+                             stats.total_pages_num, stats.compressed_bytes_read, stats.io_ns,
                              stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
                              acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
                              file_type_stats, external_init_reader_avg_ms,
@@ -791,8 +794,8 @@ Status RowIdStorageReader::read_batch_external_row(
                 size_t idx = 0;
                 for (const auto& [_, scan_info] : scan_rows) {
                     semaphore.acquire();
-                    RETURN_IF_ERROR(
-                            remote_scan_sched->submit_scan_task(vectorized::SimplifiedScanTask(
+                    RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
+                            vectorized::SimplifiedScanTask(
                                     [&, scan_info, idx]() {
                                         auto& row_ids = scan_info.first;
                                         auto& file_mapping = scan_info.second;
@@ -882,7 +885,8 @@ Status RowIdStorageReader::read_batch_external_row(
                                         }
                                         return Status::OK();
                                     },
-                                    nullptr)));
+                                    nullptr, nullptr),
+                            fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
                     idx++;
                 }
 

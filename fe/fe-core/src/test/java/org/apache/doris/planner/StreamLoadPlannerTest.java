@@ -17,29 +17,19 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.ImportWhereStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.io.StringReader;
+import java.util.List;
 
 public class StreamLoadPlannerTest {
     @Test
     public void testParseStmt() throws Exception {
-        String sql = new String("COLUMNS (k1, k2, k3=abc(), k4=default_value())");
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(sql)));
-        ImportColumnsStmt columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
-        Assert.assertEquals(4, columnsStmt.getColumns().size());
-
-        sql = new String("WHERE k1 > 2 and k3 < 4");
-        parser = new SqlParser(new SqlScanner(new StringReader(sql)));
-        ImportWhereStmt whereStmt = (ImportWhereStmt) SqlParserUtils.getFirstStmt(parser);
-        Assert.assertTrue(whereStmt.getExpr() instanceof CompoundPredicate);
+        String sql = new String("k1, k2, k3=abc(), k4=default_value()");
+        List<Expression> expressions = NereidsLoadUtils.parseExpressionSeq(sql);
+        Assert.assertEquals(4, expressions.size());
     }
 }

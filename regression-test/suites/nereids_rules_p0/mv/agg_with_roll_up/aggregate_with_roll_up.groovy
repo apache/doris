@@ -20,7 +20,6 @@ suite("aggregate_with_roll_up") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
 
     sql """
     drop table if exists orders
@@ -226,21 +225,24 @@ suite("aggregate_with_roll_up") {
             "o_orderdate, " +
             "l_partkey, " +
             "l_suppkey"
-    def query14_0 = "select l_partkey, l_suppkey, l_shipdate, " +
-            "sum(o_totalprice), " +
-            "max(o_totalprice), " +
-            "min(o_totalprice), " +
-            "count(*), " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) " +
-            "from lineitem t1 " +
-            "left join (select * from orders where o_orderdate = '2023-12-08') t2 " +
-            "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate " +
-            "group by " +
-            "l_shipdate, " +
-            "l_partkey, " +
-            "l_suppkey"
+    def query14_0 = """
+            select l_partkey, l_suppkey, l_shipdate,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from lineitem t1
+            left join (select * from orders where o_orderdate = '2023-12-08') t2
+            on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            l_partkey,
+            l_suppkey;
+            """
     order_qt_query14_0_before "${query14_0}"
-    async_mv_rewrite_success(db, mv14_0, query14_0, "mv14_0")
+    async_mv_rewrite_success(db, mv14_0, query14_0, "mv14_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv14_0, query14_0, "mv14_0", [NOT_IN_RBO])
     order_qt_query14_0_after "${query14_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv14_0"""
 
@@ -381,7 +383,8 @@ suite("aggregate_with_roll_up") {
             l_suppkey;
     """
     order_qt_query17_0_before "${query17_0}"
-    async_mv_rewrite_success(db, mv17_0, query17_0, "mv17_0")
+    async_mv_rewrite_success(db, mv17_0, query17_0, "mv17_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv17_0, query17_0, "mv17_0", [NOT_IN_RBO])
     order_qt_query17_0_after "${query17_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17_0"""
 
@@ -412,7 +415,8 @@ suite("aggregate_with_roll_up") {
             "l_shipdate, " +
             "l_suppkey"
     order_qt_query18_0_before "${query18_0}"
-    async_mv_rewrite_success(db, mv18_0, query18_0, "mv18_0")
+    async_mv_rewrite_success(db, mv18_0, query18_0, "mv18_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv18_0, query18_0, "mv18_0", [NOT_IN_RBO])
     order_qt_query18_0_after "${query18_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18_0"""
 
@@ -673,7 +677,8 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query23_0_before "${query23_0}"
-    async_mv_rewrite_success(db, mv23_0, query23_0, "mv23_0")
+    async_mv_rewrite_success(db, mv23_0, query23_0, "mv23_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv23_0, query23_0, "mv23_0", [NOT_IN_RBO])
     order_qt_query23_0_after "${query23_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv23_0"""
 
@@ -1021,21 +1026,23 @@ suite("aggregate_with_roll_up") {
             "o_orderdate, " +
             "o_shippriority, " +
             "o_comment "
-    def query2_0 = "select o_shippriority, o_comment, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, " +
-            "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, " +
-            "sum(o_totalprice), " +
-            "max(o_totalprice), " +
-            "min(o_totalprice), " +
-            "count(*) " +
-            "from orders " +
-            "where o_shippriority = 2 " +
-            "group by " +
-            "o_shippriority, " +
-            "o_comment "
-
+    def query2_0 = """
+            select o_shippriority, o_comment,
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1,
+            count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*)
+            from orders
+            where o_shippriority = 2
+            group by
+            o_shippriority,
+            o_comment;
+            """
     order_qt_query2_0_before "${query2_0}"
-    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0", [NOT_IN_RBO])
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 

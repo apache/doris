@@ -24,10 +24,17 @@ namespace doris::vectorized {
 class ScannerDelegate;
 class ScanTask;
 
-Status SimplifiedScanScheduler::schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
-                                                   std::shared_ptr<ScanTask> current_scan_task,
-                                                   std::unique_lock<std::mutex>& transfer_lock) {
+Status TaskExecutorSimplifiedScanScheduler::schedule_scan_task(
+        std::shared_ptr<ScannerContext> scanner_ctx, std::shared_ptr<ScanTask> current_scan_task,
+        std::unique_lock<std::mutex>& transfer_lock) {
     std::unique_lock<std::shared_mutex> wl(_lock);
-    return scanner_ctx->_schedule_scan_task(current_scan_task, transfer_lock, wl);
+    return scanner_ctx->schedule_scan_task(current_scan_task, transfer_lock, wl);
+}
+
+Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
+        std::shared_ptr<ScannerContext> scanner_ctx, std::shared_ptr<ScanTask> current_scan_task,
+        std::unique_lock<std::mutex>& transfer_lock) {
+    std::unique_lock<std::shared_mutex> wl(_lock);
+    return scanner_ctx->schedule_scan_task(current_scan_task, transfer_lock, wl);
 }
 } // namespace doris::vectorized

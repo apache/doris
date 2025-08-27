@@ -52,7 +52,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
@@ -174,10 +177,12 @@ public class DatetimeFunctionBinderTest {
                             new UnboundFunction(functionName, ImmutableList.of(invalidUnit,
                                     dateTimeV2Literal1, dateTimeV2Literal2))));
 
-            Assertions.assertThrowsExactly(AnalysisException.class,
-                    () -> DatetimeFunctionBinder.INSTANCE.bind(
-                            new UnboundFunction(functionName, ImmutableList.of(quarterUnit,
-                                    dateTimeV2Literal1, dateTimeV2Literal2))));
+            timeDiff = new UnboundFunction(functionName,
+                    ImmutableList.of(quarterUnit, dateTimeV2Literal1, dateTimeV2Literal2));
+            result = DatetimeFunctionBinder.INSTANCE.bind(timeDiff);
+            Assertions.assertInstanceOf(QuartersDiff.class, result);
+            Assertions.assertEquals(dateTimeV2Literal2, result.child(0));
+            Assertions.assertEquals(dateTimeV2Literal1, result.child(1));
 
             if (functionName.equalsIgnoreCase("datediff")) {
                 timeDiff = new UnboundFunction(functionName, ImmutableList.of(dateTimeV2Literal1, dateTimeV2Literal2));
@@ -643,10 +648,11 @@ public class DatetimeFunctionBinderTest {
                     () -> DatetimeFunctionBinder.INSTANCE.bind(
                             new UnboundFunction(functionName, ImmutableList.of(dateTimeV2Literal1))));
 
-            Assertions.assertThrowsExactly(AnalysisException.class,
-                    () -> DatetimeFunctionBinder.INSTANCE.bind(
-                            new UnboundFunction(functionName, ImmutableList.of(
-                                    dateTimeV2Literal1, quarterInterval))));
+            dateCeil = new UnboundFunction(functionName, ImmutableList.of(dateTimeV2Literal1, quarterInterval));
+            result = DatetimeFunctionBinder.INSTANCE.bind(dateCeil);
+            Assertions.assertInstanceOf(QuarterCeil.class, result);
+            Assertions.assertEquals(dateTimeV2Literal1, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
         }
     }
 
@@ -715,10 +721,12 @@ public class DatetimeFunctionBinderTest {
                             new UnboundFunction(functionName, ImmutableList.of(
                                     invalidUnit, tinyIntLiteral, dateTimeV2Literal1))));
 
-            Assertions.assertThrowsExactly(AnalysisException.class,
-                    () -> DatetimeFunctionBinder.INSTANCE.bind(
-                            new UnboundFunction(functionName, ImmutableList.of(
-                                    quarterUnit, tinyIntLiteral, dateTimeV2Literal1))));
+            dateCeil = new UnboundFunction(functionName,
+                    ImmutableList.of(quarterUnit, tinyIntLiteral, dateTimeV2Literal1));
+            result = DatetimeFunctionBinder.INSTANCE.bind(dateCeil);
+            Assertions.assertInstanceOf(QuarterCeil.class, result);
+            Assertions.assertEquals(dateTimeV2Literal1, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
 
             // invalid expression type for first arg
             Assertions.assertThrowsExactly(AnalysisException.class,
@@ -795,10 +803,11 @@ public class DatetimeFunctionBinderTest {
                     () -> DatetimeFunctionBinder.INSTANCE.bind(
                             new UnboundFunction(functionName, ImmutableList.of(dateTimeV2Literal1))));
 
-            Assertions.assertThrowsExactly(AnalysisException.class,
-                    () -> DatetimeFunctionBinder.INSTANCE.bind(
-                            new UnboundFunction(functionName, ImmutableList.of(
-                                    dateTimeV2Literal1, quarterInterval))));
+            dateFloor = new UnboundFunction(functionName, ImmutableList.of(dateTimeV2Literal1, quarterInterval));
+            result = DatetimeFunctionBinder.INSTANCE.bind(dateFloor);
+            Assertions.assertInstanceOf(QuarterFloor.class, result);
+            Assertions.assertEquals(dateTimeV2Literal1, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
         }
     }
 
@@ -863,10 +872,12 @@ public class DatetimeFunctionBinderTest {
                             new UnboundFunction(functionName, ImmutableList.of(
                                     invalidUnit, tinyIntLiteral, dateTimeV2Literal1))));
 
-            Assertions.assertThrowsExactly(AnalysisException.class,
-                    () -> DatetimeFunctionBinder.INSTANCE.bind(
-                            new UnboundFunction(functionName, ImmutableList.of(
-                                    quarterUnit, tinyIntLiteral, dateTimeV2Literal1))));
+            dateFloor = new UnboundFunction(functionName,
+                    ImmutableList.of(quarterUnit, tinyIntLiteral, dateTimeV2Literal1));
+            result = DatetimeFunctionBinder.INSTANCE.bind(dateFloor);
+            Assertions.assertInstanceOf(QuarterFloor.class, result);
+            Assertions.assertEquals(dateTimeV2Literal1, result.child(0));
+            Assertions.assertEquals(tinyIntLiteral, result.child(1));
 
             // invalid expression type for first arg
             Assertions.assertThrowsExactly(AnalysisException.class,

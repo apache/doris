@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateEncryptKeyStmt;
-import org.apache.doris.analysis.DropEncryptKeyStmt;
-import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 
@@ -29,11 +26,6 @@ import org.apache.logging.log4j.Logger;
 // helper class for encryptKeys, create and drop
 public class EncryptKeyHelper {
     private static final Logger LOG = LogManager.getLogger(EncryptKeyHelper.class);
-
-    public static void createEncryptKey(CreateEncryptKeyStmt stmt) throws UserException {
-        EncryptKeyName name = stmt.getEncryptKeyName();
-        createEncryptKey(name.getDb(), stmt.getEncryptKey(), stmt.isIfNotExists());
-    }
 
     public static void createEncryptKey(String dbName, EncryptKey encryptKey,
                                         boolean isIfNotExists) throws UserException {
@@ -46,12 +38,6 @@ public class EncryptKeyHelper {
         String dbName = encryptKey.getEncryptKeyName().getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
         db.replayAddEncryptKey(encryptKey);
-    }
-
-    public static void dropEncryptKey(DropEncryptKeyStmt stmt) throws UserException {
-        EncryptKeyName name = stmt.getEncryptKeyName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(name.getDb());
-        db.dropEncryptKey(stmt.getEncryptKeysSearchDesc(), stmt.isIfExists());
     }
 
     public static void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws MetaNotFoundException {

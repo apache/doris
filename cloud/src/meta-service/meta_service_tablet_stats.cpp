@@ -30,6 +30,7 @@
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -173,7 +174,31 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
                                TabletStatsPB& stats, bool snapshot) {
     TabletStats detached_stats;
     internal_get_tablet_stats(code, msg, txn, instance_id, idx, stats, detached_stats, snapshot);
-    merge_tablet_stats(stats, detached_stats);
+    if (code == MetaServiceCode::OK) {
+        merge_tablet_stats(stats, detached_stats);
+    }
+}
+
+void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg,
+                                         MetaReader& meta_reader, Transaction* txn,
+                                         const std::string& instance_id,
+                                         const TabletIndexPB& tablet_idx, TabletStatsPB& stats,
+                                         bool snapshot) {
+    int64_t tablet_id = tablet_idx.tablet_id();
+    Versionstamp versionstamp;
+
+    // Try to read existing versioned tablet stats
+    TxnErrorCode err =
+            meta_reader.get_tablet_load_stats(tablet_id, &stats, &versionstamp, snapshot);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // If versioned stats doesn't exist, read from single version
+        internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, stats, snapshot);
+    } else if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get versioned tablet stats, err={}", err);
+        LOG(WARNING) << msg << " tablet_id=" << tablet_id;
+        return;
+    }
 }
 
 MetaServiceResponseStatus parse_fix_tablet_stats_param(
