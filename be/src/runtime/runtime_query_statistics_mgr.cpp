@@ -338,7 +338,8 @@ void RuntimeQueryStatisticsMgr::register_resource_context(
 void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
     int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
     // 1 get query statistics map
-    std::map<TNetworkAddress, std::map<std::string, TQueryStatistics>> fe_qs_map;
+    // <fe_addr, <query_id, <query_statistics, is_query_finished>>>
+    std::map<TNetworkAddress, std::map<std::string, std::pair<TQueryStatistics, bool>>> fe_qs_map;
     std::map<std::string, std::pair<bool, bool>> qs_status; // <finished, timeout>
     {
         std::lock_guard<std::shared_mutex> write_lock(_resource_contexts_map_lock);
@@ -364,13 +365,14 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
                 if (resource_ctx->task_controller()->query_type() != TQueryType::EXTERNAL) {
                     if (fe_qs_map.find(resource_ctx->task_controller()->fe_addr()) ==
                         fe_qs_map.end()) {
-                        std::map<std::string, TQueryStatistics> tmp_map;
+                        std::map<std::string, std::pair<TQueryStatistics, bool>> tmp_map;
                         fe_qs_map[resource_ctx->task_controller()->fe_addr()] = std::move(tmp_map);
                     }
 
                     TQueryStatistics ret_t_qs;
                     resource_ctx->to_thrift_query_statistics(&ret_t_qs);
-                    fe_qs_map.at(resource_ctx->task_controller()->fe_addr())[query_id] = ret_t_qs;
+                    fe_qs_map.at(resource_ctx->task_controller()->fe_addr())[query_id] =
+                            std::make_pair(ret_t_qs, is_query_finished);
                     qs_status[query_id] =
                             std::make_pair(is_query_finished, is_timeout_after_finish);
                 }
@@ -400,7 +402,17 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
         // 2.2 send report
         TReportWorkloadRuntimeStatusParams report_runtime_params;
         report_runtime_params.__set_backend_id(be_id);
-        report_runtime_params.__set_query_statistics_map(qs_map);
+
+        // Build the query statistics map with TQueryStatisticsResult
+        std::map<std::string, TQueryStatisticsResult> query_stats_result_map;
+        for (const auto& [query_id, query_stats_pair] : qs_map) {
+            TQueryStatisticsResult stats_result;
+            stats_result.__set_statistics(query_stats_pair.first);      // TQueryStatistics
+            stats_result.__set_query_finished(query_stats_pair.second); // is_query_finished
+            query_stats_result_map[query_id] = stats_result;
+        }
+
+        report_runtime_params.__set_query_statistics_map(query_stats_result_map);
 
         TReportExecStatusParams params;
         params.__set_report_workload_runtime_status(report_runtime_params);

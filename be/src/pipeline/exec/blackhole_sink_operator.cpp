@@ -62,11 +62,11 @@ Status BlackholeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* bloc
         RETURN_IF_ERROR(_process_block(state, block));
     }
 
-    if (eos) {
+    /*if (eos) {
         _collect_cache_metrics(state, local_state);
 
         RETURN_IF_ERROR(_send_cache_metrics_batch(state, local_state));
-    }
+    }*/
 
     return Status::OK();
 }
@@ -113,7 +113,7 @@ Status BlackholeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& in
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), timer_name, 1);
     auto fragment_instance_id = state->fragment_instance_id();
 
-    _sender = _parent->cast<BlackholeSinkOperatorX>()._sender;
+    /*_sender = _parent->cast<BlackholeSinkOperatorX>()._sender;
 
     if (_dependency) {
         _sender->set_dependency(fragment_instance_id, _dependency->shared_from_this());
@@ -122,7 +122,7 @@ Status BlackholeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& in
         auto fake_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                          "BlackholeSinkFakeDependency");
         _sender->set_dependency(fragment_instance_id, fake_dependency);
-    }
+    }*/
 
     return Status::OK();
 }
@@ -139,7 +139,7 @@ Status BlackholeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
 
-    if (_sender) {
+    /*if (_sender) {
         auto fragment_instance_id = state->fragment_instance_id();
         int64_t processed_rows = _rows_processed;
         Status close_status = _sender->close(fragment_instance_id, exec_status, processed_rows);
@@ -147,7 +147,7 @@ Status BlackholeSinkLocalState::close(RuntimeState* state, Status exec_status) {
             LOG(WARNING) << "Failed to close result buffer: " << close_status
                          << ", fragment_instance_id: " << print_id(fragment_instance_id);
         }
-    }
+    }*/
 
     return Base::close(state, exec_status);
 }
