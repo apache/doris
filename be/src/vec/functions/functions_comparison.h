@@ -648,6 +648,11 @@ public:
         const DataTypePtr& left_type = col_with_type_and_name_left.type;
         const DataTypePtr& right_type = col_with_type_and_name_right.type;
 
+        if (!left_type->equals(*right_type)) {
+            return Status::RuntimeError("not same type in function {} , left : {} , right : {}",
+                                        get_name(), left_type->get_name(), right_type->get_name());
+        }
+
         /// The case when arguments are the same (tautological comparison). Return constant.
         /// NOTE: Nullable types are special case. (BTW, this function use default implementation for Nullable, so Nullable types cannot be here. Check just in case.)
         /// NOTE: We consider NaN comparison to be implementation specific (and in our implementation NaNs are sometimes equal sometimes not).
