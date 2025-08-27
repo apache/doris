@@ -293,7 +293,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 if (function == null) {
                     return olapScan;
                 }
-                Alias alias = new Alias(StatementScopeIdGenerator.newExprId(), ImmutableList.of(function),
+                Alias alias = new Alias(exprIdGenerator.getNextId(), ImmutableList.of(function),
                         col.getName(), olapScan.qualified(), true);
                 outputExpressions.add(alias);
             }

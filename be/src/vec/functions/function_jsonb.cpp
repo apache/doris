@@ -2065,7 +2065,6 @@ public:
 
                     if (!build_parents_by_path(json_documents[row_idx]->getValue(), new_path,
                                                parents)) {
-                        DCHECK(false);
                         continue;
                     }
                 }

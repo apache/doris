@@ -112,7 +112,8 @@ suite("variant_mv") {
     where actor['id'] > 64259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000;
     """
     order_qt_query1_0_before "${query1_0}"
-    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv1_0, query1_0, "mv1_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0", [NOT_IN_RBO])
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
@@ -406,6 +407,14 @@ suite("variant_mv") {
     left join github_events2 g2 on g1.id = g2.id
     where g2.actor['id'] > 34259289 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
     """
+    // before sub path optimize, the query tmp plan for mv rewrite is as following, when hint mv rewrite rule is
+    // begin from 101, #100 project use repo col, this is not in mv, so rewrite fail, should add
+    // project - filter - project - logical join or scan rule
+    // LogicalResultSink[103] ( outputExprs=[id#0, type#8, __floor_2#14, __element_at_3#15, __element_at_4#16] )
+    //+--LogicalProject[102] ( distinct=false, projects=[id#0, type#8, floor((cast(cast(element_at(actor#2, 'id') as INT) as DECIMALV3(12, 1)) + 100.5)) AS `floor(cast(g1.actor['id'] as int) + 100.5)`#14, element_at(actor#2, 'display_login') AS `g1.actor['display_login']`#15, element_at(element_at(payload#11, 'issue'), 'href') AS `g2.payload['issue']['href']`#16] )
+    //   +--LogicalFilter[101] ( predicates=AND[(cast(element_at(actor#9, 'id') as INT) > 34259289),((cast(element_at(actor#2, 'id') as INT) + cast(element_at(repo#10, 'id') as INT)) > 80000000)] )
+    //      +--LogicalProject[100] ( distinct=false, projects=[id#0, actor#2, id#7, type#8, actor#9, repo#10, payload#11] )
+    //             LogicalJoin
     def query3_0 = """
     SELECT
     g1.id,
@@ -556,7 +565,8 @@ suite("variant_mv") {
     where g2.actor['id'] > 34259300 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
     """
     order_qt_query3_4_before "${query3_4}"
-    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
+    async_mv_rewrite_success_without_check_chosen(db, mv3_4, query3_4, "mv3_4", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4", [NOT_IN_RBO])
     order_qt_query3_4_after "${query3_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
 

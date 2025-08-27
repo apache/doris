@@ -110,6 +110,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ResultOr;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
@@ -151,6 +152,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
@@ -184,10 +186,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
-
 
 /**
  * The Internal catalog will manage all self-managed meta object in a Doris cluster.
@@ -556,6 +560,14 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Table table : db.getTables()) {
             unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
         }
+        if (!db.getTables().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableIds().stream().collect(Collectors.toSet()));
+        }
+        if (!db.getTableNames().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableNames().stream().collect(Collectors.toSet()));
+        }
         db.markDropped();
     }
 
@@ -626,12 +638,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             if (!Strings.isNullOrEmpty(newDbName)) {
-                try {
-                    db.writeUnlock();
-                    db.setNameWithLock(newDbName);
-                } finally {
-                    db.writeLock();
-                }
+                db.setNameWithLock(newDbName);
             }
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
@@ -795,6 +802,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         Database db = null;
+        // catalog lock
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
@@ -808,16 +816,24 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (fullNameToDb.get(newDbName) != null) {
                 throw new DdlException("Database name[" + newDbName + "] is already used");
             }
-            // 1. rename db
-            db.setNameWithLock(newDbName);
+            // db lock
+            db.writeLock();
+            try {
+                // 1. rename db
+                db.setNameWithoutLock(newDbName);
 
-            // 2. add to meta. check again
-            fullNameToDb.remove(dbName);
-            fullNameToDb.put(newDbName, db);
+                // 2. add to meta. check again
+                fullNameToDb.remove(dbName);
+                fullNameToDb.put(newDbName, db);
 
-            DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L, QuotaType.NONE);
-            Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
+                DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L, QuotaType.NONE);
+                Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
+            } finally {
+                // db lock
+                db.writeUnlock();
+            }
         } finally {
+            // catalog lock
             unlock();
         }
 
@@ -1004,7 +1020,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
-        db.unregisterTable(table.getName());
+        db.unregisterTable(table.getId());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
         watch.stop();
@@ -1443,6 +1459,77 @@ public class InternalCatalog implements CatalogIf<Database> {
         return 1 + totalReplicaNum + indexNum * bucketNum;
     }
 
+    private ResultOr<CompletableFuture<Void>, DdlException> getCurrentPartitionFuture(
+            Database db, String tableName, OlapTable olapTable, String partitionName,
+            SinglePartitionDesc singlePartitionDesc
+    ) throws DdlException {
+        // Guard to serialize concurrent creation of the same partition within the same table.
+        // We acquire or wait on a per-partition future to ensure only one creator proceeds to heavy work.
+        while (true) {
+            Pair<CompletableFuture<Void>, Boolean> acquire = olapTable.acquirePartitionCreationFuture(partitionName);
+            if (acquire.second) {
+                // we have the ownership. do the creation work and share the result by completePartitionCreationFuture.
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("acquired owner for table[{}] partition[{}], tableId={}", tableName, partitionName,
+                            olapTable.getId());
+                }
+                return ResultOr.ok(acquire.first);
+            } else {
+                // Wait for ongoing creation to finish, then double-check existence.
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("waiting for ongoing creation of table[{}] partition[{}]", tableName, partitionName);
+                }
+                try {
+                    acquire.first.get(Config.create_partition_wait_seconds, TimeUnit.SECONDS);
+                } catch (ExecutionException ex) {
+                    // ignore the exception. we only care about it's created or not. will check below.
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(
+                                "previous creation future for table[{}] partition[{}] completed exceptionally: {}: {}",
+                                tableName, partitionName, ex.getClass().getSimpleName(), ex.getMessage());
+                    }
+                } catch (TimeoutException | InterruptedException ex) {
+                    // execute by myself again. It may cause a small number of partitions to be created repeatedly,
+                    // but can avoid pseudo deadlocks.
+                    LOG.warn("wait for table[{}] partition[{}] creation future timeout, try by myself",
+                            tableName, partitionName);
+                    // current thread as an isolated thread and do creation, does not hold any future.
+                    return ResultOr.ok(null);
+                }
+                OlapTable t = db.getOlapTableOrDdlException(tableName);
+                t.readLock();
+                try {
+                    // if other succeed, always return.
+                    if (t.checkPartitionNameExist(partitionName)) {
+                        if (singlePartitionDesc.isSetIfNotExists()) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("partition[{}] already exists after waiting; IF NOT EXISTS no-op",
+                                        partitionName);
+                            }
+                            return ResultOr.err(null);
+                        } else {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("partition[{}] already exists after waiting; raising duplicate error",
+                                        partitionName);
+                            }
+                            return ResultOr.err(
+                                    new DdlException("Partition " + partitionName + " already exists in table "
+                                            + tableName));
+                        }
+                    }
+                    // If failed, continue this loop. Try acquire again before we decide to do by ourself in case
+                    // another task acquired the ownership between our wait and the check.
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("partition[{}] not present after wait on table[{}]; will retry acquire ownership",
+                                partitionName, tableName);
+                    }
+                } finally {
+                    t.readUnlock();
+                }
+            }
+        }
+    }
+
     public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
                                              boolean isCreateTable, long generatedPartitionId,
                                              boolean writeEditLog) throws DdlException {
@@ -1574,6 +1661,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM, olapTable.getTDEAlgorithm().name());
+            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -1634,7 +1724,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         Preconditions.checkNotNull(olapTable);
         Preconditions.checkNotNull(indexIdToMeta);
 
+        ResultOr<CompletableFuture<Void>, DdlException> ownerFutureOr = getCurrentPartitionFuture(
+                db, tableName, olapTable, partitionName, singlePartitionDesc);
+        if (ownerFutureOr.isErr()) {
+            if (ownerFutureOr.unwrapErr() == null) {
+                return null;
+            } else {
+                throw ownerFutureOr.unwrapErr();
+            }
+        }
+        CompletableFuture<Void> ownerFuture = ownerFutureOr.unwrap();
+
         // create partition outside db lock
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("start creating table[{}] partition[{}] (owner), temp={}", tableName, partitionName,
+                    isTempPartition);
+        }
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
         Preconditions.checkNotNull(dataProperty);
         // check replica quota if this operation done
@@ -1651,6 +1756,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
         };
+        Throwable creationThrowable = null;
         try {
             long partitionId = Config.isCloudMode() && !FeConstants.runningUnitTest && isCreateTable
                     ? generatedPartitionId : idGeneratorBuffer.getNextId();
@@ -1776,7 +1882,29 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         } catch (DdlException e) {
             failedCleanCallback.run();
+            creationThrowable = e;
             throw e;
+        } catch (Throwable t) {
+            // Ensure cleanup and propagate unexpected errors as well
+            failedCleanCallback.run();
+            creationThrowable = t;
+            throw t;
+        } finally {
+            if (ownerFuture != null) {
+                if (creationThrowable == null) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("complete owner future for table[{}] partition[{}]: success", tableName,
+                                partitionName);
+                    }
+                } else {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("complete owner future for table[{}] partition[{}]: failed: {}: {}", tableName,
+                                partitionName, creationThrowable.getClass().getSimpleName(),
+                                creationThrowable.getMessage());
+                    }
+                }
+                olapTable.completePartitionCreationFuture(partitionName, ownerFuture, creationThrowable);
+            }
         }
     }
 
@@ -2074,11 +2202,17 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
                             tbl.variantEnableFlattenNested(),
-                            tbl.storagePageSize(),
+                            tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize());
 
                     task.setStorageFormat(tbl.getStorageFormat());
-                    task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
+                    // Use resolved format that considers global override for new partitions
+                    TInvertedIndexFileStorageFormat effectiveFormat =
+                            (Config.enable_new_partition_inverted_index_v2_format
+                                    && tbl.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1)
+                                    ? TInvertedIndexFileStorageFormat.V2
+                                    : tbl.getInvertedIndexFileStorageFormat();
+                    task.setInvertedIndexFileStorageFormat(effectiveFormat);
                     if (!CollectionUtils.isEmpty(clusterKeyUids)) {
                         task.setClusterKeyUids(clusterKeyUids);
                         LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key uids: {}",
@@ -3010,6 +3144,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
 
+        try {
+            TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
+            olapTable.setEncryptionAlgorithm(tdeAlgorithm);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
         olapTable.initSchemaColumnUniqueId();
         olapTable.initAutoIncrementGenerator(db.getId());
         olapTable.rebuildFullSchema();
@@ -3159,7 +3300,18 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
 
-            Pair<Boolean, Boolean> result = db.createTableWithLock(olapTable, false, createTableInfo.isIfNotExists());
+            Pair<Boolean, Boolean> result;
+            db.writeLockOrDdlException();
+            try {
+                // db name not changed
+                if (!db.getName().equals(ClusterNamespace.getNameFromFullName(createTableInfo.getDbName()))) {
+                    throw new DdlException("Database name renamed, please check the database name");
+                }
+                // register table, write create table edit log
+                result = db.createTableWithoutLock(olapTable, false, createTableInfo.isIfNotExists());
+            } finally {
+                db.writeUnlock();
+            }
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
@@ -3900,6 +4052,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
 
+        try {
+            TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
+            olapTable.setEncryptionAlgorithm(tdeAlgorithm);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
         olapTable.initSchemaColumnUniqueId();
         olapTable.initAutoIncrementGenerator(db.getId());
         olapTable.rebuildFullSchema();
@@ -4048,8 +4207,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
-
-            Pair<Boolean, Boolean> result = db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists());
+            Pair<Boolean, Boolean> result;
+            db.writeLockOrDdlException();
+            try {
+                // db name not changed
+                if (!db.getName().equals(ClusterNamespace.getNameFromFullName(stmt.getDbName()))) {
+                    throw new DdlException("Database name renamed, please check the database name");
+                }
+                // register table, write create table edit log
+                result = db.createTableWithoutLock(olapTable, false, stmt.isSetIfNotExists());
+            } finally {
+                db.writeUnlock();
+            }
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
@@ -4248,6 +4417,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         brokerTable.setBrokerProperties(createTableInfo.getExtProperties());
         Pair<Boolean, Boolean> result = db.createTableWithLock(brokerTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
+
     }
 
     private boolean createBrokerTable(Database db, CreateTableStmt stmt) throws DdlException {

@@ -200,6 +200,7 @@ inline bool CastToDateV2::from_integer(T input, DateV2Value<DateV2ValueType>& va
         if constexpr (IsStrict) {
             params.status = Status::InvalidArgument("invalid digits for datev2: {}", int_val);
         }
+        return false;
     }
     return true;
 }

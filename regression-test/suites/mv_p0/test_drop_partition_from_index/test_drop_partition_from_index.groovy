@@ -23,6 +23,9 @@ suite("sql_drop_partition_from_index") {
     def testTable = "test_table"
     def testMv = "test_mv"
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     try {
     sql """DROP DATABASE IF EXISTS ${testDb}"""
     sql """CREATE DATABASE IF NOT EXISTS ${testDb}"""

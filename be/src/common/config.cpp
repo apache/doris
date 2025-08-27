@@ -1584,6 +1584,12 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 // The maximum number of threads supported when executing LLMFunction
 DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
+// Maximum number of openmp threads can be used by each doris threads.
+// This configuration controls the parallelism level for OpenMP operations within Doris,
+// helping to prevent resource contention and ensure stable performance when multiple
+// Doris threads are executing OpenMP-accelerated operations simultaneously.
+DEFINE_mInt32(omp_threads_limit, "8");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -2033,6 +2039,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
+    fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

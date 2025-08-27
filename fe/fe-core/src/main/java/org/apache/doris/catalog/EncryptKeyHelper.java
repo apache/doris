@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateEncryptKeyStmt;
-import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 
@@ -28,11 +26,6 @@ import org.apache.logging.log4j.Logger;
 // helper class for encryptKeys, create and drop
 public class EncryptKeyHelper {
     private static final Logger LOG = LogManager.getLogger(EncryptKeyHelper.class);
-
-    public static void createEncryptKey(CreateEncryptKeyStmt stmt) throws UserException {
-        EncryptKeyName name = stmt.getEncryptKeyName();
-        createEncryptKey(name.getDb(), stmt.getEncryptKey(), stmt.isIfNotExists());
-    }
 
     public static void createEncryptKey(String dbName, EncryptKey encryptKey,
                                         boolean isIfNotExists) throws UserException {

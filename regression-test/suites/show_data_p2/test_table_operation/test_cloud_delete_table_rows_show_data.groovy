@@ -162,6 +162,7 @@ suite("test_cloud_delete_table_rows_show_data","p2, nonConcurrent") {
         assertEquals(sizeRecords["apiSize"][0], sizeRecords["apiSize"][1])
         assertEquals(sizeRecords["cbsSize"][0], sizeRecords["cbsSize"][1])
 
+        sql """set delete_without_partition=true;"""
         sql """delete from ${tableName} where L_ORDERKEY >=0;"""
 
         // 加一下触发compaction的机制

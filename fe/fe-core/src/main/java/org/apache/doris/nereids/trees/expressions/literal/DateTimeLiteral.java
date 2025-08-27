@@ -249,7 +249,7 @@ public class DateTimeLiteral extends DateLiteral {
         }
     }
 
-    protected boolean checkRange() {
+    public boolean checkRange() {
         return checkRange(year, month, day) || hour > MAX_DATETIME.getHour() || minute > MAX_DATETIME.getMinute()
                 || second > MAX_DATETIME.getSecond() || microSecond > MAX_MICROSECOND;
     }

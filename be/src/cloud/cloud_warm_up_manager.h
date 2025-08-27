@@ -94,7 +94,11 @@ public:
 private:
     void handle_jobs();
 
-    std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id);
+    Status _do_warm_up_rowset(RowsetMeta& rs_meta, std::vector<TReplicaInfo>& replicas,
+                              int64_t sync_wait_timeout_ms, bool skip_existence_check);
+
+    std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id, bool bypass_cache,
+                                               bool& cache_hit);
 
     void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,
                                int64_t expiration_time,
