@@ -214,6 +214,13 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         this.odps = new Odps(account);
         odps.setDefaultProject(defaultProject);
         odps.setEndpoint(endpoint);
+
+        String accountFormatProp = props.getOrDefault(MCProperties.ACCOUNT_FORMAT, MCProperties.DEFAULT_ACCOUNT_FORMAT);
+        if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_NAME)) {
+            accountFormat = AccountFormat.DISPLAYNAME;
+        } else if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_ID)) {
+            accountFormat = AccountFormat.ID;
+        }
         odps.setAccountFormat(accountFormat);
         Credentials credentials = Credentials.newBuilder().withAccount(odps.getAccount())
                 .withAppAccount(odps.getAppAccount()).build();
