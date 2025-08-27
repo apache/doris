@@ -40,7 +40,11 @@ void PipelineTracerContext::record(ScheduleRecord record) {
         return;
     }
 
-    auto map_ptr = _data.load();
+    std::shared_ptr<QueryTracesMap> map_ptr;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        map_ptr = _data;
+    }
     auto it = map_ptr->find({record.query_id});
     if (it != map_ptr->end()) {
         it->second->enqueue(record);
@@ -55,16 +59,10 @@ void PipelineTracerContext::record(ScheduleRecord record) {
 }
 
 void PipelineTracerContext::_update(std::function<void(QueryTracesMap&)>&& handler) {
-    auto map_ptr = _data.load();
-    while (true) {
-        auto new_map = std::make_shared<QueryTracesMap>(*map_ptr);
-        handler(*new_map);
-        if (std::atomic_compare_exchange_strong_explicit(&_data, &map_ptr, new_map,
-                                                         std::memory_order_relaxed,
-                                                         std::memory_order_relaxed)) {
-            break;
-        }
-    }
+    std::lock_guard<std::mutex> lock(_data_mutex);
+    auto new_map = std::make_shared<QueryTracesMap>(*_data);
+    handler(*new_map);
+    _data = new_map;
 }
 
 void PipelineTracerContext::end_query(TUniqueId query_id, uint64_t workload_group) {
@@ -112,7 +110,11 @@ Status PipelineTracerContext::change_record_params(
 }
 
 void PipelineTracerContext::_dump_query(TUniqueId query_id) {
-    auto map_ptr = _data.load();
+    std::shared_ptr<QueryTracesMap> map_ptr;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        map_ptr = _data;
+    }
     auto path = _log_dir / fmt::format("query{}", to_string(query_id));
     int fd = ::open(path.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
                     S_ISGID | S_ISUID | S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IWOTH | S_IROTH);
@@ -138,7 +140,7 @@ void PipelineTracerContext::_dump_query(TUniqueId query_id) {
 
     _last_dump_time = MonotonicSeconds();
 
-    _update([&](QueryTracesMap& new_map) { _data.load()->erase(QueryID {query_id}); });
+    _update([&](QueryTracesMap& new_map) { new_map.erase(QueryID {query_id}); });
 
     {
         std::unique_lock<std::mutex> l(_tg_lock);
@@ -148,7 +150,12 @@ void PipelineTracerContext::_dump_query(TUniqueId query_id) {
 
 void PipelineTracerContext::_dump_timeslice() {
     auto new_map = std::make_shared<QueryTracesMap>();
-    _data.exchange(new_map);
+    std::shared_ptr<QueryTracesMap> old_map;
+    {
+        std::lock_guard<std::mutex> lock(_data_mutex);
+        old_map = _data;
+        _data = new_map;
+    }
     //TODO: if long time, per timeslice per file
     auto path = _log_dir /
                 fmt::format("until{}", std::chrono::steady_clock::now().time_since_epoch().count());
@@ -161,7 +168,7 @@ void PipelineTracerContext::_dump_timeslice() {
     auto writer = io::LocalFileWriter {path, fd};
 
     // dump all query traces in this time window to one file.
-    for (auto& [query_id, trace] : (*new_map)) {
+    for (auto& [query_id, trace] : (*old_map)) {
         ScheduleRecord record;
         while (trace->try_dequeue(record)) {
             uint64_t v = 0;

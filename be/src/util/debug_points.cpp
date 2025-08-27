@@ -37,7 +37,11 @@ std::shared_ptr<DebugPoint> DebugPoints::get_debug_point(const std::string& name
     if (!config::enable_debug_points) {
         return nullptr;
     }
-    auto map_ptr = _debug_points.load();
+    std::shared_ptr<const DebugPointMap> map_ptr;
+    {
+        std::lock_guard<std::mutex> lock(_debug_points_mutex);
+        map_ptr = _debug_points;
+    }
     auto it = map_ptr->find(name);
     if (it == map_ptr->end()) {
         return nullptr;
@@ -76,22 +80,15 @@ void DebugPoints::remove(const std::string& name) {
 }
 
 void DebugPoints::update(std::function<void(DebugPointMap&)>&& handler) {
-    auto old_points = _debug_points.load();
-    while (true) {
-        auto new_points = std::make_shared<DebugPointMap>(*old_points);
-        handler(*new_points);
-        if (std::atomic_compare_exchange_strong_explicit(
-                    &_debug_points, &old_points,
-                    std::static_pointer_cast<const DebugPointMap>(new_points),
-                    std::memory_order_relaxed, std::memory_order_relaxed)) {
-            break;
-        }
-    }
+    std::lock_guard<std::mutex> lock(_debug_points_mutex);
+    auto new_points = std::make_shared<DebugPointMap>(*_debug_points);
+    handler(*new_points);
+    _debug_points = std::static_pointer_cast<const DebugPointMap>(new_points);
 }
 
 void DebugPoints::clear() {
-    std::atomic_store_explicit(&_debug_points, std::make_shared<const DebugPointMap>(),
-                               std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(_debug_points_mutex);
+    _debug_points = std::make_shared<const DebugPointMap>();
     LOG(INFO) << "clear debug points";
 }
 

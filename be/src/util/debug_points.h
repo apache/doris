@@ -24,6 +24,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <type_traits>
 
@@ -189,7 +190,8 @@ private:
     void update(std::function<void(DebugPointMap&)>&& handler);
 
 private:
-    std::atomic<std::shared_ptr<const DebugPointMap>> _debug_points;
+    mutable std::mutex _debug_points_mutex;
+    std::shared_ptr<const DebugPointMap> _debug_points;
 };
 
 } // namespace doris

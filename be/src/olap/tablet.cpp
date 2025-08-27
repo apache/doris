@@ -1352,7 +1352,11 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
 std::tuple<int64_t, int64_t> Tablet::get_visible_version_and_time() const {
     // some old tablet has bug, its partition_id is 0, fe couldn't update its visible version.
     // so let this tablet's visible version become int64 max.
-    auto version_info = _visible_version.load();
+    std::shared_ptr<const VersionWithTime> version_info;
+    {
+        std::lock_guard<std::mutex> lock(_visible_version_mutex);
+        version_info = _visible_version;
+    }
     if (version_info != nullptr && partition_id() != 0) {
         return std::make_tuple(version_info->version.load(std::memory_order_relaxed),
                                version_info->update_ts);
