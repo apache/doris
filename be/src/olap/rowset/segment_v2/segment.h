@@ -180,26 +180,23 @@ public:
     bool same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves);
 
     // If column in segment is the same type in schema, then it is safe to apply predicate
-    template <typename Predicate>
-    bool can_apply_predicate_safely(int cid, Predicate* pred, const Schema& schema,
-                                    ReaderType read_type) {
+    bool can_apply_predicate_safely(
+            int cid, const Schema& schema,
+            const std::map<std::string, vectorized::DataTypePtr>& target_cast_type_for_variants,
+            ReaderType read_type) const {
         const doris::Field* col = schema.column(cid);
         vectorized::DataTypePtr storage_column_type =
                 get_data_type_of(col->get_desc(), read_type != ReaderType::READER_QUERY);
-        if (storage_column_type == nullptr) {
-            // Default column iterator
+        if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
+            !target_cast_type_for_variants.contains(col->name())) {
+            // Default column iterator or not variant column
             return true;
         }
-        PrimitiveType type = storage_column_type->get_primitive_type();
-        if (type == TYPE_VARIANT || is_complex_type(type)) {
-            // Predicate should nerver apply on variant/complex type
+        if (storage_column_type->equals(*target_cast_type_for_variants.at(col->name()))) {
+            return true;
+        } else {
             return false;
         }
-        bool safe = pred->can_do_apply_safely(storage_column_type->get_primitive_type(),
-                                              storage_column_type->is_nullable());
-        // Currently only variant column can lead to unsafe
-        CHECK(safe || col->type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-        return safe;
     }
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
