@@ -564,10 +564,6 @@ public class SummaryProfile {
         this.nereidsPreRewriteByMvFinishTime = nereidsPreRewriteByMvFinishTime;
     }
 
-    public void setNereidsOptimizeTime() {
-        this.nereidsOptimizeFinishTime = TimeUtils.getStartTimeMs();
-    }
-
     public void setNereidsTranslateTime(long translateFinishTime) {
         this.nereidsTranslateFinishTime = translateFinishTime;
     }
