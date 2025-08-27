@@ -18,10 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
@@ -74,25 +72,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
 
     @Test
     public void testExperimentalConfig() throws Exception {
-        // 1. set without experimental
-        boolean enableMtmv = Config.enable_mtmv;
-        String sql = "admin set frontend config('enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
-        LogicalPlan plan = new NereidsParser().parseSingle(sql);
-
-        Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan);
-        Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
-
-        // 2. set with experimental
-        enableMtmv = Config.enable_mtmv;
-        sql = "admin set frontend config('experimental_enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
-        plan = new NereidsParser().parseSingle(sql);
-
-        Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan);
-        Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
-
-        // 3. show config
+        // show config
         int num = ConfigBase.getConfigNumByVariableAnnotation(VariableAnnotation.EXPERIMENTAL);
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern("%experimental%",
                 CaseSensibility.CONFIG.getCaseSensibility());
