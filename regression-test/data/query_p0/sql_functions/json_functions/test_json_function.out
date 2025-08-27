@@ -110,6 +110,21 @@ DORIS
 -- !sql --
 2
 
+-- !array_last1 --
+3
+
+-- !array_last2 --
+2
+
+-- !array_last3 --
+1
+
+-- !array_last4 --
+1
+
+-- !array_last5 --
+\N
+
 -- !sql --
 [123,"doris"]
 
