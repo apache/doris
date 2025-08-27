@@ -289,9 +289,9 @@ public class BindSink implements AnalysisRuleFactory {
 
         // add cast project
         List<NamedExpression> castExprs = Lists.newArrayList();
+        ConnectContext connCtx = ConnectContext.get();
         final boolean truncateString = needTruncateStringWhenInsert
-                && (ConnectContext.get() == null
-                        || ConnectContext.get().getSessionVariable().enableInsertValueAutoCast);
+                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast);
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
             NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
