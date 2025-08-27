@@ -203,7 +203,6 @@ suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,
                     return false
                 }
             }
-            logger.info(NEED_EVICT_CACHE_IN_ADVANCE_TEST_PASSED_MSG)
         } catch (Exception e) {
             logger.info(NEED_EVICT_CACHE_IN_ADVANCE_TEST_FAILED_MSG + e.getMessage())
             needEvictCacheInAdvanceTestPassed = false
