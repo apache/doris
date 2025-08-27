@@ -70,6 +70,11 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         if (should_run_serial()) {
             max_scanners = 1;
         }
+        VLOG_CRITICAL << "debug remote scan thread num: " << vectorized::ScannerScheduler::get_remote_scan_thread_num()
+                << ", parallel_instance_num: " << parallel_instance_num
+                << ", should_run_serial: " << should_run_serial()
+                << ", max_scanners: " << max_scanners
+                << ", query id: " << print_id(state->query_id());
         return max_scanners;
     };
 
