@@ -138,7 +138,7 @@ suite('test_temp_table', 'p0') {
     sql "begin"
     sql "insert into t_test_temp_table2 values (4,\"2018-06-15\",\"David\"),(5,\"2018-07-12\",\"Elliott\")"
     sql "rollback"
-    def select_result11 = sql "select * from t_test_temp_table2"
+    def select_result11 = sql "select t_test_temp_table2.id from t_test_temp_table2"
     assertEquals(select_result11.size(), 0)
 
     sql "begin"
