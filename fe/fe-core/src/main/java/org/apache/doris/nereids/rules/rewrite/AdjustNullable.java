@@ -154,7 +154,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Map<ExprId, Slot> replaceMap) {
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, replaceMap);
-        return doVisitLogicalJoin(join, replaceMap, isAnalyzedPhase, true);
+        return doVisitLogicalJoin(join, replaceMap, isAnalyzedPhase, !isAnalyzedPhase);
     }
 
     /**
@@ -162,16 +162,14 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
      */
     public static LogicalJoin<? extends Plan, ? extends Plan> doVisitLogicalJoin(
             LogicalJoin<? extends Plan, ? extends Plan> join,
-            Map<ExprId, Slot> replaceMap, boolean isAnalyzedPhase, boolean debugCheck) {
-        Optional<List<Expression>> hashConjuncts = doUpdateExpressions(
-                join.getHashJoinConjuncts(), replaceMap, debugCheck && !isAnalyzedPhase);
+            Map<ExprId, Slot> replaceMap, boolean isAnalyzedPhase, boolean check) {
+        Optional<List<Expression>> hashConjuncts = doUpdateExpressions(join.getHashJoinConjuncts(), replaceMap, check);
         Optional<List<Expression>> markConjuncts = Optional.empty();
         boolean hadUpdatedMarkConjuncts = false;
         if (isAnalyzedPhase || join.getHashJoinConjuncts().isEmpty()) {
             // if hashConjuncts is empty, mark join conjuncts may use to build hash table
             // so need call updateExpressions for mark join conjuncts before adjust nullable by output slot
-            markConjuncts = doUpdateExpressions(
-                    join.getMarkJoinConjuncts(), replaceMap, debugCheck && !isAnalyzedPhase);
+            markConjuncts = doUpdateExpressions(join.getMarkJoinConjuncts(), replaceMap, check);
             hadUpdatedMarkConjuncts = true;
         }
         // in fact, otherConjuncts shouldn't use join output nullable attribute,
