@@ -63,7 +63,7 @@ suite('test_ingestion_load_with_partition', 'p0,external') {
                 def index = tableMeta["${testTable}"].indexes[0]
                 indexId = index.indexId
                 schemaHash = index.schemaHash
-                partitions = tableMeta["${testTable}"].partitionInfo.partitions
+                def partitions = tableMeta["${testTable}"].partitionInfo.partitions
                 for(partition in partitions) {
                     logger.info("partitionId: " + partition.partitionId)
                     resultFileNames.add("V1.${loadLabel}.${tableId}.${partition.partitionId}.${indexId}.${bucketId}.${schemaHash}.parquet")

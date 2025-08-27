@@ -108,7 +108,7 @@ suite('test_ingestion_load', 'p0,external') {
 
         def max_try_milli_secs = 120000
         while (max_try_milli_secs) {
-            result = sql "show load where label = '${loadLabel}'"
+            def result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "FINISHED") {
                 sql "sync"
                 qt_select "select * from ${testTable} order by 1"

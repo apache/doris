@@ -110,7 +110,7 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
 
         def max_try_milli_secs = 120000
         while (max_try_milli_secs) {
-            result = sql "show load where label = '${loadLabel}'"
+            def result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "CANCELLED") {
                 msg = result[0][7]
                 logger.info("err msg: " + msg)

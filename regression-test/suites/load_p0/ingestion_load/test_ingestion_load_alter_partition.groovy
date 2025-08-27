@@ -117,7 +117,7 @@ suite('test_ingestion_load_alter_partition', 'p0,external') {
 
         def max_try_milli_secs = 120000
         while (max_try_milli_secs) {
-            result = sql "show load where label = '${loadLabel}'"
+            def result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "FINISHED") {
                 sql "sync"
                 qt_select "select c1, count(*) from ${testTable} group by c1 order by c1"
