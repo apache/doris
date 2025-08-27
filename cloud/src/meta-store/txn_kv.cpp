@@ -860,7 +860,9 @@ TxnErrorCode Transaction::batch_scan(
 FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
                                            FullRangeGetOptions opts)
         : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {
-    DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
+    if (opts_.txn_kv) {
+        DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
+    }
     DCHECK(!opts_.txn || dynamic_cast<fdb::Transaction*>(opts_.txn)) << opts_.txn;
 }
 

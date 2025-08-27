@@ -141,6 +141,18 @@ public class UserPropertyTest {
             Assert.assertTrue(e.getMessage().contains("is not valid"));
         }
         Assert.assertEquals(-1, userProperty.getCpuResourceLimit());
+        // we should allow query_timeout  < 0, otherwise, not have command reset query_timeout of user
+        properties = Lists.newArrayList();
+        properties.add(Pair.of("query_timeout", "-2"));
+        userProperty = new UserProperty();
+        userProperty.update(properties);
+        Assert.assertEquals(-2, userProperty.getQueryTimeout());
+        // we should allow insert_timeout  < 0, otherwise, not have command reset insert_timeout of user
+        properties = Lists.newArrayList();
+        properties.add(Pair.of("insert_timeout", "-2"));
+        userProperty = new UserProperty();
+        userProperty.update(properties);
+        Assert.assertEquals(-2, userProperty.getInsertTimeout());
     }
 
     @Test

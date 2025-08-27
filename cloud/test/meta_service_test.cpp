@@ -9149,10 +9149,7 @@ TEST(MetaServiceTest, CreateVersionedTablet) {
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string key = versioned::meta_schema_key({instance_id, index_id, 0});
         doris::TabletSchemaCloudPB schema;
-        Versionstamp versionstamp;
-        ASSERT_EQ(versioned::document_get(txn.get(), key, &schema, &versionstamp),
-                  TxnErrorCode::TXN_OK);
-        ASSERT_EQ(versionstamp, commit_versionstamp);
+        ASSERT_EQ(document_get(txn.get(), key, &schema), TxnErrorCode::TXN_OK);
         EXPECT_EQ(schema.schema_version(), 0);
     }
 
