@@ -184,7 +184,7 @@ public class ConnectContext {
     // Command this connection is processing.
     protected volatile MysqlCommand command;
     // Timestamp in millisecond last command starts at
-    protected volatile long startTime;
+    protected volatile long startTime = -1;
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
 
@@ -690,8 +690,10 @@ public class ConnectContext {
     }
 
     public void setStartTime() {
-        startTime = System.currentTimeMillis();
-        returnRows = 0;
+        if (startTime == -1) {
+            startTime = System.currentTimeMillis();
+            returnRows = 0;
+        }
     }
 
     public void updateReturnRows(int returnRows) {
