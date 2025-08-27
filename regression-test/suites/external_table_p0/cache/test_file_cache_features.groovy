@@ -155,7 +155,6 @@ suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,
                     return false
                 }
             }
-            logger.info(DISK_RESOURCE_LIMIT_MODE_TEST_PASSED_MSG)
         } catch (Exception e) {
             logger.info(DISK_RESOURCE_LIMIT_MODE_TEST_FAILED_MSG + e.getMessage())
             diskResourceLimitModeTestPassed = false
