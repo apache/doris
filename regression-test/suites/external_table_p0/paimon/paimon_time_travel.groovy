@@ -270,6 +270,11 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
             exception "must contain key 'name' in params"
         }
 
+        test {
+            sql """ select * from ${tableName}@brand('nme'='not_exists_branch'); """
+            exception "Invalid param type: brand"
+        }
+
     } finally {
          // sql """drop catalog if exists ${catalog_name}"""
     }
