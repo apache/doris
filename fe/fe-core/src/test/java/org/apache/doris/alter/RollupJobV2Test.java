@@ -304,7 +304,7 @@ public class RollupJobV2Test {
 
         short keysCount = 1;
         List<Column> columns = Lists.newArrayList();
-        String mvColumnName = CreateMaterializedViewCommand.MATERIALIZED_VIEW_NAME_PREFIX + "to_bitmap_" + "c1";
+        String mvColumnName = "to_bitmap_" + "c1";
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
 
