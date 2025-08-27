@@ -471,7 +471,7 @@ public class NereidsPlanner extends Planner {
         }
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsPreRewriteByMvFinishTime();
+                    .setNereidsPreRewriteByMvFinishTime(TimeUtils.getStartTimeMs());
         }
     }
 
