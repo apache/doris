@@ -384,7 +384,7 @@ public class DatabaseTransactionMgr {
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
 
         if (usedQuotaDataBytes == -1) {
-            usedQuotaDataBytes = db.getUsedDataQuotaWithLock();
+            usedQuotaDataBytes = db.getUsedDataQuota();
         }
 
         long dataQuotaBytes = db.getDataQuota();
