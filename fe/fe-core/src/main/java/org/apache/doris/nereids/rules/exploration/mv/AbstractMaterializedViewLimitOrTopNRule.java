@@ -80,6 +80,9 @@ public interface AbstractMaterializedViewLimitOrTopNRule {
      * Check the tempRewrittenPlan is valid, should only contain logical project, scan
      */
     default boolean checkTmpRewrittenPlanIsValid(Plan tempRewrittenPlan) {
+        if (tempRewrittenPlan == null) {
+            return false;
+        }
         return tempRewrittenPlan.accept(new DefaultPlanVisitor<Boolean, Void>() {
             @Override
             public Boolean visit(Plan plan, Void context) {

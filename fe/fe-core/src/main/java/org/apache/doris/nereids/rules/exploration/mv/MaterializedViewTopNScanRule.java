@@ -75,12 +75,16 @@ public class MaterializedViewTopNScanRule extends AbstractMaterializedViewScanRu
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                // because limit spit to two phases
                 logicalTopN(subTree(
                         LogicalProject.class, LogicalFilter.class, LogicalCatalogRelation.class))
                         .thenApplyMultiNoThrow(ctx -> {
                             return rewrite(ctx.root, ctx.cascadesContext);
-                        }).toRule(RuleType.MATERIALIZED_VIEW_TOP_N_SCAN)
+                        }).toRule(RuleType.MATERIALIZED_VIEW_TOP_N_SCAN),
+                logicalProject(logicalTopN(subTree(
+                        LogicalProject.class, LogicalFilter.class, LogicalCatalogRelation.class)))
+                        .thenApplyMultiNoThrow(ctx -> {
+                            return rewrite(ctx.root, ctx.cascadesContext);
+                        }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_TOP_N_SCAN)
         );
     }
 }
