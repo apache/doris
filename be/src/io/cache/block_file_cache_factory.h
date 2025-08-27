@@ -27,9 +27,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
-#include "gen_cpp/internal_service.pb.h"
 namespace doris {
 class TUniqueId;
 

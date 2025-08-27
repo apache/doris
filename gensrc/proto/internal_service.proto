@@ -1063,24 +1063,32 @@ message PAbortRefreshDictionaryResponse {
     optional PStatus status = 1;
 }
 
+message CacheBlockReqest {
+    // PEER_FILE_CACHE_BLOCK
+    optional int64 block_offset = 1;
+    optional int64 block_size = 2;
+}
+
 message PFetchPeerDataRequest {
     enum Type {
-        PEER_FILE_CACHE_BLOCK = 1;
-        PEER_FILE_RANGE = 2;
+        PEER_FILE_RANGE = 1;
+        PEER_FILE_CACHE_BLOCK = 2;
     }
     optional Type type = 1;
     // obj path, let peer calc hash, and download file cache
-    // PEER_FILE_RANGE use
+    // PEER_FILE_RANGE and PEER_FILE_CACHE_BLOCK use
     optional string path = 2;
+
+    // PEER_FILE_RANGE
+    optional int64 file_offset = 3;
+    optional int64 file_size = 4;
     // PEER_FILE_CACHE_BLOCK
-    optional bytes hash = 3;
-    optional int64 file_offset = 4;
-    optional int64 size = 5;
+    repeated CacheBlockReqest cache_req = 5;
 }
 
 message CacheBlock {
-    optional int64 file_offset = 1;
-    optional int64 size = 2;
+    optional int64 block_offset = 1;
+    optional int64 block_size = 2;
     optional bytes data = 3;
 }
 

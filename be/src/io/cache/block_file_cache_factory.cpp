@@ -125,7 +125,8 @@ std::vector<doris::CacheBlock> FileCacheFactory::get_cache_data_by_path(const st
     return get_cache_data_by_path(cache_hash);
 }
 
-std::vector<doris::CacheBlock> FileCacheFactory::get_cache_data_by_path(const UInt128Wrapper& hash) {
+std::vector<doris::CacheBlock> FileCacheFactory::get_cache_data_by_path(
+        const UInt128Wrapper& hash) {
     std::vector<doris::CacheBlock> ret;
     BlockFileCache* cache = FileCacheFactory::instance()->get_by_path(hash);
     if (cache == nullptr) {
@@ -134,8 +135,8 @@ std::vector<doris::CacheBlock> FileCacheFactory::get_cache_data_by_path(const UI
     auto blocks = cache->get_blocks_by_key(hash);
     for (auto& [offset, fb] : blocks) {
         doris::CacheBlock cb;
-        cb.set_file_offset(static_cast<int64_t>(offset));
-        cb.set_size(static_cast<int64_t>(fb->range().size()));
+        cb.set_block_offset(static_cast<int64_t>(offset));
+        cb.set_block_size(static_cast<int64_t>(fb->range().size()));
         // try to read data into bytes
         std::string data;
         data.resize(fb->range().size());
@@ -146,7 +147,7 @@ std::vector<doris::CacheBlock> FileCacheFactory::get_cache_data_by_path(const UI
             cb.set_data(data);
         } else {
             // On read failure, skip setting data but still report meta
-            VLOG_DEBUG << "read cache block failed: " << st; 
+            VLOG_DEBUG << "read cache block failed: " << st;
         }
         ret.emplace_back(std::move(cb));
     }

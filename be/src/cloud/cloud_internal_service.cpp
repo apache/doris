@@ -18,7 +18,9 @@
 #include "cloud/cloud_internal_service.h"
 
 #include <bthread/countdown_event.h>
+
 #include <algorithm>
+#include <thread>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
@@ -27,6 +29,8 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -134,56 +138,59 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
     LOG(INFO) << "fetch cache " << request->DebugString();
     const auto type = request->type();
     const auto& path = request->path();
-    const auto& hash_bytes = request->hash();
     response->mutable_status()->set_status_code(TStatusCode::OK);
     if (type == PFetchPeerDataRequest_Type_PEER_FILE_RANGE) {
-        // Read specific range [file_offset, file_offset+size) across cached blocks
+        // Read specific range [file_offset, file_offset+file_size) across cached blocks
         auto datas = io::FileCacheFactory::instance()->get_cache_data_by_path(path);
         for (auto& cb : datas) {
             *(response->add_datas()) = std::move(cb);
         }
     } else if (type == PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK) {
-        // Single block
-        io::UInt128Wrapper key;
-        if (!hash_bytes.empty()) {
-            if (hash_bytes.size() == sizeof(io::uint128_t)) {
-                io::uint128_t v;
-                std::memcpy(&v, hash_bytes.data(), sizeof(v));
-                key = io::UInt128Wrapper(v);
-            } else {
-                response->mutable_status()->set_status_code(ErrorCode::INTERNAL_ERROR);
-                LOG(ERROR) << "hash bytes size is not valid, size=" << hash_bytes.size();
-            }
-        }
-        auto* cache = io::FileCacheFactory::instance()->get_by_path(key);
+        // Multiple specific blocks
+        auto hash = io::BlockFileCache::hash(path);
+        auto* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+        LOG(INFO) << "dx debug path=" << path << " hash=" << hash.to_string();
         if (cache != nullptr) {
-            io::ReadStatistics stats;
-            io::CacheContext ctx;
-            ctx.cache_type = io::FileCacheType::NORMAL;
-            ctx.expiration_time = 0;
-            ctx.stats = &stats;
-            size_t offset = static_cast<size_t>(std::max<int64_t>(0, request->file_offset()));
-            size_t size = static_cast<size_t>(std::max<int64_t>(0, request->size()));
-            auto holder = cache->get_or_set(key, offset, size, ctx);
-            for (auto& fb : holder.file_blocks) {
-                doris::CacheBlock* out = response->add_datas();
-                out->set_file_offset(static_cast<int64_t>(fb->offset()));
-                out->set_size(static_cast<int64_t>(fb->range().size()));
-                std::string data;
-                data.resize(fb->range().size());
-                Slice slice(data.data(), data.size());
-                Status st = fb->read(slice, /*read_offset=*/0);
-                if (st.ok()) {
-                    out->set_data(std::move(data));
-                } else {
-                    VLOG_DEBUG << "read cache block failed: " << st;
+            io::CacheContext ctx {};
+            // ensure a valid stats pointer is provided to cache layer
+            io::ReadStatistics local_stats;
+            ctx.stats = &local_stats;
+            for (const auto& cb_req : request->cache_req()) {
+                LOG(INFO) << "dx debug path=" << path << " offset=" << cb_req.block_offset()
+                          << " size=" << cb_req.block_size();
+                size_t offset = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_offset()));
+                size_t size = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_size()));
+                auto holder = cache->get_or_set(hash, offset, size, ctx);
+                for (auto& fb : holder.file_blocks) {
+                    LOG(INFO) << "dx debug fb path=" << path << " offset=" << fb->offset()
+                              << " size=" << fb->range().size();
+                    doris::CacheBlock* out = response->add_datas();
+                    out->set_block_offset(static_cast<int64_t>(fb->offset()));
+                    out->set_block_size(static_cast<int64_t>(fb->range().size()));
+                    std::string data;
+                    data.resize(fb->range().size());
+                    // Offload the file block read to a dedicated OS thread to avoid bthread IO
+                    Status read_st = Status::OK();
+                    // due to file_reader.cpp:33] Check failed: bthread_self() == 0
+                    std::thread reader([&]() {
+                        // Current thread not exist ThreadContext, usually after the thread is started, using SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.
+                        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
+                        Slice slice(data.data(), data.size());
+                        read_st = fb->read(slice, /*read_offset=*/0);
+                    });
+                    if (reader.joinable()) reader.join();
+                    if (read_st.ok()) {
+                        out->set_data(std::move(data));
+                    } else {
+                        LOG(WARNING) << "read cache block failed: " << read_st;
+                    }
                 }
             }
         }
     }
 
-    VLOG_DEBUG << "fetch cache request=" << request->DebugString()
-               << ", response=" << response->DebugString();
+    LOG(INFO) << "fetch cache request=" << request->DebugString()
+              << ", response=" << response->DebugString();
 }
 
 #include "common/compile_check_end.h"

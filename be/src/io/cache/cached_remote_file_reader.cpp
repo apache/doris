@@ -17,8 +17,10 @@
 
 #include "io/cache/cached_remote_file_reader.h"
 
+#include <brpc/controller.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -42,9 +44,14 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "service/backend_options.h"
 #include "util/bit_util.h"
+#include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
@@ -339,13 +346,13 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             stats.skip_cache = true;
             break;
         case FileBlock::State::DOWNLOADING:
-            LOG(INFO) << "dx debug set cache miss downloading";
-            empty_blocks.push_back(block);
+            // LOG(INFO) << "dx debug set cache miss downloading";
+            // empty_blocks.push_back(block);
             stats.hit_cache = false;
             break;
         case FileBlock::State::DOWNLOADED:
-            LOG(INFO) << "dx debug set cache miss downloaded";
-            empty_blocks.push_back(block);
+            // LOG(INFO) << "dx debug set cache miss downloaded";
+            // empty_blocks.push_back(block);
             break;
         }
     }
@@ -357,18 +364,28 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
 
-        auto s3_read_fn = [this](size_t off, Slice s, size_t* n, const IOContext* ctx) {
+        auto s3_read_fn = [this, &size](size_t off, Slice s, size_t* n, const IOContext* ctx) {
+            DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.s3_read_fn_failed", {
+                LOG_WARNING("debug point read_at_impl.s3_read_fn_failed")
+                        .tag("path", path().native())
+                        .tag("off", off)
+                        .tag("size", size);
+                return Status::InternalError("debug point read_at_impl.s3_read_fn_failed");
+            });
             return _remote_file_reader->read_at(off, s, n, ctx);
         };
-#ifdef BE_ENABLE_PEER_CACHE_FETCH
-        auto peer_read_fn = [this](size_t off, Slice s, size_t* n, const IOContext* ctx) {
-            return _fetch_from_peer_cache(off, s, n, ctx);
+        auto peer_read_fn = [this, &empty_blocks, &size](size_t off, Slice s, size_t* n,
+                                                         const IOContext* ctx) {
+            DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.peer_read_fn_failed", {
+                LOG_WARNING("debug point read_at_impl.peer_read_fn_failed")
+                        .tag("path", path().native())
+                        .tag("off", off)
+                        .tag("size", size);
+                return Status::InternalError("debug point read_at_impl.peer_read_fn_failed");
+            });
+            return _fetch_from_peer_cache_blocks(empty_blocks, off, s, n, ctx);
         };
-#else
-        auto peer_read_fn = [](size_t, Slice, size_t*, const IOContext*) {
-            return Status::NotSupported("peer cache range fetch not wired");
-        };
-#endif
+
         RETURN_IF_ERROR(race_fetch_into_buffer(empty_start, size, buffer.get(), io_ctx, &stats,
                                                s3_read_fn, peer_read_fn));
 
@@ -475,15 +492,93 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     return Status::OK();
 }
 
-// Optional: peer cache fetch helper, default NotSupported unless macro enabled
-#ifdef BE_ENABLE_PEER_CACHE_FETCH
-Status CachedRemoteFileReader::_fetch_from_peer_cache(size_t offset, Slice result,
-                                                      size_t* bytes_read, const IOContext* io_ctx) {
-    // Implement brpc request to peer BE to fetch file-cache range and fill result
-    // Placeholder: return not supported until wired
-    return Status::NotSupported("peer cache fetch not implemented");
+Status CachedRemoteFileReader::_fetch_from_peer_cache_blocks(
+        const std::vector<FileBlockSPtr>& blocks, size_t off, Slice s, size_t* n,
+        const IOContext* ctx) {
+    LOG(INFO) << "enter _fetch_from_peer_cache_blocks, off=" << off << " n=" << *n;
+    *n = 0;
+    if (blocks.empty()) {
+        return Status::OK();
+    }
+    if (!_is_doris_table) {
+        return Status::NotSupported("peer cache fetch only supports doris table segments");
+    }
+
+    PFetchPeerDataRequest req;
+    req.set_type(PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK);
+    req.set_path(path().filename().native());
+    for (const auto& blk : blocks) {
+        auto* cb = req.add_cache_req();
+        cb->set_block_offset(static_cast<int64_t>(blk->range().left));
+        cb->set_block_size(static_cast<int64_t>(blk->range().size()));
+    }
+
+    // todo(dx), use peer host and port to fetch data
+    std::string host = "127.0.0.1";
+    int port = 9060;
+    DBUG_EXECUTE_IF("CachedRemoteFileReader::_fetch_from_peer_cache_blocks", {
+        host = dp->param<std::string>("host", "127.0.0.1");
+        port = dp->param("port", 9060);
+        LOG_WARNING("debug point CachedRemoteFileReader::_fetch_from_peer_cache_blocks")
+                .tag("host", host)
+                .tag("port", port);
+    });
+    auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+    if (dns_cache == nullptr) {
+        LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+    } else if (!is_valid_ip(host)) {
+        Status status = dns_cache->get(host, &host);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get ip from host " << host << ": " << status.to_string();
+            return Status::InternalError("failed to get ip from host {}", host);
+        }
+    }
+    std::string brpc_addr = get_host_port(host, port);
+    Status st = Status::OK();
+    std::shared_ptr<PBackendService_Stub> brpc_stub =
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->get_new_client_no_cache(
+                    brpc_addr);
+    if (!brpc_stub) {
+        LOG(WARNING) << "failed to get brpc stub " << brpc_addr;
+        st = Status::RpcError("Address {} is wrong", brpc_addr);
+        return st;
+    }
+
+    brpc::Controller cntl;
+    cntl.set_timeout_ms(60000);
+    PFetchPeerDataResponse resp;
+    brpc_stub->fetch_peer_data(&cntl, &req, &resp, nullptr);
+    if (cntl.Failed()) {
+        return Status::RpcError(cntl.ErrorText());
+    }
+    if (resp.has_status()) {
+        Status st = Status::create(resp.status());
+        if (!st.ok()) return st;
+    }
+
+    size_t filled = 0;
+    for (const auto& data : resp.datas()) {
+        if (data.data().empty()) {
+            LOG(WARNING) << "peer cache read empty data" << data.block_offset();
+            return Status::InternalError("peer cache read empty data");
+        }
+        int64_t block_off = data.block_offset();
+        size_t rel = block_off > static_cast<int64_t>(off)
+                             ? static_cast<size_t>(block_off - static_cast<int64_t>(off))
+                             : 0;
+        size_t can_copy = std::min(s.size - rel, static_cast<size_t>(data.data().size()));
+        LOG(INFO) << "peer cache read data=" << data.block_offset()
+                  << " size=" << data.data().size() << " off=" << rel << " can_copy=" << can_copy;
+        std::memcpy(s.data + rel, data.data().data(), can_copy);
+        filled += can_copy;
+    }
+    LOG(INFO) << "peer cache read filled=" << filled;
+    *n = filled;
+    if (filled == s.size) {
+        return Status::OK();
+    }
+    return Status::InternalError("peer cache read incomplete: need={}, got={}", s.size, filled);
 }
-#endif
 
 void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                                            FileCacheStatistics* statis,

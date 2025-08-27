@@ -22,6 +22,7 @@
 #include <map>
 #include <shared_mutex>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
@@ -70,10 +71,8 @@ private:
     void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
                        bool is_inverted_index) const;
 
-    // Try fetch data from peer BE for [offset, offset+size), write into result.
-    // Default implementation returns NotSupported and does nothing.
-    // Status _fetch_from_peer(size_t offset, size_t size, Slice result,
-    //                         const IOContext* io_ctx);
+    Status _fetch_from_peer_cache_blocks(const std::vector<FileBlockSPtr>& blocks, size_t off,
+                                         Slice s, size_t* n, const IOContext* ctx);
 };
 
 } // namespace doris::io
