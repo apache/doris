@@ -962,8 +962,10 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoBlackholeCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.WarmupSelectCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnDesc;
@@ -8467,6 +8469,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable, properties);
     }
 
+    // @Override
+    // public LogicalPlan visitInsertBlackholeWarmUp(DorisParser.InsertBlackholeWarmUpContext ctx) {
+    //     List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
+    //     String dbName = null;
+    //     String tableName = null;
+    //
+    //     if (nameParts.size() == 1) {
+    //         dbName = ctx.dbName != null ? ctx.dbName.getText() : ConnectContext.get().getDatabase();
+    //         tableName = nameParts.get(0);
+    //     } else if (nameParts.size() == 2) {
+    //         dbName = nameParts.get(0);
+    //         tableName = nameParts.get(1);
+    //     } else {
+    //         throw new AnalysisException("Invalid table name format");
+    //     }
+    //
+    //     String partitionName = ctx.partitionName != null ? ctx.partitionName.getText() : "";
+    //     boolean isForce = ctx.FORCE() != null;
+    //
+    //     return new InsertBlackholeWarmUpCommand(dbName, tableName, partitionName, isForce);
+    // }
+
     @Override
     public LogicalPlan visitWarmUpSelect(DorisParser.WarmUpSelectContext ctx) {
         LogicalPlan relation;
@@ -8499,8 +8523,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " disable_file_cache=false in cloud mode");
         }
 
+        // Create InsertBlackholeWarmUpCommand directly, similar to visitInsertBlackholeWarmUp
         LogicalSink<?> sink = new UnboundBlackholeSink<>(project);
-        return withExplain(sink, ctx.explain());
+        LogicalPlan command = new WarmupSelectCommand(sink);
+        return withExplain(command, ctx.explain());
     }
 
     @Override

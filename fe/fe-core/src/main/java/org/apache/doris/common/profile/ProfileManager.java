@@ -122,6 +122,17 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
+    public static class FetchRealTimeProfileTasksResult {
+        public TGetRealtimeExecStatusResponse response;
+
+        public TNetworkAddress beAddress;
+
+        public FetchRealTimeProfileTasksResult(TGetRealtimeExecStatusResponse response, TNetworkAddress beAddress) {
+            this.response = response;
+            this.beAddress = beAddress;
+        }
+    }
+
     // this variable is assigned to true the first time the profile is loaded from storage
     // no further write operation, so no data race
     private final ReentrantReadWriteLock isProfileLoadedLock = new ReentrantReadWriteLock();
@@ -305,14 +316,14 @@ public class ProfileManager extends MasterDaemon {
         return resp;
     }
 
-    private List<Future<TGetRealtimeExecStatusResponse>> createFetchRealTimeProfileTasks(String id, String reqType) {
+    private List<Future<FetchRealTimeProfileTasksResult>> createFetchRealTimeProfileTasks(String id, String reqType) {
         // For query, id is queryId, for load, id is LoadLoadingTaskId
         class QueryIdAndAddress {
             public TUniqueId id;
             public TNetworkAddress beAddress;
         }
 
-        List<Future<TGetRealtimeExecStatusResponse>> futures = Lists.newArrayList();
+        List<Future<FetchRealTimeProfileTasksResult>> futures = Lists.newArrayList();
         TUniqueId queryId = null;
         try {
             queryId = DebugUtil.parseTUniqueIdFromString(id);
@@ -368,9 +379,9 @@ public class ProfileManager extends MasterDaemon {
         }
 
         for (QueryIdAndAddress idAndAddress : involvedBackends) {
-            Callable<TGetRealtimeExecStatusResponse> task = () -> getRealtimeQueryProfile(idAndAddress.id,
-                    reqType, idAndAddress.beAddress);
-            Future<TGetRealtimeExecStatusResponse> future = fetchRealTimeProfileExecutor.submit(task);
+            Callable<FetchRealTimeProfileTasksResult> task = () -> new FetchRealTimeProfileTasksResult(getRealtimeQueryProfile(idAndAddress.id,
+                    reqType, idAndAddress.beAddress), idAndAddress.beAddress);
+            Future<FetchRealTimeProfileTasksResult> future = fetchRealTimeProfileExecutor.submit(task);
             futures.add(future);
         }
 
@@ -378,12 +389,12 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public TQueryStatistics getQueryStatistic(String queryId) throws Exception {
-        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(queryId,
+        List<Future<FetchRealTimeProfileTasksResult>> futures = createFetchRealTimeProfileTasks(queryId,
                 "stats");
         List<TQueryStatistics> queryStatisticsList = Lists.newArrayList();
-        for (Future<TGetRealtimeExecStatusResponse> future : futures) {
+        for (Future<FetchRealTimeProfileTasksResult> future : futures) {
             try {
-                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
+                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS).response;
                 if (resp != null && resp.getStatus().status_code == TStatusCode.OK && resp.isSetQueryStats()) {
                     queryStatisticsList.add(resp.getQueryStats());
                 } else {
@@ -426,14 +437,43 @@ public class ProfileManager extends MasterDaemon {
         return summary;
     }
 
+    public Map<String, TQueryStatistics> getQueryStatistics(String queryId) throws Exception {
+        List<Future<FetchRealTimeProfileTasksResult>> futures = createFetchRealTimeProfileTasks(queryId,
+                "stats");
+        Map<String, TQueryStatistics> result = Maps.newHashMap();
+        for (Future<FetchRealTimeProfileTasksResult> future : futures) {
+            try {
+                FetchRealTimeProfileTasksResult fetchRealTimeProfileTasksResult = future.get(5, TimeUnit.SECONDS);
+                TGetRealtimeExecStatusResponse resp = fetchRealTimeProfileTasksResult.response;
+                if (resp != null && resp.getStatus().status_code == TStatusCode.OK && resp.isSetQueryStats()) {
+                    result.put(String.format("%s:%s", fetchRealTimeProfileTasksResult.beAddress.hostname,
+                            fetchRealTimeProfileTasksResult.beAddress.port), resp.getQueryStats());
+                } else {
+                    LOG.warn("Failed to get real-time query stats, id {}, resp is {}",
+                            queryId, resp == null ? "null" : resp.toString());
+                    throw new Exception("Failed to get realtime query stats: " + resp == null ? "null" : resp.toString());
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get real-time query stats, id {}, error: {}", queryId, e.getMessage(), e);
+                throw new Exception("Failed to get realtime query stats: " + e.getMessage());
+            }
+        }
+        Preconditions.checkState(!result.isEmpty() && result.size() == futures.size(),
+                String.format("Failed to get real-time stats, id %s, "
+                                + "result size %d != futures size %d",
+                        queryId, result.size(), futures.size()));
+
+        return result;
+    }
+
     public String getProfile(String id) {
-        List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(id, "profile");
+        List<Future<FetchRealTimeProfileTasksResult>> futures = createFetchRealTimeProfileTasks(id, "profile");
         // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
         // to avoid compile failing.
         TNetworkAddress dummyAddr = new TNetworkAddress();
-        for (Future<TGetRealtimeExecStatusResponse> future : futures) {
+        for (Future<FetchRealTimeProfileTasksResult> future : futures) {
             try {
-                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
+                TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS).response;
                 if (resp != null) {
                     QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), dummyAddr);
                 }

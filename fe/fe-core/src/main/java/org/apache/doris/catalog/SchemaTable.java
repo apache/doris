@@ -680,6 +680,11 @@ public class SchemaTable extends Table {
                             .column("REF_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .build())
             )
+            .put("blackhole",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "blackhole", TableType.SCHEMA,
+                            builder().column("VERSION", ScalarType.createType(PrimitiveType.INT))
+                                    .build())
+            )
             .put("encryption_keys",
                     new SchemaTable(SystemIdGenerator.getNextId(), "encryption_keys", TableType.SCHEMA,
                         builder().column("ID", ScalarType.createStringType())

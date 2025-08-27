@@ -514,8 +514,7 @@ public class NereidsCoordinator extends Coordinator {
 
     private JobProcessor buildJobProcessor(CoordinatorContext coordinatorContext) {
         DataSink dataSink = coordinatorContext.dataSink;
-        if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink
-                || dataSink instanceof BlackholeSink)) {
+        if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink)) {
             return QueryProcessor.build(coordinatorContext);
         } else {
             // insert statement has jobId == -1
