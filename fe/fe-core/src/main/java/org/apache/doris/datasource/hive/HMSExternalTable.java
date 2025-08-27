@@ -422,11 +422,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 this, partitionColumnTypes);
         Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("idToPartitionItem for table: {} is: {}", getName(), idToPartitionItem);
+        }
         // transfer id to name
         BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("idToName for table: {} is: {}", getName(), idToName);
+        }
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
         for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
             nameToPartitionItem.put(idToName.get(entry.getKey()), entry.getValue());
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("nameToPartitionItem for table: {} is: {}", getName(), nameToPartitionItem);
         }
         return nameToPartitionItem;
     }

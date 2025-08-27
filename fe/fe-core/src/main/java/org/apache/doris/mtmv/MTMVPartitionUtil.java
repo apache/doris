@@ -171,8 +171,8 @@ public class MTMVPartitionUtil {
             service.apply(mvPartitionInfo, mvProperties, result);
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
-                    System.currentTimeMillis() - start, mvPartitionInfo);
+            LOG.debug("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}], res is: [{}]",
+                    System.currentTimeMillis() - start, mvPartitionInfo, result.getDescs());
         }
         return result.getDescs();
     }
