@@ -19,7 +19,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
-suite('test_ingestion_load_drop_table', 'p0') {
+suite('test_ingestion_load_drop_table', 'p0,external') {
 
     def testIngestLoadJob = { testTable, loadLabel, dataFile, alterAction ->
 
@@ -27,12 +27,12 @@ suite('test_ingestion_load_drop_table', 'p0') {
 
         sql "CLEAN LABEL FROM ${context.dbName}"
 
-        Integer loadId = -1
-        Integer tableId = -1
-        Integer partitionId = -1
-        Integer indexId = -1
-        Integer bucketId = 0
-        Integer schemaHash = -1
+        long loadId = -1
+        long tableId = -1
+        long partitionId = -1
+        long indexId = -1
+        long bucketId = 0
+        long schemaHash = -1
 
         String reqBody =
                 """{
@@ -108,7 +108,7 @@ suite('test_ingestion_load_drop_table', 'p0') {
 
         alterAction.call()
 
-        max_try_milli_secs = 120000
+        def max_try_milli_secs = 120000
         while (max_try_milli_secs) {
             result = sql "show load where label = '${loadLabel}'"
             if (result.size() == 0) {
