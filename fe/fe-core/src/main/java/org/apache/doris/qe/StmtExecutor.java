@@ -265,7 +265,7 @@ public class StmtExecutor {
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
-    private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
+    private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
     private final StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -701,9 +701,12 @@ public class StmtExecutor {
         }
         context.setQueryId(queryId);
         context.setStartTime();
+
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
-        profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
+        if (context.getSessionVariable().enableProfile) {
+            List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
+            profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
+        }
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         parseByNereids();
