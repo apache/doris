@@ -21,7 +21,7 @@ PhysicalResultSink
 -- !filter_through_project_4 --
 PhysicalResultSink
 --PhysicalProject[(cast(id as BIGINT) + 100) AS `a`, (cast(id as BIGINT) + 200) AS `b`, (cast(id as BIGINT) + 300) AS `c`]
-----filter(((cast(id as BIGINT) + random(1, 10)) > 899))
+----filter(((cast(id as BIGINT) + random(1, 10)) > 799) and ((cast(id as BIGINT) + random(1, 10)) > 899))
 ------PhysicalOlapScan[t1]
 
 -- !filter_through_project_5 --
@@ -54,34 +54,6 @@ PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
 ------PhysicalProject[(cast(id as BIGINT) + 100) AS `a`, (cast(id as BIGINT) + 200) AS `b`, (cast(id as BIGINT) + 300) AS `c`]
---------filter(((cast(id as BIGINT) + random(1, 10)) > 899))
+--------filter(((cast(id as BIGINT) + random(1, 10)) > 799) and ((cast(id as BIGINT) + random(1, 10)) > 899))
 ----------PhysicalOlapScan[t1]
-
--- !merge_project_1 --
-PhysicalResultSink
---PhysicalProject[(cast(id as BIGINT) + 100) AS `b`, (cast(id as BIGINT) + 100) AS `c`]
-----PhysicalOlapScan[t1]
-
--- !merge_project_2 --
-PhysicalResultSink
---PhysicalProject[a AS `b`, a AS `c`]
-----PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
-------PhysicalOlapScan[t1]
-
--- !merge_project_3 --
-PhysicalResultSink
---PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `b`]
-----PhysicalOlapScan[t1]
-
--- !merge_project_4 --
-PhysicalResultSink
---PhysicalProject[((a + a) + 10) AS `b`]
-----PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
-------PhysicalOlapScan[t1]
-
--- !merge_project_5 --
-PhysicalResultSink
---PhysicalProject[(a + 10) AS `c`, a AS `b`]
-----PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
-------PhysicalOlapScan[t1]
 

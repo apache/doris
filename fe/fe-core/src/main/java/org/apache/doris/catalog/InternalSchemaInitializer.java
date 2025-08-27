@@ -17,17 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AddColumnClause;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.DbName;
-import org.apache.doris.analysis.ModifyColumnClause;
-import org.apache.doris.analysis.ModifyPartitionClause;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -39,13 +32,19 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -53,6 +52,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -151,34 +151,48 @@ public class InternalSchemaInitializer extends Thread {
         return tableOp.orElse(null);
     }
 
-    public void doSchemaChange(Table table) throws UserException {
-        List<AlterClause> clauses = getModifyColumnClauses(table);
-        if (!clauses.isEmpty()) {
-            TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
-                    StatisticConstants.DB_NAME, table.getName());
-            AlterTableStmt alter = new AlterTableStmt(tableName, clauses);
-            Env.getCurrentEnv().alterTable(alter);
+    public void doSchemaChange(Table table) throws Exception {
+        List<AlterTableOp> ops = getModifyColumnOp(table);
+        if (!ops.isEmpty()) {
+            TableNameInfo tableNameInfo = new TableNameInfo(
+                    InternalCatalog.INTERNAL_CATALOG_NAME,
+                    StatisticConstants.DB_NAME,
+                    table.getName());
+            AlterTableCommand alterTableCommand = new AlterTableCommand(tableNameInfo, ops);
+            Env.getCurrentEnv().alterTable(alterTableCommand);
         }
     }
 
-    public List<AlterClause> getModifyColumnClauses(Table table) throws AnalysisException {
-        List<AlterClause> clauses = Lists.newArrayList();
+    public List<AlterTableOp> getModifyColumnOp(Table table) throws UserException {
+        List<AlterTableOp> alterTableOps = Lists.newArrayList();
         Set<String> currentColumnNames = table.getBaseSchema().stream()
                 .map(Column::getName)
                 .map(String::toLowerCase)
                 .collect(Collectors.toSet());
+
+        Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        boolean isEnableMergeOnWrite = ((OlapTable) table).getEnableUniqueKeyMergeOnWrite();
+
         if (!currentColumnNames.containsAll(InternalSchema.TABLE_STATS_SCHEMA.stream()
                 .map(ColumnDef::getName)
                 .map(String::toLowerCase)
                 .collect(Collectors.toList()))) {
             for (ColumnDef expected : InternalSchema.TABLE_STATS_SCHEMA) {
                 if (!currentColumnNames.contains(expected.getName().toLowerCase())) {
-                    AddColumnClause addColumnClause = new AddColumnClause(expected, null, null, null);
-                    addColumnClause.setColumn(expected.toColumn());
-                    clauses.add(addColumnClause);
+                    ColumnDefinition columnDefinition = expected.translateToColumnDefinition();
+
+                    AddColumnOp addColumnOp = new AddColumnOp(
+                            columnDefinition,
+                            null,
+                            null,
+                            null);
+                    addColumnOp.setColumn(columnDefinition.translateToCatalogStyleForSchemaChange());
+                    alterTableOps.add(addColumnOp);
                 }
             }
         }
+
         for (Column col : table.getFullSchema()) {
             if (col.isKey() && col.getType().isVarchar()
                     && col.getType().getLength() < StatisticConstants.MAX_NAME_LEN) {
@@ -186,20 +200,28 @@ public class InternalSchemaInitializer extends Thread {
                         ScalarType.createVarchar(StatisticConstants.MAX_NAME_LEN), col.isAllowNull());
                 ColumnNullableType nullableType =
                         col.isAllowNull() ? ColumnNullableType.NULLABLE : ColumnNullableType.NOT_NULLABLE;
-                ColumnDef columnDef = new ColumnDef(col.getName(), typeDef, true, null,
-                        nullableType, -1, new ColumnDef.DefaultValue(false, null), "");
-                try {
-                    columnDef.analyze(true);
-                } catch (AnalysisException e) {
-                    LOG.warn("Failed to analyze column {}", col.getName());
-                    continue;
-                }
-                ModifyColumnClause clause = new ModifyColumnClause(columnDef, null, null, Maps.newHashMap());
-                clause.setColumn(columnDef.toColumn());
-                clauses.add(clause);
+
+                ColumnDefinition columnDefinition = new ColumnDefinition(
+                        col.getName(),
+                        DataType.fromCatalogType(typeDef.getType()),
+                        true,
+                        null,
+                        nullableType,
+                        -1,
+                        Optional.empty(),
+                        Optional.empty(),
+                        "",
+                        col.isVisible(),
+                        Optional.empty());
+                columnDefinition.validate(true, keysSet, clusterKeySet, isEnableMergeOnWrite, null);
+
+                ModifyColumnOp modifyColumnOp = new ModifyColumnOp(
+                        columnDefinition, null, null, Maps.newHashMap());
+                modifyColumnOp.setColumn(columnDefinition.translateToCatalogStyleForSchemaChange());
+                alterTableOps.add(modifyColumnOp);
             }
         }
-        return clauses;
+        return alterTableOps;
     }
 
     @VisibleForTesting
@@ -230,21 +252,25 @@ public class InternalSchemaInitializer extends Thread {
                                     + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
                             Env.getCurrentEnv().modifyTableReplicaAllocation(database, tbl, props);
                         } else {
-                            TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                    StatisticConstants.DB_NAME, tbl.getName());
+                            TableNameInfo tableNameInfo = new TableNameInfo(
+                                    InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    StatisticConstants.DB_NAME,
+                                    tbl.getName());
                             // 1. modify table's default replica num
                             Map<String, String> props = new HashMap<>();
                             props.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
                                     "" + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
                             Env.getCurrentEnv().modifyTableDefaultReplicaAllocation(database, tbl, props);
+
                             // 2. modify each partition's replica num
-                            List<AlterClause> clauses = Lists.newArrayList();
+                            List<AlterTableOp> ops = Lists.newArrayList();
                             props.clear();
                             props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
                                     "" + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
-                            clauses.add(ModifyPartitionClause.createStarClause(props, false));
-                            AlterTableStmt alter = new AlterTableStmt(tableName, clauses);
-                            Env.getCurrentEnv().alterTable(alter);
+
+                            ops.add(new ModifyPartitionOp(Lists.newArrayList(tbl.getPartitionNames()), props, false));
+                            AlterTableCommand alterTableCommand = new AlterTableCommand(tableNameInfo, ops);
+                            alterTableCommand.run(ConnectContext.get(), null);
                         }
                     } finally {
                         tbl.writeUnlock();

@@ -27,7 +27,6 @@ import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -5368,14 +5367,6 @@ public class Env {
             }
         }
         return shortKeyColumnCount;
-    }
-
-    /*
-     * used for handling AlterTableStmt (for client is the ALTER TABLE command).
-     * including SchemaChangeHandler and RollupHandler
-     */
-    public void alterTable(AlterTableStmt stmt) throws UserException {
-        this.alter.processAlterTable(stmt);
     }
 
     public void alterTable(AlterTableCommand command) throws UserException {
