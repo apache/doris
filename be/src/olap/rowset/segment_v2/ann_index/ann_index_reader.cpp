@@ -189,7 +189,11 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
         result->roaring = search_result.roaring;
 
 #ifndef NDEBUG
-        if (params.is_le_or_lt == false) {
+        if (params.is_le_or_lt == false && _metric_type == AnnIndexMetric::L2) {
+            DCHECK(search_result.distances == nullptr);
+            DCHECK(search_result.row_ids == nullptr);
+        }
+        if (params.is_le_or_lt == true && _metric_type == AnnIndexMetric::IP) {
             DCHECK(search_result.distances == nullptr);
             DCHECK(search_result.row_ids == nullptr);
         }
