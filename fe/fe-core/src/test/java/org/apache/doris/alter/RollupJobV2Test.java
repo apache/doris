@@ -43,7 +43,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
