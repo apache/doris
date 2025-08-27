@@ -108,8 +108,8 @@ public class ListPartitionPrunerV2Test {
         PartitionValueCacheKey key = new PartitionValueCacheKey(NameMapping.createForTest("db", "tb"), types);
         HiveMetaStoreCache.HivePartitionValues partitionValues = cache.getPartitionValues(key);
         Assert.assertEquals(1, partitionValues.getIdToPartitionItem().size());
-        Assert.assertTrue(partitionValues.getIdToPartitionItem().containsKey(340570103551932031L));
-        List<PartitionKey> items = partitionValues.getIdToPartitionItem().get(340570103551932031L).getItems();
+        Assert.assertTrue(partitionValues.getIdToPartitionItem().containsKey(8882801933302843777L));
+        List<PartitionKey> items = partitionValues.getIdToPartitionItem().get(8882801933302843777L).getItems();
         Assert.assertEquals(1, items.size());
         PartitionKey partitionKey = items.get(0);
         Assert.assertEquals("1.234", partitionKey.getKeys().get(0).toString());
@@ -135,8 +135,8 @@ public class ListPartitionPrunerV2Test {
         HiveMetaStoreCache.HivePartitionValues partitionValues3 = cache.getPartitionValues(
                 new PartitionValueCacheKey(NameMapping.createForTest(dbName, tblName), types));
         Assert.assertEquals(1, partitionValues3.getIdToPartitionItem().size());
-        Assert.assertTrue(partitionValues3.getIdToPartitionItem().containsKey(340570103551932031L));
-        List<PartitionKey> items3 = partitionValues3.getIdToPartitionItem().get(340570103551932031L).getItems();
+        Assert.assertTrue(partitionValues3.getIdToPartitionItem().containsKey(8882801933302843777L));
+        List<PartitionKey> items3 = partitionValues3.getIdToPartitionItem().get(8882801933302843777L).getItems();
         Assert.assertEquals(1, items3.size());
         PartitionKey partitionKey3 = items3.get(0);
         Assert.assertEquals("1.234", partitionKey3.getKeys().get(0).toString());
