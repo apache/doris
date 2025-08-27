@@ -230,6 +230,18 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         return resultQueryMap;
     }
 
+    public Map<Long, TQueryStatistics> getQueryStatistics(String queryId) {
+        Map<Long, TQueryStatistics> result = Maps.newHashMap();
+        for (Map.Entry<Long, BeReportInfo> entry : beToQueryStatsMap.entrySet()) {
+            Pair<Long, TQueryStatistics> pair = entry.getValue().queryStatsMap.get(queryId);
+            if (pair != null) {
+                result.put(entry.getKey(), pair.second);
+            }
+        }
+        return result;
+    }
+
+
     private void mergeQueryStatistics(TQueryStatistics dst, TQueryStatistics src) {
         dst.scan_rows += src.scan_rows;
         dst.scan_bytes += src.scan_bytes;
@@ -252,4 +264,5 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     private void queryAuditEventLogWriteUnlock() {
         queryAuditEventLock.unlock();
     }
+
 }

@@ -20,18 +20,13 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.dictionary.Dictionary;
-import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.httpv2.rest.manager.QueryProfileAction.QueryStatistics;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.TQueryStatistics;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -40,7 +35,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Optional;
 
 /**
- * Insert executor for dictionary table
+ * Insert executor for blackhole table
  */
 public class BlackholeInsertExecutor extends AbstractInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(BlackholeInsertExecutor.class);
