@@ -42,7 +42,7 @@ struct AggregateFunctionProductData {
                   typename PrimitiveTypeTraits<T>::ColumnItemType& product_ref) {
         if constexpr (std::is_integral_v<typename PrimitiveTypeTraits<T>::ColumnItemType>) {
             typename PrimitiveTypeTraits<T>::ColumnItemType new_product;
-            if (__builtin_expect(__builtin_mul_overflow(product_ref, value, &new_product), false)) {
+            if (__builtin_expect(common::mul_overflow(product_ref, value, new_product), false)) {
                 // if overflow, set product to infinity to keep the same behavior with double type
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "Product overflow for type {} and value {} * {}", T, value,
@@ -50,16 +50,8 @@ struct AggregateFunctionProductData {
             } else {
                 product_ref = new_product;
             }
-        } else if constexpr (std::is_floating_point_v<
-                                     typename PrimitiveTypeTraits<T>::ColumnItemType>) {
-            if (__builtin_expect(std::isinf(product_ref * value), false)) {
-                throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "Product overflow for type {} and value {} * {}", T, value,
-                                product_ref);
-            } else {
-                product_ref *= value;
-            }
         } else {
+            // which type is float or double
             product_ref *= value;
         }
     }
