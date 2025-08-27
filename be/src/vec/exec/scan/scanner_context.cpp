@@ -199,7 +199,8 @@ Status ScannerContext::init() {
                   << submit_many_scan_tasks_for_potential_performance_issue
                   << ", _ignore_data_distribution: " << _ignore_data_distribution
                   << ", _is_file_scan_operator: " << _is_file_scan_operator
-                  << ", doris_scanner_thread_pool_thread_num: " << config::doris_scanner_thread_pool_thread_num
+                  << ", doris_scanner_thread_pool_thread_num: "
+                  << config::doris_scanner_thread_pool_thread_num
                   << ", _num_parallel_instances: " << _num_parallel_instances
                   << ", _all_scanners.size: " << _all_scanners.size()
                   << ", should_run_serial: " << _local_state->should_run_serial()
