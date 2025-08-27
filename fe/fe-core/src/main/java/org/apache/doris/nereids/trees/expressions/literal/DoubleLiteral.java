@@ -29,12 +29,31 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.VarcharType;
 
+import com.google.common.collect.Sets;
+
 import java.math.BigDecimal;
+import java.util.Set;
 
 /**
  * Double literal
  */
 public class DoubleLiteral extends FractionalLiteral {
+
+    public static Set<String> POS_INF_NAME = Sets.newHashSet();
+    public static Set<String> NEG_INF_NAME = Sets.newHashSet();
+    public static Set<String> NAN_NAME = Sets.newHashSet();
+
+    static {
+        POS_INF_NAME.add("infinity");
+        POS_INF_NAME.add("inf");
+        POS_INF_NAME.add("+infinity");
+        POS_INF_NAME.add("+inf");
+        NEG_INF_NAME.add("-inf");
+        NEG_INF_NAME.add("-infinity");
+        NAN_NAME.add("nan");
+        NAN_NAME.add("+nan");
+        NAN_NAME.add("-nan");
+    }
 
     private final double value;
 
@@ -69,7 +88,8 @@ public class DoubleLiteral extends FractionalLiteral {
             return this;
         }
         if (targetType.isFloatType()) {
-            return new org.apache.doris.nereids.trees.expressions.literal.FloatLiteral((float) value);
+            return new org.apache.doris.nereids.trees.expressions.literal.FloatLiteral(
+                    Float.parseFloat(String.valueOf(value)));
         } else if (targetType.isStringType()) {
             return new StringLiteral(getStringValue());
         } else if (targetType.isCharType()) {

@@ -18,7 +18,6 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -45,7 +44,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.VariantType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
@@ -766,7 +764,7 @@ public class StatisticsUtil {
         return type instanceof ArrayType
                 || type instanceof StructType
                 || type instanceof MapType
-                || type instanceof VariantType
+                || type.isVariantType()
                 || type instanceof AggStateType;
     }
 
@@ -1053,8 +1051,7 @@ public class StatisticsUtil {
      */
     public static boolean isMvColumn(TableIf table, String columnName) {
         return table instanceof OlapTable
-            && columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
-            || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+            && table.getColumn(columnName).isMaterializedViewColumn();
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
@@ -1273,7 +1270,7 @@ public class StatisticsUtil {
      * @return Map of LiteralExpr -> percentage.
      */
     public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type) {
-        if (stringValues == null) {
+        if (stringValues == null || "null".equalsIgnoreCase(stringValues)) {
             return null;
         }
         try {

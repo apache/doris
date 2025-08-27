@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayCumSum.cpp
 // and modified by Doris
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
@@ -245,12 +246,17 @@ private:
         auto& res_datas = res_nested_mut_ptr->get_data();
         res_datas.resize(size);
 
+        // 3. compute cum sum and null map
         _compute_cum_sum<Result>(src_column_concrete->get_data(), src_offsets, src_null_map,
                                  res_datas);
 
+        // handle null value in res_datas for first null value
         auto res_null_map_col = ColumnUInt8::create(size, 0);
-        auto& res_null_map = res_null_map_col->get_data();
-        VectorizedUtils::update_null_map(res_null_map, src_null_map);
+        size_t first_not_null_pos = VectorizedUtils::find_first_valid_simd(src_null_map, 0, size);
+        VLOG_DEBUG << "first_not_null_pos: " << std::to_string(first_not_null_pos);
+        VectorizedUtils::range_set_nullmap_to_true_simd(res_null_map_col->get_data(), 0,
+                                                        first_not_null_pos);
+
         res_nested_ptr =
                 ColumnNullable::create(std::move(res_nested_mut_ptr), std::move(res_null_map_col));
 
@@ -262,17 +268,22 @@ private:
                           const NullMapType& src_null_map, auto& res_datas) const {
         size_t prev_offset = 0;
         for (auto cur_offset : src_offsets) {
-            // [1, null, 2, 3] -> [1, null, 3, 6]
+            // [1, null, 2, 3] -> [1, 1, 3, 6]
+            // [1, null, null, 3] -> [1, 1, 1, 4]
             // [null, null, 1, 2, 3] -> [null, null, 1, 3, 6]
+            // [null, 1, null, 2, 3] -> [null, 1, 1, 3, 6]
+            // [null, null, null, null] -> [null, null, null, null]
             typename PrimitiveTypeTraits<Result>::ColumnItemType accumulated {};
 
             for (size_t pos = prev_offset; pos < cur_offset; ++pos) {
-                // skip null value
+                // treat null value as 0
                 if (src_null_map[pos]) {
-                    res_datas[pos] = typename PrimitiveTypeTraits<Result>::ColumnItemType {};
-                    continue;
+                    accumulated += typename PrimitiveTypeTraits<Result>::ColumnItemType(0);
+                } else {
+                    accumulated +=
+                            typename PrimitiveTypeTraits<Result>::ColumnItemType(src_datas[pos]);
                 }
-                accumulated += typename PrimitiveTypeTraits<Result>::ColumnItemType(src_datas[pos]);
+
                 res_datas[pos] = accumulated;
             }
 

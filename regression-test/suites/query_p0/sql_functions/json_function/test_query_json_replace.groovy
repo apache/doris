@@ -102,14 +102,35 @@ suite("test_query_json_replace", "query") {
             "storage_format" = "V2"
             );
         """
-    sql "insert into ${tableName} values(1,null,null,null);"
-    sql "insert into ${tableName} values(2, array('a','b'), named_struct('name','a','age',1), '{\"a\":\"b\"}');"
-    sql """insert into ${tableName} values(3, array('"a"', '"b"'), named_struct('name','"a"','age', 1), '{\"c\":\"d\"}');"""
-    sql """insert into ${tableName} values(4, array(1,2), named_struct('name', 2, 'age',1), '{\"a\":\"b\"}');"""
-    sql """insert into ${tableName} values(5, array(1,2,3,3), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
+    sql """
+        insert into ${tableName} values
+            (1,null,null,null),
+            (2, array('a','b'), named_struct('name','a','age',1), '{\"a\":\"b\"}'),
+            (3, array('"a"', '"b"'), named_struct('name','"a"','age', 1), '{\"c\":\"d\"}'),
+            (4, array(1,2), named_struct('name', 2, 'age',1), '{\"a\":\"b\"}'),
+            (5, array(1,2,3,3), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');
+    """
     qt_sql3 """select json_replace('{"data": {"array": [1], "map": {"x":"y"}, "struct": {"name":"x","age":0}, "json": {"x":"y"}}}', 
                               '\$.data.array', k1, 
                               '\$.data.struct', k3, 
                               '\$.data.json', k4) from ${tableName} order by k0;"""
     sql "DROP TABLE ${tableName};"
+
+    qt_replace1 """select json_replace('1', '\$[0]', 2);"""
+    qt_replace2 """select json_replace('1', '\$[1]', 2);"""
+    qt_replace3 """select json_replace('{"k": 1}', '\$.k[0]', 2);"""
+    qt_replace4 """select json_replace('{"k": 1}', '\$.k[1]', 2);"""
+    qt_replace5 """select json_replace('{"k": 1}', '\$.k[0]', NULL);"""
+    qt_replace6 """select json_replace('{"k": 1}', NULL, 2);"""
+    qt_replace8 """select json_replace('{"a": 200}', '\$.a', 100, '\$.b.a', 200);"""
+
+    test {
+        sql """select json_replace('1', '\$.*', 4);"""
+        exception "In this situation, path expressions may not contain the * and ** tokens"
+    }
+
+    test {
+        sql "select json_replace('1', '\$.', 4);"
+        exception "Json path error: Invalid Json Path for value"
+    }
 }

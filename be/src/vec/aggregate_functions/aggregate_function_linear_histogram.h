@@ -28,7 +28,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/io/io_helper.h"
 
 // TODO: optimize count=0
 // TODO: support datetime
@@ -186,7 +185,9 @@ public:
 template <PrimitiveType T, typename Data, bool has_offset>
 class AggregateFunctionLinearHistogram final
         : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionLinearHistogram<T, Data, has_offset>> {
+                  Data, AggregateFunctionLinearHistogram<T, Data, has_offset>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
 

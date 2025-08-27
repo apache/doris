@@ -396,6 +396,13 @@ struct TQueryOptions {
   165: optional i32 exchange_multi_blocks_byte_size = 262144 
   // true to use strict cast mode.
   166: optional bool enable_strict_cast = false
+  167: optional bool new_version_unix_timestamp = false
+
+  168: optional i32 hnsw_ef_search = 32;
+  169: optional bool hnsw_check_relative_distance = true;
+  170: optional bool hnsw_bounded_queue = true; 
+
+  171: optional bool optimize_index_scan_parallelism = false;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -723,6 +730,18 @@ enum TCompoundType {
     NOT = 3,
 }
 
+struct TLLMResource {
+  1: required string endpoint
+  2: required string provider_type
+  3: required string model_name
+  4: optional string api_key
+  5: optional double temperature
+  6: optional i64 max_tokens
+  7: optional i64 max_retries
+  8: optional i64 retry_delay_second
+  9: optional string anthropic_version
+}
+
 struct TCondition {
     1:  required string column_name
     2:  required string condition_op
@@ -804,6 +823,7 @@ struct TPipelineFragmentParams {
   43: optional Types.TNetworkAddress current_connect_fe
   // Used by 2.1
   44: optional list<i32> topn_filter_source_node_ids
+  45: optional map<string, TLLMResource> llm_resources
 
   // For cloud
   1000: optional bool is_mow_table;

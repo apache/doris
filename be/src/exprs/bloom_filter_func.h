@@ -39,7 +39,6 @@ public:
         _runtime_bloom_filter_min_size = params->runtime_bloom_filter_min_size;
         _runtime_bloom_filter_max_size = params->runtime_bloom_filter_max_size;
         _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
-        _enable_fixed_len_to_uint32_v2 = params->enable_fixed_len_to_uint32_v2;
         _limit_length();
     }
     Status init_with_fixed_length(size_t runtime_size) {
@@ -126,10 +125,9 @@ public:
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
 
     void light_copy(BloomFilterFuncBase* bloomfilter_func) {
-        auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+        auto* other_func = bloomfilter_func;
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
-        _enable_fixed_len_to_uint32_v2 = other_func->_enable_fixed_len_to_uint32_v2;
     }
 
     virtual void insert_set(std::shared_ptr<HybridSetBase> set) = 0;
@@ -162,7 +160,6 @@ protected:
     int64_t _runtime_bloom_filter_max_size;
     bool _build_bf_by_runtime_size = false;
     bool _bloom_filter_size_calculated_by_ndv = false;
-    bool _enable_fixed_len_to_uint32_v2 = false;
 };
 
 template <PrimitiveType type>
@@ -170,29 +167,17 @@ class BloomFilterFunc final : public BloomFilterFuncBase {
 public:
     BloomFilterFunc(bool null_aware) : BloomFilterFuncBase(null_aware) {}
     void insert_set(std::shared_ptr<HybridSetBase> set) override {
-        if (_enable_fixed_len_to_uint32_v2) {
-            OpV2::insert_set(*_bloom_filter, set);
-        } else {
-            Op::insert_set(*_bloom_filter, set);
-        }
+        OpV2::insert_set(*_bloom_filter, set);
         _bloom_filter->set_contain_null(set->contain_null());
     }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
         DCHECK(_bloom_filter != nullptr);
-        if (_enable_fixed_len_to_uint32_v2) {
-            OpV2::insert_batch(*_bloom_filter, column, start);
-        } else {
-            Op::insert_batch(*_bloom_filter, column, start);
-        }
+        OpV2::insert_batch(*_bloom_filter, column, start);
     }
 
     void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results) override {
-        if (_enable_fixed_len_to_uint32_v2) {
-            OpV2::find_batch(*_bloom_filter, column, results);
-        } else {
-            Op::find_batch(*_bloom_filter, column, results);
-        }
+        OpV2::find_batch(*_bloom_filter, column, results);
     }
 
     template <bool is_nullable>
@@ -214,17 +199,11 @@ public:
 
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap, uint16_t* offsets,
                                         int number, bool is_parse_column) override {
-        if (_enable_fixed_len_to_uint32_v2) {
-            return OpV2::find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
-                                                is_parse_column);
-        } else {
-            return Op::find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
-                                              is_parse_column);
-        }
+        return OpV2::find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number,
+                                            is_parse_column);
     }
 
 private:
-    using Op = typename BloomFilterTypeTraits<fixed_len_to_uint32, type>::FindOp;
     using OpV2 = typename BloomFilterTypeTraits<fixed_len_to_uint32_v2, type>::FindOp;
 };
 #include "common/compile_check_end.h"

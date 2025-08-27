@@ -21,7 +21,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
  // loading one data 10 times, expect data size not rising
-suite("test_cloud_drop_and_recover_table_show_data","p2, nonConcurrent") {
+suite("test_cloud_drop_and_show_data","p2, nonConcurrent") {
     //cloud-mode
     if (!isCloudMode()) {
         logger.info("not cloud mode, not run")
@@ -124,15 +124,15 @@ suite("test_cloud_drop_and_recover_table_show_data","p2, nonConcurrent") {
             sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
             logger.info("after drop table force, storageSize is: ${sizeRecords["cbsSize"][-1]}")
 
-            assertEquals(sizeRecords["cbsSize"][2], 0.0)
+            assertTrue(sizeRecords["cbsSize"][2] == 0)
 
         }
     }
 
     def main = {
         def tableName = "test_cloud_drop_and_recover_table_show_data"
-        //create_normal_table(tableName) 
-        //check(tableName, 1)
+        create_normal_table(tableName) 
+        check(tableName, 1)
 
         tableName = "test_cloud_drop_and_recover_table_force_show_data"
         create_normal_table(tableName) 

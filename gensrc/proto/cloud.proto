@@ -442,6 +442,7 @@ message TxnInfoPB {
     repeated int64 sub_txn_ids = 18;
     // TODO: There are more fields TBD
     optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
+    optional bool versioned_read = 20;  // whether to read versioned keys
 }
 
 // For check txn conflict and txn timeout
@@ -475,6 +476,7 @@ message RecycleIndexPB {
     optional int64 creation_time = 2;
     optional int64 expiration = 3; // expiration timestamp
     optional State state = 4;
+    optional int64 db_id = 5;
 }
 
 message RecyclePartitionPB {
@@ -517,17 +519,24 @@ message RestoreJobCloudPB {
     enum State {
         UNKNOWN = 0;
         PREPARED = 1;
-        DROPPED = 2;
+        COMMITTED = 2;
+        DROPPED = 3;
+        COMPLETED = 4;
+        RECYCLING = 5;
     }
     optional int64 tablet_id = 1;
-    optional int64 creation_time = 2;
-    optional int64 expiration = 3; // expiration timestamp
-    optional doris.TabletMetaCloudPB tablet_meta = 4;
-    optional State state = 5;
-    optional int64 total_rowset_num = 6;
-    optional int64 total_row_num = 7;
-    optional int64 total_segment_num = 8;
-    optional int64 total_disk_size = 9;
+    optional int64 ctime_s = 2;
+    optional int64 mtime_s = 3;
+    optional int64 expired_at_s = 4; // expiration timestamp
+    optional doris.TabletMetaCloudPB tablet_meta = 5;
+    optional State state = 6;
+    optional int64 total_rowset_num = 7;
+    optional int64 total_row_num = 8;
+    optional int64 total_segment_num = 9;
+    optional int64 total_disk_size = 10;
+    optional int64 committed_rowset_num = 11;
+    optional bool need_recycle_data = 12;
+    optional int64 version = 13;
 }
 
 message JobRecyclePB {
@@ -553,6 +562,11 @@ message TabletIndexPB {
 }
 
 message PartitionIndexPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+}
+
+message IndexIndexPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
 }
@@ -660,6 +674,7 @@ message CommitTxnLogPB {
     // for recycle txn key
     optional int64 txn_id = 4;
     optional RecycleTxnPB recycle_txn = 5;
+    optional int64 db_id = 6;
 }
 
 message SchemaChangeLogPB {
@@ -681,20 +696,26 @@ message DropPartitionLogPB {
     optional int64 table_id = 2;
     repeated int64 index_ids = 3;
     repeated int64 partition_ids = 4;
-    optional int64 expiration = 5; // expiration timestamp
+    optional int64 expired_at_s = 5; // expiration timestamp
     optional bool update_table_version = 6;
+}
+
+message CommitIndexLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    optional bool update_table_version = 4;
 }
 
 message DropIndexLogPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
-    optional RecycleIndexPB recycle_index = 4;
+    repeated int64 index_ids = 3;
+    optional int64 expiration = 4; // expiration timestamp
 }
 
 message UpdateTabletLogPB {
-    optional int64 tablet_id = 1;
-    optional int64 prev_timestamp = 2;
+    repeated int64 tablet_ids = 1;
 }
 
 message UpdateDeleteBitmapLogPB {
@@ -704,7 +725,7 @@ message UpdateDeleteBitmapLogPB {
 // The operation log records which data needs to be recycled.
 // If the log is not referenced by any snapshot, the operation log will be recycled.
 message OperationLogPB {
-    optional bytes min_timestamp = 1;
+    optional uint64 min_timestamp = 1;
 
     optional CommitTxnLogPB commit_txn = 2;
     optional CompactionLogPB compaction = 3;
@@ -714,6 +735,7 @@ message OperationLogPB {
     optional UpdateTabletLogPB update_tablet = 7;
     optional UpdateDeleteBitmapLogPB update_delete_bitmap = 8;
     optional CommitPartitionLogPB commit_partition = 9;
+    optional CommitIndexLogPB commit_index = 10;
 }
 
 enum SnapshotType {
@@ -1211,6 +1233,8 @@ message GetRowsetResponse {
     optional TabletStatsPB stats = 3;
     // Return dict value if SchemaOp is RETURN_DICT
     optional SchemaCloudDictionary schema_dict = 4;
+    // The current max version of the partition
+    optional int64 partition_max_version = 5;
 }
 
 message GetSchemaDictRequest {
@@ -1255,11 +1279,19 @@ message PartitionResponse {
 }
 
 message RestoreJobRequest {
+    enum Action {
+        UNKONWN  = 0;
+        PREPARE = 1;
+        COMMIT = 2;
+        ABORT = 3;
+        COMPLETE = 4;
+    }
     optional string cloud_unique_id = 1;
     optional int64 tablet_id = 2;
     optional doris.TabletMetaCloudPB tablet_meta = 3;
     optional int64 expiration = 4;
     optional string request_ip = 5;
+    optional Action action = 6;
 }
 
 message RestoreJobResponse {
@@ -1945,8 +1977,6 @@ service MetaService {
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
-    // DEPRECATED
-    rpc update_tablet_schema(UpdateTabletSchemaRequest) returns (UpdateTabletSchemaResponse);
 
     rpc prepare_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
     rpc commit_restore_job(RestoreJobRequest) returns (RestoreJobResponse);

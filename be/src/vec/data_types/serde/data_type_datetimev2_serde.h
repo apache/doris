@@ -45,6 +45,11 @@ public:
                                          const FormatOptions& options,
                                          const NullMap::value_type* null_map = nullptr) const final;
 
+    Status from_string(StringRef& str, IColumn& column, const FormatOptions& options) const final;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const final;
+
     template <typename IntDataType>
     Status from_int_batch(const IntDataType::ColumnType& int_col, ColumnNullable& target_col) const;
     template <typename IntDataType>
@@ -99,6 +104,9 @@ public:
                                               uint64_t* num_deserialized,
                                               const FormatOptions& options) const override;
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
+
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
 
 private:
     template <bool is_binary_format>

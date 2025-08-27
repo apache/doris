@@ -107,7 +107,9 @@ struct AggregateFunctionGroupBitXorData : public AggregateFunctionBaseData<T> {
 /// Counts bitwise operation on numbers.
 template <PrimitiveType T, typename Data>
 class AggregateFunctionBitwise final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionBitwise(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>(

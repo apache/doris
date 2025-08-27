@@ -52,6 +52,7 @@
 #include "util/types.h"
 #include "vec/common/arena.h"
 #include "vec/core/extended_types.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -666,10 +667,12 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT> {
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT> {
     using CppType = float;
+    using UnsignedCppType = uint32_t;
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE> {
     using CppType = double;
+    using UnsignedCppType = uint64_t;
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
@@ -1044,11 +1047,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
         return Status::OK();
     }
     static std::string to_string(const void* src) {
-        char buf[1024] = {'\0'};
-        int length = to_buffer(*reinterpret_cast<const CppType*>(src), MAX_FLOAT_STR_LENGTH, buf);
-        DCHECK(length >= 0) << "gcvt float failed, float value="
-                            << *reinterpret_cast<const CppType*>(src);
-        return std::string(buf);
+        return vectorized::CastToString::from_number(*reinterpret_cast<const CppType*>(src));
     }
 };
 
@@ -1065,11 +1064,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
         return Status::OK();
     }
     static std::string to_string(const void* src) {
-        char buf[1024] = {'\0'};
-        int length = to_buffer(*reinterpret_cast<const CppType*>(src), MAX_DOUBLE_STR_LENGTH, buf);
-        DCHECK(length >= 0) << "gcvt float failed, float value="
-                            << *reinterpret_cast<const CppType*>(src);
-        return std::string(buf);
+        return vectorized::CastToString::from_number(*reinterpret_cast<const CppType*>(src));
     }
 };
 

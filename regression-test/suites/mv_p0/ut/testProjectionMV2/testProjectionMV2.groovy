@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testProjectionMV2") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -36,7 +38,7 @@ suite ("testProjectionMV2") {
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
 
-    createMV("create materialized view emps_mv as select deptno, empid from emps order by deptno;")
+    createMV("create materialized view emps_mv as select deptno as a1, empid as a2 from emps order by deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
@@ -46,6 +48,14 @@ suite ("testProjectionMV2") {
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
+
+    mv_rewrite_success_without_check_chosen("select empid + 1 from emps where deptno = 1 order by empid;", "emps_mv")
+
+    mv_rewrite_fail("select name from emps where deptno -1 = 0 order by empid;", "emps_mv")
+
+    sql """set enable_stats=true;"""
+
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
     mv_rewrite_success("select empid + 1 from emps where deptno = 1 order by empid;", "emps_mv")
@@ -53,12 +63,4 @@ suite ("testProjectionMV2") {
 
     mv_rewrite_fail("select name from emps where deptno -1 = 0 order by empid;", "emps_mv")
     qt_select_base "select name from emps where deptno -1 = 0 order by empid;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
-
-    mv_rewrite_success("select empid + 1 from emps where deptno = 1 order by empid;", "emps_mv")
-
-    mv_rewrite_fail("select name from emps where deptno -1 = 0 order by empid;", "emps_mv")
 }

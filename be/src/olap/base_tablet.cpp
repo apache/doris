@@ -158,17 +158,7 @@ TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
                                           : a->tablet_schema()->schema_version() <
                                                     b->tablet_schema()->schema_version());
             });
-    TabletSchemaSPtr target_schema = max_schema_version_rs->tablet_schema();
-    if (target_schema->num_variant_columns() > 0) {
-        // For variant columns tablet schema need to be the merged wide tablet schema
-        std::vector<TabletSchemaSPtr> schemas;
-        std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
-                       [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
-        static_cast<void>(
-                vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
-        VLOG_DEBUG << "dump schema: " << target_schema->dump_full_schema();
-    }
-    return target_schema;
+    return max_schema_version_rs->tablet_schema();
 }
 
 Status BaseTablet::set_tablet_state(TabletState state) {
@@ -187,21 +177,6 @@ void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema
         tablet_schema->schema_version() > _max_version_schema->schema_version()) {
         _max_version_schema = tablet_schema;
     }
-}
-
-Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_schema) {
-    std::lock_guard wrlock(_meta_lock);
-    CHECK(_max_version_schema->schema_version() >= update_schema->schema_version());
-    TabletSchemaSPtr final_schema;
-    bool check_column_size = true;
-    VLOG_DEBUG << "dump _max_version_schema: " << _max_version_schema->dump_full_schema();
-    VLOG_DEBUG << "dump update_schema: " << update_schema->dump_full_schema();
-    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
-            {_max_version_schema, update_schema}, _max_version_schema, final_schema,
-            check_column_size));
-    _max_version_schema = final_schema;
-    VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_full_schema();
-    return Status::OK();
 }
 
 uint32_t BaseTablet::get_real_compaction_score() const {
@@ -375,8 +350,8 @@ void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta)
 }
 
 Status BaseTablet::calc_delete_bitmap_between_segments(
-        RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& segments,
-        DeleteBitmapPtr delete_bitmap) {
+        TabletSchemaSPtr schema, RowsetId rowset_id,
+        const std::vector<segment_v2::SegmentSharedPtr>& segments, DeleteBitmapPtr delete_bitmap) {
     size_t const num_segments = segments.size();
     if (num_segments < 2) {
         return Status::OK();
@@ -384,12 +359,12 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
 
     OlapStopWatch watch;
     size_t seq_col_length = 0;
-    if (_tablet_meta->tablet_schema()->has_sequence_col()) {
-        auto seq_col_idx = _tablet_meta->tablet_schema()->sequence_col_idx();
-        seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length() + 1;
+    if (schema->has_sequence_col()) {
+        auto seq_col_idx = schema->sequence_col_idx();
+        seq_col_length = schema->column(seq_col_idx).length() + 1;
     }
     size_t rowid_length = 0;
-    if (!_tablet_meta->tablet_schema()->cluster_key_uids().empty()) {
+    if (!schema->cluster_key_uids().empty()) {
         rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
 
@@ -989,10 +964,9 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
         const auto& column = schema.column(cids[i]);
         if (column.has_default_value()) {
             const auto& default_value = default_values[i];
-            vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
-                                      default_value.size());
-            RETURN_IF_ERROR(ref_block.get_by_position(i).type->from_string(
-                    rb, mutable_default_value_columns[i].get()));
+            StringRef str(default_value);
+            RETURN_IF_ERROR(ref_block.get_by_position(i).type->get_serde()->default_from_string(
+                    str, *mutable_default_value_columns[i]));
         }
     }
     default_value_block.set_columns(std::move(mutable_default_value_columns));
@@ -1803,8 +1777,8 @@ Status BaseTablet::update_delete_bitmap_without_lock(
 
     // calculate delete bitmap between segments if necessary.
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(self->tablet_id());
-    RETURN_IF_ERROR(self->calc_delete_bitmap_between_segments(rowset->rowset_id(), segments,
-                                                              delete_bitmap));
+    RETURN_IF_ERROR(self->calc_delete_bitmap_between_segments(
+            rowset->tablet_schema(), rowset->rowset_id(), segments, delete_bitmap));
 
     // get all base rowsets to calculate on
     std::vector<RowsetSharedPtr> specified_rowsets;
@@ -1898,11 +1872,11 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
 
 void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rowset_count,
                                                            int64_t& useless_rowset_version_count) {
-    std::set<RowsetId> rowset_ids;
+    std::map<RowsetId, Version> rowset_ids;
     std::set<int64_t> end_versions;
     traverse_rowsets(
             [&rowset_ids, &end_versions](const RowsetSharedPtr& rs) {
-                rowset_ids.emplace(rs->rowset_id());
+                rowset_ids[rs->rowset_id()] = rs->version();
                 end_versions.emplace(rs->end_version());
             },
             true);
@@ -1913,13 +1887,23 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
         _tablet_meta->delete_bitmap().traverse_rowset_and_version(
                 // 0: rowset and rowset with version exists
                 // -1: rowset does not exist
-                // -2: rowset exist, rowset with version does not exist
+                // -2: find next <rowset, version>
+                //     rowset exist, rowset with version does not exist
+                //     sequence table
                 [&](const RowsetId& rowset_id, int64_t version) {
-                    if (rowset_ids.find(rowset_id) == rowset_ids.end()) {
+                    auto rowset_it = rowset_ids.find(rowset_id);
+                    if (rowset_it == rowset_ids.end()) {
                         useless_rowsets.emplace(rowset_id);
                         return -1;
                     }
                     if (end_versions.find(version) == end_versions.end()) {
+                        if (tablet_schema()->has_sequence_col()) {
+                            auto rowset_version = rowset_it->second;
+                            if (version >= rowset_version.first &&
+                                version <= rowset_version.second) {
+                                return -2;
+                            }
+                        }
                         if (useless_rowset_versions.find(rowset_id) ==
                             useless_rowset_versions.end()) {
                             useless_rowset_versions[rowset_id] = {};

@@ -20,6 +20,7 @@
 #include <bvar/bvar.h>
 #include <concurrentqueue.h>
 
+#include <algorithm>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <memory>
 #include <mutex>
@@ -282,6 +283,11 @@ public:
     };
     using QueryFileCacheContextHolderPtr = std::unique_ptr<QueryFileCacheContextHolder>;
     QueryFileCacheContextHolderPtr get_query_context_holder(const TUniqueId& query_id);
+
+    int64_t approximate_available_cache_size() const {
+        return std::max<int64_t>(
+                _cache_capacity_metrics->get_value() - _cur_cache_size_metrics->get_value(), 0);
+    }
 
 private:
     struct FileBlockCell {

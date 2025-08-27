@@ -23,7 +23,6 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateOrReplaceBranchClause;
@@ -45,7 +44,6 @@ import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -169,18 +167,6 @@ public class Alter {
         String name = tableName.getTbl();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
         ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(command, db, olapTable);
-    }
-
-    private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
-                                          Database db) throws UserException {
-        if (olapTable.getDataSortInfo() != null
-                && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
-            throw new UserException("z-order table can not support schema change!");
-        }
-        stmt.rewriteAlterClause(olapTable);
-
-        alterClauses.addAll(stmt.getOps());
-        return processAlterOlapTableInternal(alterClauses, olapTable, db, stmt.toSql());
     }
 
     private boolean processAlterOlapTable(AlterTableCommand command, OlapTable olapTable,
@@ -521,12 +507,6 @@ public class Alter {
         }
     }
 
-    private void processAlterExternalTable(AlterTableStmt stmt, Table externalTable, Database db)
-            throws UserException {
-        stmt.checkExternalTableOperationAllow(externalTable);
-        processAlterExternalTableInternal(stmt.getOps(), externalTable, db);
-    }
-
     private void processAlterExternalTable(AlterTableCommand command, Table externalTable, Database db)
             throws UserException {
         List<AlterClause> alterClauses = new ArrayList<>();
@@ -610,94 +590,6 @@ public class Alter {
             }
         } finally {
             odbcTable.writeUnlock();
-        }
-    }
-
-    public void processAlterTable(AlterTableStmt stmt) throws UserException {
-        TableName dbTableName = stmt.getTbl();
-        String ctlName = dbTableName.getCtl();
-        String dbName = dbTableName.getDb();
-        String tableName = dbTableName.getTbl();
-        DatabaseIf dbIf = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
-                .getDbOrDdlException(dbName);
-        TableIf tableIf = dbIf.getTableOrDdlException(tableName);
-        List<AlterClause> alterClauses = Lists.newArrayList();
-        // some operations will take long time to process, need to be done outside the table lock
-        boolean needProcessOutsideTableLock = false;
-        switch (tableIf.getType()) {
-            case MATERIALIZED_VIEW:
-            case OLAP:
-                if (tableIf.isTemporary()) {
-                    throw new DdlException("Do not support alter temporary table[" + tableName + "]");
-                }
-                OlapTable olapTable = (OlapTable) tableIf;
-                needProcessOutsideTableLock = processAlterOlapTable(stmt, olapTable, alterClauses, (Database) dbIf);
-                break;
-            case ODBC:
-            case JDBC:
-            case HIVE:
-            case MYSQL:
-            case ELASTICSEARCH:
-                processAlterExternalTable(stmt, (Table) tableIf, (Database) dbIf);
-                return;
-            case HMS_EXTERNAL_TABLE:
-            case JDBC_EXTERNAL_TABLE:
-            case ICEBERG_EXTERNAL_TABLE:
-            case PAIMON_EXTERNAL_TABLE:
-            case MAX_COMPUTE_EXTERNAL_TABLE:
-            case HUDI_EXTERNAL_TABLE:
-            case TRINO_CONNECTOR_EXTERNAL_TABLE:
-                alterClauses.addAll(stmt.getOps());
-                setExternalTableAutoAnalyzePolicy((ExternalTable) tableIf, alterClauses);
-                return;
-            default:
-                throw new DdlException("Do not support alter "
-                        + tableIf.getType().toString() + " table[" + tableName + "]");
-        }
-
-        Database db = (Database) dbIf;
-        // the following ops should done outside table lock. because it contain synchronized create operation
-        if (needProcessOutsideTableLock) {
-            Preconditions.checkState(alterClauses.size() == 1);
-            AlterClause alterClause = alterClauses.get(0);
-            if (alterClause instanceof AddPartitionClause) {
-                if (!((AddPartitionClause) alterClause).isTempPartition()) {
-                    DynamicPartitionUtil.checkAlterAllowed(
-                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
-                }
-                Env.getCurrentEnv().addPartition(db, tableName, (AddPartitionClause) alterClause, false, 0, true);
-            } else if (alterClause instanceof AddPartitionLikeClause) {
-                if (!((AddPartitionLikeClause) alterClause).getIsTempPartition()) {
-                    DynamicPartitionUtil.checkAlterAllowed(
-                            (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
-                }
-                Env.getCurrentEnv().addPartitionLike(db, tableName, (AddPartitionLikeClause) alterClause);
-            } else if (alterClause instanceof ModifyPartitionClause) {
-                ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
-                Map<String, String> properties = clause.getProperties();
-                List<String> partitionNames = clause.getPartitionNames();
-                ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsProperties(
-                        db, tableName, partitionNames, properties);
-                OlapTable olapTable = (OlapTable) tableIf;
-                olapTable.writeLockOrDdlException();
-                try {
-                    modifyPartitionsProperty(db, olapTable, partitionNames, properties, clause.isTempPartition());
-                } finally {
-                    olapTable.writeUnlock();
-                }
-            } else if (alterClause instanceof ModifyTablePropertiesClause) {
-                Map<String, String> properties = alterClause.getProperties();
-                ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
-            } else if (alterClause instanceof AlterMultiPartitionClause) {
-                if (!((AlterMultiPartitionClause) alterClause).isTempPartition()) {
-                    DynamicPartitionUtil.checkAlterAllowed(
-                             (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
-                }
-                Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
-            } else {
-                throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
-            }
         }
     }
 

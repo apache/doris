@@ -226,7 +226,7 @@ under the License.
         <avro.version>1.12.0</avro.version>
         <parquet.version>1.15.2</parquet.version>
         <spark.version>3.4.3</spark.version>
-        <hudi.version>0.15.0</hudi.version>
+        <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
         <gcs.dependency.scope>compile</gcs.dependency.scope>
@@ -242,7 +242,6 @@ under the License.
         <skip.plugin>false</skip.plugin>
         <sonar.organization>apache</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
-        <aspectj.version>1.9.7</aspectj.version>
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.5</commons-filerupload.version>
@@ -258,11 +257,9 @@ under the License.
         <gson.version>2.10.1</gson.version>
         <guava.version>33.2.1-jre</guava.version>
         <jackson.version>2.16.0</jackson.version>
-        <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
-        <jflex.version>1.4.3</jflex.version>
         <jmockit.version>1.49</jmockit.version>
         <commons-io.version>2.18.0</commons-io.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
@@ -408,23 +405,11 @@ under the License.
                     <name>apache snapshots maven repo https</name>
                     <url>https://repository.apache.org/content/repositories/snapshots/</url>
                 </repository>
-                <!-- for java-cup -->
-                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
-                <repository>
-                    <id>cloudera</id>
-                    <url>https://repository.cloudera.com/repository/libs-release-local/</url>
-                </repository>
             </repositories>
             <pluginRepositories>
                 <pluginRepository>
                     <id>central</id>
                     <url>https://repo.maven.apache.org/maven2</url>
-                </pluginRepository>
-                <!-- for cup-maven-plugin -->
-                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
-                <pluginRepository>
-                    <id>cloudera</id>
-                    <url>https://repository.cloudera.com/repository/libs-release-local/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
@@ -848,12 +833,6 @@ under the License.
                 <artifactId>guava-testlib</artifactId>
                 <version>${guava.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/net.sourceforge.czt.dev/java-cup -->
-            <dependency>
-                <groupId>net.sourceforge.czt.dev</groupId>
-                <artifactId>java-cup</artifactId>
-                <version>${java-cup.version}</version>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
             <dependency>
                 <groupId>org.javassist</groupId>
@@ -870,12 +849,6 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>je</artifactId>
                 <version>${je.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/de.jflex/jflex -->
-            <dependency>
-                <groupId>de.jflex</groupId>
-                <artifactId>jflex</artifactId>
-                <version>${jflex.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
             <dependency>
@@ -1348,16 +1321,6 @@ under the License.
                         <artifactId>hive-storage-api</artifactId>
                     </exclusion>
                 </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>org.aspectj</groupId>
-                <artifactId>aspectjweaver</artifactId>
-                <version>${aspectj.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.aspectj</groupId>
-                <artifactId>aspectjrt</artifactId>
-                <version>${aspectj.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->

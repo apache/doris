@@ -18,14 +18,12 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
@@ -63,6 +61,55 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
             description = "The region of OBS.")
     protected String region;
 
+    @Getter
+    @ConnectorProperty(names = {"obs.session_token", "s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of OBS.")
+    protected String sessionToken = "";
+
+    /**
+     * The maximum number of concurrent connections that can be made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"obs.connection.maximum", "s3.connection.maximum"}, required = false,
+            description = "Maximum number of connections.")
+    protected String maxConnections = "100";
+
+    /**
+     * The timeout (in milliseconds) for requests made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"obs.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
+            description = "Request timeout in seconds.")
+    protected String requestTimeoutS = "10000";
+
+    /**
+     * The timeout (in milliseconds) for establishing a connection to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"obs.connection.timeout", "s3.connection.timeout"}, required = false,
+            description = "Connection timeout in seconds.")
+    protected String connectionTimeoutS = "10000";
+
+    /**
+     * Flag indicating whether to use path-style URLs for the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Setter
+    @Getter
+    @ConnectorProperty(names = {"obs.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    protected String usePathStyle = "false";
+
+    @ConnectorProperty(names = {"obs.force_parsing_by_standard_uri", "force_parsing_by_standard_uri"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    @Setter
+    @Getter
+    protected String forceParsingByStandardUrl = "false";
+
     /**
      * Pattern to extract the region from a Huawei Cloud OBS endpoint.
      * <p>
@@ -80,22 +127,6 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     public OBSProperties(Map<String, String> origProps) {
         super(Type.OBS, origProps);
         // Initialize fields from origProps
-    }
-
-    @Override
-    public void initNormalizeAndCheckProps() {
-        super.initNormalizeAndCheckProps();
-        // Check if credentials are provided properly - either both or neither
-        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
-            return;
-        }
-        // Allow anonymous access if both access_key and secret_key are empty
-        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            return;
-        }
-        // If only one is provided, it's an error
-        throw new StoragePropertiesException(
-                        "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
@@ -135,13 +166,17 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
 
     @Override
     public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = new Configuration();
-        hadoopStorageConfig.set("fs.obs.impl", "com.obs.services.hadoop.fs.OBSFileSystem");
+        super.initializeHadoopStorageConfig();
+        hadoopStorageConfig.set("fs.obs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         hadoopStorageConfig.set("fs.obs.access.key", accessKey);
         hadoopStorageConfig.set("fs.obs.secret.key", secretKey);
         hadoopStorageConfig.set("fs.obs.endpoint", endpoint);
-        hadoopStorageConfig.set("fs.obs.connection.timeout", connectionTimeoutS);
-        hadoopStorageConfig.set("fs.obs.request.timeout", requestTimeoutS);
-        hadoopStorageConfig.set("fs.obs.connection.max", maxConnections);
+    }
+
+    protected void setEndpointIfPossible() {
+        super.setEndpointIfPossible();
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Property obs.endpoint is required.");
+        }
     }
 }

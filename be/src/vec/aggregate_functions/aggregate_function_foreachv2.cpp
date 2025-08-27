@@ -85,7 +85,7 @@ void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFac
         for (const auto& t : types) {
             auto item_type =
                     assert_cast<const DataTypeArray*>(remove_nullable(t).get())->get_nested_type();
-            transform_arguments.push_back((item_type));
+            transform_arguments.push_back(item_type);
         }
         auto nested_function_name = name.substr(0, name.size() - suffix.size());
         auto nested_function = factory.get(nested_function_name, transform_arguments, true,
@@ -98,7 +98,7 @@ void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFac
                     nested_function_name, types_name(types));
         }
         return creator_without_type::create<AggregateFunctionForEachV2>(types, result_is_nullable,
-                                                                        nested_function);
+                                                                        attr, nested_function);
     };
     factory.register_foreach_function_combinator(
             creator, AggregateFunctionForEachV2::AGG_FOREACH_SUFFIX, true);

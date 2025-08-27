@@ -23,7 +23,6 @@
 #include <stddef.h>
 
 #include <memory>
-#include <type_traits>
 #include <vector>
 
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -34,7 +33,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -71,7 +69,9 @@ struct AggregateFunctionSumData {
 /// Counts the sum of the numbers.
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
 class AggregateFunctionSum final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;

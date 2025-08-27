@@ -39,7 +39,6 @@
 namespace doris::vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 
 class DataTypeString : public IDataType {
 public:
@@ -76,6 +75,9 @@ public:
         return Field::create_field<TYPE_STRING>(node.string_literal.value);
     }
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return false; }
@@ -86,7 +88,6 @@ public:
     bool can_be_inside_low_cardinality() const override { return true; }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     using SerDeType = DataTypeStringSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(nesting_level);

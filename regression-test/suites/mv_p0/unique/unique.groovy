@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("unique") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS u_table; """
 
     sql """
@@ -38,25 +40,25 @@ suite ("unique") {
     sql "insert into u_table select 20,2,2,'b';"
 
     test {
-        sql """create materialized view k12s3m as select k1,sum(k2),max(k2) from u_table group by k1;"""
+        sql """create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from u_table group by k1;"""
         exception "must not has grouping columns"
     }
 
     test {
-        sql """create materialized view kadj as select k4 from u_table"""
+        sql """create materialized view kadj as select k4 as a2 from u_table"""
         exception "The materialized view of uniq table must contain all key columns. column:k1"
     }
 
     test {
-        sql """create materialized view kadj as select k4,k1,k2,k3 from u_table"""
+        sql """create materialized view kadj as select k4 as a1,k1 as a2,k2 as a3,k3 as a4 from u_table"""
         exception "The materialized view not support value column before key column"
     }
 
-    createMV("create materialized view kadj as select k3,k2,k1,k4 from u_table;")
+    createMV("create materialized view kadj as select k3 as a1,k2 as a2,k1 as a3,k4 as a4 from u_table;")
 
-    createMV("create materialized view kadj2 as select k1,k3,k2,length(k4) from u_table;")
+    createMV("create materialized view kadj2 as select k1 as b1,k3 as b2 ,k2  as b3 ,length(k4) as b4 from u_table;")
 
-    createMV("create materialized view k31l42 as select k1,k3,length(k1),k2 from u_table;")
+    createMV("create materialized view k31l42 as select k1 as x1 ,k3 as x2,length(k1) as x3,k2 as x4 from u_table;")
     sql "insert into u_table select 300,-3,null,'c';"
 
     sql """analyze table u_table with sync;"""
@@ -66,7 +68,7 @@ suite ("unique") {
 
 
     test {
-        sql """create materialized view kadp as select k4 from u_table group by k4;"""
+        sql """create materialized view kadp as select k4 as xx from u_table group by k4;"""
         exception "must not has grouping columns"
     }
 

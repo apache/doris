@@ -192,6 +192,10 @@ public class EditLog {
             int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, batch.size()));
             JournalBatch journalBatch = new JournalBatch(itemNum);
 
+            if (DebugPointUtil.isEnable("EditLog.flushEditLog.exception")) {
+                // For debug purpose, throw an exception to test the edit log flush
+                throw new RuntimeException("EditLog.flushEditLog.exception");
+            }
             // Array to record pairs of logId and num
             List<long[]> logIdNumPairs = new ArrayList<>();
             for (EditLogItem req : batch) {
@@ -229,7 +233,6 @@ public class EditLog {
                     }
                 }
             }
-
         } catch (Throwable t) {
             // Throwable contains all Exception and Error, such as IOException and
             // OutOfMemoryError
@@ -1405,7 +1408,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_OPERATE_KEY: {
-                    //KeyOperationInfo info = (KeyOperationInfo) journal.getData();
+                    KeyOperationInfo info = (KeyOperationInfo) journal.getData();
+                    env.getKeyManager().replayKeyOperation(info);
                     break;
                 }
                 default: {
@@ -1436,8 +1440,20 @@ public class EditLog {
              */
             LOG.warn("[INCONSISTENT META] replay log {} failed, journal {}: {}", logId, journal, e.getMessage(), e);
         } catch (Exception e) {
-            LOG.error("replay Operation Type {}, log id: {}", opCode, logId, e);
-            System.exit(-1);
+            short[] ignoreExceptionLogIds = Config.skip_operation_types_on_replay_exception;
+            boolean skip = false;
+            for (short ignoreLogId : ignoreExceptionLogIds) {
+                if (ignoreLogId == opCode) {
+                    skip = true;
+                    break;
+                }
+            }
+            if (!skip) {
+                LOG.error("replay Operation Type {}, log id: {}", opCode, logId, e);
+                System.exit(-1);
+            } else {
+                LOG.warn("Skip replay Operation Type {} due to exception, log id: {}", opCode, logId, e);
+            }
         }
     }
 
@@ -2453,5 +2469,9 @@ public class EditLog {
 
     public void logBranchOrTag(TableBranchOrTagInfo info) {
         logEdit(OperationType.OP_BRANCH_OR_TAG, info);
+    }
+
+    public void logOperateKey(KeyOperationInfo info) {
+        logEdit(OperationType.OP_OPERATE_KEY, info);
     }
 }

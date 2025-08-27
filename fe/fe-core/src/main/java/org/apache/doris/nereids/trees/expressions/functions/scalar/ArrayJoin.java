@@ -62,6 +62,11 @@ public class ArrayJoin extends ScalarFunction
         super("array_join", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayJoin(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child(0).getDataType();
@@ -76,13 +81,8 @@ public class ArrayJoin extends ScalarFunction
      */
     @Override
     public ArrayJoin withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2
-                || children.size() == 3);
-        if (children.size() == 2) {
-            return new ArrayJoin(children.get(0), children.get(1));
-        } else {
-            return new ArrayJoin(children.get(0), children.get(1), children.get(2));
-        }
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
+        return new ArrayJoin(getFunctionParams(children));
     }
 
     @Override

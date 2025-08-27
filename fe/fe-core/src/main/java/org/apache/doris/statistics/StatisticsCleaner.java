@@ -95,12 +95,11 @@ public class StatisticsCleaner extends MasterDaemon {
 
     private void clearStats(OlapTable statsTbl, boolean isTableColumnStats) {
         ExpiredStats expiredStats;
-        long offset = 0;
         do {
             expiredStats = new ExpiredStats();
-            offset = findExpiredStats(statsTbl, expiredStats, offset, isTableColumnStats);
+            findExpiredStats(statsTbl, expiredStats, 0, isTableColumnStats);
             deleteExpiredStats(expiredStats, statsTbl.getName(), isTableColumnStats);
-        } while (!expiredStats.isEmpty());
+        } while (expiredStats.isFull());
     }
 
     private void clearTableStats() {
@@ -141,7 +140,7 @@ public class StatisticsCleaner extends MasterDaemon {
                 analysisManager.removeTableStats(id);
                 Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(id));
             } catch (Exception e) {
-                LOG.info(e);
+                LOG.info("Fail to remove table stats for table {}", id, e);
             }
         }
     }
@@ -257,13 +256,18 @@ public class StatisticsCleaner extends MasterDaemon {
         }
     }
 
-    private long findExpiredStats(OlapTable statsTbl, ExpiredStats expiredStats,
+    protected long findExpiredStats(OlapTable statsTbl, ExpiredStats expiredStats,
                                   long offset, boolean isTableColumnStats) {
         long pos = offset;
-        while (pos < statsTbl.getRowCount() && !expiredStats.isFull()) {
+        while (!expiredStats.isFull()) {
             List<ResultRow> rows = StatisticsRepository.fetchStatsFullName(
                     StatisticConstants.FETCH_LIMIT, pos, isTableColumnStats);
             pos += StatisticConstants.FETCH_LIMIT;
+            if (rows.isEmpty()) {
+                LOG.info("Stats table {} has no more rows to fetch.", statsTbl.getName());
+                break;
+            }
+            LOG.info("Process {} rows in stats table {}", rows.size(), statsTbl.getName());
             for (ResultRow r : rows) {
                 try {
                     StatsId statsId = new StatsId(r);
@@ -320,11 +324,14 @@ public class StatisticsCleaner extends MasterDaemon {
                 }
             }
             this.yieldForOtherTask();
+            if (expiredStats.isFull()) {
+                LOG.info("expiredStats is full.");
+            }
         }
         return pos;
     }
 
-    private static class ExpiredStats {
+    protected static class ExpiredStats {
         Set<Long> expiredCatalog = new HashSet<>();
         Set<Long> expiredDatabase = new HashSet<>();
         Set<Long> expiredTable = new HashSet<>();

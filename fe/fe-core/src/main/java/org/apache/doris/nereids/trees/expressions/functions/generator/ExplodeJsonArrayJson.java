@@ -18,12 +18,13 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.JsonType;
-import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -34,10 +35,10 @@ import java.util.List;
  * explode_json_array_json("[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]"),
  * generate 3 lines include '{"id":1,"name":"John"}', '{"id":2,"name":"Mary"}' and '{"id":3,"name":"Bob"}'.
  */
-public class ExplodeJsonArrayJson extends TableGeneratingFunction implements UnaryExpression, PropagateNullable {
+public class ExplodeJsonArrayJson extends TableGeneratingFunction
+        implements UnaryExpression, PropagateNullable, RewriteWhenAnalyze {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(JsonType.INSTANCE).args(JsonType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(JsonType.INSTANCE).args(JsonType.INSTANCE)
     );
 
     /**
@@ -47,13 +48,18 @@ public class ExplodeJsonArrayJson extends TableGeneratingFunction implements Una
         super("explode_json_array_json", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonArrayJson(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonArrayJson withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonArrayJson(children.get(0));
+        return new ExplodeJsonArrayJson(getFunctionParams(children));
     }
 
     @Override
@@ -64,5 +70,11 @@ public class ExplodeJsonArrayJson extends TableGeneratingFunction implements Una
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExplodeJsonArrayJson(this, context);
+    }
+
+    @Override
+    public TableGeneratingFunction rewrite() {
+        Expression[] args = {new Cast(children.get(0), ArrayType.of(JsonType.INSTANCE))};
+        return new Explode(args);
     }
 }

@@ -476,7 +476,7 @@ TEST_F(DataTypeStructTest, formString) {
     std::cout << "res_to_string: " << res_to_string << std::endl
               << "expect: {100, asd}" << std::endl;
     EXPECT_EQ(res_to_string, "{100, asd}");
-    ReadBuffer buffer(res_to_string.data(), res_to_string.size());
+    StringRef buffer(res_to_string.data(), res_to_string.size());
     auto status = st->from_string(buffer, res_column.get());
     EXPECT_EQ(status, Status::OK()) << "Failed to from_string: " << status;
     EXPECT_EQ(res_column->size(), 1) << "Failed to from_string, size is not 1";
@@ -489,19 +489,6 @@ TEST_F(DataTypeStructTest, formString) {
     block.insert(type_and_name1);
     block.insert(type_and_name2);
     std::cout << "block: " << block.dump_data() << std::endl;
-}
-
-TEST_F(DataTypeStructTest, ConvertNull) {
-    rapidjson::Value jsonValue;
-    rapidjson::Document doc;
-    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
-    DataTypeSerDe::convert_field_to_rapidjson(vectorized::Field(), jsonValue, allocator);
-    EXPECT_TRUE(jsonValue.IsNull());
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    jsonValue.Accept(writer);
-    // Expect the string representation of the JSON value to be "null"
-    EXPECT_EQ(std::string(buffer.GetString()), "null");
 }
 
 TEST_F(DataTypeStructTest, insertColumnLastValueMultipleTimes) {

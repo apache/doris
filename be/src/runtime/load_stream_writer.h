@@ -60,7 +60,7 @@ public:
 
     Status close_writer(uint32_t segid, FileType file_type);
 
-    Status add_segment(uint32_t segid, const SegmentStatistics& stat, TabletSchemaSPtr flush_chema);
+    Status add_segment(uint32_t segid, const SegmentStatistics& stat);
 
     Status pre_close() {
         std::lock_guard<std::mutex> l(_lock);

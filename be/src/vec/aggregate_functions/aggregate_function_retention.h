@@ -24,7 +24,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
@@ -110,7 +109,9 @@ struct RetentionState {
 };
 
 class AggregateFunctionRetention
-        : public IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention> {
+        : public IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionRetention(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention>(

@@ -17,10 +17,10 @@
 
 #include "vec/functions/function_datetime_string_to_string.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -29,13 +29,27 @@ using FunctionDateTimeFormat = FunctionDateTimeStringToString<DateFormatImpl<TYP
 using FunctionDateFormatV2 = FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATEV2>>;
 using FunctionDateTimeV2DateFormat =
         FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATETIMEV2>>;
-using FunctionFromUnixTime = FunctionDateTimeStringToString<FromUnixTimeImpl>;
+// old version
+using FunctionFromUnixTimeOneArg = FunctionDateTimeStringToString<FromUnixTimeImpl<false, false>>;
+using FunctionFromUnixTimeTwoArg = FunctionDateTimeStringToString<FromUnixTimeImpl<true, false>>;
+// new version
+using FunctionFromUnixTimeNewOneArg = FunctionDateTimeStringToString<FromUnixTimeImpl<false, true>>;
+using FunctionFromUnixTimeNewTwoArg = FunctionDateTimeStringToString<FromUnixTimeImpl<true, true>>;
+using FunctionFromUnixTimeNewDecimalOneArg =
+        FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<false>>;
+using FunctionFromUnixTimeNewDecimalTwoArg =
+        FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<true>>;
 
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateFormat>();
     factory.register_function<FunctionDateTimeFormat>();
     factory.register_function<FunctionDateFormatV2>();
-    factory.register_function<FunctionFromUnixTime>();
+    factory.register_function<FunctionFromUnixTimeOneArg>();
+    factory.register_function<FunctionFromUnixTimeTwoArg>();
+    factory.register_function<FunctionFromUnixTimeNewOneArg>();
+    factory.register_function<FunctionFromUnixTimeNewTwoArg>();
+    factory.register_function<FunctionFromUnixTimeNewDecimalOneArg>();
+    factory.register_function<FunctionFromUnixTimeNewDecimalTwoArg>();
     factory.register_function<FunctionDateTimeV2DateFormat>();
 }
 

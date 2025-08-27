@@ -420,6 +420,7 @@ struct TMasterOpResult {
     // transaction load
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
+    11: optional i64 affectedRows;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -850,6 +851,7 @@ struct TSchemaTableRequestParams {
     4: optional string catalog  // use for table specific queries
     5: optional i64 dbId         // used for table specific queries
     6: optional string time_zone // used for DATETIME field
+    7: optional string frontend_conjuncts
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1164,6 +1166,7 @@ struct TGetBinlogResult {
 
 struct TGetTabletReplicaInfosRequest {
     1: required list<i64> tablet_ids
+    2: optional i64 warm_up_job_id
 }
 
 struct TGetTabletReplicaInfosResult {
@@ -1611,6 +1614,34 @@ struct TPlanNodeRuntimeStatsItem {
     12: optional i32 instance_num
 }
 
+enum TEncryptionKeyType {
+    MASTER_KEY = 0,
+    DATA_KEY = 1,
+}
+
+struct TEncryptionKey {
+    1: optional binary key_pb;
+}
+
+struct TGetEncryptionKeysRequest {
+    2: optional i32 version
+}
+
+struct TGetEncryptionKeysResult {
+    1: optional Status.TStatus status
+    2: optional list<TEncryptionKey> master_keys
+}
+
+struct TGetTableTDEInfoRequest {
+    1: optional i64 db_id
+    2: optional i64 table_id
+}
+
+struct TGetTableTDEInfoResult {
+    1: optional Status.TStatus status
+    2: optional AgentService.TEncryptionAlgorithm algorithm
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1713,4 +1744,8 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
+
+    TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 }

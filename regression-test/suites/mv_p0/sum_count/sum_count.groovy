@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("sum_count") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS d_table; """
 
@@ -38,10 +40,10 @@ suite ("sum_count") {
     sql "insert into d_table select 3,-3,null,'c';"
     sql "insert into d_table values(1,1,1,'a'),(1,1,1,'a');"
 
-    createMV ("create materialized view kavg as select k1,k4,sum(k2),count(k2) from d_table group by k1,k4;")
-    createMV ("create materialized view kavg_key as select k1,k4,sum(k1),count(k4) from d_table group by k1,k4;")
-    createMV ("create materialized view kavg_const1 as select k1,k4,sum(1),count(1) from d_table group by k1,k4;")
-    createMV ("create materialized view kavg_const2 as select k1,k4,sum(2),count(3) from d_table group by k1,k4;")
+    createMV ("create materialized view kavg as select k1 as x1,k4 as x2,sum(k2) as x3,count(k2) as x4 from d_table group by k1,k4;")
+    createMV ("create materialized view kavg_key as select k1 as x5,k4 as x6,sum(k1) as x7,count(k4) as x8 from d_table group by k1,k4;")
+    createMV ("create materialized view kavg_const1 as select k1 as a1,k4 as a2,sum(1) as a3,count(1) as a4 from d_table group by k1,k4;")
+    createMV ("create materialized view kavg_const2 as select k1 as a5,k4 as a6,sum(2) as a7,count(3) as a8 from d_table group by k1,k4;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select 3,2,null,'c';"

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -42,26 +43,33 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
     private final Optional<String> schemaCatalog;
     private final Optional<String> schemaDatabase;
     private final Optional<String> schemaTable;
+    private final List<Expression> frontendConjuncts;
 
+    /**PhysicalSchemaScan*/
     public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable) {
+            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
+            List<Expression> frontendConjuncts) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties,
                 ImmutableList.of());
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
+        this.frontendConjuncts = frontendConjuncts;
     }
 
+    /**PhysicalSchemaScan*/
     public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics,
-            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable) {
+            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
+            List<Expression> frontendConjuncts) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression,
                 logicalProperties, physicalProperties, statistics, ImmutableList.of());
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
+        this.frontendConjuncts = frontendConjuncts;
     }
 
     public Optional<String> getSchemaCatalog() {
@@ -74,6 +82,10 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
 
     public Optional<String> getSchemaTable() {
         return schemaTable;
+    }
+
+    public List<Expression> getFrontendConjuncts() {
+        return frontendConjuncts;
     }
 
     @Override
@@ -90,7 +102,7 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalSchemaScan(relationId, getTable(), qualifier,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                schemaCatalog, schemaDatabase, schemaTable);
+                schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
     }
 
     @Override
@@ -98,7 +110,7 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalSchemaScan(relationId, getTable(), qualifier,
                 groupExpression, logicalProperties.get(), physicalProperties, statistics,
-                schemaCatalog, schemaDatabase, schemaTable);
+                schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
     }
 
     @Override
@@ -106,7 +118,7 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
             Statistics statistics) {
         return new PhysicalSchemaScan(relationId, getTable(), qualifier,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                schemaCatalog, schemaDatabase, schemaTable);
+                schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
     }
 
     @Override
@@ -127,13 +139,14 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
         }
         PhysicalSchemaScan that = (PhysicalSchemaScan) o;
         return Objects.equals(schemaCatalog, that.schemaCatalog)
-            && Objects.equals(schemaDatabase, that.schemaDatabase)
-            && Objects.equals(schemaTable, that.schemaTable);
+                && Objects.equals(schemaDatabase, that.schemaDatabase)
+                && Objects.equals(frontendConjuncts, that.frontendConjuncts)
+                && Objects.equals(schemaTable, that.schemaTable);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), schemaCatalog, schemaDatabase, schemaTable);
+        return Objects.hash(super.hashCode(), schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
     }
 
     @Override
