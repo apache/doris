@@ -308,7 +308,10 @@ public class BindSink implements AnalysisRuleFactory {
                 int targetLength = ((CharacterType) targetType).getLen();
                 if (sourceLength == targetLength) {
                     castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
-                } else if (needTruncateStringWhenInsert && sourceLength > targetLength && targetLength >= 0) {
+                } else if (needTruncateStringWhenInsert
+                        && sourceLength > targetLength && targetLength >= 0
+                        && ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().enableInsertValueAutoCast) {
                     castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                 } else if (targetType.isStringType()) {
                     castExpr = new Cast(castExpr, StringType.INSTANCE);
