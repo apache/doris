@@ -352,5 +352,6 @@ CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size
 CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 
 CONF_Bool(enable_logging_for_single_version_reading, "false");
+CONF_mBool(enable_logging_conflict_keys, "false");
 
 } // namespace doris::cloud::config

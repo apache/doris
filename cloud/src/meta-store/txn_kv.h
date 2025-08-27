@@ -19,6 +19,7 @@
 
 #include <foundationdb/fdb_c.h>
 #include <foundationdb/fdb_c_options.g.h>
+#include <gtest/gtest_prod.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -643,6 +644,8 @@ private:
 };
 
 class Transaction : public cloud::Transaction {
+    FRIEND_TEST(TxnKvTest, ReportConflictingRange);
+
 public:
     friend class Database;
     friend class FullRangeGetIterator;
@@ -770,6 +773,13 @@ public:
     size_t get_bytes() const override { return get_bytes_; }
 
 private:
+    // Return the conflicting range when the transaction commit returns TXN_CONFLICT.
+    //
+    // It only works when the report_conflicting_ranges option is enabled.
+    TxnErrorCode get_conflicting_range(
+            std::vector<std::pair<std::string, std::string>>* key_values);
+    TxnErrorCode report_conflicting_range();
+
     std::shared_ptr<Database> db_ {nullptr};
     bool commited_ = false;
     bool aborted_ = false;
