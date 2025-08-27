@@ -138,8 +138,9 @@ public:
     Versions get_missed_versions(int64_t spec_version) const;
     Versions get_missed_versions_unlocked(int64_t spec_version) const;
 
-    void generate_tablet_meta_copy(TabletMeta& new_tablet_meta) const;
-    void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const;
+    void generate_tablet_meta_copy(TabletMeta& new_tablet_meta, bool get_rowset_meta = false) const;
+    void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
+                                            bool get_rowset_meta = false) const;
 
     virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
 

@@ -771,7 +771,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             tablet_meta_pb.time_series_compaction_level_threshold();
 }
 
-void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
+void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool get_rowset_meta) {
     tablet_meta_pb->set_table_id(table_id());
     tablet_meta_pb->set_index_id(index_id());
     tablet_meta_pb->set_partition_id(partition_id());
@@ -802,12 +802,14 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         break;
     }
 
-    // RowsetMetaPB is separated from TabletMetaPB
-    for (auto& rs : _rs_metas) {
-        rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
-    }
-    for (auto rs : _stale_rs_metas) {
-        rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
+    if (!config::is_cloud_mode() || get_rowset_meta) {
+        // RowsetMetaPB is separated from TabletMetaPB
+        for (auto& rs : _rs_metas) {
+            rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
+        }
+        for (auto rs : _stale_rs_metas) {
+            rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
+        }
     }
 
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
