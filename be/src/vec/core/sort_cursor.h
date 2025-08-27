@@ -133,9 +133,7 @@ struct MergeSortCursorImpl {
     virtual ~MergeSortCursorImpl() = default;
 
     MergeSortCursorImpl(std::shared_ptr<Block> block_, const SortDescription& desc_)
-            : block(std::move(block_)),
-              desc(std::move(desc_)),
-              sort_columns_size(desc.size()) {
+            : block(std::move(block_)), desc(std::move(desc_)), sort_columns_size(desc.size()) {
         reset();
     }
 
