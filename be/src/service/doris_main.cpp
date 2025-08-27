@@ -615,6 +615,15 @@ int main(int argc, char** argv) {
 #endif
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
+
+#ifdef __SANITIZE_ADDRESS__
+    LOG(INFO) << "Doris main exited 1.";
+#endif
+
+#if __has_feature(address_sanitizer)
+    LOG(INFO) << "Doris main exited 2.";
+#endif
+
 #if !defined(__SANITIZE_ADDRESS__) && !__has_feature(address_sanitizer)
     // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
     // It will make sure that graceful shutdown can be done definitely.
