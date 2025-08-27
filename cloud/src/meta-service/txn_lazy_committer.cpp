@@ -451,6 +451,7 @@ void TxnLazyCommitTask::commit() {
                                   << " txn_id=" << txn_id_;
                     }
 
+                    TEST_SYNC_POINT_CALLBACK("TxnLazyCommitter::commit");
                     err = txn->commit();
                     if (err != TxnErrorCode::TXN_OK) {
                         code_ = cast_as<ErrCategory::COMMIT>(err);
