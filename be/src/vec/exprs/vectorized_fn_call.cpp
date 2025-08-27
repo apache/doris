@@ -523,11 +523,12 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                                                      &result, stats.get()));
 
 #ifndef NDEBUG
-    if (range_search_runtime.is_le_or_lt == false && ann_index_reader->get_metric_type() ==
-                                                     AnnIndexMetric::L2) {
+    if (range_search_runtime.is_le_or_lt == false &&
+        ann_index_reader->get_metric_type() == AnnIndexMetric::L2) {
         DCHECK(result.distance == nullptr) << "Should not have distance";
     }
-    if (range_search_runtime.is_le_or_lt == true && ann_index_reader->get_metric_type() == AnnIndexMetric::IP) {
+    if (range_search_runtime.is_le_or_lt == true &&
+        ann_index_reader->get_metric_type() == AnnIndexMetric::IP) {
         DCHECK(result.distance == nullptr);
     }
 #endif
