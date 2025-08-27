@@ -364,8 +364,8 @@ suite("test_date_function") {
     qt_sql """ select hour('2018-12-31') """
 
     // MAKEDATE
-    qt_sql {    
-        """ select makedate(2021,0), makedate(2021,1), makedate(2021,100), makedate(2021,400) """
+    test {    
+        sql """ select makedate(2021,0), makedate(2021,1), makedate(2021,100), makedate(2021,400) """
         exception "The function makedate Argument value 2021, 0 must be larger than zero ,and yearbetween 1 and 9999"
     }
 
@@ -412,7 +412,7 @@ suite("test_date_function") {
     qt_sql_year_floor """ select year_floor(cast('2023-04-28' as date)); """
     qt_sql """ SELECT YEAR_FLOOR('20200202000000') """
     qt_sql """ SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3) """
-    qt_sql """ SELECT WEEK_CEIL('2020-02-02 13:09:20', '2020-01-06') """
+    qt_sql """ SELECT WEEK_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), CAST('2020-01-06' AS DATETIME)) """
     qt_sql """ SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3, CAST('1970-01-09 00:00:00' AS DATETIME)) """
 
     // TIMEDIFF

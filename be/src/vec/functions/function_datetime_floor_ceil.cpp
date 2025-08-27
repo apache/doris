@@ -238,8 +238,7 @@ public:
                 }
             }
 
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_to), std::move(null_map));
+            block.get_by_position(result).column = std::move(col_to);
         } else {
             return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                         block.get_by_position(arguments[0]).column->get_name(),
