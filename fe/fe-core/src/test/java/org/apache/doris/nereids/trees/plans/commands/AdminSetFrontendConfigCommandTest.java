@@ -40,6 +40,8 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
         Assertions.assertDoesNotThrow(() -> ((AdminSetFrontendConfigCommand) plan).validate());
+        Assertions.assertTrue(((AdminSetFrontendConfigCommand) plan).getLocalSetStmt().originStmt
+                .startsWith("ADMIN SET FRONTEND CONFIG"));
     }
 
     @Test
@@ -81,7 +83,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
 
         num = ConfigBase.getConfigNumByVariableAnnotation(VariableAnnotation.DEPRECATED);
         matcher = PatternMatcherWrapper.createMysqlPattern("%deprecated%",
-            CaseSensibility.CONFIG.getCaseSensibility());
+                CaseSensibility.CONFIG.getCaseSensibility());
         results = ConfigBase.getConfigInfo(matcher);
         Assertions.assertEquals(num, results.size());
     }
@@ -93,5 +95,20 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
 
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
         Assertions.assertEquals("60", ((AdminSetFrontendConfigCommand) plan).getConfigs().get("alter_table_timeout_second"));
+    }
+
+    @Test
+    public void testSetAllFrontendsConfig() throws Exception {
+        String sql = "admin set all frontends config(\" alter_table_timeout_second \" = \"77\");";
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+
+        Assertions.assertInstanceOf(AdminSetFrontendConfigCommand.class, plan);
+        AdminSetFrontendConfigCommand command = (AdminSetFrontendConfigCommand) plan;
+        Assertions.assertTrue(command.isApplyToAll());
+        Assertions.assertEquals(command.toRedirectStatus(), RedirectStatus.NO_FORWARD);
+        Assertions.assertTrue(command.getLocalSetStmt().originStmt.startsWith("ADMIN SET ALL FRONTENDS CONFIG"));
+
+        Env.getCurrentEnv().setConfig(command, true);
+        Assertions.assertEquals(77, Config.alter_table_timeout_second);
     }
 }
