@@ -116,26 +116,10 @@ suite("topN_rewrite") {
     sql """
     insert into orders values
     (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
     (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
     (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
     (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
     (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
-    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
-    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
-    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
-    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
-    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
-    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
-    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
-    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
-    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
-    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
     (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi');  
     """
 
@@ -155,6 +139,7 @@ suite("topN_rewrite") {
     sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
     sql """alter table partsupp modify column ps_comment set stats ('row_count'='1');"""
 
+    // because mv data is out of order, so mv output should contain order key which query used
     //  limit + filter(project) + aggregate
     def mv1_0 =
             """
@@ -362,7 +347,8 @@ suite("topN_rewrite") {
             o_shippriority,
             o_comment,
             l_orderkey,
-            l_partkey
+            l_partkey,
+            o_orderkey
             from
             orders left
             join lineitem on l_orderkey = o_orderkey
@@ -400,7 +386,8 @@ suite("topN_rewrite") {
             o_shippriority,
             o_comment,
             l_orderkey,
-            l_partkey
+            l_partkey,
+            o_orderkey
             from
             orders left
             join lineitem on l_orderkey = o_orderkey
@@ -438,7 +425,8 @@ suite("topN_rewrite") {
             o_shippriority,
             o_comment,
             l_orderkey,
-            l_partkey
+            l_partkey,
+            o_orderkey
             from
             orders left
             join lineitem on l_orderkey = o_orderkey
@@ -477,7 +465,8 @@ suite("topN_rewrite") {
             o_shippriority,
             o_comment,
             l_orderkey,
-            l_partkey
+            l_partkey,
+            o_orderkey
             from
             orders left
             join lineitem on l_orderkey = o_orderkey
@@ -492,7 +481,8 @@ suite("topN_rewrite") {
             o_shippriority,
             o_comment,
             l_orderkey,
-            l_partkey
+            l_partkey,
+            o_orderkey
             from
             orders left
             join lineitem on l_orderkey = o_orderkey
@@ -513,7 +503,8 @@ suite("topN_rewrite") {
             o_shippriority,
             o_comment,
             l_orderkey,
-            l_partkey
+            l_partkey,
+            o_orderkey
             from
             orders left
             join lineitem on l_orderkey = o_orderkey
@@ -548,7 +539,8 @@ suite("topN_rewrite") {
             select
             o_orderdate,
             o_shippriority,
-            o_comment
+            o_comment,
+            o_orderkey
             from
             orders 
             where o_orderdate > '2023-12-08'
@@ -578,7 +570,8 @@ suite("topN_rewrite") {
             select
             o_orderdate,
             o_shippriority,
-            o_comment
+            o_comment,
+            o_orderkey
             from
             orders
             where o_orderdate > '2023-12-08'
@@ -608,7 +601,8 @@ suite("topN_rewrite") {
             select
             o_orderdate,
             o_shippriority,
-            o_comment
+            o_comment,
+            o_orderkey
             from
             orders
             where o_orderdate > '2023-12-08'
@@ -639,7 +633,8 @@ suite("topN_rewrite") {
             select
             o_orderdate,
             o_shippriority,
-            o_comment
+            o_comment,
+            o_orderkey
             from
             orders
             order by o_orderkey
@@ -667,7 +662,8 @@ suite("topN_rewrite") {
             select
             o_orderdate,
             o_shippriority,
-            o_comment
+            o_comment,
+            o_orderkey
             from
             orders
             order by o_orderkey

@@ -1107,7 +1107,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<Expression> rewrittenExpressions = rewriteExpression(queryOrderKeysExpressions,
                 queryStructInfo.getTopPlan(), materializationContext.shuttledExprToScanExprMapping,
                 viewToQuerySlotMapping, queryStructInfo.getTableBitSet(), ImmutableMap.of(), cascadesContext);
-        if (rewrittenExpressions == null) {
+        if (rewrittenExpressions.isEmpty()) {
             materializationContext.recordFailReason(queryStructInfo,
                     "query topN order keys rewrite fail, query topN order keys is not consistent "
                             + "with view topN order keys",

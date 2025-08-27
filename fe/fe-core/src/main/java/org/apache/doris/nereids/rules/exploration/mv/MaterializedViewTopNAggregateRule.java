@@ -73,7 +73,6 @@ public class MaterializedViewTopNAggregateRule extends AbstractMaterializedViewA
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                // because limit spit to two phases
                 logicalTopN(logicalUnary(logicalAggregate(any().when(LogicalPlan.class::isInstance)))
                         .when(node -> node instanceof LogicalProject || node instanceof LogicalFilter))
                         .thenApplyMultiNoThrow(ctx -> {
@@ -82,7 +81,16 @@ public class MaterializedViewTopNAggregateRule extends AbstractMaterializedViewA
                 logicalTopN(logicalAggregate(any().when(LogicalPlan.class::isInstance)))
                         .thenApplyMultiNoThrow(ctx -> {
                             return rewrite(ctx.root, ctx.cascadesContext);
-                        }).toRule(RuleType.MATERIALIZED_VIEW_TOP_N_AGGREGATE)
+                        }).toRule(RuleType.MATERIALIZED_VIEW_TOP_N_AGGREGATE),
+                logicalProject(logicalTopN(logicalUnary(logicalAggregate(any().when(LogicalPlan.class::isInstance)))
+                        .when(node -> node instanceof LogicalProject || node instanceof LogicalFilter)))
+                        .thenApplyMultiNoThrow(ctx -> {
+                            return rewrite(ctx.root, ctx.cascadesContext);
+                        }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_TOP_N_UNARY_AGGREGATE),
+                logicalProject(logicalTopN(logicalAggregate(any().when(LogicalPlan.class::isInstance))))
+                        .thenApplyMultiNoThrow(ctx -> {
+                            return rewrite(ctx.root, ctx.cascadesContext);
+                        }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_TOP_N_AGGREGATE)
         );
     }
 }

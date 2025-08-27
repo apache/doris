@@ -74,7 +74,6 @@ public class MaterializedViewTopNJoinRule extends AbstractMaterializedViewJoinRu
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                // because limit spit to two phases
                 logicalTopN(logicalUnary(logicalJoin(any().when(LogicalPlan.class::isInstance),
                         any().when(LogicalPlan.class::isInstance)))
                         .when(node -> node instanceof LogicalProject || node instanceof LogicalFilter))
@@ -85,7 +84,18 @@ public class MaterializedViewTopNJoinRule extends AbstractMaterializedViewJoinRu
                         any().when(LogicalPlan.class::isInstance)))
                         .thenApplyMultiNoThrow(ctx -> {
                             return rewrite(ctx.root, ctx.cascadesContext);
-                        }).toRule(RuleType.MATERIALIZED_VIEW_TOP_N_JOIN)
+                        }).toRule(RuleType.MATERIALIZED_VIEW_TOP_N_JOIN),
+                logicalProject(logicalTopN(logicalUnary(logicalJoin(any().when(LogicalPlan.class::isInstance),
+                        any().when(LogicalPlan.class::isInstance)))
+                        .when(node -> node instanceof LogicalProject || node instanceof LogicalFilter)))
+                        .thenApplyMultiNoThrow(ctx -> {
+                            return rewrite(ctx.root, ctx.cascadesContext);
+                        }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_TOP_N_UNARY_JOIN),
+                logicalProject(logicalTopN(logicalJoin(any().when(LogicalPlan.class::isInstance),
+                        any().when(LogicalPlan.class::isInstance))))
+                        .thenApplyMultiNoThrow(ctx -> {
+                            return rewrite(ctx.root, ctx.cascadesContext);
+                        }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_TOP_N_JOIN)
         );
     }
 }
