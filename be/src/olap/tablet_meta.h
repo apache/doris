@@ -585,7 +585,7 @@ public:
 
     void clear_rowset_cache_version();
 
-    std::set<RowsetId> get_rowset_cache_version();
+    std::set<std::string> get_rowset_cache_version();
 
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
