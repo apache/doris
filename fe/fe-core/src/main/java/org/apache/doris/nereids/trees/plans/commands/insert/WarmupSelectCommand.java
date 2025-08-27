@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -68,7 +69,8 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
                     return;
                 }
                 String queryId = DebugUtil.printId(insertExecutor.ctx.queryId());
-                Map<String, TQueryStatistics> statistics = ProfileManager.getInstance().getQueryStatistics(queryId);
+                // Map<String, TQueryStatistics> statistics = ProfileManager.getInstance().getQueryStatistics(queryId);
+                Map<Long, TQueryStatistics> statistics = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().getQueryStatistics(queryId);
                 sendAggregatedBlackholeResults(statistics, executor);
             }
         });
@@ -80,7 +82,7 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
     //     return RedirectStatus.FORWARD_WITH_SYNC;
     // }
 
-    public void sendAggregatedBlackholeResults(Map<String, TQueryStatistics> statistics, StmtExecutor executor) throws IOException {
+    public void sendAggregatedBlackholeResults(Map<Long, TQueryStatistics> statistics, StmtExecutor executor) throws IOException {
         // Create a result set with aggregated data per BE
         ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
                 .addColumn(new Column("BackendId", ScalarType.createVarchar(20)))
@@ -97,12 +99,12 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
         long totalScanBytesFromRemoteStorage = 0;
 
         // Add a row for each BE with its aggregated data
-        for (Map.Entry<String, TQueryStatistics> entry : statistics.entrySet()) {
-            String beId = entry.getKey();
+        for (Map.Entry<Long, TQueryStatistics> entry : statistics.entrySet()) {
+            Long beId = entry.getKey();
             TQueryStatistics data = entry.getValue();
 
             List<String> row = Lists.newArrayList(
-                    beId,
+                    beId.toString(),
                     String.valueOf(data.getScanRows()),
                     String.valueOf(data.getScanBytes()),
                     String.valueOf(data.getScanBytesFromLocalStorage()),

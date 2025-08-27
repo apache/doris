@@ -234,7 +234,7 @@ public abstract class AbstractInsertExecutor {
         } finally {
             coordinator.close();
             executor.updateProfile(true);
-            // QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
+            QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }
         afterExec(executor);
     }
