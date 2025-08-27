@@ -23,11 +23,6 @@ import java.util.Map;
 
 public class AnnIndexPropertiesChecker {
     public static void checkProperties(Map<String, String> properties) {
-        // // ANN index is not supported in cloud mode
-        // if (Config.isCloudMode()) {
-        //     throw new AnalysisException("ANN index is not supported in cloud mode");
-        // }
-
         String type = null;
         String metric = null;
         String dim = null;
@@ -68,6 +63,19 @@ public class AnnIndexPropertiesChecker {
                     } catch (NumberFormatException e) {
                         throw new AnalysisException(
                                 "max_degree of ann index must be a positive integer, got: " + maxDegree);
+                    }
+                    break;
+                case "ef_construction":
+                    String efConstruction = properties.get(key);
+                    try {
+                        int ef = Integer.parseInt(efConstruction);
+                        if (ef <= 0) {
+                            throw new AnalysisException(
+                                    "ef_construction of ann index must be a positive integer, got: " + efConstruction);
+                        }
+                    } catch (NumberFormatException e) {
+                        throw new AnalysisException(
+                                "ef_construction of ann index must be a positive integer, got: " + efConstruction);
                     }
                     break;
                 default:
