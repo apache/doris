@@ -1726,6 +1726,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
     LOG(WARNING) << "remove job kv, begin=" << hex(job_key_begin) << " end=" << hex(job_key_end);
     std::string schema_key_begin, schema_key_end;
     std::string schema_dict_key;
+    std::string versioned_schema_key_begin, versioned_schema_key_end;
     if (partition_id <= 0) {
         // Delete schema kv of this index
         meta_schema_key({instance_id_, index_id, 0}, &schema_key_begin);
@@ -1736,6 +1737,11 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         meta_schema_pb_dictionary_key({instance_id_, index_id}, &schema_dict_key);
         txn->remove(schema_dict_key);
         LOG(WARNING) << "remove schema dict kv, key=" << hex(schema_dict_key);
+        versioned::meta_schema_key({instance_id_, index_id, 0}, &versioned_schema_key_begin);
+        versioned::meta_schema_key({instance_id_, index_id + 1, 0}, &versioned_schema_key_end);
+        txn->remove(versioned_schema_key_begin, versioned_schema_key_end);
+        LOG(WARNING) << "remove versioned schema kv, begin=" << hex(versioned_schema_key_begin)
+                     << " end=" << hex(versioned_schema_key_end);
     }
 
     TxnErrorCode err = txn->commit();
