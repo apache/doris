@@ -537,17 +537,17 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, force, 0);
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
-
-                // 3. remove db from catalog
-                idToDb.remove(db.getId());
-                fullNameToDb.remove(db.getFullName());
-                DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
-                Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
-                Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
-                Env.getCurrentEnv().getEditLog().logDropDb(info);
             } finally {
                 db.writeUnlock();
             }
+
+            // 3. remove db from catalog
+            idToDb.remove(db.getId());
+            fullNameToDb.remove(db.getFullName());
+            DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
+            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
+            Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
+            Env.getCurrentEnv().getEditLog().logDropDb(info);
         } finally {
             unlock();
         }
@@ -590,11 +590,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, true, isForceDrop, recycleTime);
                 Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getInternalCatalog().getId(), db.getId());
-                fullNameToDb.remove(dbName);
-                idToDb.remove(db.getId());
             } finally {
                 db.writeUnlock();
             }
+
+            fullNameToDb.remove(dbName);
+            idToDb.remove(db.getId());
         } finally {
             unlock();
         }

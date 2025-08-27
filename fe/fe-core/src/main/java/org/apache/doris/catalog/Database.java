@@ -455,14 +455,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         if (isTableExist(tableName)) {
             result = false;
         } else {
-            olapTable.writeLock();
-            try {
-                idToTable.put(olapTable.getId(), olapTable);
-                nameToTable.put(olapTable.getName(), olapTable);
-                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
-            } finally {
-                olapTable.writeUnlock();
-            }
+            idToTable.put(olapTable.getId(), olapTable);
+            nameToTable.put(olapTable.getName(), olapTable);
+            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
             if (olapTable instanceof MTMV) {
                 Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) olapTable, id);
             }
@@ -486,14 +481,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public void unregisterTable(Long tableId) {
         Table table = getTableNullable(tableId);
         if (table != null) {
-            table.writeLock();
-            try {
-                this.nameToTable.remove(table.getName());
-                this.lowerCaseToTableName.remove(table.getName().toLowerCase());
-                this.idToTable.remove(table.getId());
-            } finally {
-                table.writeUnlock();
-            }
+            this.nameToTable.remove(table.getName());
+            this.lowerCaseToTableName.remove(table.getName().toLowerCase());
+            this.idToTable.remove(table.getId());
             if (table.isTemporary()) {
                 Env.getCurrentEnv().unregisterTempTable(table);
             }
@@ -646,6 +636,34 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @Override
     public Table getTableNullable(long tableId) {
         return idToTable.get(tableId);
+    }
+
+    public int getMaxReplicationNum() {
+        int ret = 0;
+        readLock();
+        try {
+            for (Table table : idToTable.values()) {
+                if (!table.isManagedTable()) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) table;
+                table.readLock();
+                try {
+                    for (Partition partition : olapTable.getAllPartitions()) {
+                        short replicationNum = olapTable.getPartitionInfo()
+                                .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+                        if (ret < replicationNum) {
+                            ret = replicationNum;
+                        }
+                    }
+                } finally {
+                    table.readUnlock();
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return ret;
     }
 
     public static Database read(DataInput in) throws IOException {

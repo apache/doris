@@ -35,7 +35,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -103,8 +102,6 @@ public class Partition extends MetaObject {
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo distributionInfo;
 
-    private ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
-
     protected Partition() {
     }
 
@@ -122,22 +119,6 @@ public class Partition extends MetaObject {
         this.nextVersion = PARTITION_INIT_VERSION + 1;
 
         this.distributionInfo = distributionInfo;
-    }
-
-    public void writeLock() {
-        rwLock.writeLock().lock();
-    }
-
-    public void writeUnlock() {
-        rwLock.writeLock().unlock();
-    }
-
-    public void readLock() {
-        rwLock.readLock().lock();
-    }
-
-    public void readUnlock() {
-        rwLock.readLock().unlock();
     }
 
     public void setIdForRestore(long id) {

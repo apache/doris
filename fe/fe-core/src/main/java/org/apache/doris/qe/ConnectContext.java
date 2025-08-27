@@ -1562,6 +1562,10 @@ public class ConnectContext {
         return getClass().getName() + "@" + Integer.toHexString(hashCode()) + ":" + getQualifiedUser();
     }
 
+    public Map<String, Set<String>> getDbToTempTableNamesMap() {
+        return dbToTempTableNamesMap;
+    }
+
     public void addTempTableToDB(String database, String tableName) {
         Set<String> tableNameSet = dbToTempTableNamesMap.get(database);
         if (tableNameSet == null) {
