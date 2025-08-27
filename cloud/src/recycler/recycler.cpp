@@ -1583,6 +1583,8 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
     std::vector<std::string> restore_job_keys;
     std::vector<std::string> init_rs_keys;
     std::vector<std::string> tablet_compact_stats_keys;
+    std::vector<std::string> tablet_load_stats_keys;
+    std::vector<std::string> versioned_meta_tablet_keys;
     auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
         bool use_range_remove = true;
         ++num_scanned;
@@ -1604,6 +1606,10 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         if (is_multi_version) {
             tablet_compact_stats_keys.push_back(
                     versioned::tablet_compact_stats_key({instance_id_, tablet_id}));
+            tablet_load_stats_keys.push_back(
+                    versioned::tablet_load_stats_key({instance_id_, tablet_id}));
+            versioned_meta_tablet_keys.push_back(
+                    versioned::meta_tablet_key({instance_id_, tablet_id}));
         }
         TEST_SYNC_POINT_RETURN_WITH_VALUE("recycle_tablet::bypass_check", false);
         sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
@@ -1646,6 +1652,8 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
             restore_job_keys.clear();
             init_rs_keys.clear();
             tablet_compact_stats_keys.clear();
+            tablet_load_stats_keys.clear();
+            versioned_meta_tablet_keys.clear();
         };
         std::unique_ptr<Transaction> txn;
         if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
@@ -1668,6 +1676,16 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                 // Remove all versions of tablet compact stats for recycled tablet
                 LOG_INFO("remove versioned tablet compact stats key")
                         .tag("compact_stats_key", hex(k));
+                versioned_remove_all(txn.get(), k);
+            }
+            for (auto& k : tablet_load_stats_keys) {
+                // Remove all versions of tablet load stats for recycled tablet
+                LOG_INFO("remove versioned tablet load stats key").tag("load_stats_key", hex(k));
+                versioned_remove_all(txn.get(), k);
+            }
+            for (auto& k : versioned_meta_tablet_keys) {
+                // Remove all versions of meta tablet for recycled tablet
+                LOG_INFO("remove versioned meta tablet key").tag("meta_tablet_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
         }
@@ -1708,6 +1726,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
     LOG(WARNING) << "remove job kv, begin=" << hex(job_key_begin) << " end=" << hex(job_key_end);
     std::string schema_key_begin, schema_key_end;
     std::string schema_dict_key;
+    std::string versioned_schema_key_begin, versioned_schema_key_end;
     if (partition_id <= 0) {
         // Delete schema kv of this index
         meta_schema_key({instance_id_, index_id, 0}, &schema_key_begin);
@@ -1718,6 +1737,11 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         meta_schema_pb_dictionary_key({instance_id_, index_id}, &schema_dict_key);
         txn->remove(schema_dict_key);
         LOG(WARNING) << "remove schema dict kv, key=" << hex(schema_dict_key);
+        versioned::meta_schema_key({instance_id_, index_id, 0}, &versioned_schema_key_begin);
+        versioned::meta_schema_key({instance_id_, index_id + 1, 0}, &versioned_schema_key_end);
+        txn->remove(versioned_schema_key_begin, versioned_schema_key_end);
+        LOG(WARNING) << "remove versioned schema kv, begin=" << hex(versioned_schema_key_begin)
+                     << " end=" << hex(versioned_schema_key_end);
     }
 
     TxnErrorCode err = txn->commit();
@@ -2256,27 +2280,13 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
 
     for (const auto& rs_meta : resp.rowset_meta()) {
-        /*
-        * For compatibility, we skip the loop for [0-1] here. 
-        * The purpose of this loop is to delete object files,
-        * and since [0-1] only has meta and doesn't have object files, 
-        * skipping it doesn't affect system correctness. 
-        *
-        * If not skipped, the check "if (!rs_meta.has_resource_id())" below 
-        * would return error -1 directly, causing the recycle operation to fail.
-        *
-        * [0-1] doesn't have resource id is a bug.
-        * In the future, we will fix this problem, after that,
-        * we can remove this if statement.
-        *
-        * TODO(Yukang-Lian): remove this if statement when [0-1] has resource id in the future.
-        */
-
-        if (rs_meta.end_version() == 1) {
-            // Assert that [0-1] has no resource_id to make sure
-            // this if statement will not be forgetted to remove
-            // when the resource id bug is fixed
-            DCHECK(!rs_meta.has_resource_id()) << "rs_meta" << rs_meta.ShortDebugString();
+        // The rowset has no resource id and segments when it was generated by compaction
+        // with multiple hole rowsets or it's version is [0-1], so we can skip it.
+        if (!rs_meta.has_resource_id() && rs_meta.num_segments() == 0) {
+            LOG_INFO("rowset meta does not have a resource id and no segments, skip this rowset")
+                    .tag("rs_meta", rs_meta.ShortDebugString())
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id);
             recycle_rowsets_number += 1;
             continue;
         }
@@ -3030,6 +3040,7 @@ int InstanceRecycler::recycle_restore_jobs() {
                 LOG_WARNING("failed to commit txn: {}", err);
                 return -1;
             }
+            return 0;
         }
 
         std::string restore_job_rs_key0 = job_restore_rowset_key({instance_id_, tablet_id, 0});
@@ -3919,6 +3930,10 @@ int InstanceRecycler::recycle_expired_txn_label() {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 TEST_SYNC_POINT_CALLBACK(
                         "InstanceRecycler::recycle_expired_txn_label.txn_conflict");
+                // log the txn_id and label
+                LOG(WARNING) << "txn conflict, txn_id=" << txn_id
+                             << " txn_label_pb=" << txn_label.ShortDebugString()
+                             << " txn_label=" << txn_info.label();
                 return 1;
             }
             LOG(WARNING) << "failed to delete expired txn, err=" << err << " key=" << hex(k);
@@ -3943,16 +3958,21 @@ int InstanceRecycler::recycle_expired_txn_label() {
                 int ret = delete_recycle_txn_kv(k);
                 if (ret == 1) {
                     constexpr int MAX_RETRY = 10;
-                    for (size_t i = 0; i < MAX_RETRY; ++i) {
-                        ret = delete_recycle_txn_kv(k);
+                    for (size_t i = 1; i <= MAX_RETRY; ++i) {
                         LOG(WARNING) << "txn conflict, retry times=" << i << " key=" << hex(k);
+                        ret = delete_recycle_txn_kv(k);
+                        // clang-format off
+                        TEST_SYNC_POINT_CALLBACK(
+                                "InstanceRecycler::recycle_expired_txn_label.delete_recycle_txn_kv_error", &ret);
+                        // clang-format off
                         if (ret != 1) {
                             break;
                         }
                         // random sleep 0-100 ms to retry
                         std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
                     }
-                } else if (ret == -1) {
+                }
+                if (ret != 0) {
                     LOG_WARNING("failed to delete recycle txn kv")
                             .tag("instance id", instance_id_)
                             .tag("key", hex(k));

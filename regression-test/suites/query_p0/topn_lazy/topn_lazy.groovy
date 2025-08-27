@@ -17,7 +17,7 @@
 
 suite("topn_lazy") {
     sql """
-        set enable_topn_lazy_materialization=true;
+        set topn_lazy_materialization_threshold=1024;
         set runtime_filter_mode=GLOBAL;
         set TOPN_FILTER_RATIO=0.5;
         set disable_join_reorder=true;
@@ -32,6 +32,11 @@ suite("topn_lazy") {
         contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__lineorder]")
     }
 
+    // no topn lazy since huge limit
+    explain {
+        sql "select lo_suppkey, lo_commitdate from lineorder where lo_orderkey>100 order by lo_orderkey  limit 1025;"
+        notContains("VMaterializeNode")
+    }
 
     // single table select some slots
     explain {

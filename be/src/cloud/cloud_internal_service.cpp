@@ -189,12 +189,17 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             continue;
         }
         int64_t tablet_id = rs_meta.tablet_id();
+        bool local_only = !(request->has_skip_existence_check() && request->skip_existence_check());
         auto res = _engine.tablet_mgr().get_tablet(tablet_id, /* warmup_data = */ false,
                                                    /* sync_delete_bitmap = */ true,
                                                    /* sync_stats = */ nullptr,
-                                                   /* local_only = */ true);
+                                                   /* local_only = */ local_only);
         if (!res.has_value()) {
             LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
+            if (res.error().msg().find("local_only=true") != std::string::npos) {
+                res.error().set_code(ErrorCode::TABLE_NOT_FOUND);
+            }
+            res.error().to_protobuf(response->mutable_status());
             continue;
         }
         auto tablet = res.value();
@@ -357,9 +362,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             // inverted index
             auto schema_ptr = rs_meta.tablet_schema();
             auto idx_version = schema_ptr->get_inverted_index_storage_format();
-            bool has_inverted_index = schema_ptr->has_inverted_index();
 
-            if (has_inverted_index) {
+            if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
                     auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
                     std::unordered_map<int64_t, int64_t> index_size_map;

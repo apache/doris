@@ -72,6 +72,6 @@ public:
 
 private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;
-    std::string _expr_name;
+    inline static const std::string EXPR_NAME = "bitmap_predicate";
 };
 } // namespace doris::vectorized

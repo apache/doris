@@ -47,7 +47,7 @@ public class MetaServiceProxy {
 
     static {
         if (Config.isCloudMode() && (Config.meta_service_endpoint == null || Config.meta_service_endpoint.isEmpty())) {
-            throw new RuntimeException("in cloud mode, please configure cloud_unique_id and meta_service_endpoint");
+            throw new RuntimeException("in cloud mode, please configure meta_service_endpoint in fe.conf");
         }
     }
 

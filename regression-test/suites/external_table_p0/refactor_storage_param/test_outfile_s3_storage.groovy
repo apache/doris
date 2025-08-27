@@ -21,7 +21,7 @@ suite("test_outfile_s3_storage", "p0,external,external_docker") {
         return
     }
     def export_table_name = "test_outfile_s3_storage"
-    
+
     def s3_tvf = {bucket, s3_endpoint, region, ak, sk, path ->
         // http schema
         order_qt_s3_tvf_1_http """ SELECT * FROM S3 (
@@ -60,6 +60,13 @@ suite("test_outfile_s3_storage", "p0,external,external_docker") {
         """
     qt_select_export """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
 
+    def getConfigOrDefault = { String key, String defaultValue ->
+        def value = context.config.otherConfigs.get(key)
+        if (value == null || value.isEmpty()) {
+            return defaultValue
+        }
+        return value
+    }
 
     String ak = ""
     String sk = ""
@@ -73,9 +80,9 @@ suite("test_outfile_s3_storage", "p0,external,external_docker") {
     try {
         ak = context.config.otherConfigs.get("AWSAK")
         sk = context.config.otherConfigs.get("AWSSK")
-        s3_endpoint = "s3.ap-northeast-1.amazonaws.com"
-        region = "ap-northeast-1"
-        bucket = "selectdb-qa-datalake-test"
+        s3_endpoint = getConfigOrDefault("AWSEndpoint","s3.ap-northeast-1.amazonaws.com")
+        region = getConfigOrDefault ("AWSRegion","ap-northeast-1")
+        bucket = getConfigOrDefault ("AWSS3Bucket","selectdb-qa-datalake-test")
 
         // 1. test s3 schema
         def outFilePath = "${bucket}/test_outfile_s3_storage/exp_"
@@ -118,9 +125,9 @@ suite("test_outfile_s3_storage", "p0,external,external_docker") {
     try {
         ak = context.config.otherConfigs.get("txYunAk")
         sk = context.config.otherConfigs.get("txYunSk")
-        s3_endpoint = "cos.ap-beijing.myqcloud.com"
-        region = "ap-beijing"
-        bucket = "doris-build-1308700295";
+        s3_endpoint = getConfigOrDefault("txYunEndpoint","cos.ap-beijing.myqcloud.com")
+        region = getConfigOrDefault ("txYunRegion","ap-beijing");
+        bucket = getConfigOrDefault ("txYunBucket","doris-build-1308700295")
 
         // 1. test s3 schema
         def outFilePath = "${bucket}/test_outfile_s3_storage/exp_"
@@ -157,15 +164,15 @@ suite("test_outfile_s3_storage", "p0,external,external_docker") {
     } finally {
     }
 
-     /*******************************************************************************************************
+    /*******************************************************************************************************
      *****************************      TEST OSS    ********************************************************
      *******************************************************************************************************/
-     try {
+    try {
         ak = context.config.otherConfigs.get("aliYunAk")
         sk = context.config.otherConfigs.get("aliYunSk")
-        s3_endpoint = "oss-cn-hongkong.aliyuncs.com"
-        region = "oss-cn-hongkong"
-        bucket = "doris-regression-hk";
+        s3_endpoint = getConfigOrDefault("aliYunEndpoint","oss-cn-hongkong.aliyuncs.com")
+        region = getConfigOrDefault ("aliYunRegion","oss-cn-hongkong")
+        bucket = getConfigOrDefault ("aliYunBucket","doris-regression-hk");
 
         // 1. test s3 schema
         def outFilePath = "${bucket}/test_outfile_s3_storage/exp_"
@@ -198,9 +205,9 @@ suite("test_outfile_s3_storage", "p0,external,external_docker") {
         """
         outfile_url = res[0][3];
         s3_tvf(bucket, s3_endpoint, region, ak, sk, outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1));
-     } finally {
-        
-     }
+    } finally {
+
+    }
 
 
     /*******************************************************************************************************

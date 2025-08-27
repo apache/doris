@@ -37,6 +37,7 @@ class PluginQueryTimeoutDebuggerHolder {
 PluginQueryTimeoutDebugger.jdbcUrl = context.config.jdbcUrl
 PluginQueryTimeoutDebugger.jdbcUser = context.config.jdbcUser
 PluginQueryTimeoutDebugger.jdbcPassword = context.config.jdbcPassword
+PluginQueryTimeoutDebugger.skip = !context.config.excludeDockerTest
 PluginQueryTimeoutDebugger.logger = logger
 PluginQueryTimeoutDebuggerHolder.staticResource.startWorker()
 
@@ -54,6 +55,7 @@ class PluginQueryTimeoutDebugger {
     static public String jdbcUser
     static public String jdbcPassword
     static public Logger logger
+    static public Boolean skip
 
     private ScheduledExecutorService scheduler
     private List<String> backendUrls = []
@@ -61,6 +63,10 @@ class PluginQueryTimeoutDebugger {
 
     // catch all exceptions in timer function.
     private void startWorker() {
+        if (skip) {
+            logger.info("docker case skip this plugin")
+            return
+        }
         if (scheduler?.isShutdown() == false) {
             logger.warn("worker already started")
             return

@@ -39,6 +39,7 @@
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
 
 // =============================================================================
@@ -52,6 +53,25 @@
     } while (false)
 
 namespace doris::cloud {
+
+static void may_logging_single_version_reading(std::string_view key) {
+    if (!config::enable_logging_for_single_version_reading) {
+        return;
+    }
+
+    if (!key.starts_with(CLOUD_USER_KEY_SPACE01)) {
+        return;
+    }
+
+    std::vector<std::string> single_version_meta_key_prefixs =
+            get_single_version_meta_key_prefixs();
+    for (std::string& prefix : single_version_meta_key_prefixs) {
+        if (key.starts_with(prefix)) {
+            LOG(WARNING) << "Read single version meta key: " << hex(key);
+            return;
+        }
+    }
+}
 
 static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector) {
     // Keep consistent with FDB_KEYSEL_* constants.
@@ -393,6 +413,8 @@ static TxnErrorCode await_future(FDBFuture* fut) {
 }
 
 TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snapshot) {
+    may_logging_single_version_reading(key);
+
     StopWatch sw;
     approximate_bytes_ += key.size() * 2; // See fdbclient/ReadYourWrites.actor.cpp for details
     auto* fut = fdb_transaction_get(txn_, (uint8_t*)key.data(), key.size(), snapshot);
@@ -435,6 +457,8 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
 TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
                               std::unique_ptr<cloud::RangeGetIterator>* iter,
                               const RangeGetOptions& opts) {
+    may_logging_single_version_reading(begin);
+
     StopWatch sw;
     approximate_bytes_ += begin.size() + end.size();
     DORIS_CLOUD_DEFER {
@@ -690,6 +714,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
         size_t size = std::min(i + opts.concurrency, num_keys);
         for (size_t j = i; j < size; j++) {
             const auto& k = keys[j];
+            may_logging_single_version_reading(k);
             futures.emplace_back(
                     fdb_transaction_get(txn_, (uint8_t*)k.data(), k.size(), opts.snapshot));
             approximate_bytes_ += k.size() * 2;
@@ -835,7 +860,9 @@ TxnErrorCode Transaction::batch_scan(
 FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
                                            FullRangeGetOptions opts)
         : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {
-    DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
+    if (opts_.txn_kv) {
+        DCHECK(dynamic_cast<FdbTxnKv*>(opts_.txn_kv.get()));
+    }
     DCHECK(!opts_.txn || dynamic_cast<fdb::Transaction*>(opts_.txn)) << opts_.txn;
 }
 

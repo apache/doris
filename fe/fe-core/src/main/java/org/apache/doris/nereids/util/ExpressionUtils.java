@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
@@ -57,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -301,13 +301,12 @@ public class ExpressionUtils {
     }
 
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(Lists.newArrayList(expression),
-                plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet).get(0);
+        return shuttleExpressionWithLineage(Lists.newArrayList(expression), plan).get(0);
     }
 
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet);
+        return shuttleExpressionWithLineage(expressions, plan);
     }
 
     /**
@@ -320,24 +319,17 @@ public class ExpressionUtils {
      * todo to get from plan struct info
      */
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
-            Plan plan,
-            Set<TableType> targetTypes,
-            Set<String> tableIdentifiers,
-            BitSet tableBitSet) {
+            Plan plan) {
         if (expressions.isEmpty()) {
             return ImmutableList.of();
         }
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
-                new ExpressionLineageReplacer.ExpressionReplaceContext(
-                        expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
-                        targetTypes,
-                        tableIdentifiers,
-                        tableBitSet);
+                new ExpressionLineageReplacer.ExpressionReplaceContext(expressions);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
-        List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
-        if (expressions.size() != replacedExpressions.size()) {
+        List<? extends Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+        if (replacedExpressions == null || expressions.size() != replacedExpressions.size()) {
             throw new NereidsException("shuttle expression fail",
                     new MaterializedViewException("shuttle expression fail"));
         }
@@ -515,6 +507,14 @@ public class ExpressionUtils {
             }
         }
         return replaceExprs.build();
+    }
+
+    /**
+     * set ignore unique id for unique functions
+     */
+    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+        return expression.rewriteDownShortCircuit(e ->
+                e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(

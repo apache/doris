@@ -91,7 +91,7 @@ class JdbcUtils {
     }
 
     static Tuple2<List<List<Object>>, ResultSetMetaData> executeToStringList(Connection conn, PreparedStatement stmt) {
-        return toStringList(stmt.executeQuery())
+        return toStringList(stmt.executeQuery(), true)
     }
 
     // static Tuple2<List<List<Object>>, ResultSetMetaData> executeToStringList(Connection conn, PreparedStatement stmt) {
@@ -109,7 +109,7 @@ class JdbcUtils {
             if (!hasResultSet) {
                 return [ImmutableList.of(ImmutableList.of(stmt.getUpdateCount())), null]
             } else {
-                return toStringList(stmt.resultSet)
+                return toStringList(stmt.resultSet, false)
             }
         }
     }
@@ -129,7 +129,7 @@ class JdbcUtils {
         }
     }
 
-    static Tuple2<List<List<Object>>, ResultSetMetaData> toStringList(ResultSet resultSet) {
+    static Tuple2<List<List<Object>>, ResultSetMetaData> toStringList(ResultSet resultSet, boolean isPreparedStatement) {
         resultSet.withCloseable {
             List<List<Object>> rows = new ArrayList<>()
             def columnCount = resultSet.metaData.columnCount
@@ -137,26 +137,46 @@ class JdbcUtils {
                 def row = new ArrayList<>()
                 for (int i = 1; i <= columnCount; ++i) {
                     try {
-                        if (resultSet.metaData.getColumnType(i) == Types.TIME) {
-                            /*
-                             * For time types, there are three ways to save the results returned by Doris:
-                             *   1. Default behavior: row.add(resultSet.getObject(i))
-                             *      which will return a Time object.
-                             *      Use the Time type will lose the fractional precision of the time.
-                             *   2. Use LocalTime: row.add(resultSet.getColumn(i, LocalTime.class))
-                             *      which will lose the padding zeros of the fractional precision. 
-                             *      For example, 0:0:0.123000 can only retain 0:0:0.123.
-                             *   3. Use a string: row.add(new String(resultSet.getBytes(i)))
-                             *      This can preserve the full precision, so the third solution is preferred.
-                            */
-                            row.add(new String(resultSet.getBytes(i)))
-                        } else {
+                        if (isPreparedStatement) {
+                            // For prepared statements, use getObject to get the value
                             row.add(resultSet.getObject(i))
+                        } else {
+                            if (resultSet.metaData.getColumnType(i) == Types.TIME
+                                || resultSet.metaData.getColumnType(i) == Types.FLOAT
+                                || resultSet.metaData.getColumnType(i) == Types.DOUBLE) {
+                                // For normal statements, use the string representation
+                                // to keep the original format returned by Doris
+                                /*
+                                 * For time types, there are three ways to save the results returned by Doris:
+                                 *   1. Default behavior: row.add(resultSet.getObject(i))
+                                 *      which will return a Time object.
+                                 *      Use the Time type will lose the fractional precision of the time.
+                                 *   2. Use LocalTime: row.add(resultSet.getColumn(i, LocalTime.class))
+                                 *      which will lose the padding zeros of the fractional precision.
+                                 *      For example, 0:0:0.123000 can only retain 0:0:0.123.
+                                 *   3. Use a string: row.add(new String(resultSet.getBytes(i)))
+                                 *      This can preserve the full precision, so the third solution is preferred.
+                                */
+                                row.add(new String(resultSet.getBytes(i)))
+                            } else {
+                                row.add(resultSet.getObject(i))
+                            }
                         }
                     } catch (Throwable t) {
-                        if(resultSet.getBytes(i) != null){
-                            row.add(new String(resultSet.getBytes(i)))
-                        } else {
+                        try {
+                            if(resultSet.getBytes(i) != null){
+                                row.add(new String(resultSet.getBytes(i)))
+                            } else {
+                                row.add(resultSet.getObject(i))
+                            }
+                        } catch (Throwable t2) {
+                            /**
+                            suites/external_table_p0/export/hive_read/orc/test_hive_read_orc_complex_type.groovy failed
+                            java.sql.SQLFeatureNotSupportedException: Method not supported
+                            at org.apache.hive.jdbc.HiveBaseResultSet.getBytes(HiveBaseResultSet.java:221)
+                            at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
+                            at org.apache.doris.regression.util.JdbcUtils$_toStringList_closure5.doCall(JdbcUtils.groovy:163)
+                            */
                             row.add(resultSet.getObject(i))
                         }
                     }
