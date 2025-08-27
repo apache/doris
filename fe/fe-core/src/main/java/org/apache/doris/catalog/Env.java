@@ -3197,7 +3197,7 @@ public class Env {
                 editLog.logAddFrontend(fe);
             } else {
                 bdbha.removeUnReadyElectableNode(nodeName, getFollowerCount());
-                throw new DdlException("the catalog of " + nodeName " is ready, cannot be added, please check again");
+                throw new DdlException("the catalog of " + nodeName + " is ready, cannot be added, please check again");
             }
         } finally {
             unlock();
