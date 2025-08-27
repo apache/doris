@@ -400,7 +400,7 @@ public class ProfileManager extends MasterDaemon {
                 } else {
                     LOG.warn("Failed to get real-time query stats, id {}, resp is {}",
                             queryId, resp == null ? "null" : resp.toString());
-                    throw new Exception("Failed to get realtime query stats: " + resp.toString());
+                    throw new Exception("Failed to get realtime query stats: " + (resp == null ? "null" : resp.toString()));
                 }
             } catch (Exception e) {
                 LOG.warn("Failed to get real-time query stats, id {}, error: {}", queryId, e.getMessage(), e);
@@ -451,7 +451,7 @@ public class ProfileManager extends MasterDaemon {
                 } else {
                     LOG.warn("Failed to get real-time query stats, id {}, resp is {}",
                             queryId, resp == null ? "null" : resp.toString());
-                    throw new Exception("Failed to get realtime query stats: " + resp == null ? "null" : resp.toString());
+                    throw new Exception("Failed to get realtime query stats: " + (resp == null ? "null" : resp.toString()));
                 }
             } catch (Exception e) {
                 LOG.warn("Failed to get real-time query stats, id {}, error: {}", queryId, e.getMessage(), e);
