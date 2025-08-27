@@ -102,7 +102,7 @@ int OperationLogRecycler::recycle_drop_partition_log(const DropPartitionLogPB& d
         recycle_partition_pb.set_table_id(drop_partition_log.table_id());
         *recycle_partition_pb.mutable_index_id() = drop_partition_log.index_ids();
         recycle_partition_pb.set_creation_time(::time(nullptr));
-        recycle_partition_pb.set_expiration(drop_partition_log.expiration());
+        recycle_partition_pb.set_expiration(drop_partition_log.expired_at_s());
         recycle_partition_pb.set_state(RecyclePartitionPB::DROPPED);
         std::string recycle_partition_value;
         if (!recycle_partition_pb.SerializeToString(&recycle_partition_value)) {
@@ -425,24 +425,18 @@ int OperationLogRecycler::commit() {
 
     std::string log_key = encode_versioned_key(versioned::log_key(instance_id_), log_version_);
     // Remove the operation log entry itself after recycling its contents
-    LOG_INFO("remove operation log key")
-            .tag("instance_id", instance_id_)
-            .tag("log_key", hex(log_key))
-            .tag("log_version", log_version_.to_string());
+    LOG_INFO("remove operation log key").tag("log_version", log_version_.to_string());
     txn->remove(log_key);
 
     for (const auto& key : keys_to_remove_) {
         // Remove versioned keys that were replaced during operation log processing
-        LOG_INFO("remove versioned key").tag("instance_id", instance_id_).tag("key", hex(key));
+        LOG_INFO("remove versioned key").tag("key", hex(key));
         txn->remove(key);
     }
 
     for (const auto& [key, value] : kvs_) {
         // Put recycled metadata entries (recycle partition, recycle index, recycle rowset, etc.)
-        LOG_INFO("put recycled metadata key")
-                .tag("instance_id", instance_id_)
-                .tag("key", hex(key))
-                .tag("value_size", value.size());
+        LOG_INFO("put recycled metadata key").tag("key", hex(key)).tag("value_size", value.size());
         txn->put(key, value);
     }
 
@@ -546,6 +540,14 @@ int InstanceRecycler::recycle_operation_logs() {
             LOG_WARNING("failed to parse OperationLogPB from operation log key")
                     .tag("key", hex(key));
             return -1;
+        }
+
+        if (!operation_log.has_min_timestamp()) {
+            LOG_WARNING("operation log has not set the min_timestamp")
+                    .tag("key", hex(key))
+                    .tag("version", versionstamp.version())
+                    .tag("order", versionstamp.order())
+                    .tag("log", operation_log.ShortDebugString());
         }
 
         bool need_recycle = true; // Always recycle operation logs for now

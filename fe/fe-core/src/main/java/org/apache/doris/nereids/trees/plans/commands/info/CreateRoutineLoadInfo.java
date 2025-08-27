@@ -444,7 +444,10 @@ public class CreateRoutineLoadInfo {
             importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 
-    private void checkJobProperties() throws UserException {
+    /**
+     * checkJobProperties
+     */
+    public void checkJobProperties() throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
@@ -506,7 +509,7 @@ public class CreateRoutineLoadInfo {
             this.workloadGroupName = inputWorkloadGroupStr;
         }
 
-        if (ConnectContext.get() != null) {
+        if (ConnectContext.get().getSessionVariable().getTimeZone() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(TIMEZONE, timezone));

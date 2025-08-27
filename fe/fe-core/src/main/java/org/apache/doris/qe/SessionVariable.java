@@ -279,6 +279,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
 
+    // Force the number of scanners to equal the number of segments in OLAP scan when parallel scan is enabled.
+    public static final String OPTIMIZE_INDEX_SCAN_PARALLELISM =
+            "optimize_index_scan_parallelism";
+
     // Limit the max count of scanners to prevent generate too many scanners.
     public static final String PARALLEL_SCAN_MAX_SCANNERS_COUNT = "parallel_scan_max_scanners_count";
 
@@ -1244,6 +1248,12 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     private boolean enableParallelScan = true;
 
+    @VariableMgr.VarAttr(name = OPTIMIZE_INDEX_SCAN_PARALLELISM,
+            needForward = true,
+            description = {"优化索引扫描时的Scan并行度，该优化目前只对 ann topn 查询生效",
+                "Optimize the Scan parallelism when indexing, this optimization only works for ann topn queries."})
+    private boolean optimizeIndexScanParallelism = true;
+
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
     private int parallelScanMaxScannersCount = 0;
@@ -1391,10 +1401,23 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
-    @VariableMgr.VarAttr(name = "enable_topn_lazy_materialization", needForward = true,
+    @VariableMgr.VarAttr(name = "topn_lazy_materialization_threshold", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
-    public boolean enableTopnLazyMaterialization = true;
+    public int topNLazyMaterializationThreshold = 512 * 1024;
+
+    public boolean enableTopnLazyMaterialization() {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold > 0;
+    }
+
+    public static int getTopNLazyMaterializationThreshold() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationThreshold;
+        }
+    }
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
@@ -4427,6 +4450,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
+        tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
 
