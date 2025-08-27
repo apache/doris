@@ -73,7 +73,7 @@ public class SplitAssignmentTest {
         pathPartitionKeys = new ArrayList<>();
 
         splitAssignment = new SplitAssignment(
-                new TUniqueId(1,2),
+                new TUniqueId(1, 2),
                 mockBackendPolicy,
                 mockSplitGenerator,
                 mockSplitToScanRange,
@@ -125,7 +125,7 @@ public class SplitAssignmentTest {
     void testInitTimeout() throws Exception {
         // Use MockUp to simulate timeout behavior quickly instead of waiting 30 seconds
         SplitAssignment testAssignment = new SplitAssignment(
-                new TUniqueId(1,2),
+                new TUniqueId(1, 2),
                 mockBackendPolicy,
                 mockSplitGenerator,
                 mockSplitToScanRange,
