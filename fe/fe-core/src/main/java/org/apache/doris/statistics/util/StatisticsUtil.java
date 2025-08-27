@@ -233,7 +233,7 @@ public class StatisticsUtil {
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
-        connectContext.setStartTime();
+        connectContext.setStartTime(true);
         if (Config.isCloudMode()) {
             AutoCloseConnectContext ctx = new AutoCloseConnectContext(connectContext);
             try {

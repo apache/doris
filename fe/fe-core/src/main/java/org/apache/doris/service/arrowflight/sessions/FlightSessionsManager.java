@@ -55,7 +55,7 @@ public interface FlightSessionsManager {
     static ConnectContext buildConnectContext(String peerIdentity, UserIdentity userIdentity, String remoteIP) {
         ConnectContext connectContext = new FlightSqlConnectContext(peerIdentity);
         connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setStartTime();
+        connectContext.setStartTime(true);
         connectContext.setCurrentUserIdentity(userIdentity);
         connectContext.setRemoteIP(remoteIP);
         connectContext.setUserQueryTimeout(

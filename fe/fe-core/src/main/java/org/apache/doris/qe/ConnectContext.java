@@ -689,11 +689,11 @@ public class ConnectContext {
         return startTime;
     }
 
-    public void setStartTime() {
-        if (startTime == -1) {
+    public void setStartTime(boolean force) {
+        if (startTime == -1 || force) {
             startTime = System.currentTimeMillis();
-            returnRows = 0;
         }
+        returnRows = 0;
     }
 
     public void updateReturnRows(int returnRows) {

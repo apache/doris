@@ -575,7 +575,7 @@ public class StmtExecutor {
             LOG.debug("Nereids start to execute query:\n {}", originStmt.originStmt);
         }
         context.setQueryId(queryId);
-        context.setStartTime();
+        context.setStartTime(false);
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
         if (context.getSessionVariable().enableProfile) {

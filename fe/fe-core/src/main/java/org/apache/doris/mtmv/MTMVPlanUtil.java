@@ -108,7 +108,7 @@ public class MTMVPlanUtil {
         );
         ctx.getSessionVariable().setDisableNereidsRules(
                 disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
-        ctx.setStartTime();
+        ctx.setStartTime(true);
         if (parentContext != null) {
             ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
             ctx.setDatabase(parentContext.getDatabase());

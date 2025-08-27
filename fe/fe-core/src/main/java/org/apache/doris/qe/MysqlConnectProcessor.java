@@ -208,7 +208,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.debug("execute prepared statement {}", stmtId);
         }
 
-        ctx.setStartTime();
+        ctx.setStartTime(true);
         // nereids
         PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
         if (preparedStatementContext == null) {
@@ -246,7 +246,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.debug("handle command {}", command);
         }
         ctx.setCommand(command);
-        ctx.setStartTime();
+        // update start time force, avoid connection reuse problem.
+        ctx.setStartTime(true);
 
         switch (command) {
             case COM_INIT_DB:

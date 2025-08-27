@@ -202,7 +202,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         connectContext.setQueryId(queryId);
-        connectContext.setStartTime();
+        connectContext.setStartTime(true);
         return new AutoCloseConnectContext(connectContext);
     }
 

@@ -87,7 +87,7 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
             LOG.debug("arrow flight sql handle command {}", command);
         }
         ctx.setCommand(command);
-        ctx.setStartTime();
+        ctx.setStartTime(true);
     }
 
     public void handleQuery(String query) throws ConnectionException {

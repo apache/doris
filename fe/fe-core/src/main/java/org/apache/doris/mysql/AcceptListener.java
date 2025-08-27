@@ -122,7 +122,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 MysqlProto.sendResponsePacket(context);
                 throw new AfterConnectedException(errMsg);
             }
-            context.setStartTime();
+            context.setStartTime(true);
             int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());
             if (userQueryTimeout <= 0 && LOG.isDebugEnabled()) {
                 LOG.debug("Connection set query timeout to {}",
