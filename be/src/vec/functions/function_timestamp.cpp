@@ -259,9 +259,8 @@ struct MakeDateImpl {
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         DCHECK_EQ(arguments.size(), 2);
-
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         const auto& col0 = block.get_by_position(arguments[0]).column;
         bool col_const[2] = {is_column_const(*col0)};
         ColumnPtr argument_columns[2] = {
@@ -279,14 +278,12 @@ struct MakeDateImpl {
                 execute_impl_right_const<DataTypeDateV2>(
                         static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
                         static_cast<const ColumnInt32*>(argument_columns[1].get())->get_element(0),
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data());
+                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
             } else {
                 execute_impl<DataTypeDateV2>(
                         static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
                         static_cast<const ColumnInt32*>(argument_columns[1].get())->get_data(),
-                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data());
+                        static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data());
             }
             break;
         }
@@ -296,14 +293,12 @@ struct MakeDateImpl {
                 execute_impl_right_const<DataTypeDateTimeV2>(
                         static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
                         static_cast<const ColumnInt32*>(argument_columns[1].get())->get_element(0),
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data());
+                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
             } else {
                 execute_impl<DataTypeDateTimeV2>(
                         static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
                         static_cast<const ColumnInt32*>(argument_columns[1].get())->get_data(),
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data());
+                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data());
             }
             break;
         }
@@ -313,14 +308,12 @@ struct MakeDateImpl {
                 execute_impl_right_const<DataTypeDate>(
                         assert_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
                         assert_cast<const ColumnInt32*>(argument_columns[1].get())->get_element(0),
-                        assert_cast<ColumnDate*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data());
+                        assert_cast<ColumnDate*>(res->assume_mutable().get())->get_data());
             } else {
                 execute_impl<DataTypeDate>(
                         assert_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
                         assert_cast<const ColumnInt32*>(argument_columns[1].get())->get_data(),
-                        assert_cast<ColumnDate*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data());
+                        assert_cast<ColumnDate*>(res->assume_mutable().get())->get_data());
             }
         }
         }
@@ -332,7 +325,7 @@ private:
     template <typename DateType, typename DateValueType = date_cast::TypeToValueTypeV<DateType>,
               typename ReturnType = date_cast::TypeToColumnV<DateType>>
     static void execute_impl(const PaddedPODArray<Int32>& ldata, const PaddedPODArray<Int32>& rdata,
-                             PaddedPODArray<ReturnType>& res, NullMap& null_map) {
+                             PaddedPODArray<ReturnType>& res) {
         auto len = ldata.size();
         res.resize(len);
 
@@ -340,16 +333,19 @@ private:
             const auto& l = ldata[i];
             const auto& r = rdata[i];
             if (r <= 0 || l < 0 || l > 9999) {
-                null_map[i] = 1;
-                continue;
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "The function {} Argument value {}, {} must be larger than zero ,and year"
+                        "between 1 and 9999",
+                        name, l, r);
             }
-            _execute_inner_loop<DateValueType, ReturnType>(l, r, res, null_map, i);
+            _execute_inner_loop<DateValueType, ReturnType>(l, r, res, i);
         }
     }
     template <typename DateType, typename DateValueType = date_cast::TypeToValueTypeV<DateType>,
               typename ReturnType = date_cast::TypeToColumnV<DateType>>
     static void execute_impl_right_const(const PaddedPODArray<Int32>& ldata, Int32 rdata,
-                                         PaddedPODArray<ReturnType>& res, NullMap& null_map) {
+                                         PaddedPODArray<ReturnType>& res) {
         auto len = ldata.size();
         res.resize(len);
 
@@ -357,15 +353,19 @@ private:
         for (size_t i = 0; i < len; ++i) {
             const auto& l = ldata[i];
             if (r <= 0 || l < 0 || l > 9999) {
-                null_map[i] = 1;
-                continue;
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "The function {} with input {}, {} Argument value must be larger than "
+                        "zero ,and year "
+                        "between 1 and 9999",
+                        name, l, r);
             }
-            _execute_inner_loop<DateValueType, ReturnType>(l, r, res, null_map, i);
+            _execute_inner_loop<DateValueType, ReturnType>(l, r, res, i);
         }
     }
     template <typename DateValueType, typename ReturnType>
     static void _execute_inner_loop(const int& l, const int& r, PaddedPODArray<ReturnType>& res,
-                                    NullMap& null_map, size_t index) {
+                                    size_t index) {
         auto& res_val = *reinterpret_cast<DateValueType*>(&res[index]);
         // l checked outside
         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
@@ -375,15 +375,18 @@ private:
             TimeInterval interval(DAY, r - 1, false);
             res_val = ts_value;
             if (!res_val.template date_add_interval<DAY>(interval)) {
-                null_map[index] = 1;
-                return;
+                throw Exception(ErrorCode::OUT_OF_BOUND,
+                                "The function {} with input {} , {} result is out of range", name,
+                                l, r);
             }
             res_val.cast_to_date();
         } else {
             res_val.unchecked_set_time(l, 1, 1, 0, 0, 0, 0);
             TimeInterval interval(DAY, r - 1, false);
             if (!res_val.template date_add_interval<DAY>(interval)) {
-                null_map[index] = 1;
+                throw Exception(ErrorCode::OUT_OF_BOUND,
+                                "The function {} with input {} , {} result is out of range", name,
+                                l, r);
             }
         }
     }

@@ -250,9 +250,18 @@ struct TimeDiffImpl {
 
     static constexpr PrimitiveType ReturnType =
             TYPE_TIMEV2; // TimeV1Type also use double as native type. same as v2.
-
     static constexpr auto name = "timediff";
     static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
+
+    static void throw_out_of_bound(NativeType value0, NativeType value1) {
+        char buf0[40];
+        char* end0 = value0.to_string(buf0);
+        char buf1[40];
+        char* end1 = value1.to_string(buf1);
+        throw Exception(ErrorCode::OUT_OF_BOUND, "The function {} result of {}, {} is out of range",
+                        name, std::string_view {buf0, end0 - 1}, std::string_view {buf1, end1 - 1});
+    }
+
     static inline DataTypeTimeV2::FieldType execute(const ArgType& t0, const ArgType& t1,
                                                     bool& is_null) {
         const auto& ts0 = reinterpret_cast<const NativeType&>(t0);
@@ -262,10 +271,9 @@ struct TimeDiffImpl {
             // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
             // the time type value between '-838:59:59' and '838:59:59', so the return value should limited
             int64_t diff_m = ts0.datetime_diff_in_microseconds(ts1);
-            if (diff_m > limit_value) {
-                return (double)limit_value;
-            } else if (diff_m < -1 * limit_value) {
-                return (double)(-1 * limit_value);
+            if (diff_m > limit_value | diff_m < -1 * limit_value) {
+                throw_out_of_bound(ts0, ts1);
+                return diff_m; // make compiler happy
             } else {
                 return (double)diff_m;
             }
@@ -908,7 +916,13 @@ struct SecToTimeImpl {
         auto res_col = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = TimeValue::from_seconds_with_limit(column_data.get_element(i));
+            if (TimeValue::valid(column_data.get_element(i) * TimeValue::ONE_SECOND_MICROSECONDS)) {
+                res_data[i] = TimeValue::from_seconds_with_limit(column_data.get_element(i));
+            } else {
+                return Status::InternalError(
+                        "The function {} Argument value {} is out of Time range", name,
+                        column_data.get_element(i));
+            }
         }
 
         block.replace_by_position(result, std::move(res_col));
@@ -951,15 +965,14 @@ struct TimestampToDateTime : IFunction {
         res_col->get_data().resize_fill(input_rows_count, 0);
         null_vector->get_data().resize_fill(input_rows_count, false);
 
-        NullMap& null_map = null_vector->get_data();
         auto& res_data = res_col->get_data();
         const cctz::time_zone& time_zone = context->state()->timezone_obj();
 
         for (int i = 0; i < input_rows_count; ++i) {
             Int64 value = column_data.get_element(i);
             if (value < 0) {
-                null_map[i] = true;
-                continue;
+                return Status::InternalError("The function {} Argument value must be non-negative",
+                                             name);
             }
 
             auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
@@ -968,7 +981,8 @@ struct TimestampToDateTime : IFunction {
             if (dt.is_valid_date()) [[likely]] {
                 dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
             } else {
-                null_map[i] = true;
+                return Status::InternalError(
+                        "The function {} Argument value is out of DateTime range", name);
             }
         }
 

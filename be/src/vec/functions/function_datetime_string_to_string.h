@@ -120,8 +120,9 @@ public:
                 time_format_type::rewrite_specific_format(string_vale.data, string_vale.size);
         if (format_str.size > 128) {
             //  exceeds the length limit.
-            state->is_valid = false;
-            return IFunction::open(context, scope);
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "The length of format string in function {} exceeds the limit 128.",
+                            get_name());
         }
 
         // Preprocess special format strings.

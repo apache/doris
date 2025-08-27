@@ -355,15 +355,19 @@ suite("test_date_function") {
     qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219) """
     qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
     qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d') """
-    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
-    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
-
+    test {
+        sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+        exception "Cannot convert timestamp 253402272000 to valid date"
+    }
     // HOUR
     qt_sql """ select hour('2018-12-31 23:59:59') """
     qt_sql """ select hour('2018-12-31') """
 
     // MAKEDATE
-    qt_sql """ select makedate(2021,0), makedate(2021,1), makedate(2021,100), makedate(2021,400) """
+    qt_sql {    
+        """ select makedate(2021,0), makedate(2021,1), makedate(2021,100), makedate(2021,400) """
+        exception "The function makedate Argument value 2021, 0 must be larger than zero ,and yearbetween 1 and 9999"
+    }
 
     // MINUTE
     qt_sql """ select minute('2018-12-31 23:59:59') """

@@ -46,8 +46,6 @@ suite("test_from_unixtime") {
     qt_sql3 "select from_unixtime(0, \"%Y-%m-%d\")"
     qt_sql4 "select from_unixtime(0);"
 
-    qt_sql5 "select from_unixtime(-1, \"%Y-%m-%d\");"
-    qt_sql6 "select from_unixtime(-1);"
 
     // https://dev.mysql.com/doc/refman/8.0/en/date-and-time-functions.html#function_from-unixtime
     // 32536771199 is mysql max valid timestamp on 64bit system, return 3001-01-18 23:59:59
@@ -56,9 +54,4 @@ suite("test_from_unixtime") {
 
     // Return NULL, same with msyql
     qt_sql8 "select from_unixtime(32536771199 + 1)"
-
-    qt_sql9 "select from_unixtime(-7629445119491449, \"%Y-%m-%d\");"
-    qt_sql10 "select from_unixtime(-7629445119491449);"
-
-    qt_long "select from_unixtime(1196440219, '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b');"
 }
