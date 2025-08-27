@@ -203,9 +203,14 @@ struct TQueryStatistics {
     13: optional i64 spill_read_bytes_from_local_storage
 }
 
+struct TQueryStatisticsResult {
+    1: optional bool query_finished
+    2: optional TQueryStatistics statistics
+}
+
 struct TReportWorkloadRuntimeStatusParams {
     1: optional i64 backend_id
-    2: optional map<string, TQueryStatistics> query_statistics_map
+    2: optional map<string, TQueryStatisticsResult> query_statistics_map
 }
 
 struct TQueryProfile {
