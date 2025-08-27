@@ -148,7 +148,7 @@ struct TResultFileSinkOptions {
     21: optional bool enable_int96_timestamps
     // currently only for csv
     // TODO: merge with parquet_compression_type and orc_compression_type
-    22: optional PlanNodes.TFileCompressType compress_type
+    22: optional PlanNodes.TFileCompressType compression_type
 }
 
 struct TMemoryScratchSink {

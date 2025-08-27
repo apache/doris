@@ -104,7 +104,7 @@ private:
     // delete the dir of file_path
     Status _delete_dir();
     double _get_write_speed(int64_t write_bytes, int64_t write_time);
-    std::string _compress_type_to_name();
+    std::string _compression_type_to_name();
 
 private:
     RuntimeState* _state; // not owned, set when init

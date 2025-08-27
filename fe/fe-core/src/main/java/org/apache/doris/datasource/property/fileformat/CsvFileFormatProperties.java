@@ -153,7 +153,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     private TFileCompressType analyzeCompressionType(String compressTypeStr) throws AnalysisException {
         if (CSV_COMPRESSION_TYPE_MAP.containsKey(compressTypeStr.toLowerCase())) {
-            this.compressionType = CSV_COMPRESSION_TYPE_MAP.get(compressTypeStr.toLowerCase());
+            return CSV_COMPRESSION_TYPE_MAP.get(compressTypeStr.toLowerCase());
         } else {
             throw new AnalysisException("csv compression type ["
                     + compressTypeStr + "] is invalid,"
@@ -165,7 +165,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
         sinkOptions.setColumnSeparator(columnSeparator);
         sinkOptions.setLineDelimiter(lineDelimiter);
-        sinkOptions.setCompressType(compressionType);
+        sinkOptions.setCompressionType(compressionType);
     }
 
     // The method `analyzeFileFormatProperties` must have been called once before this method
