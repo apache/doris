@@ -33,8 +33,6 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -49,8 +47,6 @@ public class ArrayProduct extends ScalarFunction implements ExplicitlyCastableSi
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(DoubleType.INSTANCE)),
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(ArrayType.of(TinyIntType.INSTANCE)),
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(ArrayType.of(SmallIntType.INSTANCE)),
             FunctionSignature.ret(IntegerType.INSTANCE).args(ArrayType.of(IntegerType.INSTANCE)),
             FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(BigIntType.INSTANCE)),
             FunctionSignature.ret(LargeIntType.INSTANCE).args(ArrayType.of(LargeIntType.INSTANCE)),
