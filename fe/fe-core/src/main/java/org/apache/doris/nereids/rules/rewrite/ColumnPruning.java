@@ -436,15 +436,9 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 LogicalProject<?> project;
                 if (child instanceof LogicalProject) {
                     LogicalProject<Plan> childProject = (LogicalProject<Plan>) child;
-                    Optional<List<NamedExpression>> mergeProjections = PlanUtils.mergeProjections(
+                    List<NamedExpression> mergeProjections = PlanUtils.mergeProjections(
                             childProject.getProjects(), newProjectOutput);
-                    if (mergeProjections.isPresent()) {
-                        project = new LogicalProject<>(mergeProjections.get(), childProject.child());
-                    } else {
-                        // TODO
-                        // project = (LogicalProject<?>) child; ??
-                        project = new LogicalProject<>(newProjectOutput, child);
-                    }
+                    project = new LogicalProject<>(mergeProjections, childProject.child());
                 } else {
                     project = new LogicalProject<>(newProjectOutput, child);
                 }

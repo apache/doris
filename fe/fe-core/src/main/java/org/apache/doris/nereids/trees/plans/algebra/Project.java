@@ -68,7 +68,7 @@ public interface Project extends ProjectMergeable {
      */
     default Optional<List<NamedExpression>> mergeProjections(Project childProject) {
         Optional<List<NamedExpression>> parentProjectsOpt
-                = PlanUtils.mergeProjections(childProject.getProjects(), getProjects());
+                = PlanUtils.tryMergeProjections(childProject.getProjects(), getProjects());
         if (!parentProjectsOpt.isPresent()) {
             return Optional.empty();
         }

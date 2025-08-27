@@ -52,7 +52,7 @@ public interface ProjectMergeable extends ProjectProcessor, OutputPrunable, Plan
                 break;
             }
             Optional<List<NamedExpression>> newMergeProjectsOpt
-                    = PlanUtils.mergeProjections(projectable.getProjects(), mergedProjects);
+                    = PlanUtils.tryMergeProjections(projectable.getProjects(), mergedProjects);
             if (!newMergeProjectsOpt.isPresent()) {
                 break;
             }

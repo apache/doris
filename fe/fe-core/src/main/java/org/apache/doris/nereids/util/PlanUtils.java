@@ -144,13 +144,12 @@ public class PlanUtils {
     }
 
     /**
-     * merge childProjects with parentProjects. if merged expression exceeds limit, return empty.
+     * try merge childProjects with parentProjects. if merged expression exceeds limit, return empty.
      */
-    public static Optional<List<NamedExpression>> mergeProjections(List<? extends NamedExpression> childProjects,
+    public static Optional<List<NamedExpression>> tryMergeProjections(List<? extends NamedExpression> childProjects,
             List<? extends NamedExpression> parentProjects) {
-        Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(childProjects);
         try {
-            return Optional.of(ExpressionUtils.replaceNamedExpressions(parentProjects, replaceMap));
+            return Optional.of(mergeProjections(childProjects, parentProjects));
         } catch (AnalysisException e) {
             if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
                 return Optional.empty();
@@ -158,6 +157,15 @@ public class PlanUtils {
                 throw e;
             }
         }
+    }
+
+    /**
+     * merge childProjects with parentProjects. if merged expression exceeds limit, will throw AnalysisException.
+     */
+    public static List<NamedExpression> mergeProjections(List<? extends NamedExpression> childProjects,
+            List<? extends NamedExpression> parentProjects) {
+        Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(childProjects);
+        return ExpressionUtils.replaceNamedExpressions(parentProjects, replaceMap);
     }
 
     public static List<Expression> replaceExpressionByProjections(List<NamedExpression> childProjects,
