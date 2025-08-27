@@ -24,6 +24,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
@@ -80,6 +81,15 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(1));
         Assertions.assertEquals("TA", sourceValues.get(0).getReference().toSql());
         Assertions.assertEquals("TB", sourceValues.get(1).getReference().toSql());
+
+        valueDesc = getValueDesc("L + RANDOM(1, 10) > 8 AND L + RANDOM(1, 10) <  1");
+        Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
+        sourceValues = ((UnknownValue) valueDesc).getSourceValues();
+        Assertions.assertEquals(2, sourceValues.size());
+        for (ValueDesc value : sourceValues) {
+            Assertions.assertInstanceOf(RangeValue.class, value);
+            Assertions.assertEquals("(L + random(1, 10))", value.getReference().toSql());
+        }
     }
 
     @Test
@@ -227,6 +237,9 @@ public class SimplifyRangeTest extends ExpressionRewrite {
 
         assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1");
 
+        // random is non-foldable, so the two random(1, 10) are distinct, cann't merge range for them.
+        Expression expr = rewrite("TA + random(1, 10) > 10 AND  TA + random(1, 10) < 1", Maps.newHashMap());
+        Assertions.assertEquals("AND[((cast(TA as BIGINT) + random(1, 10)) > 10),((cast(TA as BIGINT) + random(1, 10)) < 1)]", expr.toSql());
     }
 
     @Test
@@ -403,12 +416,17 @@ public class SimplifyRangeTest extends ExpressionRewrite {
 
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
-        Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
-        needRewriteExpression = typeCoercion(needRewriteExpression);
+        Expression rewrittenExpression = rewrite(expression, mem);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
         expectedExpression = typeCoercion(expectedExpression);
-        Expression rewrittenExpression = sortChildren(executor.rewrite(needRewriteExpression, context));
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
+    }
+
+    private Expression rewrite(String expression, Map<String, Slot> mem) {
+        Expression rewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
+        rewriteExpression = typeCoercion(rewriteExpression);
+        rewriteExpression = executor.rewrite(rewriteExpression, context);
+        return sortChildren(rewriteExpression);
     }
 
     private void assertRewriteNotNull(String expression, String expected) {
