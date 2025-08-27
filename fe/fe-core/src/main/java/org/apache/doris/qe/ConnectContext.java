@@ -864,6 +864,9 @@ public class ConnectContext {
         return plSqlOperation;
     }
 
+    /**
+     * This method is idempotent.
+     */
     protected void closeChannel() {
         if (mysqlChannel != null) {
             mysqlChannel.close();
@@ -1010,6 +1013,10 @@ public class ConnectContext {
         }
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user"));
+        // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
+        if (killConnection) {
+            cleanup();
+        }
     }
 
     // kill operation with no protect by timeout.
@@ -1032,6 +1039,10 @@ public class ConnectContext {
                     getConnectType(), connectionId);
             executorRef.cancel(new Status(TStatusCode.TIMEOUT,
                     "query is timeout, killed by timeout checker"));
+        }
+        // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
+        if (killConnection) {
+            cleanup();
         }
     }
 
