@@ -806,8 +806,9 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
 
         // In input rowsets, some rowsets may have statistics values exceeding the maximum limit,
         // which leads to inaccurate statistics
-        if (stats.size() >
-            tablet->tablet_schema()->column_by_uid(uid).variant_max_sparse_column_statistics_size()) {
+        if (stats.size() > tablet->tablet_schema()
+                                   ->column_by_uid(uid)
+                                   .variant_max_sparse_column_statistics_size()) {
             // When there is only one segment, we can ensure that the size of each path in output stats is accurate
             if (output->num_segments() == 1) {
                 for (const auto& [path, size] : stats) {
