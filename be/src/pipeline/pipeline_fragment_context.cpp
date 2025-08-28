@@ -1178,11 +1178,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             return Status::InternalError("Missing blackhole sink.");
         }
 
-        TDataStreamSink empty_sink;
-        std::vector<TPlanFragmentDestination> empty_destinations;
-
-        _sink.reset(new BlackholeSinkOperatorX(next_sink_operator_id(), 0, empty_sink,
-                                               empty_destinations));
+        _sink.reset(new BlackholeSinkOperatorX(next_sink_operator_id()));
         break;
     }
     default:
