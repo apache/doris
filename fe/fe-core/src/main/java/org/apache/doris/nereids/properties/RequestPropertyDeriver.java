@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeRes
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
@@ -55,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -62,9 +64,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -105,14 +110,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visit(Plan plan, PlanContext context) {
-        if (plan instanceof RequirePropertiesSupplier) {
-            RequireProperties requireProperties = ((RequirePropertiesSupplier<?>) plan).getRequireProperties();
-            List<PhysicalProperties> requestPhysicalProperties =
-                    requireProperties.computeRequirePhysicalProperties(plan, requestPropertyFromParent);
-            addRequestPropertyToChildren(requestPhysicalProperties);
-            return null;
-        }
-
         List<PhysicalProperties> requiredPropertyList =
                 Lists.newArrayListWithCapacity(context.arity());
         for (int i = context.arity(); i > 0; --i) {
@@ -409,6 +406,47 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                     PhysicalProperties.createHash(windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE)
                     .withOrderSpec(isSkew ? new MustLocalSortOrderSpec(keysNeedToBeSorted)
                             : new OrderSpec(keysNeedToBeSorted)));
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
+        DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
+        if (agg.getAggPhase().isLocal()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+            return null;
+        } else if (agg.getAggPhase().isGlobal()) {
+            if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
+                addRequestPropertyToChildren(
+                        PhysicalProperties.createHash(agg.getPartitionExpressions().get(), ShuffleType.REQUIRE));
+                return null;
+            }
+            if (agg.getGroupByExpressions().isEmpty()) {
+                addRequestPropertyToChildren(PhysicalProperties.GATHER);
+                return null;
+            }
+            List<ExprId> groupByExprIds = agg.getGroupByExpressions().stream()
+                    .filter(SlotReference.class::isInstance)
+                    .map(SlotReference.class::cast)
+                    .map(SlotReference::getExprId)
+                    .collect(Collectors.toList());
+            // If the request received by agg is (a), the request sent by agg is (a,b), and (a) is a subset of (a,b),
+            // then agg sends (a) to the child
+            if (parentDist instanceof DistributionSpecHash) {
+                DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
+                List<ExprId> hashExprIds = distributionRequestFromParent.getOrderedShuffledColumns();
+                Set<ExprId> intersectId = Sets.intersection(new HashSet<>(hashExprIds), new HashSet<>(groupByExprIds));
+                if (!intersectId.isEmpty() && intersectId.size() < groupByExprIds.size()) {
+                    // TODO: use ndv decide, if ndv low, not send parent
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(Utils.fastToImmutableList(intersectId),
+                            ShuffleType.REQUIRE));
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+                    return null;
+                }
+            }
+            addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+            return null;
         }
         return null;
     }

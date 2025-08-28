@@ -115,7 +115,7 @@ public class AggregateExpression extends Expression implements UnaryExpression {
         if (aggMode.consumeAggregateBuffer) {
             return prefix + function.getName() + "(" + child().toString() + ")";
         } else {
-            return prefix + child().toString();
+            return prefix + function.toString();
         }
     }
 

@@ -366,7 +366,6 @@ suite("aggregate") {
     sql "insert into test_four_phase_full_distribute values(1, 21, 'hello'), (2, 22, 'world')"
     sql " sync "
     order_qt_four_phase_full_distribute """select
-        /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT,THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT,FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/
         name, count(distinct name), count(distinct age)
         from test_four_phase_full_distribute
         group by name
