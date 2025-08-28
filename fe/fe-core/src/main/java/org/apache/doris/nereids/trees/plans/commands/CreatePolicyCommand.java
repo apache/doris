@@ -149,13 +149,22 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                         throw new AnalysisException("role not exist: " + roleName);
                     }
                 }
+                if (!wherePredicate.isPresent()) {
+                    throw new AnalysisException("wherePredicate can not be null");
+                }
                 TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(tableNameInfo.getCtl())
                         .getDbOrAnalysisException(tableNameInfo.getDb())
                         .getTableOrAnalysisException(tableNameInfo.getTbl());
-                Expression expression = wherePredicate.get();
-                System.out.println(expression);
-                System.out.println(tableIf);
+                wherePredicate.get().foreach(expr -> {
+                    if (expr instanceof UnboundSlot) {
+                        UnboundSlot slot = (UnboundSlot) expr;
+                        if (tableIf.getColumn(slot.getName()) == null) {
+                            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                                    "column not exist: " + slot.getName());
+                        }
+                    }
+                });
 
         }
     }
