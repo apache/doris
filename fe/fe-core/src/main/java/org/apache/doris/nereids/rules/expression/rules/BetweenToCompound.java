@@ -51,7 +51,7 @@ public class BetweenToCompound implements ExpressionPatternRuleFactory {
         );
     }
 
-    public Expression rewrite(Between expr, ExpressionRewriteContext context) {
+    private Expression rewrite(Between expr, ExpressionRewriteContext context) {
         if (expr.getLowerBound().equals(expr.getUpperBound())) {
             return new EqualTo(expr.getCompareExpr(), expr.getLowerBound());
         } else {
