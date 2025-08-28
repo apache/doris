@@ -32,12 +32,16 @@ suite('test_read_from_peer', 'docker') {
         'heartbeat_interval_second=1',
         'workload_group_check_interval_ms=1'
     ]
+    options.beConfigs += [
+        'file_cache_each_block_size=131072',
+        // 'sys_log_verbose_modules=*',
+    ]
     options.setFeNum(1)
     options.setBeNum(1)
     options.cloudMode = true
     options.enableDebugPoints()
     
-    def table = "test_read_from_table"
+    def tableName = "test_read_from_table"
 
     def clusterBe = { clusterName ->
         def bes = sql_return_maparray "show backends"
@@ -86,7 +90,7 @@ suite('test_read_from_peer', 'docker') {
             // Execute the query and measure time
             def queryStartTime = System.currentTimeMillis()
             sql """
-                select * from $table
+                select count(*) from $tableName
             """
             def queryTime = System.currentTimeMillis() - queryStartTime
             logger.info("Test completed - Type:{}, FetchFrom: {}, Cluster: {}, Query execution time: {}ms", runType, fetchFrom, clusterName, queryTime)
@@ -107,16 +111,23 @@ suite('test_read_from_peer', 'docker') {
         // 添加一个新的cluster, 从s3 和 peer 并发读，采用winner
         cluster.addBackend(1, "readWinnercluster")
 
-        sql """CREATE TABLE $table (
-            `k1` int(11) NULL,
-            `k2` int(11) NULL
-            )
-            DUPLICATE KEY(`k1`, `k2`)
-            COMMENT 'OLAP'
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-            PROPERTIES (
-            "replication_num"="1"
-            );
+
+        sql """CREATE TABLE IF NOT EXISTS ${tableName} (
+                  `k1` int(11) NULL,
+                  `k2` tinyint(4) NULL,
+                  `k3` smallint(6) NULL,
+                  `k4` bigint(20) NULL,
+                  `k5` largeint(40) NULL,
+                  `k6` float NULL,
+                  `k7` double NULL,
+                  `k8` decimal(9, 0) NULL,
+                  `k9` char(10) NULL,
+                  `k10` varchar(1024) NULL,
+                  `k11` text NULL,
+                  `k12` date NULL,
+                  `k13` datetime NULL
+                ) ENGINE=OLAP
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 1
         """
 
         sql """
@@ -124,12 +135,32 @@ suite('test_read_from_peer', 'docker') {
         """
 
         // in compute_cluster be-1, cache all data in file cache
-        sql """
-            insert into $table values (1, 1)
-        """
+        def txnId = -1;
+        // version 2
+        streamLoad {
+            table "${tableName}"
+            set 'column_separator', ','
+            set 'compress_type', 'gz'
+            set 'cloud_cluster', 'compute_cluster'
+            file 'new_all_types.csv.gz'
+            time 10000 // limit inflight 10s
+            setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
+
+            check { loadResult, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${loadResult}".toString())
+                def json = parseJson(loadResult)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(16000000, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+                txnId = json.TxnId
+            }
+        }
 
         sql """
-            select * from $table
+            select count(*) from $tableName
         """
 
         testCase("compute_cluster", "s3", "hit_cache")
