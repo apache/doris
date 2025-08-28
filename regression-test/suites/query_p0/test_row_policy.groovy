@@ -42,4 +42,54 @@ suite("test_row_policy") {
         sql "set enable_fallback_to_original_planner = false"
         sql "SELECT * FROM ${tableName} a JOIN ${tableName} b ON a.id = b.id"
     }
+
+    // test check info when create row policy
+    test {
+          sql """
+              CREATE ROW POLICY IF NOT EXISTS policy_01 ON non_exist_table AS restrictive TO ${user} USING(id=1)
+          """
+          exception "non_exist_table"
+    }
+
+    test {
+          sql """
+              CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO ${user} USING(id2=1)
+          """
+          exception "id2"
+    }
+
+    test {
+          sql """
+              CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO ${user} USING(id=1 and id2+1=2)
+          """
+          exception "id2"
+    }
+
+    test {
+          sql """
+              CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO ${user} USING(id=1 or id2=2)
+          """
+          exception "id2"
+    }
+
+     test {
+          sql """
+              CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO non_exist_user USING(id=1)
+          """
+          exception "non_exist_user"
+    }
+
+    test {
+          sql """
+              CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO role non_exist_role USING(id=1)
+          """
+          exception "non_exist_role"
+    }
+
+    test {
+          sql """
+              CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO admin USING(id=1)
+          """
+          exception "system user"
+    }
 }
