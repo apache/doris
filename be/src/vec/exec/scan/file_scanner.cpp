@@ -1735,6 +1735,8 @@ void FileScanner::_collect_profile_before_close() {
         _profile != nullptr) {
         io::FileCacheProfileReporter cache_profile(_profile);
         cache_profile.update(_file_cache_statistics.get());
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                _file_cache_statistics->bytes_write_into_cache);
     }
 
     if (_cur_reader != nullptr) {
@@ -1752,11 +1754,6 @@ void FileScanner::_collect_profile_before_close() {
 
     DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
     DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);
-
-    if (config::enable_file_cache) {
-        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
-                _file_cache_statistics->bytes_write_into_cache);
-    }
 }
 
 } // namespace doris::vectorized

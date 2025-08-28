@@ -138,7 +138,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
             Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
             boolean needNormalizePlan, Optional<String> branchName) {
-        this(PlanType.INSERT_INTO_TABLE_COMMAND, logicalQuery, labelName, insertCtx, cte, needNormalizePlan, branchName);
+        this(PlanType.INSERT_INTO_TABLE_COMMAND, logicalQuery, labelName, insertCtx, cte,
+                needNormalizePlan, branchName);
     }
 
     /**
@@ -451,7 +452,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 // insertCtx is not useful for dictionary. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new DictionaryInsertExecutor(ctx, dictionary, label, planner, insertCtx, emptyInsert));
-            }  else if (physicalSink instanceof PhysicalBlackholeSink) {
+            } else if (physicalSink instanceof PhysicalBlackholeSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 // insertCtx is not useful for blackhole. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
