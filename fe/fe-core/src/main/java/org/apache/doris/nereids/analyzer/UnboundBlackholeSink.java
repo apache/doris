@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -35,6 +37,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -47,10 +50,44 @@ public class UnboundBlackholeSink<CHILD_TYPE extends Plan> extends UnboundLogica
         implements Unbound, Sink, BlockFuncDepsPropagation {
 
     /**
+     * UnboundBlackholeSink Context
+     */
+    public static class UnboundBlackholeSinkContext {
+        private boolean isForWarmUp = false;
+
+        public UnboundBlackholeSinkContext(boolean isForWarmUp) {
+            this.isForWarmUp = isForWarmUp;
+        }
+
+        public boolean isForWarmUp() {
+            return isForWarmUp;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            UnboundBlackholeSinkContext that = (UnboundBlackholeSinkContext) o;
+            return isForWarmUp == that.isForWarmUp;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(isForWarmUp);
+        }
+    }
+
+    private UnboundBlackholeSinkContext context;
+
+    /**
      * create unbound sink for blackhole sink
      */
-    public UnboundBlackholeSink(CHILD_TYPE child) {
-        super(ImmutableList.of("information_schema", "blackhole"),
+    public UnboundBlackholeSink(CHILD_TYPE child, UnboundBlackholeSinkContext context) {
+        super(ImmutableList.of(InfoSchemaDb.DATABASE_NAME, SchemaTable.BLACKHOLE_TABLE_NAME),
                 PlanType.LOGICAL_UNBOUND_BLACKHOLE_SINK,
                 ImmutableList.of(),
                 Optional.empty(),
@@ -58,14 +95,15 @@ public class UnboundBlackholeSink<CHILD_TYPE extends Plan> extends UnboundLogica
                 ImmutableList.of(),
                 DMLCommandType.INSERT,
                 child);
+        this.context = context;
     }
 
     /**
      * create unbound sink for blackhole sink
      */
     public UnboundBlackholeSink(Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(ImmutableList.of("information_schema", "blackhole"),
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, UnboundBlackholeSinkContext context) {
+        super(ImmutableList.of(InfoSchemaDb.DATABASE_NAME, SchemaTable.BLACKHOLE_TABLE_NAME),
                 PlanType.LOGICAL_UNBOUND_BLACKHOLE_SINK,
                 ImmutableList.of(),
                 groupExpression,
@@ -73,12 +111,17 @@ public class UnboundBlackholeSink<CHILD_TYPE extends Plan> extends UnboundLogica
                 ImmutableList.of(),
                 DMLCommandType.INSERT,
                 child);
+        this.context = context;
+    }
+
+    public UnboundBlackholeSinkContext getContext() {
+        return context;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundBlackholeSink only accepts one child");
-        return new UnboundBlackholeSink<>(groupExpression, Optional.empty(), children.get(0));
+        return new UnboundBlackholeSink<>(groupExpression, Optional.empty(), children.get(0), context);
     }
 
     @Override
@@ -88,14 +131,14 @@ public class UnboundBlackholeSink<CHILD_TYPE extends Plan> extends UnboundLogica
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundBlackholeSink<>(groupExpression, Optional.of(getLogicalProperties()), child());
+        return new UnboundBlackholeSink<>(groupExpression, Optional.of(getLogicalProperties()), child(), context);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundBlackholeSink only accepts one child");
-        return new UnboundBlackholeSink<>(groupExpression, logicalProperties, children.get(0));
+        return new UnboundBlackholeSink<>(groupExpression, logicalProperties, children.get(0), context);
     }
 
     @Override

@@ -652,13 +652,15 @@ public class Util {
         String rootCause = "unknown";
         Throwable p = t;
         while (p != null) {
+            p = p.getCause();
+        }
+        if (p != null) {
             String message = p.getMessage();
             if (message == null) {
                 rootCause = p.getClass().getName();
             } else {
-                rootCause = p.getClass().getName() + ": " + p.getMessage();
+                rootCause = p.getClass().getName() + ": " + message;
             }
-            p = p.getCause();
         }
         return rootCause;
     }

@@ -156,6 +156,7 @@ enum TSchemaTableType {
     SCH_VIEW_DEPENDENCY = 57,
     SCH_ENCRYPTION_KEYS = 58,
     SCH_SQL_BLOCK_RULE_STATUS = 59;
+    SCH_BLACKHOLE = 60;
 }
 
 enum THdfsCompression {
