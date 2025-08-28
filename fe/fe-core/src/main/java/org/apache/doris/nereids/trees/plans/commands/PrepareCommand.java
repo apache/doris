@@ -18,23 +18,19 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.PreparedStatementContext;
-import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.Lists;
@@ -114,24 +110,25 @@ public class PrepareCommand extends Command {
         }
         StatementContext statementContext = ctx.getStatementContext();
         statementContext.setPrepareStage(true);
-        List<Slot> slots;
+        List<Slot> slots = Lists.newArrayList();
         if (logicalPlan instanceof Command) {
-            ResultSetMetaData md = ((Command) logicalPlan).getResultSetMetaData();
-            slots = Lists.newArrayList();
-            for (Column c : md.getColumns()) {
-                slots.add(new SlotReference(c.getName(), DataType.fromCatalogType(c.getType())));
+            if (!(logicalPlan instanceof InsertIntoTableCommand)
+                    || ((InsertIntoTableCommand) logicalPlan).getLabelName().isPresent()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Can not prepare command {}", executor.getOriginStmtInString());
+                }
+                throw new org.apache.doris.common.UserException("Only support prepare Group Commit without label");
             }
         } else {
             slots = executor.planPrepareStatementSlots();
+            if (!statementContext.isShortCircuitQuery()) {
+                throw new org.apache.doris.common.UserException("Only support prepare Point Query");
+            }
         }
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
                     name, ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE);
-        }
-        if (logicalPlan instanceof InsertIntoTableCommand
-                    && ((InsertIntoTableCommand) logicalPlan).getLabelName().isPresent()) {
-            throw new org.apache.doris.common.UserException("Only support prepare InsertStmt without label now");
         }
         ctx.addPreparedStatementContext(name,
                 new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name));

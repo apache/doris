@@ -1018,7 +1018,7 @@ static bool try_fetch_and_parse_schema(Transaction* txn, TabletSchemaCloudPB* sc
         }
     } else {
         MetaReader reader(instance_id);
-        TxnErrorCode err = reader.get_tablet_schema(txn, index_id, schema_version, schema, nullptr);
+        TxnErrorCode err = reader.get_tablet_schema(txn, index_id, schema_version, schema);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get versioned tablet schema, err={}", err);
@@ -1222,7 +1222,7 @@ void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
         return;
     }
     err = reader.get_tablet_schema(txn.get(), tablet_meta.index_id(), tablet_meta.schema_version(),
-                                   tablet_meta.mutable_schema(), nullptr);
+                                   tablet_meta.mutable_schema());
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get tablet schema, tablet_id={}, err={}", request->tablet_id(),
@@ -3946,7 +3946,8 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             }
         } else {
             MetaReader reader(instance_id);
-            TxnErrorCode err = reader.get_tablet_merged_stats(tablet_id, &tablet_stat, nullptr);
+            TxnErrorCode err =
+                    reader.get_tablet_merged_stats(txn.get(), tablet_id, &tablet_stat, nullptr);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get versioned tablet stats, err={}, tablet_id={}", err,

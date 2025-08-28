@@ -40,6 +40,7 @@
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/blob_message.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
@@ -223,6 +224,10 @@ static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
         meta_schema_key({instance_id, rowset.index_id(), rowset.schema_version()}, &schema_key);
         rowset.tablet_schema().SerializeToString(&schema_val);
         txn->put(schema_key, schema_val);
+        auto versioned_schema_key = versioned::meta_schema_key(
+                {instance_id, rowset.index_id(), rowset.schema_version()});
+        doris::TabletSchemaCloudPB tablet_schema(rowset.tablet_schema());
+        versioned::document_put(txn.get(), versioned_schema_key, std::move(tablet_schema));
     }
     if (txn->commit() != TxnErrorCode::TXN_OK) {
         return -1;
@@ -1895,6 +1900,7 @@ TEST(RecyclerTest, recycle_indexes) {
 
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
     auto obj_info = instance.add_obj_info();
     obj_info->set_id("recycle_indexes");
     obj_info->set_ak(config::test_s3_ak);
@@ -1987,6 +1993,11 @@ TEST(RecyclerTest, recycle_indexes) {
     // meta_schema_key
     begin_key = meta_schema_key({instance_id, 0, 0});
     end_key = meta_schema_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+    // versioned meta_schema_key
+    begin_key = versioned::meta_schema_key({instance_id, 0, 0});
+    end_key = versioned::meta_schema_key({instance_id, INT64_MAX, 0});
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
     // job_tablet_key
