@@ -654,6 +654,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                     }
                     for (TableIf table : tables) {
+                        if (table.isTemporary()) {
+                            continue;
+                        }
                         if (!Env.getCurrentEnv().getAccessManager()
                                 .checkTblPriv(currentUser, catalogName, dbName,
                                         table.getName(), PrivPredicate.SHOW)) {
@@ -966,6 +969,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db != null) {
             for (String tableName : tables) {
                 TableIf table = db.getTableNullableIfException(tableName);
+                if (table.isTemporary()) {
+                    continue;
+                }
                 if (table != null) {
                     table.readLock();
                     try {
