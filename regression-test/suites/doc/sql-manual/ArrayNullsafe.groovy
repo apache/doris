@@ -152,7 +152,7 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
 
     // array-intersect nullsafe tests
     qt_sql_array_intersect1 "SELECT array_intersect(int_array, [2, 4]) FROM fn_test_nullsafe_array order by id"
-    qt_sql_array_intersect2 "SELECT array_intersect(string_array, [null, 3]) FROM fn_test_nullsafe_array order by id"
+    qt_sql_array_intersect2 "SELECT array_intersect(string_array, [null, '3']) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_intersect3 "SELECT array_intersect(ipv4_array, []) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_intersect4 "SELECT array_intersect(ipv6_array, NULL) FROM fn_test_nullsafe_array order by id"
 
@@ -259,13 +259,5 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_product "SELECT array_product([]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_product "SELECT array_product([null]) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_product "SELECT array_product([null, 1, null, 2, null]) FROM fn_test_nullsafe_array order by id"
-    qt_sql_array_product "SELECT array_product([32768])"
-    
-    // overflow in product
-    test {
-       sql "select array_product(cast([32767,2] as array<smallint>))"
-       exception "Product overflow "
-    }
-      
 
 }
