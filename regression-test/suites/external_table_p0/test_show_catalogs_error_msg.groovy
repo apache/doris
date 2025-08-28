@@ -44,7 +44,7 @@ suite("test_show_catalogs_error_msg", "p0,external,iceberg,external_docker,exter
 
         test {
             sql """show databases from ${catalog_name}"""
-            exception "errCode = 2, detailMessage"
+            exception "is out of range"
         }
 
         boolean found = false;
@@ -61,7 +61,7 @@ suite("test_show_catalogs_error_msg", "p0,external,iceberg,external_docker,exter
         assertTrue(found, "failed to find invalid catalog") 
 
         // change to right port, the error msg will be removed
-        sql """alter catalog test_show_catalogs_error_msg set properties('uri' = 'http://127.0.0.1:${rest_port}');"""
+        sql """alter catalog test_show_catalogs_error_msg set properties('uri' = 'http://${externalEnvIp}:${rest_port}');"""
         sql """show databases from test_show_catalogs_error_msg"""
         res = sql """show catalogs"""
         for (List<Object> line : res) {
