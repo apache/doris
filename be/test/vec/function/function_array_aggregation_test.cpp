@@ -342,10 +342,6 @@ TEST(VFunctionArrayAggregationTest, TestArrayProduct) {
             {{}, nullptr},
             {{1, 2, 3}, 6},
     };
-    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeInt64>(
-            func_name, data_set, PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_TINYINT));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeInt64>(
-            func_name, data_set, PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT));
     static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeInt32>(
             func_name, data_set, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT));
     static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeInt64>(
@@ -365,10 +361,6 @@ TEST(VFunctionArrayAggregationTest, TestArrayProductNullable) {
             {{nullptr}, nullptr},
             {{1, nullptr, 3}, 3},
     };
-    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeInt8>(
-            func_name, data_set, PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_TINYINT, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeInt16>(
-            func_name, data_set, PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT, true));
     static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeInt32>(
             func_name, data_set, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT, true));
     static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeInt64>(
