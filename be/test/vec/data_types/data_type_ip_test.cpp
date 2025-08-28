@@ -19,6 +19,7 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include "runtime/raw_value.h"
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -376,4 +377,49 @@ TEST_F(DataTypeIPTest, GetFieldWithDataTypeTest) {
     ASSERT_EQ(dt_ipv6->get_field_with_data_type(*column_ipv6, 0).field, field_ipv6);
 }
 
+TEST_F(DataTypeIPTest, Crc32Test) {
+    auto column_ipv4 = dt_ipv4->create_column();
+    auto column_ipv6 = dt_ipv6->create_column();
+    std::vector<std::string> ipv4_data = {"190.0.0.1", "127.0.0.1", "10.0.0.1"};
+    std::vector<std::string> ipv6_data = {"2001:db8::1234", "2001:db8::1234:5678", "::"};
+    for (size_t i = 0; i < ipv4_data.size(); ++i) {
+        IPv4 ipv4_val = 0;
+        IPv6 ipv6_val = 0;
+        IPv4Value::from_string(ipv4_val, ipv4_data[i]);
+        column_ipv4->insert(Field::create_field<TYPE_IPV4>(ipv4_val));
+        IPv6Value::from_string(ipv6_val, ipv6_data[i]);
+        column_ipv6->insert(Field::create_field<TYPE_IPV6>(ipv6_val));
+    }
+    auto column_value_ipv4 = column_ipv4->get_data_at(0);
+    uint32_t hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv4.data, column_value_ipv4.size,
+                                    PrimitiveType::TYPE_IPV4, hash_val);
+    EXPECT_EQ(hash_val, 3038848754);
+    // ipv6
+    auto column_value_ipv6 = column_ipv6->get_data_at(0);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv6.data, column_value_ipv6.size,
+                                    PrimitiveType::TYPE_IPV6, hash_val);
+    EXPECT_EQ(hash_val, 3609036864);
+    column_value_ipv4 = column_ipv4->get_data_at(1);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv4.data, column_value_ipv4.size,
+                                    PrimitiveType::TYPE_IPV4, hash_val);
+    EXPECT_EQ(hash_val, 1497552084);
+    column_value_ipv6 = column_ipv6->get_data_at(1);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv6.data, column_value_ipv6.size,
+                                    PrimitiveType::TYPE_IPV6, hash_val);
+    EXPECT_EQ(hash_val, 2028432210);
+    column_value_ipv4 = column_ipv4->get_data_at(2);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv4.data, column_value_ipv4.size,
+                                    PrimitiveType::TYPE_IPV4, hash_val);
+    EXPECT_EQ(hash_val, 2033013095);
+    column_value_ipv6 = column_ipv6->get_data_at(2);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv6.data, column_value_ipv6.size,
+                                    PrimitiveType::TYPE_IPV6, hash_val);
+    EXPECT_EQ(hash_val, 3971697493);
+}
 } // namespace doris::vectorized
