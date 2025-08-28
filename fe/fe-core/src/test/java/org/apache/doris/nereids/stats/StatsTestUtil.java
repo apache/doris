@@ -181,7 +181,7 @@ public class StatsTestUtil {
                 String colName = ((UnboundSlot) e).getName();
                 SlotReference slot = slotNameMap.get(colName);
                 if (slot == null) {
-                    slot = new SlotReference(colName, guessDataType(colName));
+                    slot = new SlotReference(colName, guessDataType(colName), false);
                     slots.add(slot);
                 }
                 return slot;
