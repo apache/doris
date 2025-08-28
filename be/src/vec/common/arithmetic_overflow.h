@@ -43,7 +43,7 @@ inline bool add_overflow(long long x, long long y, long long& res) {
 }
 
 template <>
-inline bool add_overflow(__int128 x, __int128 y, __int128& res) {
+NO_SANITIZE_UNDEFINED inline bool add_overflow(__int128 x, __int128 y, __int128& res) {
     static constexpr __int128 min_int128 = __int128(0x8000000000000000ll) << 64;
     static constexpr __int128 max_int128 =
             (__int128(0x7fffffffffffffffll) << 64) + 0xffffffffffffffffll;
@@ -52,7 +52,7 @@ inline bool add_overflow(__int128 x, __int128 y, __int128& res) {
 }
 
 template <>
-inline bool add_overflow(wide::Int256 x, wide::Int256 y, wide::Int256& res) {
+NO_SANITIZE_UNDEFINED inline bool add_overflow(wide::Int256 x, wide::Int256 y, wide::Int256& res) {
     static constexpr wide::Int256 min_int256 = std::numeric_limits<wide::Int256>::min();
     static constexpr wide::Int256 max_int256 = std::numeric_limits<wide::Int256>::max();
     res = x + y;
