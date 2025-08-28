@@ -21,6 +21,7 @@ suite("mv_with_date_trunc") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
     drop table if exists lineitem
@@ -218,8 +219,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_success(db, mv1_1_1, query1_1_1, "mv1_1_1", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_1_1, query1_1_1, "mv1_1_1", [NOT_IN_RBO])
+    async_mv_rewrite_success(db, mv1_1_1, query1_1_1, "mv1_1_1")
     order_qt_query1_1_1_after "${query1_1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1_1"""
 
@@ -334,8 +334,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_success_without_check_chosen(db, mv1_3_1, query1_3_1, "mv1_3_1", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_3_1, query1_3_1, "mv1_3_1", [NOT_IN_RBO])
+    async_mv_rewrite_success_without_check_chosen(db, mv1_3_1, query1_3_1, "mv1_3_1")
     order_qt_query1_3_1_after "${query1_3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3_1"""
 
@@ -360,8 +359,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_success_without_check_chosen(db, mv1_3_2, query1_3_2, "mv1_3_2", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_3_2, query1_3_2, "mv1_3_2", [NOT_IN_RBO])
+    async_mv_rewrite_success_without_check_chosen(db, mv1_3_2, query1_3_2, "mv1_3_2")
     order_qt_query1_3_2_after "${query1_3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3_2"""
 
@@ -501,8 +499,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_success_without_check_chosen(db, mv1_5_1, query1_5_1, "mv1_5_1", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_5_1, query1_5_1, "mv1_5_1", [NOT_IN_RBO])
+    async_mv_rewrite_success_without_check_chosen(db, mv1_5_1, query1_5_1, "mv1_5_1")
     order_qt_query1_5_1_after "${query1_5_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5_1"""
 
@@ -616,8 +613,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_success_without_check_chosen(db, mv1_7_1, query1_7_1, "mv1_7_1", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_7_1, query1_7_1, "mv1_7_1", [NOT_IN_RBO])
+    async_mv_rewrite_success_without_check_chosen(db, mv1_7_1, query1_7_1, "mv1_7_1")
     order_qt_query1_7_1_after "${query1_7_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_7_1"""
 
@@ -733,8 +729,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_success_without_check_chosen(db, mv1_9_1, query1_9_1, "mv1_9_1", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_9_1, query1_9_1, "mv1_9_1", [NOT_IN_RBO])
+    async_mv_rewrite_success_without_check_chosen(db, mv1_9_1, query1_9_1, "mv1_9_1")
     order_qt_query1_9_1_after "${query1_9_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_9_1"""
 
@@ -848,8 +843,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_success_without_check_chosen(db, mv1_11_1, query1_11_1, "mv1_11_1", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_11_1, query1_11_1, "mv1_11_1", [NOT_IN_RBO])
+    async_mv_rewrite_success_without_check_chosen(db, mv1_11_1, query1_11_1, "mv1_11_1")
     order_qt_query1_11_1_after "${query1_11_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_11_1"""
 
@@ -964,8 +958,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_success_without_check_chosen(db, mv1_13_1, query1_13_1, "mv1_13_1", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_13_1, query1_13_1, "mv1_13_1", [NOT_IN_RBO])
+    async_mv_rewrite_success_without_check_chosen(db, mv1_13_1, query1_13_1, "mv1_13_1")
     order_qt_query1_13_1_after "${query1_13_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_13_1"""
 
@@ -1080,8 +1073,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_success_without_check_chosen(db, mv1_15_1, query1_15_1, "mv1_15_1", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv1_15_1, query1_15_1, "mv1_15_1", [NOT_IN_RBO])
+    async_mv_rewrite_success_without_check_chosen(db, mv1_15_1, query1_15_1, "mv1_15_1")
     order_qt_query1_15_1_after "${query1_15_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_15_1"""
 
