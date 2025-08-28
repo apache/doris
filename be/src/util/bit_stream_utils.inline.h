@@ -31,7 +31,7 @@
 using doris::BitUtil;
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 inline void BitWriter::PutValue(uint64_t v, int num_bits) {
     DCHECK_LE(num_bits, 64);
     // Truncate the higher-order bits. This is necessary to
@@ -41,7 +41,7 @@ inline void BitWriter::PutValue(uint64_t v, int num_bits) {
     buffered_values_ |= v << bit_offset_;
     bit_offset_ += num_bits;
 
-    if (PREDICT_FALSE(bit_offset_ >= 64)) {
+    if (bit_offset_ >= 64) [[unlikely]] {
         // Flush buffered_values_ and write out bits of v that did not fit
         buffer_->reserve(ALIGN_UP(byte_offset_ + 8, 8));
         buffer_->resize(byte_offset_ + 8);
@@ -106,7 +106,7 @@ inline BitReader::BitReader(const uint8_t* buffer, int buffer_len)
 
 inline void BitReader::BufferValues() {
     int bytes_remaining = max_bytes_ - byte_offset_;
-    if (PREDICT_TRUE(bytes_remaining >= 8)) {
+    if (bytes_remaining >= 8) [[likely]] {
         memcpy(&buffered_values_, buffer_ + byte_offset_, 8);
     } else {
         memcpy(&buffered_values_, buffer_ + byte_offset_, bytes_remaining);
@@ -118,9 +118,12 @@ bool BitReader::GetValue(int num_bits, T* v) {
     DCHECK_LE(num_bits, 64);
     DCHECK_LE(num_bits, sizeof(T) * 8);
 
-    if (PREDICT_FALSE(byte_offset_ * 8 + bit_offset_ + num_bits > max_bytes_ * 8)) return false;
+    if (byte_offset_ * 8 + bit_offset_ + num_bits > max_bytes_ * 8) [[unlikely]] {
+        return false;
+    }
 
-    *v = BitUtil::TrailingBits(buffered_values_, bit_offset_ + num_bits) >> bit_offset_;
+    *v = static_cast<T>(BitUtil::TrailingBits(buffered_values_, bit_offset_ + num_bits) >>
+                        bit_offset_);
 
     bit_offset_ += num_bits;
     if (bit_offset_ >= 64) {
@@ -190,7 +193,9 @@ template <typename T>
 bool BitReader::GetAligned(int num_bytes, T* v) {
     DCHECK_LE(num_bytes, sizeof(T));
     int bytes_read = BitUtil::Ceil(bit_offset_, 8);
-    if (PREDICT_FALSE(byte_offset_ + bytes_read + num_bytes > max_bytes_)) return false;
+    if (byte_offset_ + bytes_read + num_bytes > max_bytes_) [[unlikely]] {
+        return false;
+    }
 
     // Advance byte_offset to next unread byte and read num_bytes
     byte_offset_ += bytes_read;
@@ -200,7 +205,7 @@ bool BitReader::GetAligned(int num_bytes, T* v) {
     // Reset buffered_values_
     bit_offset_ = 0;
     int bytes_remaining = max_bytes_ - byte_offset_;
-    if (PREDICT_TRUE(bytes_remaining >= 8)) {
+    if (bytes_remaining >= 8) [[likely]] {
         memcpy(&buffered_values_, buffer_ + byte_offset_, 8);
     } else {
         memcpy(&buffered_values_, buffer_ + byte_offset_, bytes_remaining);
@@ -343,20 +348,5 @@ bool BatchedBitReader::GetUleb128(UINT_T* v) {
     return true;
 }
 
-template <typename INT_T>
-bool BatchedBitReader::GetZigZagInteger(INT_T* v) {
-    static_assert(std::is_integral<INT_T>::value, "Integral type required.");
-    static_assert(std::is_signed<INT_T>::value, "Signed type required.");
-
-    using UINT_T = std::make_unsigned_t<INT_T>;
-
-    UINT_T v_unsigned;
-    if (UNLIKELY(!GetUleb128<UINT_T>(&v_unsigned))) return false;
-
-    /// Here we rely on implementation defined behaviour in converting UINT_T to INT_T.
-    *v = (v_unsigned >> 1) ^ -(v_unsigned & 1u);
-
-    return true;
-}
-
+#include "common/compile_check_end.h"
 } // namespace doris

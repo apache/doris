@@ -23,15 +23,14 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -161,11 +160,11 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getParallelFragmentExecInstanceNum();
     }
 
-    public Set<Tag> getResourceTags(String qualifiedUser) {
+    public ComputeGroup getComputeGroup(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getPropertyIfNull(qualifiedUser, existProperty);
         if (existProperty == null) {
-            return UserProperty.INVALID_RESOURCE_TAGS;
+            return ComputeGroup.INVALID_COMPUTE_GROUP;
         }
         Set<Tag> tags = existProperty.getCopiedResourceTags();
         // only root and admin can return empty tag.
@@ -176,19 +175,11 @@ public class UserPropertyMgr implements Writable {
                 && Config.force_olap_table_replication_allocation.isEmpty()) {
             tags = Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
         }
-        return tags;
-    }
-
-    public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {
-        Pair<String, DppConfig> loadClusterInfo = null;
-
-        UserProperty property = propertyMap.get(qualifiedUser);
-        property = getPropertyIfNull(qualifiedUser, property);
-        if (property == null) {
-            throw new DdlException("User " + qualifiedUser + " does not exist");
+        if (!tags.isEmpty()) {
+            return Env.getCurrentEnv().getComputeGroupMgr().getComputeGroup(tags);
+        } else {
+            return Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
         }
-        loadClusterInfo = property.getLoadClusterInfo(cluster);
-        return loadClusterInfo;
     }
 
     public List<List<String>> fetchUserProperty(String qualifiedUser) throws AnalysisException {
@@ -225,6 +216,15 @@ public class UserPropertyMgr implements Writable {
             return -1;
         }
         return existProperty.getExecMemLimit();
+    }
+
+    public String getInitCatalog(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        existProperty = getPropertyIfNull(qualifiedUser, existProperty);
+        if (existProperty == null) {
+            return null;
+        }
+        return existProperty.getInitCatalog();
     }
 
     public String getWorkloadGroup(String qualifiedUser) {
@@ -268,11 +268,6 @@ public class UserPropertyMgr implements Writable {
     }
 
     public static UserPropertyMgr read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_130) {
-            UserPropertyMgr userPropertyMgr = new UserPropertyMgr();
-            userPropertyMgr.readFields(in);
-            return userPropertyMgr;
-        }
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, UserPropertyMgr.class);
     }
@@ -280,19 +275,5 @@ public class UserPropertyMgr implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; ++i) {
-            UserProperty userProperty = UserProperty.read(in);
-            propertyMap.put(userProperty.getQualifiedUser(), userProperty);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("read user property: {}: {}", userProperty.getQualifiedUser(), userProperty);
-            }
-        }
-        // Read resource
-        resourceVersion = new AtomicLong(in.readLong());
     }
 }

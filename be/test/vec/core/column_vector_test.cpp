@@ -28,7 +28,7 @@
 namespace doris::vectorized {
 
 TEST(VColumnVectorTest, insert_date_column) {
-    auto column = ColumnVector<Int64>::create();
+    auto column = ColumnInt64::create();
 
     size_t rows = 4096;
     int64_t val = 0;

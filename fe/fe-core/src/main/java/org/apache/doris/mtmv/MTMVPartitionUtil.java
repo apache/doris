@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -32,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.rpc.RpcException;
@@ -42,9 +44,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -84,14 +88,14 @@ public class MTMVPartitionUtil {
      */
     public static boolean isMTMVPartitionSync(MTMVRefreshContext refreshContext, String partitionName,
             Set<BaseTableInfo> tables,
-            Set<String> excludedTriggerTables) throws AnalysisException {
+            Set<TableName> excludedTriggerTables) throws AnalysisException {
         MTMV mtmv = refreshContext.getMtmv();
         Set<String> relatedPartitionNames = refreshContext.getPartitionMappings().get(partitionName);
         boolean isSyncWithPartition = true;
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             // if follow base table, not need compare with related table, only should compare with related partition
-            excludedTriggerTables.add(relatedTable.getName());
+            excludedTriggerTables.add(new TableName(relatedTable));
             if (CollectionUtils.isEmpty(relatedPartitionNames)) {
                 LOG.warn("can not found related partition, partitionId: {}, mtmvName: {}, relatedTableName: {}",
                         partitionName, mtmv.getName(), relatedTable.getName());
@@ -111,24 +115,26 @@ public class MTMVPartitionUtil {
      * @throws DdlException
      * @throws AnalysisException
      */
-    public static void alignMvPartition(MTMV mtmv)
-            throws DdlException, AnalysisException {
+    public static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartition(MTMV mtmv) throws AnalysisException {
         Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
         Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
                 mtmv.getMvProperties()).keySet();
+        List<String> partitionsToDrop = new ArrayList<>();
+        List<PartitionKeyDesc> partitionsToAdd = new ArrayList<>();
         // drop partition of mtmv
         for (Entry<String, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
             if (!relatedPartitionDescs.contains(entry.getValue())) {
-                dropPartition(mtmv, entry.getKey());
+                partitionsToDrop.add(entry.getKey());
             }
         }
         // add partition for mtmv
         HashSet<PartitionKeyDesc> mtmvPartitionDescsSet = Sets.newHashSet(mtmvPartitionDescs.values());
         for (PartitionKeyDesc desc : relatedPartitionDescs) {
             if (!mtmvPartitionDescsSet.contains(desc)) {
-                addPartition(mtmv, desc);
+                partitionsToAdd.add(desc);
             }
         }
+        return Pair.of(partitionsToDrop, partitionsToAdd);
     }
 
     /**
@@ -209,7 +215,8 @@ public class MTMVPartitionUtil {
      * @return
      * @throws AnalysisException
      */
-    public static boolean isMTMVSync(MTMVRefreshContext context, Set<BaseTableInfo> tables, Set<String> excludeTables)
+    public static boolean isMTMVSync(MTMVRefreshContext context, Set<BaseTableInfo> tables,
+            Set<TableName> excludeTables)
             throws AnalysisException {
         MTMV mtmv = context.getMtmv();
         Set<String> partitionNames = mtmv.getPartitionNames();
@@ -325,6 +332,12 @@ public class MTMVPartitionUtil {
         for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
                     .getPartitionSnapshot(relatedPartitionName, context, MvccUtil.getSnapshotFromContext(relatedTable));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("isSyncWithPartitions mvName is %s\n, mtmvPartitionName is %s\n, "
+                                + "mtmv refreshSnapshot is %s\n, relatedPartitionName is %s\n, "
+                                + "relatedPartitionCurrentSnapshot is %s", mtmv.getName(), mtmvPartitionName,
+                        mtmv.getRefreshSnapshot(), relatedPartitionName, relatedPartitionCurrentSnapshot));
+            }
             if (!mtmv.getRefreshSnapshot()
                     .equalsWithRelatedPartition(mtmvPartitionName, relatedPartitionName,
                             relatedPartitionCurrentSnapshot)) {
@@ -356,7 +369,7 @@ public class MTMVPartitionUtil {
      * @param mtmv
      * @param partitionName
      */
-    private static void dropPartition(MTMV mtmv, String partitionName) throws DdlException {
+    public static void dropPartition(MTMV mtmv, String partitionName) throws DdlException {
         if (!mtmv.writeLockIfExist()) {
             return;
         }
@@ -377,7 +390,7 @@ public class MTMVPartitionUtil {
      * @param oldPartitionKeyDesc
      * @throws DdlException
      */
-    private static void addPartition(MTMV mtmv, PartitionKeyDesc oldPartitionKeyDesc)
+    public static void addPartition(MTMV mtmv, PartitionKeyDesc oldPartitionKeyDesc)
             throws DdlException {
         Map<String, String> partitionProperties = Maps.newHashMap();
         SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
@@ -400,7 +413,7 @@ public class MTMVPartitionUtil {
      */
     private static boolean isSyncWithAllBaseTables(MTMVRefreshContext context, String mtmvPartitionName,
             Set<BaseTableInfo> tables,
-            Set<String> excludedTriggerTables) throws AnalysisException {
+            Set<TableName> excludedTriggerTables) throws AnalysisException {
         for (BaseTableInfo baseTableInfo : tables) {
             TableIf table = null;
             try {
@@ -409,7 +422,7 @@ public class MTMVPartitionUtil {
                 LOG.warn("get table failed, {}", baseTableInfo, e);
                 return false;
             }
-            if (excludedTriggerTables.contains(table.getName())) {
+            if (isTableExcluded(excludedTriggerTables, new TableName(table))) {
                 continue;
             }
             boolean syncWithBaseTable = isSyncWithBaseTable(context, mtmvPartitionName, baseTableInfo);
@@ -418,6 +431,44 @@ public class MTMVPartitionUtil {
             }
         }
         return true;
+    }
+
+    public static boolean isTableExcluded(Set<TableName> excludedTriggerTables, TableName tableNameToCheck) {
+        for (TableName tableName : excludedTriggerTables) {
+            if (isTableNamelike(tableName, tableNameToCheck)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * if excludedTriggerTable.field is empty, we think they are like,otherwise they must equal to tableNameToCheck's
+     *
+     * @param excludedTriggerTable User-configured tables to excluded,
+     *         where dbName and ctlName are not mandatory fields and may therefore be empty.
+     * @param tableNameToCheck The table used to create an MTMV, must have non-empty tableName, dbName, and ctlName.
+     * @return
+     */
+    public static boolean isTableNamelike(TableName excludedTriggerTable, TableName tableNameToCheck) {
+        Objects.requireNonNull(excludedTriggerTable, "excludedTriggerTable can not be null");
+        Objects.requireNonNull(tableNameToCheck, "tableNameToCheck can not be null");
+
+        String excludedCtl = excludedTriggerTable.getCtl();
+        String excludedDb = excludedTriggerTable.getDb();
+        String excludedTbl = excludedTriggerTable.getTbl();
+        String checkCtl = tableNameToCheck.getCtl();
+        String checkDb = tableNameToCheck.getDb();
+        String checkTbl = tableNameToCheck.getTbl();
+
+        Objects.requireNonNull(excludedTbl, "excludedTbl can not be null");
+        Objects.requireNonNull(checkCtl, "checkCtl can not be null");
+        Objects.requireNonNull(checkDb, "checkDb can not be null");
+        Objects.requireNonNull(checkTbl, "checkTbl can not be null");
+
+        return (excludedTbl.equals(checkTbl))
+                && (StringUtils.isEmpty(excludedDb) || excludedDb.equals(checkDb))
+                && (StringUtils.isEmpty(excludedCtl) || excludedCtl.equals(checkCtl));
     }
 
     private static boolean isSyncWithBaseTable(MTMVRefreshContext context, String mtmvPartitionName,
@@ -441,10 +492,32 @@ public class MTMVPartitionUtil {
         if (!baseTable.needAutoRefresh()) {
             return true;
         }
-        MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot(context,
-                MvccUtil.getSnapshotFromContext(baseTable));
+        MTMVSnapshotIf baseTableCurrentSnapshot = getTableSnapshotFromContext(baseTable, context);
         return mtmv.getRefreshSnapshot()
                 .equalsWithBaseTable(mtmvPartitionName, new BaseTableInfo(baseTable), baseTableCurrentSnapshot);
+    }
+
+    /**
+     * Try context first, then load via getTableSnapshot and cache
+     *
+     * @param mtmvRelatedTableIf Base table of materialized views
+     * @param context The context data persists for the duration of either a refresh task
+     *         or a transparent rewrite operation
+     * @return The snapshot information of the MTMV
+     * @throws AnalysisException
+     */
+    public static MTMVSnapshotIf getTableSnapshotFromContext(MTMVRelatedTableIf mtmvRelatedTableIf,
+            MTMVRefreshContext context)
+            throws AnalysisException {
+        BaseTableInfo baseTableInfo = new BaseTableInfo(mtmvRelatedTableIf);
+        Map<BaseTableInfo, MTMVSnapshotIf> baseTableSnapshotCache = context.getBaseTableSnapshotCache();
+        if (baseTableSnapshotCache.containsKey(baseTableInfo)) {
+            return baseTableSnapshotCache.get(baseTableInfo);
+        }
+        MTMVSnapshotIf baseTableCurrentSnapshot = mtmvRelatedTableIf.getTableSnapshot(context,
+                MvccUtil.getSnapshotFromContext(mtmvRelatedTableIf));
+        baseTableSnapshotCache.put(baseTableInfo, baseTableCurrentSnapshot);
+        return baseTableCurrentSnapshot;
     }
 
     /**
@@ -492,7 +565,7 @@ public class MTMVPartitionUtil {
                 continue;
             }
             refreshPartitionSnapshot.addTableSnapshot(baseTableInfo,
-                    ((MTMVRelatedTableIf) table).getTableSnapshot(context, MvccUtil.getSnapshotFromContext(table)));
+                    getTableSnapshotFromContext((MTMVRelatedTableIf) table, context));
         }
         return refreshPartitionSnapshot;
     }

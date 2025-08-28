@@ -37,8 +37,8 @@ Status SimpleEqualityDelete::_build_set() {
     }
     auto& column_and_type = _delete_block->get_by_position(0);
     _delete_column_name = column_and_type.name;
-    _delete_column_type = remove_nullable(column_and_type.type)->get_type_as_type_descriptor().type;
-    _hybrid_set.reset(create_set(_delete_column_type, _delete_block->rows()));
+    _delete_column_type = remove_nullable(column_and_type.type)->get_primitive_type();
+    _hybrid_set.reset(create_set(_delete_column_type, _delete_block->rows(), false));
     _hybrid_set->insert_fixed_len(column_and_type.column, 0);
     return Status::OK();
 }
@@ -50,16 +50,18 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
         return Status::InternalError("Can't find the delete column '{}' in data file",
                                      _delete_column_name);
     }
-    if (remove_nullable(column_and_type->type)->get_type_as_type_descriptor().type !=
-        _delete_column_type) {
-        return Status::InternalError("Not support type change in column '{}'", _delete_column_name);
+    if (column_and_type->type->get_primitive_type() != _delete_column_type) {
+        return Status::InternalError(
+                "Not support type change in column '{}', src type: {}, target type: {}",
+                _delete_column_name, column_and_type->type->get_name(), (int)_delete_column_type);
     }
     size_t rows = data_block->rows();
     // _filter: 1 => in _hybrid_set; 0 => not in _hybrid_set
     if (_filter == nullptr) {
         _filter = std::make_unique<IColumn::Filter>(rows, 0);
     } else {
-        _filter->resize_fill(rows, 0);
+        // reset the array capacity and fill all elements using the 0
+        _filter->assign(rows, UInt8(0));
     }
 
     if (column_and_type->column->is_nullable()) {
@@ -106,14 +108,17 @@ Status MultiEqualityDelete::_build_set() {
 Status MultiEqualityDelete::filter_data_block(Block* data_block) {
     SCOPED_TIMER(equality_delete_time);
     size_t column_index = 0;
-    for (string column_name : _delete_block->get_names()) {
+    for (std::string column_name : _delete_block->get_names()) {
         auto* column_and_type = data_block->try_get_by_name(column_name);
         if (column_and_type == nullptr) {
             return Status::InternalError("Can't find the delete column '{}' in data file",
                                          column_name);
         }
         if (!_delete_block->get_by_name(column_name).type->equals(*column_and_type->type)) {
-            return Status::InternalError("Not support type change in column '{}'", column_name);
+            return Status::InternalError(
+                    "Not support type change in column '{}', src type: {}, target type: {}",
+                    column_name, _delete_block->get_by_name(column_name).type->get_name(),
+                    column_and_type->type->get_name());
         }
         _data_column_index[column_index++] = data_block->get_position_by_name(column_name);
     }
@@ -128,7 +133,8 @@ Status MultiEqualityDelete::filter_data_block(Block* data_block) {
     if (_filter == nullptr) {
         _filter = std::make_unique<IColumn::Filter>(rows, 1);
     } else {
-        _filter->resize_fill(rows, 1);
+        //reset the array capacity and fill all elements using the 0
+        _filter->assign(rows, UInt8(1));
     }
     auto* filter_data = _filter->data();
     for (size_t i = 0; i < rows; ++i) {

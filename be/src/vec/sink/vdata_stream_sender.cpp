@@ -45,7 +45,6 @@
 #include "runtime/types.h"
 #include "util/proto_util.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/sip_hash.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -174,7 +173,7 @@ Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
         }
     }
     if (eos || block->column_metas_size()) {
-        RETURN_IF_ERROR(_buffer->add_block({this, std::move(block), eos, Status::OK()}));
+        RETURN_IF_ERROR(_buffer->add_block(this, {std::move(block), eos}));
     }
     return Status::OK();
 }
@@ -188,7 +187,7 @@ Status Channel::send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& blo
         _eos_send = true;
     }
     if (eos || block->get_block()->column_metas_size()) {
-        RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
+        RETURN_IF_ERROR(_buffer->add_block(this, {block, eos}));
     }
     return Status::OK();
 }

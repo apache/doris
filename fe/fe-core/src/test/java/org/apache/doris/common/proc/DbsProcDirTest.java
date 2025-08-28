@@ -20,12 +20,20 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
@@ -33,6 +41,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 
 public class DbsProcDirTest {
@@ -212,10 +221,10 @@ public class DbsProcDirTest {
                 "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
                 "LastUpdateTime"), result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
-        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "0.000 ", "1024.000 TB",
-                FeConstants.null_string, "0", "1073741824", "10", "1000", FeConstants.null_string));
-        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "0.000 ", "1024.000 TB",
-                FeConstants.null_string, "0", "1073741824", "20", "1000", FeConstants.null_string));
+        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "0.000 ", "8388608.000 TB",
+                FeConstants.null_string, "0", "1073741824", "10", String.valueOf(Config.max_running_txn_num_per_db), FeConstants.null_string));
+        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "0.000 ", "8388608.000 TB",
+                FeConstants.null_string, "0", "1073741824", "20", String.valueOf(Config.max_running_txn_num_per_db), FeConstants.null_string));
         Assert.assertEquals(rows, result.getRows());
     }
 
@@ -251,5 +260,38 @@ public class DbsProcDirTest {
                 result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
         Assert.assertEquals(rows, result.getRows());
+    }
+
+    @Test
+    public void testListTableNameFailed() throws AnalysisException {
+        HashMap<String, String> props = new HashMap<>();
+        props.put("warehouse", "file:///tmp");
+        IcebergHadoopExternalCatalog ctlg = new IcebergHadoopExternalCatalog(1, "iceberg", "iceberg", props, null);
+        new MockUp<ExternalCatalog>(ExternalCatalog.class) {
+            @Mock
+            public List<String> getDbNames() {
+                return Lists.newArrayList("db1");
+            }
+
+            @Mock
+            public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+                return new IcebergExternalDatabase(ctlg, 3L, "db1", "db1");
+            }
+        };
+
+        new MockUp<ExternalDatabase>(ExternalDatabase.class) {
+            @Mock
+            public List getTables() {
+                throw new RuntimeException("list table failed");
+            }
+        };
+        DbsProcDir dbsProcDir = new DbsProcDir(env, ctlg);
+        ProcResult procResult = dbsProcDir.fetchResult();
+        List<List<String>> rows = procResult.getRows();
+        Assert.assertEquals(1, rows.size());
+        List<String> strings = rows.get(0);
+        Assert.assertEquals("3", strings.get(0));  // id
+        Assert.assertEquals("db1", strings.get(1)); // name
+        Assert.assertEquals("-1", strings.get(2)); // tableNum
     }
 }

@@ -155,12 +155,12 @@ MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
 }
 
 Field ColumnNullable::operator[](size_t n) const {
-    return is_null_at(n) ? Null() : get_nested_column()[n];
+    return is_null_at(n) ? Field::create_field<TYPE_NULL>(Null()) : get_nested_column()[n];
 }
 
 void ColumnNullable::get(size_t n, Field& res) const {
     if (is_null_at(n)) {
-        res = Null();
+        res = Field();
     } else {
         get_nested_column().get(n, res);
     }
@@ -211,37 +211,29 @@ void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_
 
 StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
                                                      char const*& begin) const {
-    const auto& arr = get_null_map_data();
-    static constexpr auto s = sizeof(arr[0]);
-
-    auto* pos = arena.alloc_continue(s, begin);
-    memcpy(pos, &arr[n], s);
-
-    if (arr[n]) {
-        return {pos, s};
-    }
-
-    auto nested_ref = get_nested_column().serialize_value_into_arena(n, arena, begin);
-
-    /// serialize_value_into_arena may reallocate memory. Have to use ptr from nested_ref.data and move it back.
-    return {nested_ref.data - s, nested_ref.size + s};
+    auto* pos = arena.alloc_continue(serialize_size_at(n), begin);
+    return {pos, serialize_impl(pos, n)};
 }
 
 const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {
+    return pos + deserialize_impl(pos);
+}
+
+size_t ColumnNullable::deserialize_impl(const char* pos) {
+    size_t sz = 0;
     UInt8 val = *reinterpret_cast<const UInt8*>(pos);
-    pos += sizeof(val);
+    sz += sizeof(val);
 
     get_null_map_data().push_back(val);
 
     if (val == 0) {
-        pos = get_nested_column().deserialize_and_insert_from_arena(pos);
+        sz += get_nested_column().deserialize_impl(pos + sz);
     } else {
         get_nested_column().insert_default();
         _has_null = true;
         _need_update_has_null = false;
     }
-
-    return pos;
+    return sz;
 }
 
 size_t ColumnNullable::get_max_row_byte_size() const {
@@ -249,30 +241,42 @@ size_t ColumnNullable::get_max_row_byte_size() const {
     return flag_size + get_nested_column().get_max_row_byte_size();
 }
 
-void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows,
-                                   size_t max_row_byte_size) const {
+size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
     const auto& arr = get_null_map_data();
-    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
+    memcpy_fixed<NullMap::value_type>(pos, (char*)&arr[row]);
+    if (arr[row]) {
+        return sizeof(NullMap::value_type);
+    }
+    return sizeof(NullMap::value_type) +
+           get_nested_column().serialize_impl(pos + sizeof(NullMap::value_type), row);
+}
+
+void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
+    const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+        }
+    } else {
+        const auto& arr = get_null_map_data();
+        for (size_t i = 0; i < num_rows; ++i) {
+            memcpy_fixed<NullMap::value_type>(const_cast<char*>(keys[i].data + keys[i].size),
+                                              (char*)&arr[i]);
+            keys[i].size += sizeof(NullMap::value_type);
+        }
+        nested_column->serialize_vec(keys, num_rows);
+    }
 }
 
 void ColumnNullable::deserialize_vec(StringRef* keys, const size_t num_rows) {
     auto& arr = get_null_map_data();
     const size_t old_size = arr.size();
-    arr.resize(old_size + num_rows);
+    arr.reserve(old_size + num_rows);
 
-    _has_null = has_null();
-    auto* null_map_data = &arr[old_size];
     for (size_t i = 0; i != num_rows; ++i) {
-        UInt8 val = *reinterpret_cast<const UInt8*>(keys[i].data);
-        null_map_data[i] = val;
-        _has_null |= val;
-        keys[i].data += sizeof(val);
-        keys[i].size -= sizeof(val);
-    }
-    if (_has_null) {
-        get_nested_column().deserialize_vec_with_null_map(keys, num_rows, arr.data());
-    } else {
-        get_nested_column().deserialize_vec(keys, num_rows);
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
     }
 }
 
@@ -327,22 +331,25 @@ void ColumnNullable::insert_from(const IColumn& src, size_t n) {
     get_null_map_data().push_back(is_null);
 }
 
-void ColumnNullable::insert_from_not_nullable(const IColumn& src, size_t n) {
-    get_nested_column().insert_from(src, n);
-    _push_false_to_nullmap(1);
+void ColumnNullable::append_data_by_selector(IColumn::MutablePtr& res,
+                                             const IColumn::Selector& selector) const {
+    append_data_by_selector(res, selector, 0, selector.size());
+}
+
+void ColumnNullable::append_data_by_selector(IColumn::MutablePtr& res,
+                                             const IColumn::Selector& selector, size_t begin,
+                                             size_t end) const {
+    auto& res_column = assert_cast<ColumnNullable&>(*res);
+    auto res_nested_column = res_column.get_nested_column_ptr();
+    this->get_nested_column().append_data_by_selector(res_nested_column, selector, begin, end);
+    auto res_null_map = res_column.get_null_map_column_ptr();
+    this->get_null_map_column().append_data_by_selector(res_null_map, selector, begin, end);
 }
 
 void ColumnNullable::insert_range_from_not_nullable(const IColumn& src, size_t start,
                                                     size_t length) {
     get_nested_column().insert_range_from(src, start, length);
     _push_false_to_nullmap(length);
-}
-
-void ColumnNullable::insert_many_from_not_nullable(const IColumn& src, size_t position,
-                                                   size_t length) {
-    for (size_t i = 0; i < length; ++i) {
-        insert_from_not_nullable(src, position);
-    }
 }
 
 void ColumnNullable::pop_back(size_t n) {
@@ -381,10 +388,10 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, 
     return Status::OK();
 }
 
-ColumnPtr ColumnNullable::permute(const Permutation& perm, size_t limit) const {
-    ColumnPtr permuted_data = get_nested_column().permute(perm, limit);
-    ColumnPtr permuted_null_map = get_null_map_column().permute(perm, limit);
-    return ColumnNullable::create(permuted_data, permuted_null_map);
+MutableColumnPtr ColumnNullable::permute(const Permutation& perm, size_t limit) const {
+    MutableColumnPtr permuted_data = get_nested_column().permute(perm, limit);
+    MutableColumnPtr permuted_null_map = get_null_map_column().permute(perm, limit);
+    return ColumnNullable::create(std::move(permuted_data), std::move(permuted_null_map));
 }
 
 int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
@@ -408,8 +415,8 @@ int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
 }
 
 void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                                      int direction, std::vector<uint8>& cmp_res,
-                                      uint8* __restrict filter) const {
+                                      int direction, std::vector<uint8_t>& cmp_res,
+                                      uint8_t* __restrict filter) const {
     const auto& rhs_null_column = assert_cast<const ColumnNullable&>(rhs);
     const bool right_is_null = rhs.is_null_at(rhs_row_id);
     const bool left_contains_null = has_null();
@@ -545,12 +552,6 @@ bool ColumnNullable::has_enough_capacity(const IColumn& src) const {
            get_null_map_column().has_enough_capacity(src_concrete.get_null_map_column());
 }
 
-ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {
-    ColumnPtr replicated_data = get_nested_column().replicate(offsets);
-    ColumnPtr replicated_null_map = get_null_map_column().replicate(offsets);
-    return ColumnNullable::create(replicated_data, replicated_null_map);
-}
-
 template <bool negative>
 void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
     NullMap& arr1 = get_null_map_data();
@@ -558,8 +559,8 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
 
     if (arr1.size() != arr2.size()) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Inconsistent sizes of ColumnNullable objects");
-        __builtin_unreachable();
+                               "Inconsistent sizes of ColumnNullable objects. Self: {}. Expect: {}",
+                               arr1.size(), arr2.size());
     }
 
     for (size_t i = 0, size = arr1.size(); i < size; ++i) {

@@ -104,84 +104,79 @@ void IDataType::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
-    switch (data_type->get_type_id()) {
-    case TypeIndex::UInt8:
+    switch (data_type->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
         return PGenericType::UINT8;
-    case TypeIndex::UInt16:
-        return PGenericType::UINT16;
-    case TypeIndex::UInt32:
-        return PGenericType::UINT32;
-    case TypeIndex::UInt64:
-        return PGenericType::UINT64;
-    case TypeIndex::UInt128:
-        return PGenericType::UINT128;
-    case TypeIndex::Int8:
+    case PrimitiveType::TYPE_TINYINT:
         return PGenericType::INT8;
-    case TypeIndex::Int16:
+    case PrimitiveType::TYPE_SMALLINT:
         return PGenericType::INT16;
-    case TypeIndex::Int32:
+    case PrimitiveType::TYPE_INT:
         return PGenericType::INT32;
-    case TypeIndex::Int64:
+    case PrimitiveType::TYPE_BIGINT:
         return PGenericType::INT64;
-    case TypeIndex::Int128:
+    case PrimitiveType::TYPE_LARGEINT:
         return PGenericType::INT128;
-    case TypeIndex::IPv4:
+    case PrimitiveType::TYPE_IPV4:
         return PGenericType::IPV4;
-    case TypeIndex::IPv6:
+    case PrimitiveType::TYPE_IPV6:
         return PGenericType::IPV6;
-    case TypeIndex::Float32:
+    case PrimitiveType::TYPE_FLOAT:
         return PGenericType::FLOAT;
-    case TypeIndex::Float64:
+    case PrimitiveType::TYPE_DOUBLE:
         return PGenericType::DOUBLE;
-    case TypeIndex::Decimal32:
+    case PrimitiveType::TYPE_DECIMAL32:
         return PGenericType::DECIMAL32;
-    case TypeIndex::Decimal64:
+    case PrimitiveType::TYPE_DECIMAL64:
         return PGenericType::DECIMAL64;
-    case TypeIndex::Decimal128V2:
+    case PrimitiveType::TYPE_DECIMALV2:
         return PGenericType::DECIMAL128;
-    case TypeIndex::Decimal128V3:
+    case PrimitiveType::TYPE_DECIMAL128I:
         return PGenericType::DECIMAL128I;
-    case TypeIndex::Decimal256:
+    case PrimitiveType::TYPE_DECIMAL256:
         return PGenericType::DECIMAL256;
-    case TypeIndex::String:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_STRING:
         return PGenericType::STRING;
-    case TypeIndex::Date:
+    case PrimitiveType::TYPE_DATE:
         return PGenericType::DATE;
-    case TypeIndex::DateV2:
+    case PrimitiveType::TYPE_DATEV2:
         return PGenericType::DATEV2;
-    case TypeIndex::DateTime:
+    case PrimitiveType::TYPE_DATETIME:
         return PGenericType::DATETIME;
-    case TypeIndex::VARIANT:
+    case PrimitiveType::TYPE_VARIANT:
         return PGenericType::VARIANT;
-    case TypeIndex::DateTimeV2:
+    case PrimitiveType::TYPE_DATETIMEV2:
         return PGenericType::DATETIMEV2;
-    case TypeIndex::BitMap:
+    case PrimitiveType::TYPE_BITMAP:
         return PGenericType::BITMAP;
-    case TypeIndex::HLL:
+    case PrimitiveType::TYPE_HLL:
         return PGenericType::HLL;
-    case TypeIndex::QuantileState:
+    case PrimitiveType::TYPE_QUANTILE_STATE:
         return PGenericType::QUANTILE_STATE;
-    case TypeIndex::Array:
+    case PrimitiveType::TYPE_ARRAY:
         return PGenericType::LIST;
-    case TypeIndex::Struct:
+    case PrimitiveType::TYPE_STRUCT:
         return PGenericType::STRUCT;
-    case TypeIndex::FixedLengthObject:
-        return PGenericType::FIXEDLENGTHOBJECT;
-    case TypeIndex::JSONB:
+    case PrimitiveType::TYPE_JSONB:
         return PGenericType::JSONB;
-    case TypeIndex::Map:
+    case PrimitiveType::TYPE_MAP:
         return PGenericType::MAP;
-    case TypeIndex::Time:
+    case PrimitiveType::TYPE_TIME:
         return PGenericType::TIME;
-    case TypeIndex::AggState:
+    case PrimitiveType::TYPE_AGG_STATE:
         return PGenericType::AGG_STATE;
-    case TypeIndex::TimeV2:
+    case PrimitiveType::TYPE_TIMEV2:
         return PGenericType::TIMEV2;
+    case PrimitiveType::TYPE_FIXED_LENGTH_OBJECT:
+        return PGenericType::FIXEDLENGTHOBJECT;
     default:
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "could not mapping type {} to pb type",
-                               data_type->get_type_id());
-        return PGenericType::UNKNOWN;
+        break;
     }
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR, "could not mapping type {} to pb type",
+                           data_type->get_name());
+    return PGenericType::UNKNOWN;
 }
 
 // write const_flag and row_num to buf
@@ -190,17 +185,17 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
     const auto* col = *column;
     // const flag
     bool is_const_column = is_column_const(*col);
-    *reinterpret_cast<bool*>(buf) = is_const_column;
+    unaligned_store<bool>(buf, is_const_column);
     buf += sizeof(bool);
 
     // row num
     const auto row_num = col->size();
-    *reinterpret_cast<size_t*>(buf) = row_num;
+    unaligned_store<size_t>(buf, row_num);
     buf += sizeof(size_t);
 
     // real saved num
     *real_need_copy_num = is_const_column ? 1 : row_num;
-    *reinterpret_cast<size_t*>(buf) = *real_need_copy_num;
+    unaligned_store<size_t>(buf, *real_need_copy_num);
     buf += sizeof(size_t);
 
     if (is_const_column) {
@@ -213,20 +208,25 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
 const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
                                                size_t* real_have_saved_num) {
     // const flag
-    bool is_const_column = *reinterpret_cast<const bool*>(buf);
+    bool is_const_column = unaligned_load<bool>(buf);
     buf += sizeof(bool);
     // row num
-    size_t row_num = *reinterpret_cast<const size_t*>(buf);
+    size_t row_num = unaligned_load<size_t>(buf);
     buf += sizeof(size_t);
     // real saved num
-    *real_have_saved_num = *reinterpret_cast<const size_t*>(buf);
-    buf += sizeof(size_t);
+    *real_have_saved_num = unaligned_load<size_t>(buf);
+    buf += sizeof(size_t*);
 
     if (is_const_column) {
         auto const_column = ColumnConst::create((*column)->get_ptr(), row_num, true);
         *column = const_column->get_ptr();
     }
     return buf;
+}
+
+FieldWithDataType IDataType::get_field_with_data_type(const IColumn& column, size_t row_num) const {
+    return FieldWithDataType {.field = column[row_num],
+                              .base_scalar_type_id = get_primitive_type()};
 }
 
 } // namespace doris::vectorized

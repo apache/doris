@@ -18,6 +18,8 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableProperty;
@@ -33,22 +35,30 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
+import org.apache.iceberg.CatalogProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
@@ -374,7 +384,7 @@ class StatisticsUtilTest {
         OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
 
         // Test column is null
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, null));
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, null, 0));
 
         // Test table auto analyze is disabled.
         new MockUp<OlapTable>() {
@@ -383,7 +393,7 @@ class StatisticsUtilTest {
                 return false;
             }
         };
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
         new MockUp<OlapTable>() {
             @Mock
             public boolean autoAnalyzeEnabled() {
@@ -399,8 +409,11 @@ class StatisticsUtilTest {
             }
         };
         IcebergExternalDatabase icebergDatabase = new IcebergExternalDatabase(null, 1L, "", "");
-        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", null, icebergDatabase);
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(icebergTable, Pair.of("index", column.getName())));
+        Map<String, String> props = Maps.newHashMap();
+        props.put(CatalogProperties.WAREHOUSE_LOCATION, "s3://tmp");
+        IcebergExternalCatalog catalog = new IcebergHadoopExternalCatalog(0, "iceberg_ctl", "", props, "");
+        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", catalog, icebergDatabase);
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(icebergTable, Pair.of("index", column.getName()), 0));
 
         // Test table stats meta is null.
         new MockUp<AnalysisManager>() {
@@ -409,7 +422,7 @@ class StatisticsUtilTest {
                 return null;
             }
         };
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
 
         // Test column stats meta is null
         TableStatsMeta tableMeta = new TableStatsMeta();
@@ -425,7 +438,7 @@ class StatisticsUtilTest {
                 return null;
             }
         };
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
@@ -435,16 +448,16 @@ class StatisticsUtilTest {
 
         // Test table stats is user injected
         tableMeta.userInjected = true;
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
         tableMeta.userInjected = false;
 
         // Test Config.auto_analyze_interval_seconds == 0
         Config.auto_analyze_interval_seconds = 0;
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
 
         // Test column analyzed within the time interval
         Config.auto_analyze_interval_seconds = 86400;
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 0));
 
         // Test column hasn't analyzed for longer than time interval, but version and row count doesn't change
         new MockUp<TableStatsMeta>() {
@@ -471,7 +484,7 @@ class StatisticsUtilTest {
             }
         };
         Config.auto_analyze_interval_seconds = 1;
-        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 10));
 
         // Test column hasn't analyzed for longer than time interval, and version change
         new MockUp<OlapTable>() {
@@ -485,7 +498,7 @@ class StatisticsUtilTest {
                 return 100;
             }
         };
-        Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 11));
 
         // Test column hasn't analyzed for longer than time interval, and row count change
         new MockUp<OlapTable>() {
@@ -499,6 +512,106 @@ class StatisticsUtilTest {
                 return 101;
             }
         };
-        Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+        Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName()), 10));
+    }
+
+    @Test
+    void testCanCollectColumn() {
+        Column column = new Column("testColumn", Type.INT, true, null, null, "");
+        List<Column> schema = new ArrayList<>();
+        schema.add(column);
+        OlapTable table = new OlapTable(200, "testTable", schema, KeysType.AGG_KEYS, null, null);
+
+        // Test full analyze always return true;
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, false, 1));
+
+        // Test null table return true;
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, null, true, 1));
+
+        // Test external table always return true;
+        HMSExternalCatalog externalCatalog = new HMSExternalCatalog();
+        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, 1L, "dbName", "dbName");
+        HMSExternalTable hmsTable = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, hmsTable, true, 1));
+
+        // Test agg key return true;
+        MaterializedIndexMeta meta = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+        new MockUp<OlapTable>() {
+            @Mock
+            public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
+                return meta;
+            }
+        };
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+        // Test agg value return false
+        column = new Column("testColumn", Type.INT, false, null, null, "");
+        Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+        // Test unique mor value column return false
+        MaterializedIndexMeta meta1 = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.UNIQUE_KEYS, null);
+        new MockUp<OlapTable>() {
+            @Mock
+            public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
+                return meta1;
+            }
+
+            @Mock
+            public boolean isUniqKeyMergeOnWrite() {
+                return false;
+            }
+        };
+        Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+        // Test unique mor key column return true
+        column = new Column("testColumn", Type.INT, true, null, null, "");
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+    }
+
+    @Test
+    void testGetHotValues() {
+        String value1 = "1234 :35 ;222 :34";
+        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
+        Assertions.assertEquals(2, hotValues.size());
+
+        int i = 0;
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+            if (i == 0) {
+                Assertions.assertEquals("1234", entry.getKey().getStringValue());
+                Assertions.assertEquals("35.0", entry.getValue().toString());
+                i++;
+            } else {
+                Assertions.assertEquals("222", entry.getKey().getStringValue());
+                Assertions.assertEquals("34.0", entry.getValue().toString());
+            }
+        }
+
+        String value2 = "1234 :34";
+        hotValues = StatisticsUtil.getHotValues(value2, Type.INT);
+        Assertions.assertEquals(1, hotValues.size());
+
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+            Assertions.assertEquals("1234", entry.getKey().getStringValue());
+            Assertions.assertEquals("34.0", entry.getValue().toString());
+        }
+
+        String value3 = "aabbcc\\:\\; :34 ; dd :22";
+        hotValues = StatisticsUtil.getHotValues(value3, Type.STRING);
+        Assertions.assertEquals(1, hotValues.size());
+        for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
+            Assertions.assertEquals("aabbcc:;", entry.getKey().getStringValue());
+            Assertions.assertEquals("34.0", entry.getValue().toString());
+        }
+    }
+
+    @Test
+    public void testGetOlapTableVersion() throws RpcException {
+        Assertions.assertEquals(0, StatisticsUtil.getOlapTableVersion(null));
+        OlapTable ot = Mockito.mock(OlapTable.class);
+        Mockito.when(ot.getVisibleVersion()).thenReturn(100L);
+        Assertions.assertEquals(100, StatisticsUtil.getOlapTableVersion(ot));
+        Mockito.when(ot.getVisibleVersion()).thenThrow(new RpcException("", ""));
+        Assertions.assertEquals(0, StatisticsUtil.getOlapTableVersion(ot));
     }
 }

@@ -30,7 +30,7 @@
 #include "vec/exec/format/parquet/fix_length_plain_decoder.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type encoding,
                             std::unique_ptr<Decoder>& decoder) {
     switch (encoding) {
@@ -89,10 +89,10 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
         // Supports only INT32 and INT64.
         switch (type) {
         case tparquet::Type::INT32:
-            decoder.reset(new DeltaBitPackDecoder<int32>());
+            decoder.reset(new DeltaBitPackDecoder<int32_t>());
             break;
         case tparquet::Type::INT64:
-            decoder.reset(new DeltaBitPackDecoder<int64>());
+            decoder.reset(new DeltaBitPackDecoder<int64_t>());
             break;
         default:
             return Status::InternalError("DELTA_BINARY_PACKED only supports INT32 and INT64");
@@ -139,5 +139,6 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

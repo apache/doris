@@ -29,16 +29,18 @@ import (
 )
 
 type config struct {
-	Hosts               []string `config:"fenodes"`
-	HttpHosts           []string `config:"http_hosts"`
-	User                string   `config:"user" validate:"required"`
-	Password            string   `config:"password"`
-	Database            string   `config:"database" validate:"required"`
-	Table               string   `config:"table" validate:"required"`
-	LabelPrefix         string   `config:"label_prefix"`
-	LineDelimiter       string   `config:"line_delimiter"`
-	LogRequest          bool     `config:"log_request"`
-	LogProgressInterval int      `config:"log_progress_interval"`
+	Hosts               []string         `config:"fenodes"`
+	HttpHosts           []string         `config:"http_hosts"`
+	User                string           `config:"user" validate:"required"`
+	Password            string           `config:"password"`
+	Database            string           `config:"database" validate:"required"`
+	Table               string           `config:"table"`
+	DefaultTable        string           `config:"default_table"`
+	Tables              []map[string]any `config:"tables"`
+	LabelPrefix         string           `config:"label_prefix"`
+	LineDelimiter       string           `config:"line_delimiter"`
+	LogRequest          bool             `config:"log_request"`
+	LogProgressInterval int              `config:"log_progress_interval"`
 
 	Headers map[string]string `config:"headers"`
 
@@ -48,6 +50,7 @@ type config struct {
 	BulkMaxSize       int           `config:"bulk_max_size" validate:"min=1,nonzero"`
 	MaxRetries        int           `config:"max_retries" validate:"min=-1,nonzero"`
 	Backoff           backoff       `config:"backoff"`
+	Worker            int           `config:"worker"`
 }
 
 type backoff struct {
@@ -69,6 +72,7 @@ func defaultConfig() config {
 			Init: 1 * time.Second,
 			Max:  60 * time.Second,
 		},
+		Worker: 1,
 	}
 }
 
@@ -82,8 +86,8 @@ func (c *config) Validate() error {
 	if len(c.Database) == 0 {
 		return errors.New("no database configured")
 	}
-	if len(c.Table) == 0 {
-		return errors.New("no table configured")
+	if len(c.Table) == 0 && len(c.Tables) == 0 {
+		return errors.New("no tables configured")
 	}
 	if len(c.CodecFormatString) == 0 && &c.Codec == nil {
 		return errors.New("no codec_format_expression|codec configured")

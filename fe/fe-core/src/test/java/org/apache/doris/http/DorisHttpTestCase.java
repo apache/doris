@@ -47,7 +47,6 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
-import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.EditLog;
@@ -274,10 +273,6 @@ public abstract class DorisHttpTestCase {
                     env.isMaster();
                     minTimes = 0;
                     result = true;
-
-                    env.getLoadInstance();
-                    minTimes = 0;
-                    result = new Load();
 
                     env.getEditLog();
                     minTimes = 0;

@@ -56,7 +56,6 @@ namespace io {
 class FileSystem;
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -82,10 +81,11 @@ public:
                                col_default_value_ctx,
                        bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+    Status init_schema_reader() override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
 protected:
     void _collect_profile_before_close() override;
@@ -102,39 +102,11 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                              bool* eof);
 
-    Status _vhandle_simple_json(RuntimeState* /*state*/, Block& block,
-                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-                                bool* eof);
-
-    Status _vhandle_flat_array_complex_json(RuntimeState* /*state*/, Block& block,
-                                            const std::vector<SlotDescriptor*>& slot_descs,
-                                            bool* is_empty_row, bool* eof);
-
-    Status _vhandle_nested_complex_json(RuntimeState* /*state*/, Block& block,
-                                        const std::vector<SlotDescriptor*>& slot_descs,
-                                        bool* is_empty_row, bool* eof);
-
-    Status _parse_json(bool* is_empty_row, bool* eof);
-    Status _parse_json_doc(size_t* size, bool* eof);
-
-    Status _set_column_value(rapidjson::Value& objectValue, Block& block,
-                             const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
-
-    Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 const TypeDescriptor& type_desc, vectorized::IColumn* column_ptr,
-                                 const std::string& column_name, DataTypeSerDeSPtr serde,
-                                 bool* valid);
-
-    Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
-                                      const std::vector<SlotDescriptor*>& slot_descs, Block& block,
-                                      bool* valid);
-
-    Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
-                             std::string col_name, bool* valid);
-
-    static std::string _print_json_value(const rapidjson::Value& value);
-
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+
+    // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
+    // Need to read all the data before performing JSON parsing.
+    Status _read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
@@ -171,7 +143,7 @@ private:
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                          const TypeDescriptor& type_desc,
+                                          const DataTypePtr& type_desc,
                                           vectorized::IColumn* column_ptr,
                                           const std::string& column_name, DataTypeSerDeSPtr serde,
                                           bool* valid);
@@ -201,8 +173,8 @@ private:
     // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
     bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
     void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
-    void _process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
-                                   size_t cur_row_count, bool* valid);
+    void _set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
+                               size_t cur_row_count, bool* valid);
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
@@ -255,9 +227,7 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
 
-    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
     RuntimeProfile::Counter* _read_timer = nullptr;
-    RuntimeProfile::Counter* _file_read_timer = nullptr;
 
     // ======SIMD JSON======
     // name mapping
@@ -289,18 +259,22 @@ private:
 
     int32_t skip_bitmap_col_idx {-1};
 
-    bool _is_load = true;
     //Used to indicate whether it is a stream load. When loading, only data will be inserted into columnString.
     //If an illegal value is encountered during the load process, `_append_error_msg` should be called
     //instead of directly returning `Status::DataQualityError`
+    bool _is_load = true;
 
-    bool _is_hive_table = false;
     // In hive : create table xxx ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
     // Hive will not allow you to create columns with the same name but different case, including field names inside
     // structs, and will automatically convert uppercase names in create sql to lowercase.However, when Hive loads data
     // to table, the column names in the data may be uppercase,and there may be multiple columns with
     // the same name but different capitalization.We refer to the behavior of hive, convert all column names
     // in the data to lowercase,and use the last one as the insertion value
+    bool _is_hive_table = false;
+
+    // hive : org.openx.data.jsonserde.JsonSerDe, `ignore.malformed.json` prop.
+    // If the variable is true, `null` will be inserted for llegal json format instead of return error.
+    bool _openx_json_ignore_malformed = false;
 
     DataTypeSerDeSPtrs _serdes;
     vectorized::DataTypeSerDe::FormatOptions _serde_options;

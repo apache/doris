@@ -43,8 +43,8 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -150,7 +150,7 @@ struct HexIntImpl {
 
     static Status vector(ColumnPtr argument_column, size_t input_rows_count,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        const auto* str_col = check_and_get_column<ColumnVector<Int64>>(argument_column.get());
+        const auto* str_col = check_and_get_column<ColumnInt64>(argument_column.get());
         auto& data = str_col->get_data();
 
         res_offsets.resize(input_rows_count);

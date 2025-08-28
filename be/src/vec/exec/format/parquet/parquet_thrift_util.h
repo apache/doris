@@ -31,7 +31,7 @@
 #include "vparquet_file_metadata.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 constexpr size_t INIT_META_SIZE = 48 * 1024; // 48k
@@ -75,9 +75,11 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     tparquet::FileMetaData t_metadata;
     // deserialize footer
     RETURN_IF_ERROR(deserialize_thrift_msg(meta_ptr, &metadata_size, true, &t_metadata));
-    *file_metadata = new FileMetaData(t_metadata);
+    *file_metadata = new FileMetaData(t_metadata, metadata_size);
     RETURN_IF_ERROR((*file_metadata)->init_schema());
     *meta_size = PARQUET_FOOTER_SIZE + metadata_size;
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

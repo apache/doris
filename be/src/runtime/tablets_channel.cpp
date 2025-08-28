@@ -133,9 +133,6 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     if (_state == kOpened || _state == kFinished) {
         return Status::OK();
     }
-    LOG(INFO) << fmt::format("open tablets channel {}, tablets num: {} timeout(s): {}",
-                             _key.to_string(), request.tablets().size(),
-                             request.load_channel_timeout_s());
     _txn_id = request.txn_id();
     _index_id = request.index_id();
     _schema = std::make_shared<OlapTableSchemaParam>();
@@ -163,8 +160,10 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
         _num_remaining_senders = max_sender;
     }
     LOG(INFO) << fmt::format(
-            "txn {}: TabletsChannel of index {} init senders {} with incremental {}", _txn_id,
-            _index_id, _num_remaining_senders, _open_by_incremental ? "on" : "off");
+            "open tablets channel {}, tablets num: {} timeout(s): {}, init senders {} with "
+            "incremental {}",
+            _key.to_string(), request.tablets().size(), request.load_channel_timeout_s(),
+            _num_remaining_senders, _open_by_incremental ? "on" : "off");
     // just use max_sender no matter incremental or not cuz we dont know how many senders will open.
     _next_seqs.resize(max_sender, 0);
     _closed_senders.Reset(max_sender);
@@ -240,7 +239,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         auto delta_writer = create_delta_writer(wrequest);
         {
             // here we modify _tablet_writers. so need lock.
-            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            std::lock_guard<std::mutex> l(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
 
@@ -371,8 +370,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     // 5. commit all writers
 
     for (auto* writer : need_wait_writers) {
-        PSlaveTabletNodes slave_nodes;
-
         // close may return failed, but no need to handle it here.
         // tablet_vec will only contains success tablet, and then let FE judge it.
         _commit_txn(writer, req, res);
@@ -409,9 +406,15 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
 
 void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
                                  PTabletWriterAddBlockResult* res) {
-    Status st = writer->commit_txn(_write_single_replica
-                                           ? req.slave_tablet_nodes().at(writer->tablet_id())
-                                           : PSlaveTabletNodes {});
+    PSlaveTabletNodes slave_nodes;
+    if (_write_single_replica) {
+        auto& nodes_map = req.slave_tablet_nodes();
+        auto it = nodes_map.find(writer->tablet_id());
+        if (it != nodes_map.end()) {
+            slave_nodes = it->second;
+        }
+    }
+    Status st = writer->commit_txn(slave_nodes);
     if (st.ok()) [[likely]] {
         auto* tablet_vec = res->mutable_tablet_vec();
         PTabletInfo* tablet_info = tablet_vec->Add();
@@ -444,7 +447,7 @@ void BaseTabletsChannel::refresh_profile() {
     int64_t max_tablet_write_mem_usage = 0;
     int64_t max_tablet_flush_mem_usage = 0;
     {
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+        std::lock_guard<std::mutex> l(_tablet_writers_lock);
         for (auto&& [tablet_id, writer] : _tablet_writers) {
             int64_t write_mem = writer->mem_consumption(MemType::WRITE_FINISHED);
             write_mem_usage += write_mem;
@@ -520,7 +523,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
 
         auto delta_writer = create_delta_writer(wrequest);
         {
-            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            std::lock_guard<std::mutex> l(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
     }
@@ -584,7 +587,7 @@ Status BaseTabletsChannel::_write_block_data(
         // so need to protect it with _tablet_writers_lock.
         decltype(_tablet_writers.find(tablet_id)) tablet_writer_it;
         {
-            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            std::lock_guard<std::mutex> l(_tablet_writers_lock);
             tablet_writer_it = _tablet_writers.find(tablet_id);
             if (tablet_writer_it == _tablet_writers.end()) {
                 return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);

@@ -17,11 +17,9 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OdbcCatalogResource;
@@ -35,10 +33,10 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -52,8 +50,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -72,7 +68,7 @@ import java.util.Set;
  * It contains all content of a job info file.
  * It also be used to save the info of a restore job, such as alias of table and meta info file path
  */
-public class BackupJobInfo implements Writable, GsonPostProcessable {
+public class BackupJobInfo implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(BackupJobInfo.class);
 
     @SerializedName("name")
@@ -196,6 +192,22 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
         return backupOlapTableObjects.get(tblName);
     }
 
+    public void removeTable(TableRefInfo tableRefInfo, TableType tableType) {
+        switch (tableType) {
+            case OLAP:
+                removeOlapTable(tableRefInfo);
+                break;
+            case VIEW:
+                removeView(tableRefInfo);
+                break;
+            case ODBC:
+                removeOdbcTable(tableRefInfo);
+                break;
+            default:
+                break;
+        }
+    }
+
     public void removeTable(TableRef tableRef, TableType tableType) {
         switch (tableType) {
             case OLAP:
@@ -209,6 +221,58 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
                 break;
             default:
                 break;
+        }
+    }
+
+    public void removeOlapTable(TableRefInfo tableRefInfo) {
+        String tblName = tableRefInfo.getTableNameInfo().getTbl();
+        BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tblName);
+        if (tblInfo == null) {
+            LOG.info("Ignore error: exclude table " + tblName + " does not exist in snapshot " + name);
+            return;
+        }
+        PartitionNamesInfo partitionNamesInfo = tableRefInfo.getPartitionNamesInfo();
+        if (partitionNamesInfo == null) {
+            backupOlapTableObjects.remove(tblInfo);
+            return;
+        }
+        // check the selected partitions
+        for (String partName : partitionNamesInfo.getPartitionNames()) {
+            if (tblInfo.containsPart(partName)) {
+                tblInfo.partitions.remove(partName);
+            } else {
+                LOG.info("Ignore error: exclude partition " + partName + " of table " + tblName
+                        + " does not exist in snapshot");
+            }
+        }
+    }
+
+    public void removeView(TableRefInfo tableRefInfo) {
+        Iterator<BackupViewInfo> iter = newBackupObjects.views.listIterator();
+        while (iter.hasNext()) {
+            if (iter.next().name.equals(tableRefInfo.getTableNameInfo().getTbl())) {
+                iter.remove();
+                return;
+            }
+        }
+    }
+
+    public void removeOdbcTable(TableRefInfo tableRefInfo) {
+        Iterator<BackupOdbcTableInfo> iter = newBackupObjects.odbcTables.listIterator();
+        while (iter.hasNext()) {
+            BackupOdbcTableInfo backupOdbcTableInfo = iter.next();
+            if (backupOdbcTableInfo.dorisTableName.equals(tableRefInfo.getTableNameInfo().getTbl())) {
+                if (backupOdbcTableInfo.resourceName != null) {
+                    Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
+                    while (resourceIter.hasNext()) {
+                        if (resourceIter.next().name.equals(backupOdbcTableInfo.resourceName)) {
+                            resourceIter.remove();
+                        }
+                    }
+                }
+                iter.remove();
+                return;
+            }
         }
     }
 
@@ -808,34 +872,9 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
         }
     }
 
-    public static BackupJobInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            return BackupJobInfo.readFields(in);
-        }
-        String json = Text.readString(in);
-        return genFromJson(json);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, toJson(false));
-    }
-
     @Override
     public void gsonPostProcess() throws IOException {
         initBackupJobInfoAfterDeserialize();
-    }
-
-    public static BackupJobInfo readFields(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        BackupJobInfo backupJobInfo = genFromJson(json);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String tbl = Text.readString(in);
-            String alias = Text.readString(in);
-            backupJobInfo.tblAlias.put(tbl, alias);
-        }
-        return backupJobInfo;
     }
 
     public String toString() {

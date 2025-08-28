@@ -41,6 +41,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -191,7 +192,7 @@ public class FillUpQualifyMissingSlot extends FillUpMissingSlots {
     private Plan createPlan(LogicalProject<Plan> project, Set<Expression> conjuncts, PlanGenerator planGenerator) {
         Set<Slot> projectOutputSet = project.getOutputSet();
         List<NamedExpression> newOutputSlots = Lists.newArrayList();
-        Set<Expression> newConjuncts = new HashSet<>();
+        Set<Expression> newConjuncts = new LinkedHashSet<>();
         for (Expression conjunct : conjuncts) {
             conjunct = conjunct.accept(new DefaultExpressionRewriter<List<NamedExpression>>() {
                 @Override
@@ -201,7 +202,7 @@ public class FillUpQualifyMissingSlot extends FillUpMissingSlots {
                     return alias.toSlot();
                 }
             }, newOutputSlots);
-            newConjuncts.add(conjunct);
+            newConjuncts.addAll(ExpressionUtils.extractConjunctionToSet(conjunct));
         }
         Set<Slot> notExistedInProject = conjuncts.stream()
                 .map(Expression::getInputSlots)

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.types.BigIntType;
@@ -36,7 +38,6 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -45,37 +46,70 @@ import java.util.List;
 public class PlanToStringTest {
 
     @Test
-    public void testLogicalLimit(@Mocked Plan child) {
+    public void testLogicalLimit() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalLimit<Plan> plan = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, child);
 
-        Assertions.assertEquals("LogicalLimit ( limit=0, offset=0, phase=ORIGIN )", plan.toString());
+        Assertions.assertTrue(plan.toString().startsWith("LogicalLimit ( limit=0, offset=0, phase=ORIGIN"));
     }
 
     @Test
-    public void testLogicalAggregate(@Mocked Plan child) {
+    public void testLogicalAggregate() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalAggregate<Plan> plan = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
         Assertions.assertTrue(plan.toString()
-                .matches("LogicalAggregate\\[\\d+\\] \\( groupByExpr=\\[], outputExpr=\\[a#\\d+], hasRepeat=false \\)"));
+                .matches("LogicalAggregate\\[\\d+\\] \\( groupByExpr=\\[], outputExpr=\\[a#\\d+], hasRepeat=false.*"));
     }
 
     @Test
-    public void testLogicalFilter(@Mocked Plan child) {
+    public void testLogicalFilter() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalFilter<Plan> plan = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
         Assertions.assertTrue(plan.toString().matches(
-                "LogicalFilter\\[\\d+\\] \\( predicates=\\(1 = 1\\) \\)"));
+                "LogicalFilter\\[\\d+\\] \\( predicates=\\(1 = 1\\).*"));
     }
 
     @Test
-    public void testLogicalJoin(@Mocked Plan left, @Mocked Plan right) {
+    public void testLogicalJoin() {
+        LogicalOneRowRelation left = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a")
+                )
+        );
+        LogicalOneRowRelation right = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalJoin<Plan, Plan> plan = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(
                 new EqualTo(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
                 left, right, null);
         System.out.println(plan.toString());
         Assertions.assertTrue(plan.toString().matches(
-                "LogicalJoin\\[\\d+\\] \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[], markJoinConjuncts=\\[] \\)"));
+                "LogicalJoin\\[\\d+\\] \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[], markJoinConjuncts=\\[].*"));
     }
 
     @Test
@@ -84,18 +118,32 @@ public class PlanToStringTest {
         Assertions.assertTrue(
                 plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
                         + "indexName=<index_not_selected>, "
-                        + "selectedIndexId=-1, preAgg=UNSET \\)"));
+                        + "selectedIndexId=-1, preAgg=UNSET, operativeCol=\\[].*"));
     }
 
     @Test
-    public void testLogicalProject(@Mocked Plan child) {
+    public void testLogicalProject() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
-        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+] \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+].*"));
     }
 
     @Test
-    public void testLogicalSort(@Mocked Plan child) {
+    public void testLogicalSort() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "col1"),
+                        new Alias(Literal.of(2L), "col2")
+                )
+        );
         List<OrderKey> orderKeyList = Lists.newArrayList(
                 new OrderKey(new SlotReference("col1", IntegerType.INSTANCE), true, true),
                 new OrderKey(new SlotReference("col2", IntegerType.INSTANCE), true, true));

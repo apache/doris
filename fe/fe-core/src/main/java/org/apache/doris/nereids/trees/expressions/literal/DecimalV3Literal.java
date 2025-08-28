@@ -19,10 +19,12 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
+import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -32,6 +34,7 @@ import java.util.Objects;
  * Literal for DecimalV3 Type
  */
 public class DecimalV3Literal extends FractionalLiteral {
+    private static final Logger logger = Logger.getLogger(Literal.class);
 
     private final BigDecimal value;
 
@@ -54,6 +57,8 @@ public class DecimalV3Literal extends FractionalLiteral {
         Objects.requireNonNull(value, "value not be null");
         checkPrecisionAndScale(precision, scale, value);
         BigDecimal adjustedValue = value.scale() < 0 ? value : value.setScale(scale, RoundingMode.HALF_UP);
+        logger.info("DecimalV3Literal orig bigDecimal: " + value
+                + ", targetType: " + dataType + ", result big decimal: " + adjustedValue);
         this.value = Objects.requireNonNull(adjustedValue);
     }
 
@@ -78,7 +83,7 @@ public class DecimalV3Literal extends FractionalLiteral {
     }
 
     @Override
-    protected BigDecimal getBigDecimalValue() {
+    public BigDecimal getBigDecimalValue() {
         return value;
     }
 
@@ -123,6 +128,9 @@ public class DecimalV3Literal extends FractionalLiteral {
      */
     private static void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
         Preconditions.checkNotNull(value);
+        if (value.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
         int realPrecision = value.precision();
         int realScale = value.scale();
         boolean valid = true;
@@ -135,7 +143,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         }
 
         if (!valid) {
-            throw new AnalysisException(
+            throw new CastException(
                     String.format("Invalid precision and scale - expect (%d, %d), but (%d, %d)",
                             precision, scale, realPrecision, realScale));
         }

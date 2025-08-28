@@ -110,5 +110,5 @@ public final class FeMetaVersion {
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ...
     // these clause will be useless and we could remove them
-    public static final int MINIMUM_VERSION_REQUIRED = VERSION_100;
+    public static final int MINIMUM_VERSION_REQUIRED = VERSION_140;
 }

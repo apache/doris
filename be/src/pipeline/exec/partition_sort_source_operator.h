@@ -52,7 +52,9 @@ public:
     PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs)
             : OperatorX<PartitionSortSourceLocalState>(pool, tnode, operator_id, descs) {}
-
+#ifdef BE_TEST
+    PartitionSortSourceOperatorX() = default;
+#endif
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }

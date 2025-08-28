@@ -69,7 +69,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -192,8 +191,8 @@ public class VariantSubPathPruning extends DefaultPlanRewriter<PruneContext> imp
                 if (slot.getDataType() instanceof VariantType
                         && context.slotToSubPathsMap.containsKey((SlotReference) slot)) {
                     Set<List<String>> subPaths = context.slotToSubPathsMap.get(slot);
-                    if (((SlotReference) slot).getColumn().isPresent()) {
-                        colToSubPaths.put(((SlotReference) slot).getColumn().get().getName(), subPaths);
+                    if (((SlotReference) slot).getOriginalColumn().isPresent()) {
+                        colToSubPaths.put(((SlotReference) slot).getOriginalColumn().get().getName(), subPaths);
                     }
                 }
             }
@@ -307,11 +306,8 @@ public class VariantSubPathPruning extends DefaultPlanRewriter<PruneContext> imp
 
                     }
                     SlotReference outputSlot = new SlotReference(StatementScopeIdGenerator.newExprId(),
-                            entry.getValue().get(0).getName(), VariantType.INSTANCE,
-                            true, ImmutableList.of(),
-                            null,
-                            null,
-                            Optional.empty());
+                            entry.getValue().get(0).getName(), entry.getValue().get(0).getDataType(),
+                            true, ImmutableList.of());
                     outputs.add(outputSlot);
                     // update element to slot map
                     Map<List<String>, SlotReference> s = oriSlotToSubPathToSlot.computeIfAbsent(

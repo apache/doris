@@ -32,7 +32,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
@@ -47,6 +46,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using std::stringstream;
 
@@ -64,7 +64,7 @@ Status EngineStorageMigrationTask::execute() {
     return _migrate();
 }
 
-Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t* end_version,
+Status EngineStorageMigrationTask::_get_versions(int64_t start_version, int64_t* end_version,
                                                  std::vector<RowsetSharedPtr>* consistent_rowsets) {
     std::shared_lock rdlock(_tablet->get_header_lock());
     // check if tablet is in cooldown, we don't support migration in this case
@@ -144,7 +144,7 @@ Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
 }
 
 Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
-        uint64_t shard, const std::string& full_path,
+        int32_t shard, const std::string& full_path,
         const std::vector<RowsetSharedPtr>& consistent_rowsets, int64_t end_version) {
     // need hold migration lock and push lock outside
     int64_t tablet_id = _tablet->tablet_id();
@@ -211,8 +211,8 @@ Status EngineStorageMigrationTask::_migrate() {
     }};
 
     DorisMetrics::instance()->storage_migrate_requests_total->increment(1);
-    int32_t start_version = 0;
-    int32_t end_version = 0;
+    int64_t start_version = 0;
+    int64_t end_version = 0;
     std::vector<RowsetSharedPtr> consistent_rowsets;
 
     // During migration, if the rowsets being migrated undergoes a compaction operation,
@@ -230,7 +230,7 @@ Status EngineStorageMigrationTask::_migrate() {
 
     // try hold migration lock first
     Status res;
-    uint64_t shard = 0;
+    int32_t shard = 0;
     std::string full_path;
     {
         std::unique_lock<std::shared_timed_mutex> migration_wlock(_tablet->get_migration_lock(),
@@ -344,7 +344,7 @@ Status EngineStorageMigrationTask::_migrate() {
 
 // TODO(ygl): lost some information here, such as cumulative layer point
 void EngineStorageMigrationTask::_generate_new_header(
-        uint64_t new_shard, const std::vector<RowsetSharedPtr>& consistent_rowsets,
+        int32_t new_shard, const std::vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMetaSharedPtr new_tablet_meta, int64_t end_version) {
     _tablet->generate_tablet_meta_copy_unlocked(*new_tablet_meta);
 
@@ -364,7 +364,7 @@ void EngineStorageMigrationTask::_generate_new_header(
 }
 
 Status EngineStorageMigrationTask::_copy_index_and_data_files(
-        const string& full_path, const std::vector<RowsetSharedPtr>& consistent_rowsets,
+        const std::string& full_path, const std::vector<RowsetSharedPtr>& consistent_rowsets,
         RowsetBinlogMetasPB* all_binlog_metas_pb) const {
     RowsetBinlogMetasPB rowset_binlog_metas_pb;
     for (const auto& rs : consistent_rowsets) {
@@ -451,4 +451,5 @@ Status EngineStorageMigrationTask::_copy_index_and_data_files(
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

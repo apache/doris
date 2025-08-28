@@ -49,6 +49,7 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
@@ -68,11 +69,10 @@ RowsetReaderSharedPtr BetaRowsetReader::clone() {
     return RowsetReaderSharedPtr(new BetaRowsetReader(_rowset));
 }
 
-bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
+void BetaRowsetReader::update_profile(RuntimeProfile* profile) {
     if (_iterator != nullptr) {
-        return _iterator->update_profile(profile);
+        _iterator->update_profile(profile);
     }
-    return false;
 }
 
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
@@ -101,6 +101,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.push_down_agg_type_opt = _read_context->push_down_agg_type_opt;
     _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;
     _read_options.common_expr_ctxs_push_down = _read_context->common_expr_ctxs_push_down;
+    _read_options.virtual_column_exprs = _read_context->virtual_column_exprs;
+    _read_options.vir_cid_to_idx_in_block = _read_context->vir_cid_to_idx_in_block;
+    _read_options.vir_col_idx_to_type = _read_context->vir_col_idx_to_type;
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
@@ -154,17 +157,19 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (_read_context->delete_bitmap != nullptr) {
-        SCOPED_RAW_TIMER(&_stats->delete_bitmap_get_agg_ns);
-        RowsetId rowset_id = rowset()->rowset_id();
-        for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
-            auto d = _read_context->delete_bitmap->get_agg(
-                    {rowset_id, seg_id, _read_context->version.second});
-            if (d->isEmpty()) {
-                continue; // Empty delete bitmap for the segment
+        {
+            SCOPED_RAW_TIMER(&_stats->delete_bitmap_get_agg_ns);
+            RowsetId rowset_id = rowset()->rowset_id();
+            for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
+                auto d = _read_context->delete_bitmap->get_agg(
+                        {rowset_id, seg_id, _read_context->version.second});
+                if (d->isEmpty()) {
+                    continue; // Empty delete bitmap for the segment
+                }
+                VLOG_TRACE << "Get the delete bitmap for rowset: " << rowset_id.to_string()
+                           << ", segment id:" << seg_id << ", size:" << d->cardinality();
+                _read_options.delete_bitmap.emplace(seg_id, std::move(d));
             }
-            VLOG_TRACE << "Get the delete bitmap for rowset: " << rowset_id.to_string()
-                       << ", segment id:" << seg_id << ", size:" << d->cardinality();
-            _read_options.delete_bitmap.emplace(seg_id, std::move(d));
         }
     }
 
@@ -296,7 +301,7 @@ Status BetaRowsetReader::_init_iterator() {
     if (_is_merge_iterator()) {
         auto sequence_loc = -1;
         if (_read_context->sequence_id_idx != -1) {
-            for (size_t loc = 0; loc < _read_context->return_columns->size(); loc++) {
+            for (int loc = 0; loc < _read_context->return_columns->size(); loc++) {
                 if (_read_context->return_columns->at(loc) == _read_context->sequence_id_idx) {
                     sequence_loc = loc;
                     break;
@@ -387,4 +392,5 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
              _read_context->sequence_id_idx == -1) ||
             _read_context->enable_unique_key_merge_on_write);
 }
+#include "common/compile_check_end.h"
 } // namespace doris

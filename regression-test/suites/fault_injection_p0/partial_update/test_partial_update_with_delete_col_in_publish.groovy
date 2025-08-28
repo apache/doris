@@ -80,7 +80,7 @@ suite("test_partial_update_with_delete_col_in_publish", "nonConcurrent") {
             sql "insert into ${tableName}(k,v1,v2,__DORIS_DELETE_SIGN__) values(2,222,222,1),(4,-1,-1,0),(5,555,555,1);"
         }
 
-        Thread.sleep(500)
+        Thread.sleep(1000)
 
         threads << Thread.start {
             sql "set enable_unique_key_partial_update=true;"

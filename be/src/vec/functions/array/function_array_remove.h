@@ -29,12 +29,13 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/block.h"
@@ -66,7 +67,7 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0]))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "First argument for function: " << name
                 << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
         return arguments[0];
@@ -254,7 +255,7 @@ private:
     ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
                                        const IColumn& nested_column, const IColumn& right_column,
                                        const UInt8* nested_null_map) const {
-        if (check_column<NestedColumnType>(right_column)) {
+        if (is_column<NestedColumnType>(right_column)) {
             return _execute_number<NestedColumnType, NestedColumnType>(
                     offsets, nested_column, right_column, nested_null_map);
         }
@@ -288,65 +289,82 @@ private:
         auto right_type = remove_nullable((arguments[1]).type);
 
         ColumnPtr res = nullptr;
-        WhichDataType left_which_type(left_element_type);
-
-        if (is_string(right_type) && is_string(left_element_type)) {
+        if (is_string_type(right_type->get_primitive_type()) &&
+            is_string_type(left_element_type->get_primitive_type())) {
             res = _execute_string(offsets, *nested_column, *right_column, nested_null_map);
-        } else if (is_number(right_type) && is_number(left_element_type)) {
-            if (left_which_type.is_uint8()) {
+        } else if (is_number(right_type->get_primitive_type()) &&
+                   is_number(left_element_type->get_primitive_type())) {
+            switch (left_element_type->get_primitive_type()) {
+            case TYPE_BOOLEAN:
                 res = _execute_number_expanded<ColumnUInt8>(offsets, *nested_column, *right_column,
                                                             nested_null_map);
-            } else if (left_which_type.is_int8()) {
+                break;
+            case TYPE_TINYINT:
                 res = _execute_number_expanded<ColumnInt8>(offsets, *nested_column, *right_column,
                                                            nested_null_map);
-            } else if (left_which_type.is_int16()) {
+                break;
+            case TYPE_SMALLINT:
                 res = _execute_number_expanded<ColumnInt16>(offsets, *nested_column, *right_column,
                                                             nested_null_map);
-            } else if (left_which_type.is_int32()) {
+                break;
+            case TYPE_INT:
                 res = _execute_number_expanded<ColumnInt32>(offsets, *nested_column, *right_column,
                                                             nested_null_map);
-            } else if (left_which_type.is_int64()) {
+                break;
+            case TYPE_BIGINT:
                 res = _execute_number_expanded<ColumnInt64>(offsets, *nested_column, *right_column,
                                                             nested_null_map);
-            } else if (left_which_type.is_int128()) {
+                break;
+            case TYPE_LARGEINT:
                 res = _execute_number_expanded<ColumnInt128>(offsets, *nested_column, *right_column,
                                                              nested_null_map);
-            } else if (left_which_type.is_float32()) {
+                break;
+            case TYPE_FLOAT:
                 res = _execute_number_expanded<ColumnFloat32>(offsets, *nested_column,
                                                               *right_column, nested_null_map);
-            } else if (left_which_type.is_float64()) {
+                break;
+            case TYPE_DOUBLE:
                 res = _execute_number_expanded<ColumnFloat64>(offsets, *nested_column,
                                                               *right_column, nested_null_map);
-            } else if (left_which_type.is_decimal32()) {
+                break;
+            case TYPE_DECIMAL32:
                 res = _execute_number_expanded<ColumnDecimal32>(offsets, *nested_column,
                                                                 *right_column, nested_null_map);
-            } else if (left_which_type.is_decimal64()) {
+                break;
+            case TYPE_DECIMAL64:
                 res = _execute_number_expanded<ColumnDecimal64>(offsets, *nested_column,
                                                                 *right_column, nested_null_map);
-            } else if (left_which_type.is_decimal128v3()) {
+                break;
+            case TYPE_DECIMAL128I:
                 res = _execute_number_expanded<ColumnDecimal128V3>(offsets, *nested_column,
                                                                    *right_column, nested_null_map);
-            } else if (left_which_type.is_decimal128v2()) {
+                break;
+            case TYPE_DECIMALV2:
                 res = _execute_number_expanded<ColumnDecimal128V2>(offsets, *nested_column,
                                                                    *right_column, nested_null_map);
-            } else if (left_which_type.is_decimal256()) {
+                break;
+            case TYPE_DECIMAL256:
                 res = _execute_number_expanded<ColumnDecimal256>(offsets, *nested_column,
                                                                  *right_column, nested_null_map);
+                break;
+            default:
+                break;
             }
-        } else if (is_date_or_datetime(right_type) && is_date_or_datetime(left_element_type)) {
-            if (left_which_type.is_date()) {
+        } else if (is_date_or_datetime(right_type->get_primitive_type()) &&
+                   is_date_or_datetime(left_element_type->get_primitive_type())) {
+            if (left_element_type->get_primitive_type() == PrimitiveType::TYPE_DATE) {
                 res = _execute_number_expanded<ColumnDate>(offsets, *nested_column, *right_column,
                                                            nested_null_map);
-            } else if (left_which_type.is_date_time()) {
+            } else if (left_element_type->get_primitive_type() == PrimitiveType::TYPE_DATETIME) {
                 res = _execute_number_expanded<ColumnDateTime>(offsets, *nested_column,
                                                                *right_column, nested_null_map);
             }
-        } else if (is_date_v2_or_datetime_v2(right_type) &&
-                   is_date_v2_or_datetime_v2(left_element_type)) {
-            if (left_which_type.is_date_v2()) {
+        } else if (is_date_v2_or_datetime_v2(right_type->get_primitive_type()) &&
+                   is_date_v2_or_datetime_v2(left_element_type->get_primitive_type())) {
+            if (left_element_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2) {
                 res = _execute_number_expanded<ColumnDateV2>(offsets, *nested_column, *right_column,
                                                              nested_null_map);
-            } else if (left_which_type.is_date_time_v2()) {
+            } else if (left_element_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2) {
                 res = _execute_number_expanded<ColumnDateTimeV2>(offsets, *nested_column,
                                                                  *right_column, nested_null_map);
             }

@@ -48,9 +48,9 @@
 #include "common/configbase.h"
 #include "common/logging.h"
 #include "common/string_util.h"
-#include "meta-service/keys.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "meta_service.h"
 #include "rate-limiter/rate_limiter.h"
 
@@ -74,6 +74,9 @@ extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mg
 extern int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_id,
                                  MetaServiceCode& code, std::string& msg,
                                  std::shared_ptr<Transaction>& txn);
+
+extern void get_kv_range_boundaries_count(std::vector<std::string>& partition_boundaries,
+                                          std::unordered_map<std::string, size_t>& partition_count);
 
 template <typename Message>
 static google::protobuf::util::Status parse_json_message(const std::string& unresolved_path,
@@ -158,7 +161,8 @@ HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
     return {status_code, msg, sb.GetString()};
 }
 
-static std::string format_http_request(const brpc::HttpHeader& request) {
+static std::string format_http_request(brpc::Controller* cntl) {
+    const brpc::HttpHeader& request = cntl->http_request();
     auto& unresolved_path = request.unresolved_path();
     auto& uri = request.uri();
     std::stringstream ss;
@@ -173,6 +177,8 @@ static std::string format_http_request(const brpc::HttpHeader& request) {
     for (auto it = request.HeaderBegin(); it != request.HeaderEnd(); ++it) {
         ss << "\n" << it->first << ":" << it->second;
     }
+    std::string body = cntl->request_attachment().to_string();
+    ss << "\nbody=" << (body.empty() ? "(empty)" : body);
     return ss.str();
 }
 
@@ -226,7 +232,8 @@ static HttpResponse process_get_obj_store_info(MetaServiceImpl* service, brpc::C
 static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc::Controller* ctrl) {
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"add_obj_info", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
-            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK}};
+            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK},
+            {"alter_obj_info", AlterObjStoreInfoRequest::ALTER_OBJ_INFO}};
 
     auto& path = ctrl->http_request().unresolved_path();
     auto it = operations.find(remove_version_prefix(path));
@@ -248,6 +255,7 @@ static HttpResponse process_alter_storage_vault(MetaServiceImpl* service, brpc::
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_S3_VAULT},
             {"add_s3_vault", AlterObjStoreInfoRequest::ADD_S3_VAULT},
+            {"alter_s3_vault", AlterObjStoreInfoRequest::ALTER_S3_VAULT},
             {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
             {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
 
@@ -509,6 +517,10 @@ static HttpResponse process_get_value(MetaServiceImpl* service, brpc::Controller
     return process_http_get_value(service->txn_kv().get(), ctrl->http_request().uri());
 }
 
+static HttpResponse process_set_value(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    return process_http_set_value(service->txn_kv().get(), ctrl);
+}
+
 // show all key ranges and their count.
 static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Controller* ctrl) {
     auto txn_kv = std::dynamic_pointer_cast<FdbTxnKv>(service->txn_kv());
@@ -523,38 +535,8 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
         auto msg = fmt::format("failed to get boundaries, code={}", code);
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
     }
-
     std::unordered_map<std::string, size_t> partition_count;
-    size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
-    for (auto&& boundary : partition_boundaries) {
-        if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
-            continue;
-        }
-
-        std::string_view user_key(boundary);
-        user_key.remove_prefix(prefix_size + 1); // Skip the KEY_SPACE prefix.
-        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-        decode_key(&user_key, &out); // ignore any error, since the boundary key might be truncated.
-
-        auto visitor = [](auto&& arg) -> std::string {
-            using T = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<T, std::string>) {
-                return arg;
-            } else {
-                return std::to_string(arg);
-            }
-        };
-
-        if (!out.empty()) {
-            std::string key;
-            for (size_t i = 0; i < 3 && i < out.size(); ++i) {
-                key += std::visit(visitor, std::get<0>(out[i]));
-                key += '|';
-            }
-            key.pop_back(); // omit the last '|'
-            partition_count[key]++;
-        }
-    }
+    get_kv_range_boundaries_count(partition_boundaries, partition_count);
 
     // sort ranges by count
     std::vector<std::pair<std::string, size_t>> meta_ranges;
@@ -566,7 +548,7 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
     std::sort(meta_ranges.begin(), meta_ranges.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
 
-    std::string body = fmt::format("total partitions: {}\n", partition_boundaries.size());
+    std::string body = fmt::format("total meta ranges: {}\n", partition_boundaries.size());
     for (auto&& [key, count] : meta_ranges) {
         body += fmt::format("{}: {}\n", key, count);
     }
@@ -733,10 +715,15 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"alter_s3_vault", process_alter_storage_vault},
             {"drop_s3_vault", process_alter_storage_vault},
             {"drop_hdfs_vault", process_alter_storage_vault},
+            {"alter_obj_info", process_alter_obj_store_info},
+            {"v1/alter_obj_info", process_alter_obj_store_info},
+            {"v1/alter_s3_vault", process_alter_storage_vault},
+
             // for tools
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
             {"get_value", process_get_value},
+            {"set_value", process_set_value},
             {"show_meta_ranges", process_show_meta_ranges},
             {"txn_lazy_commit", process_txn_lazy_commit},
             {"injection_point", process_injection_point},
@@ -744,11 +731,11 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/decode_key", process_decode_key},
             {"v1/encode_key", process_encode_key},
             {"v1/get_value", process_get_value},
+            {"v1/set_value", process_set_value},
             {"v1/show_meta_ranges", process_show_meta_ranges},
             {"v1/txn_lazy_commit", process_txn_lazy_commit},
             {"v1/injection_point", process_injection_point},
-            // for get
-            {"get_instance", process_get_instance_info},
+            {"v1/fix_tablet_stats", process_fix_tablet_stats},
             // for get
             {"get_instance", process_get_instance_info},
             {"get_obj_store_info", process_get_obj_store_info},
@@ -785,7 +772,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     // Prepare input request info
     LOG(INFO) << "rpc from " << cntl->remote_side()
               << " request: " << cntl->http_request().uri().path();
-    std::string http_request = format_http_request(cntl->http_request());
+    std::string http_request = format_http_request(cntl);
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");

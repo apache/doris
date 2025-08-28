@@ -22,8 +22,18 @@ import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load_p2","p2,nonConcurrent") {
 
-    sql "create workload group if not exists create_routine_load_group properties ( 'cpu_share'='123');"
-    sql "create workload group if not exists alter_routine_load_group properties ( 'cpu_share'='123');"
+    def forComputeGroupStr = "";
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        forComputeGroupStr = " for  $validCluster "
+    }
+
+    sql "create workload group if not exists create_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
+    sql "create workload group if not exists alter_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
     Thread.sleep(5000) // wait publish workload group to be
 
     def tables = [

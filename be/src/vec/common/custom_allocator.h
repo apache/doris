@@ -20,6 +20,8 @@
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
 
+namespace doris {
+
 template <class T, typename MemoryAllocator = Allocator<false>>
 class CustomStdAllocator;
 
@@ -80,3 +82,5 @@ template <class T, class Up>
 bool operator!=(const CustomStdAllocator<T>&, const CustomStdAllocator<Up>&) {
     return false;
 }
+
+} // namespace doris

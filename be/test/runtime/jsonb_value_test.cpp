@@ -25,12 +25,6 @@ using std::string;
 
 namespace doris {
 
-inline JsonBinaryValue FromStdString(const string& str) {
-    char* ptr = const_cast<char*>(str.c_str());
-    int len = str.size();
-    return JsonBinaryValue(ptr, len);
-}
-
 TEST(JsonBinaryValueTest, TestValidation) {
     JsonBinaryValue json_val;
 

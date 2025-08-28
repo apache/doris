@@ -67,38 +67,28 @@ private:
 
 public:
     static constexpr bool is_parametric = true;
+    static constexpr PrimitiveType PType = TYPE_STRUCT;
 
     explicit DataTypeStruct(const DataTypes& elems);
     DataTypeStruct(const DataTypes& elems, const Strings& names);
-
-    TypeIndex get_type_id() const override { return TypeIndex::Struct; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        TypeDescriptor desc(TYPE_STRUCT);
-        for (size_t i = 0; i < elems.size(); ++i) {
-            TypeDescriptor sub_desc = elems[i]->get_type_as_type_descriptor();
-            desc.field_names.push_back(names[i]);
-            desc.contains_nulls.push_back(elems[i]->is_nullable());
-            desc.add_sub_type(sub_desc);
-        }
-        return desc;
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_STRUCT; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_STRUCT;
     }
     std::string do_get_name() const override;
-    const char* get_family_name() const override { return "Struct"; }
+    const std::string get_family_name() const override { return "Struct"; }
 
     bool supports_sparse_serialization() const { return true; }
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for struct");
-        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;
@@ -129,13 +119,39 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     bool get_have_explicit_names() const { return have_explicit_names; }
+    using SerDeType = DataTypeStructSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         DataTypeSerDeSPtrs ptrs;
         for (auto iter = elems.begin(); iter < elems.end(); ++iter) {
             ptrs.push_back((*iter)->get_serde(nesting_level + 1));
         }
-        return std::make_shared<DataTypeStructSerDe>(ptrs, names, nesting_level);
+        return std::make_shared<SerDeType>(ptrs, names, nesting_level);
     };
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        node->set_type(TTypeNodeType::STRUCT);
+        for (size_t i = 0; i < elems.size(); ++i) {
+            auto field = node->add_struct_fields();
+            field->set_name(get_element_name(i));
+            field->set_contains_null(elems[i]->is_nullable());
+        }
+        for (const auto& child : elems) {
+            child->to_protobuf(ptype);
+        }
+    }
+#ifdef BE_TEST
+    void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
+        node.type = TTypeNodeType::STRUCT;
+        node.__set_struct_fields(std::vector<TStructField>());
+        for (size_t i = 0; i < get_elements().size(); i++) {
+            node.struct_fields.push_back(TStructField());
+            node.struct_fields.back().name = get_element_name(i);
+            node.struct_fields.back().contains_null = get_element(i)->is_nullable();
+        }
+        for (size_t i = 0; i < get_elements().size(); i++) {
+            get_element(i)->to_thrift(thrift_type);
+        }
+    }
+#endif
 };
 
 } // namespace doris::vectorized

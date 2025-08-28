@@ -34,7 +34,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -49,13 +48,10 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.reflect.TypeToken;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -234,17 +230,6 @@ public class CopyJob extends CloudBrokerLoadJob {
     protected LoadJobFinalOperation getLoadJobFinalOperation() {
         return new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                 finishTimestamp, state, failMsg, copyId, loadFilePaths, properties);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        copyId = Text.readString(in);
-        loadFilePaths = Text.readString(in);
-        String property = Text.readString(in);
-        properties = property.isEmpty() ? new HashMap<>()
-                : (new Gson().fromJson(property, new TypeToken<Map<String, String>>() {
-                }.getType()));
     }
 
     @Override

@@ -93,7 +93,7 @@ public class PushDownFilterThroughProjectTest {
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1,
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
-                Optional.empty());
+                Optional.empty(), ImmutableList.of(), ImmutableList.of());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);
@@ -132,7 +132,7 @@ public class PushDownFilterThroughProjectTest {
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1,
                 qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
-                Optional.empty());
+                Optional.empty(), new ArrayList<>(), ImmutableList.of());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);

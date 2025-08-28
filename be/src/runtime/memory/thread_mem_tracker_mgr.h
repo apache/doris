@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
@@ -37,22 +38,21 @@
 #include "util/stack_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr size_t SYNC_PROC_RESERVED_INTERVAL_BYTES = (1ULL << 20); // 1M
 static std::string MEMORY_ORPHAN_CHECK_MSG =
-        "If you crash here, it means that SCOPED_ATTACH_TASK and "
-        "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER are not used correctly. starting position of "
-        "each thread is expected to use SCOPED_ATTACH_TASK to bind a MemTrackerLimiter belonging "
-        "to Query/Load/Compaction/Other Tasks, otherwise memory alloc using Doris Allocator in the "
-        "thread will crash. If you want to switch MemTrackerLimiter during thread execution, "
-        "please use SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER, do not repeat Attach.";
+        "The ThreadContext of the current thread not attach a valid MemoryTracker. after the "
+        "thread is started, the ResourceContext in SCOPED_ATTACH_TASK macro should contain a valid "
+        "MemoryTracker, or a valid MemoryTracker should be passed in later using "
+        "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER macro.";
 
 // Memory Hook is counted in the memory tracker of the current thread.
 class ThreadMemTrackerMgr {
 public:
     ThreadMemTrackerMgr() = default;
 
-    ~ThreadMemTrackerMgr() {
+    MOCK_FUNCTION ~ThreadMemTrackerMgr() {
         // if _init == false, exec env is not initialized when init(). and never consumed mem tracker once.
         if (_init) {
             DCHECK(_reserved_mem == 0);
@@ -82,13 +82,35 @@ public:
     void consume(int64_t size);
     void flush_untracked_mem();
 
-    doris::Status try_reserve(int64_t size, bool only_check_process_memory);
+    enum class TryReserveChecker {
+        NONE = 0,
+        CHECK_TASK = 1,
+        CHECK_WORKLOAD_GROUP = 2,
+        CHECK_TASK_AND_WORKLOAD_GROUP = 3,
+        CHECK_PROCESS = 4,
+        CHECK_TASK_AND_PROCESS = 5,
+        CHECK_WORKLOAD_GROUP_AND_PROCESS = 6,
+        CHECK_TASK_AND_WORKLOAD_GROUP_AND_PROCESS = 7,
+    };
+
+    // if only_check_process_memory == true, still reserve query, wg, process memory, only check process memory.
+    MOCK_FUNCTION doris::Status try_reserve(
+            int64_t size, TryReserveChecker checker =
+                                  TryReserveChecker::CHECK_TASK_AND_WORKLOAD_GROUP_AND_PROCESS);
 
     void shrink_reserved();
 
-    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
+    MemTrackerLimiter* limiter_mem_tracker() {
         CHECK(init());
         return _limiter_tracker;
+    }
+
+    // Prefer use `limiter_mem_tracker`, which is faster than `limiter_mem_tracker_sptr`.
+    // when multiple threads hold the same `std::shared_ptr` at the same time,
+    // modifying the `std::shared_ptr` reference count will be expensive when there is high concurrency.
+    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker_sptr() {
+        CHECK(init());
+        return _limiter_tracker_sptr;
     }
 
     void enable_wait_gc() { _wait_gc = true; }
@@ -103,7 +125,7 @@ public:
         return fmt::format(
                 "ThreadMemTrackerMgr debug, _untracked_mem:{}, "
                 "_limiter_tracker:<{}>, _consumer_tracker_stack:<{}>",
-                std::to_string(_untracked_mem), limiter_mem_tracker()->make_profile_str(),
+                std::to_string(_untracked_mem), _limiter_tracker->make_profile_str(),
                 fmt::to_string(consumer_tracker_buf));
     }
 
@@ -114,7 +136,7 @@ public:
     int skip_large_memory_check = 0;
 
     void memory_orphan_check() {
-#ifdef USE_MEM_TRACKER
+#ifndef BE_TEST
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                limiter_mem_tracker()->label() != "Orphan")
                 << doris::MEMORY_ORPHAN_CHECK_MSG;
@@ -146,7 +168,8 @@ private:
     // A thread of query/load will only wait once during execution.
     bool _wait_gc = false;
 
-    std::shared_ptr<MemTrackerLimiter> _limiter_tracker {nullptr};
+    std::shared_ptr<MemTrackerLimiter> _limiter_tracker_sptr {nullptr};
+    MemTrackerLimiter* _limiter_tracker {nullptr};
     std::vector<MemTracker*> _consumer_tracker_stack;
     std::weak_ptr<WorkloadGroup> _wg_wptr;
 
@@ -161,7 +184,8 @@ inline bool ThreadMemTrackerMgr::init() {
         return true;
     }
     if (ExecEnv::GetInstance()->orphan_mem_tracker() != nullptr) {
-        _limiter_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
+        _limiter_tracker_sptr = ExecEnv::GetInstance()->orphan_mem_tracker();
+        _limiter_tracker = _limiter_tracker_sptr.get();
         _wait_gc = true;
         _init = true;
         return true;
@@ -225,35 +249,36 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     // store bytes that not consumed by thread mem tracker.
     _untracked_mem += size;
     DCHECK(_reserved_mem == 0);
-    if (!_init && !ExecEnv::ready()) {
-        return;
-    }
+
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
     // After the jemalloc hook is loaded, before ExecEnv init, _limiter_tracker=nullptr.
     if (std::abs(_untracked_mem) >= config::mem_tracker_consume_min_size_bytes && !_stop_consume) {
-        flush_untracked_mem();
-    }
-
-    if (skip_large_memory_check == 0) {
-        if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
-            size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
-            _stop_consume = true;
-            LOG(WARNING) << fmt::format(
-                    "alloc large memory: {}, consume tracker: {}, this is just a warning, not "
-                    "prevent memory alloc, "
-                    "stacktrace:\n{}",
-                    size, _limiter_tracker->label(), get_stack_trace());
-            _stop_consume = false;
+        if (!_init && !ExecEnv::ready()) {
+            return;
         }
-        if (doris::config::crash_in_alloc_large_memory_bytes > 0 &&
-            size > doris::config::crash_in_alloc_large_memory_bytes) {
-            throw Exception(
-                    Status::FatalError("alloc large memory: {}, consume tracker: {}, crash "
-                                       "generate core dumpsto help analyze, "
-                                       "stacktrace:\n{}",
-                                       size, _limiter_tracker->label(), get_stack_trace()));
+        flush_untracked_mem();
+        // If size is large, then _untracked_mem must be larger than config::mem_tracker_consume_min_size_bytes.
+        if (skip_large_memory_check == 0) {
+            if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
+                size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
+                _stop_consume = true;
+                LOG(WARNING) << fmt::format(
+                        "alloc large memory: {}, consume tracker: {}, this is just a warning, not "
+                        "prevent memory alloc, "
+                        "stacktrace:\n{}",
+                        size, _limiter_tracker->label(), get_stack_trace());
+                _stop_consume = false;
+            }
+            if (doris::config::crash_in_alloc_large_memory_bytes > 0 &&
+                size > doris::config::crash_in_alloc_large_memory_bytes) {
+                throw Exception(
+                        Status::FatalError("alloc large memory: {}, consume tracker: {}, crash "
+                                           "generate core dumpsto help analyze, "
+                                           "stacktrace:\n{}",
+                                           size, _limiter_tracker->label(), get_stack_trace()));
+            }
         }
     }
 }
@@ -279,59 +304,71 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     _stop_consume = false;
 }
 
-inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size,
-                                                      bool only_check_process_memory) {
-    DCHECK(_limiter_tracker);
+inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, TryReserveChecker checker) {
     DCHECK(size >= 0);
     CHECK(init());
+    DCHECK(_limiter_tracker);
     memory_orphan_check();
     // if _reserved_mem not equal to 0, repeat reserve,
     // _untracked_mem store bytes that not synchronized to process reserved memory.
     flush_untracked_mem();
     auto wg_ptr = _wg_wptr.lock();
 
-    if (only_check_process_memory) {
-        _limiter_tracker->reserve(size);
-        if (wg_ptr) {
-            wg_ptr->add_wg_refresh_interval_memory_growth(size);
-        }
-    } else {
+    bool task_limit_checker = static_cast<int>(checker) & 1;
+    bool workload_group_limit_checker = static_cast<int>(checker) & 2;
+    bool process_limit_checker = static_cast<int>(checker) & 4;
+
+    if (task_limit_checker) {
         if (!_limiter_tracker->try_reserve(size)) {
             auto err_msg = fmt::format(
                     "reserve memory failed, size: {}, because query memory exceeded, memory "
-                    "tracker "
-                    "consumption: {}, limit: {}",
-                    PrettyPrinter::print(size, TUnit::BYTES),
-                    PrettyPrinter::print(_limiter_tracker->consumption(), TUnit::BYTES),
-                    PrettyPrinter::print(_limiter_tracker->limit(), TUnit::BYTES));
+                    "tracker: {}, "
+                    "consumption: {}, limit: {}, peak: {}",
+                    PrettyPrinter::print_bytes(size), _limiter_tracker->label(),
+                    PrettyPrinter::print_bytes(_limiter_tracker->consumption()),
+                    PrettyPrinter::print_bytes(_limiter_tracker->limit()),
+                    PrettyPrinter::print_bytes(_limiter_tracker->peak_consumption()));
             return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
         }
-        if (wg_ptr) {
+    } else {
+        _limiter_tracker->reserve(size);
+    }
+
+    if (wg_ptr) {
+        if (workload_group_limit_checker) {
             if (!wg_ptr->try_add_wg_refresh_interval_memory_growth(size)) {
                 auto err_msg = fmt::format(
                         "reserve memory failed, size: {}, because workload group memory exceeded, "
                         "workload group: {}",
-                        PrettyPrinter::print(size, TUnit::BYTES), wg_ptr->memory_debug_string());
+                        PrettyPrinter::print_bytes(size), wg_ptr->memory_debug_string());
                 _limiter_tracker->release(size);         // rollback
                 _limiter_tracker->shrink_reserved(size); // rollback
                 return doris::Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(err_msg);
             }
+        } else {
+            wg_ptr->add_wg_refresh_interval_memory_growth(size);
         }
     }
 
-    if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
-        auto err_msg =
-                fmt::format("reserve memory failed, size: {}, because proccess memory exceeded, {}",
-                            PrettyPrinter::print(size, TUnit::BYTES),
-                            GlobalMemoryArbitrator::process_mem_log_str());
-        _limiter_tracker->release(size);         // rollback
-        _limiter_tracker->shrink_reserved(size); // rollback
-        if (wg_ptr) {
-            wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
+    if (process_limit_checker) {
+        if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
+            auto err_msg = fmt::format(
+                    "reserve memory failed, size: {}, because proccess memory exceeded, {}",
+                    PrettyPrinter::print_bytes(size),
+                    GlobalMemoryArbitrator::process_mem_log_str());
+            _limiter_tracker->release(size);         // rollback
+            _limiter_tracker->shrink_reserved(size); // rollback
+            if (wg_ptr) {
+                wg_ptr->sub_wg_refresh_interval_memory_growth(size); // rollback
+            }
+            return doris::Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>(err_msg);
         }
-        return doris::Status::Error<ErrorCode::PROCESS_MEMORY_EXCEEDED>(err_msg);
+    } else {
+        doris::GlobalMemoryArbitrator::reserve_process_memory(size);
     }
+
     _reserved_mem += size;
+    DCHECK(_reserved_mem >= 0);
     return doris::Status::OK();
 }
 
@@ -350,4 +387,5 @@ inline void ThreadMemTrackerMgr::shrink_reserved() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

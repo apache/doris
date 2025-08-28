@@ -19,11 +19,8 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CancelAlterTableStmt;
-import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
@@ -51,6 +48,8 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.IdGeneratorUtil;
@@ -58,7 +57,10 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
@@ -163,6 +165,8 @@ public class MaterializedViewHandler extends AlterHandler {
             if (tableNotFinalStateJobIdset == null) {
                 // This could happen when this job is already removed before.
                 // return false, so that we will not set table's to NORMAL again.
+                LOG.warn("alter job is already removed before. tableId: {}, jobId: {}",
+                        tableId, jobId);
                 return false;
             }
             tableNotFinalStateJobIdset.remove(jobId);
@@ -229,6 +233,11 @@ public class MaterializedViewHandler extends AlterHandler {
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
             LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
         } finally {
+            if (olapTable.getState() != OlapTableState.ROLLUP) {
+                // state is not ROLLUP, means encountered some exception before jobs submitted,
+                // so we need to unblock table here.
+                Env.getCurrentEnv().getGroupCommitManager().unblockTable(olapTable.getId());
+            }
             olapTable.writeUnlock();
         }
     }
@@ -255,6 +264,19 @@ public class MaterializedViewHandler extends AlterHandler {
             olapTable.checkNormalStateForAlter();
             if (olapTable.existTempPartitions()) {
                 throw new DdlException("Can not alter table when there are temp partitions in table");
+            }
+            // check no duplicate column name in full schema
+            Set<String> allColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            for (Column column : olapTable.getFullSchema()) {
+                // we don't check the duplicate name of historic mv for backwards compatibility
+                allColumnNames.add(column.getName());
+            }
+
+            for (MVColumnItem mvColumnItem : createMvCommand.getMVColumnItemList()) {
+                String colName = mvColumnItem.getName();
+                if (!allColumnNames.add(colName)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, colName);
+                }
             }
 
             // Step1.1: semantic analysis
@@ -288,6 +310,11 @@ public class MaterializedViewHandler extends AlterHandler {
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
             LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
         } finally {
+            if (olapTable.getState() != OlapTableState.ROLLUP) {
+                // state is not ROLLUP, means encountered some exception before jobs submitted,
+                // so we need to unblock table here.
+                Env.getCurrentEnv().getGroupCommitManager().unblockTable(olapTable.getId());
+            }
             olapTable.writeUnlock();
         }
     }
@@ -393,6 +420,11 @@ public class MaterializedViewHandler extends AlterHandler {
             }
             throw e;
         } finally {
+            if (olapTable.getState() != OlapTableState.ROLLUP) {
+                // state is not ROLLUP, means encountered some exception before jobs submitted,
+                // so we need to unblock table here.
+                Env.getCurrentEnv().getGroupCommitManager().unblockTable(olapTable.getId());
+            }
             olapTable.writeUnlock();
         }
     }
@@ -580,10 +612,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
                     mvColumnItem.setIsKey(false);
                     for (String slotName : mvColumnItem.getBaseColumnNames()) {
-                        if (olapTable
-                                .getColumn(MaterializedIndexMeta
-                                        .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
-                                .isKey()) {
+                        if (olapTable.getColumn(slotName).isKey()) {
                             mvColumnItem.setIsKey(true);
                         }
                     }
@@ -594,10 +623,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
                 // check a.2 and b.2
                 for (String slotName : mvColumnItem.getBaseColumnNames()) {
-                    if (olapTable
-                            .getColumn(MaterializedIndexMeta
-                                    .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
-                            .isKey() != mvColumnItem.isKey()) {
+                    if (olapTable.getColumn(slotName).isKey() != mvColumnItem.isKey()) {
                         throw new DdlException("The mvItem[" + mvColumnItem.getName()
                                 + "]'s isKey must same with all slot, mvItem.isKey="
                                 + (mvColumnItem.isKey() ? "true" : "false"));
@@ -607,10 +633,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 if (!mvColumnItem.isKey() && olapTable.getKeysType() == KeysType.AGG_KEYS) {
                     // check a.1
                     for (String slotName : mvColumnItem.getBaseColumnNames()) {
-                        if (olapTable
-                                .getColumn(MaterializedIndexMeta
-                                        .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
-                                .getAggregationType() != mvColumnItem.getAggregationType()) {
+                        if (olapTable.getColumn(slotName).getAggregationType() != mvColumnItem.getAggregationType()) {
                             throw new DdlException("The mvItem[" + mvColumnItem.getName()
                                     + "]'s AggregationType must same with all slot");
                         }
@@ -649,7 +672,7 @@ public class MaterializedViewHandler extends AlterHandler {
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
             Set<String> originColumns = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
             for (Column column : newMVColumns) {
-                originColumns.add(CreateMaterializedViewStmt.mvColumnBreaker(column.getName()));
+                originColumns.add(column.tryGetBaseColumnName());
             }
             for (Column column : olapTable.getBaseSchema()) {
                 if (column.isKey() && !originColumns.contains(column.getName())) {
@@ -663,8 +686,8 @@ public class MaterializedViewHandler extends AlterHandler {
                 && createMvCommand.getMVKeysType() == olapTable.getKeysType()) {
             boolean allKeysMatch = true;
             for (int i = 0; i < newMVColumns.size(); i++) {
-                if (!CreateMaterializedViewStmt.mvColumnBreaker(newMVColumns.get(i).getName())
-                        .equalsIgnoreCase(olapTable.getBaseSchema().get(i).getName())) {
+                String baseColumnName = newMVColumns.get(i).tryGetBaseColumnName();
+                if (!baseColumnName.equalsIgnoreCase(olapTable.getBaseSchema().get(i).getName())) {
                     allKeysMatch = false;
                     break;
                 }
@@ -1201,13 +1224,13 @@ public class MaterializedViewHandler extends AlterHandler {
         Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
     }
 
-    public void processDropMaterializedView(DropMaterializedViewStmt dropMaterializedViewStmt, Database db,
+    public void processDropMaterializedView(DropMaterializedViewCommand dropMaterializedViewCommand, Database db,
             OlapTable olapTable) throws DdlException, MetaNotFoundException {
         List<Long> deleteIndexList = new ArrayList<Long>();
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
-            String mvName = dropMaterializedViewStmt.getMvName();
+            String mvName = dropMaterializedViewCommand.getMvName();
             // Step1: check drop mv index operation
             checkDropMaterializedView(mvName, olapTable);
             // Step2; drop data in memory
@@ -1219,7 +1242,7 @@ public class MaterializedViewHandler extends AlterHandler {
             deleteIndexList.add(mvIndexId);
             LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {
-            if (dropMaterializedViewStmt.isIfExists()) {
+            if (dropMaterializedViewCommand.isIfExists()) {
                 LOG.info(e.getMessage());
             } else {
                 throw e;
@@ -1455,6 +1478,9 @@ public class MaterializedViewHandler extends AlterHandler {
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
                     alterJob.getJobId());
+        } else {
+            LOG.warn("Failed to remove job from tableNotFinalStateJobMap, table id: {}, job id: {}",
+                    alterJob.getTableId(), alterJob.getJobId());
         }
     }
 
@@ -1520,12 +1546,9 @@ public class MaterializedViewHandler extends AlterHandler {
         }
     }
 
-    @Override
-    public void cancel(CancelStmt stmt) throws DdlException {
-        CancelAlterTableStmt cancelAlterTableStmt = (CancelAlterTableStmt) stmt;
-
-        String dbName = cancelAlterTableStmt.getDbName();
-        String tableName = cancelAlterTableStmt.getTableName();
+    public void cancel(CancelAlterTableCommand command) throws DdlException {
+        String dbName = command.getDbName();
+        String tableName = command.getTableName();
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
@@ -1543,12 +1566,12 @@ public class MaterializedViewHandler extends AlterHandler {
             if (olapTable.getState() != OlapTableState.ROLLUP
                     && olapTable.getState() != OlapTableState.WAITING_STABLE) {
                 throw new DdlException("Table[" + tableName + "] is not under ROLLUP. "
-                        + "Use 'ALTER TABLE DROP ROLLUP' if you want to.");
+                    + "Use 'ALTER TABLE DROP ROLLUP' if you want to.");
             }
 
             // find from new alter jobs first
-            if (cancelAlterTableStmt.getAlterJobIdList() != null) {
-                for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
+            if (command.getAlterJobIdList() != null) {
+                for (Long jobId : command.getAlterJobIdList()) {
                     AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
                     if (alterJobV2 == null) {
                         continue;
@@ -1575,6 +1598,13 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
             }
         }
+    }
+
+    @Override
+    public void processForNereids(String rawSql, List<AlterCommand> alterCommands, Database db,
+                               OlapTable olapTable)
+            throws DdlException, AnalysisException, MetaNotFoundException {
+        // TODO: convert alterClauses to alterSystemCommands for mv
     }
 
     // just for ut

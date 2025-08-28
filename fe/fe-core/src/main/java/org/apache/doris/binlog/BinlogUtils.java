@@ -68,30 +68,31 @@ public class BinlogUtils {
 
         if (firstBinlog.getCommitSeq() > prevCommitSeq) {
             BinlogLagInfo lagInfo = new BinlogLagInfo(binlogs.size(), firstBinlog.getCommitSeq(),
-                    firstBinlog.getTimestamp(), lastBinlog.getCommitSeq(), lastBinlog.getTimestamp());
+                    lastBinlog.getCommitSeq(), firstBinlog.getTimestamp(), lastBinlog.getTimestamp(),
+                    firstBinlog.getCommitSeq(), firstBinlog.getTimestamp());
             return Pair.of(status, lagInfo);
         }
 
         // find first binlog whose commitSeq > commitSeq
         TBinlog guard = new TBinlog();
         guard.setCommitSeq(prevCommitSeq);
-        TBinlog binlog = binlogs.higher(guard);
+        TBinlog nextBinlog = binlogs.higher(guard);
 
         // all prevCommitSeq <= commitSeq
+        long lastCommitSeq = lastBinlog.getCommitSeq();
+        long lastCommitTs = lastBinlog.getTimestamp();
+        long firstCommitSeq = firstBinlog.getCommitSeq();
+        long firstCommitTs = firstBinlog.getTimestamp();
         long lag = 0;
-        long lastCommitSeq = 0;
-        long lastCommitTs = 0;
-        long firstCommitSeq = 0;
-        long firstCommitTs = 0;
-        if (binlog != null) {
-            lag = binlogs.tailSet(binlog).size();
-            firstCommitSeq = binlog.getCommitSeq();
-            firstCommitTs = binlog.getTimestamp();
-            lastCommitSeq = lastBinlog.getCommitSeq();
-            lastCommitTs = lastBinlog.getTimestamp();
+        long nextCommitSeq = 0;
+        long nextCommitTs = 0;
+        if (nextBinlog != null) {
+            lag = binlogs.tailSet(nextBinlog).size();
+            nextCommitSeq = nextBinlog.getCommitSeq();
+            nextCommitTs = nextBinlog.getTimestamp();
         }
         return Pair.of(status, new BinlogLagInfo(lag, firstCommitSeq, lastCommitSeq,
-                firstCommitTs, lastCommitTs));
+                firstCommitTs, lastCommitTs, nextCommitSeq, nextCommitTs));
     }
 
     public static TBinlog newDummyBinlog(long dbId, long tableId) {
@@ -101,6 +102,7 @@ public class BinlogUtils {
         dummy.setType(TBinlogType.DUMMY);
         dummy.setDbId(dbId);
         dummy.setBelong(tableId);
+        dummy.setTimestamp(System.currentTimeMillis());
         return dummy;
     }
 

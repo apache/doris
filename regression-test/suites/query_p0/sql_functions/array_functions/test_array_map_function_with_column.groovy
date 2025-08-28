@@ -66,5 +66,5 @@ suite("test_array_map_function_with_column") {
 
     qt_select_7  "select *,array_map((x,y)->x+k1+k2 > y+k1*k2,c_array1,c_array2) from ${tableName} where array_count((x,y) -> k1*x>y+k2, c_array1, c_array2) > 1 order by k1;"
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    // sql "DROP TABLE IF EXISTS ${tableName}"
 }

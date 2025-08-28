@@ -63,12 +63,13 @@ public:
 };
 
 TEST_P(DataTypeFixedLengthObjectTest, MetaInfoTest) {
-    TypeDescriptor bitmap_type_descriptor = {PrimitiveType::INVALID_TYPE};
+    auto bitmap_type_descriptor = std::make_shared<DataTypeFixedLengthObject>();
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_FIXEDLENGTHOBJECT);
     CommonDataTypeTest::DataTypeMetaInfo bitmap_meta_info_to_assert = {
-            .type_id = TypeIndex::FixedLengthObject,
-            .type_as_type_descriptor = &bitmap_type_descriptor,
+            .type_id = PrimitiveType::
+                    INVALID_TYPE, // we dont have one for this type now. but type_id is not used now.
+            .type_as_type_descriptor = bitmap_type_descriptor,
             .family_name = "DataTypeFixedLengthObject",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_NONE,
@@ -82,13 +83,16 @@ TEST_P(DataTypeFixedLengthObjectTest, MetaInfoTest) {
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = false,
-            .default_field = Field(String()),
+            .default_field = Field::create_field<TYPE_STRING>(String()),
     };
     helper->meta_info_assert(datatype_fixed_length, bitmap_meta_info_to_assert);
 }
 
 TEST_P(DataTypeFixedLengthObjectTest, CreateColumnTest) {
-    Field default_field = Field(String());
+    std::string res;
+    res.resize(8);
+    memset(res.data(), 0, 8);
+    Field default_field = Field::create_field<TYPE_STRING>(res);
     std::cout << "create_column_assert: " << datatype_fixed_length->get_name() << std::endl;
     auto column = (datatype_fixed_length)->create_column();
     ASSERT_EQ(column->size(), 0);

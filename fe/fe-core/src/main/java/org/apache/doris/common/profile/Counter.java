@@ -17,15 +17,10 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUnit;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 
 // Counter means indicators field. The counter's name is key, the counter itself is value.
 public class Counter {
@@ -35,10 +30,8 @@ public class Counter {
     private volatile int type;
     @SerializedName(value = "level")
     private volatile long level;
-
-    public static Counter read(DataInput input) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(input), Counter.class);
-    }
+    @SerializedName(value = "description")
+    private volatile String description;
 
     public long getValue() {
         return value;
@@ -75,6 +68,13 @@ public class Counter {
         this.value = value;
         this.type = type.getValue();
         this.level = level;
+    }
+
+    public Counter(String description) {
+        this.description = description;
+        this.value = 0;
+        // Make sure not merge.
+        this.level = 2;
     }
 
     public void addValue(Counter other) {
@@ -115,15 +115,15 @@ public class Counter {
     }
 
     public String print() {
-        return RuntimeProfile.printCounter(value, getType());
+        if (Strings.isNullOrEmpty(description)) {
+            return RuntimeProfile.printCounter(value, getType());
+        } else {
+            return description;
+        }
     }
 
     public String toString() {
         return print();
-    }
-
-    public void write(DataOutput output) throws IOException {
-        Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 
     public boolean equals(Object rhs) {

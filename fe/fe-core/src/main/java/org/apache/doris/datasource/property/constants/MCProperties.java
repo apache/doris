@@ -71,6 +71,10 @@ public class MCProperties extends BaseProperties {
     public static final String SPLIT_CROSS_PARTITION = "mc.split_cross_partition";
     public static final String DEFAULT_SPLIT_CROSS_PARTITION = "true";
 
+    public static final String DATETIME_PREDICATE_PUSH_DOWN =
+            "mc.datetime_predicate_push_down";
+    public static final String DEFAULT_DATETIME_PREDICATE_PUSH_DOWN = "true";
+
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
     }

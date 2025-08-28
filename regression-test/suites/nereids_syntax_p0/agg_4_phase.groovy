@@ -85,4 +85,14 @@ suite("agg_4_phase") {
         from agg_4_phase_tbl2
         group by id
         order by id"""
+
+    test {
+        sql """select
+        /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI')*/
+        id,group_concat(distinct field2 order by field1)
+        from agg_4_phase_tbl2
+        group by id
+        """
+        exception """lowestCostPlans with physicalProperties(GATHER) doesn't exist in root group"""
+    }
 }

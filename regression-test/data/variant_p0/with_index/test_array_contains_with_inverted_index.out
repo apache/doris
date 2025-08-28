@@ -3,17 +3,17 @@
 16
 
 -- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 
 -- !sql --
 
 -- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -21,37 +21,37 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -59,17 +59,17 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
@@ -81,7 +81,7 @@
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -89,38 +89,38 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -128,18 +128,18 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
@@ -151,7 +151,7 @@
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -159,38 +159,38 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -198,40 +198,40 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 
 -- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 
 -- !sql --
 
 -- !sql --
 
 -- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 
 -- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -239,13 +239,13 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -253,61 +253,61 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -315,16 +315,16 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -332,24 +332,24 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
@@ -367,7 +367,7 @@
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -375,12 +375,12 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -388,64 +388,64 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -453,17 +453,17 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -471,255 +471,25 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-
--- !sql --
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-
--- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-
--- !sql --
-
--- !sql --
-
--- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-
--- !sql --
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-
--- !sql --
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
-2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
-
--- !sql --
-2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
-2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
@@ -737,7 +507,7 @@
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -745,12 +515,12 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -758,7 +528,7 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 
@@ -775,7 +545,7 @@
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -783,12 +553,12 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -796,20 +566,256 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+
+-- !sql --
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+
+-- !sql --
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+
+-- !sql --
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+
+-- !sql --
+
+-- !sql --
+
+-- !sql --
+
+-- !sql --
+
+-- !sql --
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+
+-- !sql --
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
+2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
+
+-- !sql --
+2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
+2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
@@ -827,7 +833,7 @@
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -835,12 +841,12 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -848,7 +854,7 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 
@@ -865,7 +871,7 @@
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -873,12 +879,12 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -886,23 +892,67 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+
+-- !sql --
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
+2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
+2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
+2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
+2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+
+-- !sql --
 
 -- !sql --
 
@@ -917,7 +967,7 @@
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -925,12 +975,12 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
 2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a", "b", "c"]}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
@@ -938,57 +988,19 @@
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
 2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
 2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
-
--- !sql --
-2017-01-01	021603e7dcfe65d44af0efd0e5aee154	{"inventors":["n"]}
-2017-01-01	48a33ec3453a28bce84b8f96fe161956	{"inventors":["m"]}
-2017-01-01	6afef581285b6608bf80d5a4e46cf839	{"inventors":["a","b","c"]}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a3	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a4	\N
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a5	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a6	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a7	{}
-2017-01-01	8fcb57ae675f0af4d613d9e6c0e8a2a8	{}
-2017-01-01	9fcb57ae675f0af4d613d9e6c0e8a2a2	{"inventors":["o"]}
-2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d","e","f","g","h","i","j","k","l"]}
+2017-01-01	d93d942d985a8fb7547c72dada8d332d	{"inventors":["d", "e", "f", "g", "h", "i", "j", "k", "l"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 
 -- !sql --
 2019-01-01	0974e7a82e30d1af83205e474fadd0a2	{"inventors":["w"]}
 2019-01-01	26823b3995ee38bd145ddd910b2f6300	{"inventors":["x"]}
-2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p","q","r","s","t"]}
-2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u","v"]}
+2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
+2019-01-01	a9fb5c985c90bf05f3bee5ca3ae95260	{"inventors":["u", "v"]}
 2019-01-01	ee27ee1da291e46403c408e220bed6e1	{"inventors":["y"]}
 

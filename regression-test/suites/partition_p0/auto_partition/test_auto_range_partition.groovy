@@ -241,6 +241,6 @@ suite("test_auto_range_partition") {
     """
     test {
         sql "insert into awh_test_range_auto values (1,'20201212')"
-        exception "date_trunc function second param only support argument is"
+        exception "date_trunc function time unit param only support argument is"
     }
 }

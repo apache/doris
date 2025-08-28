@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_partial_update_during_sc') {
+suite('test_partial_update_during_sc', 'nonConcurrent') {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database

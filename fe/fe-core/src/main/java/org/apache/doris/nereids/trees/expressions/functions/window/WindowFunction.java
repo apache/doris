@@ -38,6 +38,11 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
         super(name, children);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected WindowFunction(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -56,17 +61,22 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
         return Objects.hash(getName(), children);
     }
 
+    @Override
+    protected WindowFunctionParams getFunctionParams(List<Expression> arguments) {
+        return new WindowFunctionParams(this, getName(), arguments, isInferred());
+    }
+
     /**
      * LAG/LEAD param must be const, and offset must be number
      */
-    protected void checkValidParams(Expression param, boolean isOffset) {
+    protected void checkValidParams(Expression param) {
         DataType type = param.getDataType();
-        if (isOffset == true && !type.isNumericType()) {
+        if (!type.isNumericType()) {
             throw new AnalysisException("The offset of LAG/LEAD must be a number: " + this.toSql());
         }
         if (!param.isConstant()) {
             throw new AnalysisException(
-                    "The parameter 2 or parameter 3 of LAG/LEAD must be a constant value: " + this.toSql());
+                    "The parameter 2 of LAG/LEAD must be a constant value: " + this.toSql());
         }
     }
 }

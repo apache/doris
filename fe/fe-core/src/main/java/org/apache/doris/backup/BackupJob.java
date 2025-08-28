@@ -17,8 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Database;
@@ -35,11 +33,11 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -65,9 +63,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
 import java.io.DataInput;
-import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -78,8 +74,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-import java.util.zip.GZIPInputStream;
 
 
 public class BackupJob extends AbstractJob implements GsonPostProcessable {
@@ -133,6 +130,14 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
 
+    // Record table IDs that were dropped during backup
+    @SerializedName("dt")
+    private Set<Long> droppedTables = ConcurrentHashMap.newKeySet();
+
+    // Record partition IDs that were dropped during backup (tableId -> set of partitionIds)
+    @SerializedName("dp")
+    private Map<Long, Set<Long>> droppedPartitionsByTable = Maps.newConcurrentMap();
+
     private long commitSeq = 0;
 
     public BackupJob() {
@@ -150,7 +155,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
         this.commitSeq = commitSeq;
-        properties.put(BackupStmt.PROP_CONTENT, content.name());
+        properties.put(BackupCommand.PROP_CONTENT, content.name());
         properties.put(SNAPSHOT_COMMIT_SEQ, String.valueOf(commitSeq));
     }
 
@@ -175,8 +180,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public BackupContent getContent() {
-        if (properties.containsKey(BackupStmt.PROP_CONTENT)) {
-            return BackupStmt.BackupContent.valueOf(properties.get(BackupStmt.PROP_CONTENT).toUpperCase());
+        if (properties.containsKey(BackupCommand.PROP_CONTENT)) {
+            return BackupCommand.BackupContent.valueOf(properties.get(BackupCommand.PROP_CONTENT).toUpperCase());
         }
         return BackupContent.ALL;
     }
@@ -236,6 +241,39 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         return true;
     }
 
+    private boolean handleTabletMissing(SnapshotTask task) {
+        LOG.info("handleTabletMissing task: {}", task);
+        Table table = env.getInternalCatalog().getTableByTableId(task.getTableId());
+        if (table == null) {
+            // Table was dropped (including cases where database was dropped)
+            droppedTables.add(task.getTableId());
+            LOG.info("table {} marked as dropped during backup. {}", task.getTableId(), this);
+            return true;
+        }
+
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(task.getPartitionId());
+            if (partition == null) {
+                // Partition was dropped or truncated (partition ID changed)
+                droppedPartitionsByTable.computeIfAbsent(task.getTableId(), k -> ConcurrentHashMap.newKeySet())
+                                       .add(task.getPartitionId());
+                LOG.info("partition {} from table {} marked as dropped during backup (dropped or truncated). {}",
+                        task.getPartitionId(), task.getTableId(), this);
+                return true;
+            }
+
+            // If partition still exists, tablet missing is caused by other reasons
+            return false;
+        } finally {
+            olapTable.readUnlock();
+        }
+    }
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
@@ -250,11 +288,21 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 cancelInternal();
             }
 
-            if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING
-                    && !tryNewTabletSnapshotTask(task)) {
-                status = new Status(ErrCode.NOT_FOUND,
-                        "make snapshot failed, failed to ge tablet, table will be dropped or truncated");
-                cancelInternal();
+            if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING) {
+                if (handleTabletMissing(task)) {
+                    // Successfully handled drop case, remove from task queue
+                    taskProgress.remove(task.getSignature());
+                    taskErrMsg.remove(task.getSignature());
+                    Long oldValue = unfinishedTaskIds.remove(task.getSignature());
+                    return oldValue != null;
+                } else {
+                    // Not caused by drop, follow original logic
+                    if (!tryNewTabletSnapshotTask(task)) {
+                        status = new Status(ErrCode.NOT_FOUND,
+                                "make snapshot failed, failed to get tablet, table will be dropped or truncated");
+                        cancelInternal();
+                    }
+                }
             }
 
             if (request.getTaskStatus().getStatusCode() == TStatusCode.NOT_IMPLEMENTED_ERROR) {
@@ -350,7 +398,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     @Override
     public synchronized void replayRun() {
-        // nothing to do
+        if (state == BackupJobState.SAVE_META) {
+            saveMetaInfo(true);
+        }
     }
 
     @Override
@@ -386,7 +436,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((UploadTask) task).updateBrokerProperties(
-                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
             }
             LOG.info("finished to update upload job properties. {}", this);
@@ -446,7 +496,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 waitingAllUploadingFinished();
                 break;
             case SAVE_META:
-                saveMetaInfo();
+                saveMetaInfo(false);
                 break;
             case UPLOAD_INFO:
                 uploadMetaAndJobInfoFile();
@@ -477,7 +527,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     @Override
-    public synchronized boolean isDone() {
+    public boolean isDone() {
         return state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED;
     }
 
@@ -497,13 +547,18 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         List<Table> copiedTables = Lists.newArrayList();
         List<Resource> copiedResources = Lists.newArrayList();
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
+        // Track if we have any valid tables for backup
+        boolean hasValidTables = false;
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
             Table tbl = db.getTableNullable(tblName);
             if (tbl == null) {
-                status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
-                return;
+                // Table was dropped, skip it and continue with other tables
+                LOG.info("table {} does not exist, it was dropped during backup preparation, skip it. {}",
+                        tblName, this);
+                continue;
             }
+            hasValidTables = true;
             tbl.readLock();
             try {
                 switch (tbl.getType()) {
@@ -537,7 +592,11 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 return;
             }
         }
-
+        // If no valid tables found, cancel the job
+        if (!hasValidTables) {
+            status = new Status(ErrCode.NOT_FOUND, "no valid tables found for backup");
+            return;
+        }
         // Limit the max num of tablets involved in a backup job, to avoid OOM.
         if (unfinishedTaskIds.size() > Config.max_backup_tablets_per_job) {
             String msg = String.format("the num involved tablets %d exceeds the limit %d, "
@@ -781,7 +840,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0),
-                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
                         repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
@@ -816,7 +875,44 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private void saveMetaInfo() {
+    private void cleanupDroppedTablesAndPartitions() {
+        if (backupMeta == null) {
+            return;
+        }
+
+        // Remove dropped partitions first (before removing tables)
+        for (Map.Entry<Long, Set<Long>> entry : droppedPartitionsByTable.entrySet()) {
+            Long tableId = entry.getKey();
+            Set<Long> droppedPartitionIds = entry.getValue();
+
+            Table table = backupMeta.getTable(tableId);
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+
+                // Directly get partitions by ID instead of iterating all partitions
+                for (Long droppedPartitionId : droppedPartitionIds) {
+                    Partition partition = olapTable.getPartition(droppedPartitionId);
+                    if (partition != null) {
+                        LOG.info("remove dropped partition {} from table {} (id: {}) in backup meta. {}",
+                                partition.getName(), table.getName(), tableId, this);
+                        olapTable.dropPartitionAndReserveTablet(partition.getName());
+                    }
+                }
+            }
+        }
+
+        // Remove dropped tables after processing partitions
+        for (Long tableId : droppedTables) {
+            Table removedTable = backupMeta.getTable(tableId);
+            if (removedTable != null) {
+                LOG.info("remove dropped table {} (id: {}) from backup meta. {}",
+                        removedTable.getName(), tableId, this);
+                backupMeta.removeTable(tableId);
+            }
+        }
+    }
+
+    private void saveMetaInfo(boolean replay) {
         String createTimeStr = TimeUtils.longToTimeString(createTime,
                 TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
@@ -837,7 +933,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 return;
             }
 
-            // 2. save meta info file
+            // 2. Clean up dropped tables and partitions from backup metadata
+            cleanupDroppedTablesAndPartitions();
+
+            // 3. save meta info file
             File metaInfoFile = new File(jobDir, Repository.FILE_META_INFO);
             if (!metaInfoFile.createNewFile()) {
                 status = new Status(ErrCode.COMMON_ERROR,
@@ -847,7 +946,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             backupMeta.writeToFile(metaInfoFile);
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
 
-            // 3. save job info file
+            // 4. save job info file
             Map<Long, Long> tableCommitSeqMap = Maps.newHashMap();
             // iterate properties, convert key, value from string to long
             // key is "${TABLE_COMMIT_SEQ_PREFIX}{tableId}", only need tableId to long
@@ -860,8 +959,21 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     tableCommitSeqMap.put(tableId, commitSeq);
                 }
             }
+            // Filter out snapshot infos for dropped tables and partitions
+            Map<Long, SnapshotInfo> filteredSnapshotInfos = Maps.newHashMap();
+            for (Map.Entry<Long, SnapshotInfo> entry : snapshotInfos.entrySet()) {
+                SnapshotInfo info = entry.getValue();
+                boolean isDroppedTable = droppedTables.contains(info.getTblId());
+                boolean isDroppedPartition = droppedPartitionsByTable.getOrDefault(info.getTblId(),
+                        Collections.emptySet()).contains(info.getPartitionId());
+
+                if (!isDroppedTable && !isDroppedPartition) {
+                    filteredSnapshotInfos.put(entry.getKey(), info);
+                }
+            }
+
             jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
-                    getContent(), backupMeta, snapshotInfos, tableCommitSeqMap);
+                    getContent(), backupMeta, filteredSnapshotInfos, tableCommitSeqMap);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("job info: {}. {}", jobInfo, this);
             }
@@ -877,6 +989,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
+        if (replay) {
+            return;
+        }
+
         state = BackupJobState.UPLOAD_INFO;
 
         // meta info and job info has been saved to local file, this can be cleaned to reduce log size
@@ -889,6 +1005,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         }
 
         snapshotInfos.clear();
+
+        // Clean up temporary records to reduce editlog size
+        droppedPartitionsByTable.clear();
+        droppedTables.clear();
 
         // log
         env.getEditLog().logBackupJob(this);
@@ -1097,85 +1217,12 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public static BackupJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            BackupJob job = new BackupJob();
-            job.readFields(in);
-            return job;
+        String json = Text.readString(in);
+        if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
+            return GsonUtils.fromJsonCompressed(in, BackupJob.class);
         } else {
-            String json = Text.readString(in);
-            if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
-                return GsonUtils.fromJsonCompressed(in, BackupJob.class);
-            } else {
-                return GsonUtils.GSON.fromJson(json, BackupJob.class);
-            }
+            return GsonUtils.GSON.fromJson(json, BackupJob.class);
         }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        if (type == JobType.BACKUP_COMPRESSED) {
-            type = JobType.BACKUP;
-
-            Text text = new Text();
-            text.readFields(in);
-
-            ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
-            try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
-                try (DataInputStream stream = new DataInputStream(gzipStream)) {
-                    readOthers(stream);
-                }
-            }
-        } else {
-            readOthers(in);
-        }
-    }
-
-    public void readOthers(DataInput in) throws IOException {
-        // table refs
-        int size = in.readInt();
-        tableRefs = Lists.newArrayList();
-        for (int i = 0; i < size; i++) {
-            TableRef tblRef = TableRef.read(in);
-            tableRefs.add(tblRef);
-        }
-
-        state = BackupJobState.valueOf(Text.readString(in));
-
-        // times
-        snapshotFinishedTime = in.readLong();
-        snapshotUploadFinishedTime = in.readLong();
-
-        // snapshot info
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            SnapshotInfo snapshotInfo = SnapshotInfo.read(in);
-            snapshotInfos.put(snapshotInfo.getTabletId(), snapshotInfo);
-        }
-
-        // backup meta
-        if (in.readBoolean()) {
-            backupMeta = BackupMeta.read(in);
-        }
-
-        // No need to persist job info. It is generated then write to file
-
-        // metaInfoFilePath and jobInfoFilePath
-        if (in.readBoolean()) {
-            localMetaInfoFilePath = Text.readString(in);
-        }
-
-        if (in.readBoolean()) {
-            localJobInfoFilePath = Text.readString(in);
-        }
-        // read properties
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            properties.put(key, value);
-        }
-
-        gsonPostProcess();
     }
 
     public void gsonPostProcess() throws IOException {

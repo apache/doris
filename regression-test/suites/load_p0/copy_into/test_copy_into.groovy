@@ -103,10 +103,10 @@ suite("test_copy_into", "p0") {
 
         def errorMsgs = [
                         "",
-                        "quality not good enough to cancel",
+                        "errCode = 2, detailMessage = In where clause '(p_type = not_exist)', unknown column 'not_exist' in 'table list(line 3, pos 65)",
                         "",
                         "",
-                        "quality not good enough to cancel",
+                        "errCode = 2, detailMessage = In where clause '(p_type = not_exist)', unknown column 'not_exist' in 'table list(line 3, pos 65)",
                         "",
                         "",
                         "",
@@ -127,8 +127,17 @@ suite("test_copy_into", "p0") {
         for (int i = 0; i < tartgetColumnsList.size(); i++) {
             sql "$dropTable"
             sql "$createTable"
+            if (i == 1 || i == 4) {
+                try {
+                    result = do_copy_into.call(tableName, tartgetColumnsList[i], selectColumnsList[i],
+                            externalStageName, filePrefix, whereExprs[i])
+                } catch (Exception e) {
+                    assertEquals(errorMsgs[i], e.getMessage())
+                }
+                continue;
+            }
             result = do_copy_into.call(tableName, tartgetColumnsList[i], selectColumnsList[i],
-                                        externalStageName, filePrefix, whereExprs[i])
+                    externalStageName, filePrefix, whereExprs[i])
             logger.info("i: " + i + ", copy result: " + result)
             assertTrue(result.size() == 1)
             if (result[0][1].equals("FINISHED")) {

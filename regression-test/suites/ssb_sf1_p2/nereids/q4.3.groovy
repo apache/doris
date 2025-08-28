@@ -42,6 +42,6 @@ suite("ssb_sf1_q4_3_nereids") {
         GROUP BY d_year, s_city, p_brand
         ORDER BY d_year, s_city, p_brand;"""
 
-        resultFile(file = "../sql/q4.3.out", tag = "q4.3")
+        resultFile("../sql/q4.3.out", "q4.3")
     }
 }

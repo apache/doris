@@ -17,12 +17,11 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.TruncateTableStmt;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -37,9 +36,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -59,13 +56,18 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
+import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.transaction.TransactionManager;
@@ -77,17 +79,15 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -104,9 +104,8 @@ import java.util.stream.Collectors;
 /**
  * The abstract class for all types of external catalogs.
  */
-@Data
 public abstract class ExternalCatalog
-        implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
+        implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
 
     public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
@@ -120,10 +119,20 @@ public abstract class ExternalCatalog
     public static final String FOUND_CONFLICTING = "Found conflicting";
     public static final String ONLY_TEST_LOWER_CASE_TABLE_NAMES = "only_test_lower_case_table_names";
 
+    // https://help.aliyun.com/zh/emr/emr-on-ecs/user-guide/use-rootpolicy-to-access-oss-hdfs?spm=a2c4g.11186623.help-menu-search-28066.d_0
+    public static final String OOS_ROOT_POLICY = "oss.root_policy";
+    public static final String SCHEMA_CACHE_TTL_SECOND = "schema.cache.ttl-second";
+    // -1 means cache with no ttl
+    public static final int CACHE_NO_TTL = -1;
+    // 0 means cache is disabled; >0 means cache with ttl;
+    public static final int CACHE_TTL_DISABLE_CACHE = 0;
+
     // Properties that should not be shown in the `show create catalog` result
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
             CREATE_TIME,
             USE_META_CACHE);
+
+    protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -152,7 +161,6 @@ public abstract class ExternalCatalog
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
-    protected boolean invalidCacheInInit = true;
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
 
@@ -164,11 +172,13 @@ public abstract class ExternalCatalog
 
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
-    protected PreExecutionAuthenticator preExecutionAuthenticator;
+    protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
+
+    private volatile boolean isInitializing = false;
 
     public ExternalCatalog() {
     }
@@ -178,6 +188,17 @@ public abstract class ExternalCatalog
         this.name = name;
         this.logType = logType;
         this.comment = Strings.nullToEmpty(comment);
+    }
+
+    /**
+     * Initializes the PreExecutionAuthenticator instance.
+     * This method ensures that the authenticator is created only once in a thread-safe manner.
+     * If additional authentication logic is required, it should be extended and implemented in subclasses.
+     */
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (executionAuthenticator == null) {
+            executionAuthenticator = new ExecutionAuthenticator(){};
+        }
     }
 
     public Configuration getConfiguration() {
@@ -204,17 +225,21 @@ public abstract class ExternalCatalog
     }
 
     /**
-     * set some default properties when creating catalog
+     * Lists all database names in this catalog.
      *
      * @return list of database names in this catalog
      */
     protected List<String> listDatabaseNames() {
         if (metadataOps == null) {
-            throw new UnsupportedOperationException("Unsupported operation: "
-                    + "listDatabaseNames from remote client when init catalog with " + logType.name());
+            throw new UnsupportedOperationException("List databases is not supported for catalog: " + getName());
         } else {
             return metadataOps.listDatabaseNames();
         }
+    }
+
+    public ExternalMetadataOps getMetadataOps() {
+        makeSureInitialized();
+        return metadataOps;
     }
 
     // Will be called when creating catalog(so when as replaying)
@@ -277,43 +302,48 @@ public abstract class ExternalCatalog
      * So you have to make sure the client of third system is initialized before any method was called.
      */
     public final synchronized void makeSureInitialized() {
-        initLocalObjects();
-        if (!initialized) {
-            if (useMetaCache.get()) {
-                if (metaCache == null) {
-                    metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
-                            name,
-                            OptionalLong.of(86400L),
-                            OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_meta_object_cache_num,
-                            ignored -> getFilteredDatabaseNames(),
-                            localDbName -> Optional.ofNullable(
-                                    buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
-                                            true)),
-                            (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
-                }
-                setLastUpdateTime(System.currentTimeMillis());
-            } else {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                    try {
-                        remoteExecutor.forward(id, -1);
-                    } catch (Exception e) {
-                        Util.logAndThrowRuntimeException(LOG,
-                                String.format("failed to forward init catalog %s operation to master.", name), e);
-                    }
-                    return;
-                }
-                init();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("start to init catalog {}:{}", name, id);
+        }
+        if (isInitializing) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("catalog {}:{} is initializing, skip make sure initialized.", name, id, new Exception());
             }
-            initialized = true;
+            return;
+        }
+        try {
+            initLocalObjects();
+            if (!initialized) {
+                if (useMetaCache.get()) {
+                    buildMetaCache();
+                    setLastUpdateTime(System.currentTimeMillis());
+                } else {
+                    if (!Env.getCurrentEnv().isMaster()) {
+                        // Forward to master and wait the journal to replay.
+                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
+                        MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
+                        try {
+                            remoteExecutor.forward(id, -1);
+                        } catch (Exception e) {
+                            Util.logAndThrowRuntimeException(LOG,
+                                    String.format("failed to forward init catalog %s operation to master.", name), e);
+                        }
+                        return;
+                    }
+                    init();
+                }
+                initialized = true;
+            }
+        } finally {
+            isInitializing = false;
         }
     }
 
     protected final void initLocalObjects() {
         if (!objectCreated) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("start to init local objects of catalog {}:{}", getName(), id, new Exception());
+            }
             initLocalObjectsImpl();
             objectCreated = true;
         }
@@ -323,13 +353,31 @@ public abstract class ExternalCatalog
         return this.initialized;
     }
 
+    private void buildMetaCache() {
+        if (metaCache == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
+            }
+            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+                    name,
+                    OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                    OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                    Config.max_meta_object_cache_num,
+                    ignored -> getFilteredDatabaseNames(),
+                    localDbName -> Optional.ofNullable(
+                            buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
+                                    true)),
+                    (key, value, cause) -> value.ifPresent(v -> v.resetToUninitialized()));
+        }
+    }
+
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
         // check refresh parameter of catalog
-        Map<String, String> properties = getCatalogProperty().getProperties();
+        Map<String, String> properties = catalogProperty.getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
-                Integer metadataRefreshIntervalSec = Integer.valueOf(
+                int metadataRefreshIntervalSec = Integer.parseInt(
                         properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
                 if (metadataRefreshIntervalSec < 0) {
                     throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
@@ -339,11 +387,13 @@ public abstract class ExternalCatalog
             }
         }
 
-        // if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
-        //     LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
-        //     getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
-        //     useMetaCache = Optional.of(true);
-        // }
+        // check schema.cache.ttl-second parameter
+        String schemaCacheTtlSecond = catalogProperty.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
+        if (java.util.Objects.nonNull(schemaCacheTtlSecond) && NumberUtils.toInt(schemaCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + SCHEMA_CACHE_TTL_SECOND + " is wrong, value is " + schemaCacheTtlSecond);
+        }
     }
 
     /**
@@ -357,7 +407,7 @@ public abstract class ExternalCatalog
      * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */
     public void initAccessController(boolean isDryRun) {
-        Map<String, String> properties = getCatalogProperty().getProperties();
+        Map<String, String> properties = catalogProperty.getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
         if (Strings.isNullOrEmpty(className)) {
@@ -501,7 +551,23 @@ public abstract class ExternalCatalog
         return remoteToLocalPairs;
     }
 
-    public void onRefresh(boolean invalidCache) {
+    /**
+     * Resets the Catalog state to uninitialized, releases resources held by {@code initLocalObjectsImpl()}
+     * <p>
+     * This method is typically invoked during operations such as {@code CREATE CATALOG}
+     * and {@code MODIFY CATALOG}. It marks the object as uninitialized, clears cached
+     * configurations, and ensures that resources allocated during {@link #initLocalObjectsImpl()}
+     * are properly released via {@link #onClose()}
+     * </p>
+     * <p>
+     * The {@code onClose()} method is responsible for cleaning up resources that were initialized
+     * in {@code initLocalObjectsImpl()}, preventing potential resource leaks.
+     * </p>
+     *
+     * @param invalidCache if {@code true}, the catalog cache will be invalidated
+     *                     and reloaded during the refresh process.
+     */
+    public synchronized void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         synchronized (this.propLock) {
@@ -511,12 +577,14 @@ public abstract class ExternalCatalog
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
+        onClose();
 
         refreshOnlyCatalogCache(invalidCache);
     }
 
-    public void onRefreshCache(boolean invalidCache) {
-        refreshOnlyCatalogCache(invalidCache);
+    // Only for hms event handling.
+    public void onRefreshCache() {
+        refreshOnlyCatalogCache(true);
     }
 
     private void refreshOnlyCatalogCache(boolean invalidCache) {
@@ -526,11 +594,10 @@ public abstract class ExternalCatalog
             } else if (!useMetaCache.get()) {
                 this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-                    db.setUnInitialized(invalidCache);
+                    db.resetToUninitialized();
                 }
             }
         }
-        this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
@@ -538,9 +605,9 @@ public abstract class ExternalCatalog
 
     public final Optional<SchemaCacheValue> getSchema(SchemaCacheKey key) {
         makeSureInitialized();
-        Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(key.getDbName());
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(key.getNameMapping().getLocalDbName());
         if (db.isPresent()) {
-            Optional<? extends ExternalTable> table = db.get().getTable(key.getTblName());
+            Optional<? extends ExternalTable> table = db.get().getTable(key.getNameMapping().getLocalTblName());
             if (table.isPresent()) {
                 return table.get().initSchemaAndUpdateTime(key);
             }
@@ -606,11 +673,6 @@ public abstract class ExternalCatalog
     public TableName getTableNameByTableId(Long tableId) {
         throw new UnsupportedOperationException("External catalog does not support getTableNameByTableId() method."
                 + ", table id: " + tableId);
-    }
-
-    @Override
-    public String getResource() {
-        return catalogProperty.getResource();
     }
 
     @Nullable
@@ -717,24 +779,24 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Override
     public void onClose() {
         removeAccessController();
         if (threadPoolWithPreAuth != null) {
             ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
         }
-        CatalogIf.super.onClose();
+        if (null != executionAuthenticator) {
+            executionAuthenticator = null;
+        }
+        if (null != transactionManager) {
+            transactionManager = null;
+        }
     }
 
     private void removeAccessController() {
         Env.getCurrentEnv().getAccessManager().removeAccessController(name);
     }
 
-    public void replayInitCatalog(InitCatalogLog log) {
+    public synchronized void replayInitCatalog(InitCatalogLog log) {
         // If the remote name is missing during upgrade, or
         // the refresh db's remote name is empty,
         // all databases in the Map will be reinitialized.
@@ -795,7 +857,18 @@ public abstract class ExternalCatalog
         initialized = true;
     }
 
+    /**
+     * This method will try getting db from cache only,
+     * If there is no cache, it will return empty.
+     * Different from "getDbNullable()", this method will not visit the remote catalog to get db when it does not exist
+     * in cache.
+     * This is used for replaying the metadata, to avoid exception when trying to get db from remote catalog.
+     *
+     * @param dbId
+     * @return
+     */
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(long dbId) {
+        Preconditions.checkState(useMetaCache.isPresent(), name);
         if (useMetaCache.get()) {
             if (!isInitialized()) {
                 return Optional.empty();
@@ -803,6 +876,30 @@ public abstract class ExternalCatalog
             return metaCache.getMetaObjById(dbId);
         } else {
             return Optional.ofNullable(idToDb.get(dbId));
+        }
+    }
+
+    /**
+     * Same as "getDbForReplay(long dbId)", use "tryGetMetaObj" to get db from cache only.
+     *
+     * @param dbName
+     * @return
+     */
+    public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(String dbName) {
+        Preconditions.checkState(useMetaCache.isPresent(), name);
+        if (useMetaCache.get()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getDbForReplay from metacache, db: {}.{}, catalog id: {}, is catalog init: {}",
+                        this.name, dbName, this.id, isInitialized());
+            }
+            if (!isInitialized()) {
+                return Optional.empty();
+            }
+            return metaCache.tryGetMetaObj(dbName);
+        } else if (dbNameToId.containsKey(dbName)) {
+            return Optional.ofNullable(idToDb.get(dbNameToId.get(dbName)));
+        } else {
+            return Optional.empty();
         }
     }
 
@@ -902,11 +999,6 @@ public abstract class ExternalCatalog
         return null;
     }
 
-    public static ExternalCatalog read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
-    }
-
     @Override
     public void gsonPostProcess() throws IOException {
         if (idToDb == null) {
@@ -943,30 +1035,48 @@ public abstract class ExternalCatalog
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
+        // 1. add for "use_meta_cache = false"
         idToDb.put(db.getId(), db);
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
+        // 2. add for "use_meta_cache = true"
+        buildMetaCache();
+        metaCache.addObjForTest(db.getId(), db.getFullName(), db);
+    }
+
+    /**
+     * Set the initialized status for testing purposes only.
+     * This method should only be used in test cases.
+     */
+    public void setInitializedForTest(boolean initialized) {
+        this.initialized = initialized;
+        if (this.initialized) {
+            buildMetaCache();
+            this.useMetaCache = Optional.of(true);
+        }
     }
 
     @Override
-    public void createDb(CreateDbStmt stmt) throws DdlException {
+    public void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("createDb not implemented");
-            return;
+            throw new DdlException("Create database is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.createDb(stmt);
-            CreateDbInfo info = new CreateDbInfo(getName(), stmt.getFullDbName(), null);
-            Env.getCurrentEnv().getEditLog().logCreateDb(info);
+            boolean res = metadataOps.createDb(dbName, ifNotExists, properties);
+            if (!res) {
+                // we should get the db stored in Doris, and use local name in edit log.
+                CreateDbInfo info = new CreateDbInfo(getName(), dbName, null);
+                Env.getCurrentEnv().getEditLog().logCreateDb(info);
+            }
         } catch (Exception e) {
-            LOG.warn("Failed to create database {} in catalog {}.", stmt.getFullDbName(), getName(), e);
+            LOG.warn("Failed to create database {} in catalog {}.", dbName, getName(), e);
             throw e;
         }
     }
 
     public void replayCreateDb(String dbName) {
         if (metadataOps != null) {
-            metadataOps.afterCreateDb(dbName);
+            metadataOps.afterCreateDb();
         }
     }
 
@@ -974,11 +1084,10 @@ public abstract class ExternalCatalog
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("dropDb not implemented");
-            return;
+            throw new DdlException("Drop database is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.dropDb(getName(), dbName, ifExists, force);
+            metadataOps.dropDb(dbName, ifExists, force);
             DropDbInfo info = new DropDbInfo(getName(), dbName);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
@@ -994,18 +1103,45 @@ public abstract class ExternalCatalog
     }
 
     @Override
+    public boolean createTable(CreateTableCommand command) throws UserException {
+        makeSureInitialized();
+        org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo createTableInfo =
+                command.getCreateTableInfo();
+        if (metadataOps == null) {
+            throw new DdlException("Create table is not supported for catalog: " + getName());
+        }
+        try {
+            boolean res = metadataOps.createTable(createTableInfo);
+            if (!res) {
+                // res == false means the table does not exist before, and we create it.
+                // we should get the table stored in Doris, and use local name in edit log.
+                CreateTableInfo info = new CreateTableInfo(getName(), createTableInfo.getDbName(),
+                        createTableInfo.getTableName());
+                Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                LOG.info("finished to create table {}.{}.{}", getName(), createTableInfo.getDbName(),
+                        createTableInfo.getTableName());
+            }
+            return res;
+        } catch (Exception e) {
+            LOG.warn("Failed to create a table.", e);
+            throw e;
+        }
+    }
+
+    @Override
     public boolean createTable(CreateTableStmt stmt) throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("createTable not implemented");
-            return false;
+            throw new DdlException("Create table is not supported for catalog: " + getName());
         }
         try {
             boolean res = metadataOps.createTable(stmt);
             if (!res) {
                 // res == false means the table does not exist before, and we create it.
+                // we should get the table stored in Doris, and use local name in edit log.
                 CreateTableInfo info = new CreateTableInfo(getName(), stmt.getDbName(), stmt.getTableName());
                 Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                LOG.info("finished to create table {}.{}.{}", getName(), stmt.getDbName(), stmt.getTableName());
             }
             return res;
         } catch (Exception e) {
@@ -1021,12 +1157,20 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void dropTable(DropTableStmt stmt) throws DdlException {
-        if (stmt == null) {
-            throw new DdlException("DropTableStmt is null");
+    public void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new DdlException("Rename table is not supported for catalog: " + getName());
         }
-        dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(), stmt.isSetIfExists(),
-                stmt.isForceDrop());
+        try {
+            metadataOps.renameTable(dbName, oldTableName, newTableName);
+            Env.getCurrentEnv().getEditLog()
+                    .logRefreshExternalTable(
+                            ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
+        } catch (Exception e) {
+            LOG.warn("Failed to rename table {} in database {}.", oldTableName, dbName, e);
+            throw e;
+        }
     }
 
     @Override
@@ -1034,11 +1178,22 @@ public abstract class ExternalCatalog
                           boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("dropTable not implemented");
-            return;
+            throw new DdlException("Drop table is not supported for catalog: " + getName());
+        }
+        // 1. get table in doris catalog first.
+        ExternalDatabase db = getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + getName());
+        }
+        ExternalTable dorisTable = db.getTableNullable(tableName);
+        if (dorisTable == null) {
+            if (ifExists) {
+                return;
+            }
+            throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
         }
         try {
-            metadataOps.dropTable(dbName, tableName, ifExists);
+            metadataOps.dropTable(dorisTable, ifExists);
             DropInfo info = new DropInfo(getName(), dbName, tableName);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
         } catch (Exception e) {
@@ -1053,8 +1208,29 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Unregisters a database from the catalog.
+     * Internally, remove the database meta from cache
+     *
+     * @param dbName
+     */
     public void unregisterDatabase(String dbName) {
-        throw new NotImplementedException("unregisterDatabase not implemented");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("unregister database [{}]", dbName);
+        }
+        if (useMetaCache.get()) {
+            if (isInitialized()) {
+                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
+            }
+        } else {
+            Long dbId = dbNameToId.remove(dbName);
+            if (dbId == null) {
+                LOG.warn("unregister database {}.{} failed, not find in map. ignore.", this.name, dbName);
+            } else {
+                idToDb.remove(dbId);
+            }
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1137,26 +1313,24 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
+    public void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
+            String rawTruncateSql) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+            throw new DdlException("Truncate table is not supported for catalog: " + getName());
         }
         try {
-            TableRef tableRef = stmt.getTblRef();
-            TableName tableName = tableRef.getName();
             // delete all table data if null
             List<String> partitions = null;
-            if (tableRef.getPartitionNames() != null) {
-                partitions = tableRef.getPartitionNames().getPartitionNames();
+            if (partitionNames != null) {
+                partitions = partitionNames.getPartitionNames();
             }
-            metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
-            TruncateTableInfo info = new TruncateTableInfo(getName(), tableName.getDb(), tableName.getTbl(),
-                    partitions);
+            ExternalTable dorisTable = getDbOrDdlException(dbName).getTableOrDdlException(tableName);
+            metadataOps.truncateTable(dorisTable, partitions);
+            TruncateTableInfo info = new TruncateTableInfo(getName(), dbName, tableName, partitions);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (Exception e) {
-            LOG.warn("Failed to truncate table {}.{} in catalog {}", stmt.getTblRef().getName().getDb(),
-                    stmt.getTblRef().getName().getTbl(), getName(), e);
+            LOG.warn("Failed to truncate table {}.{} in catalog {}", dbName, tableName, getName(), e);
             throw e;
         }
     }
@@ -1176,8 +1350,11 @@ public abstract class ExternalCatalog
         }
     }
 
-    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
-        return preExecutionAuthenticator;
+    public ExecutionAuthenticator getExecutionAuthenticator() {
+        if (null == executionAuthenticator) {
+            throw new RuntimeException("ExecutionAuthenticator is null, please confirm it is initialized.");
+        }
+        return executionAuthenticator;
     }
 
     @Override
@@ -1196,4 +1373,261 @@ public abstract class ExternalCatalog
     public int hashCode() {
         return Objects.hashCode(name);
     }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
+        if (java.util.Objects.nonNull(schemaCacheTtl)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
+        }
+    }
+
+    public CatalogProperty getCatalogProperty() {
+        return catalogProperty;
+    }
+
+    public Optional<Boolean> getUseMetaCache() {
+        return useMetaCache;
+    }
+
+    public Map<Pair<String, String>, String> getTableAutoAnalyzePolicy() {
+        return tableAutoAnalyzePolicy;
+    }
+
+    public TransactionManager getTransactionManager() {
+        return transactionManager;
+    }
+
+    public ThreadPoolExecutor getThreadPoolWithPreAuth() {
+        return threadPoolWithPreAuth;
+    }
+
+    /**
+     * Check if an external view exists.
+     * @param dbName
+     * @param viewName
+     * @return
+     */
+    public boolean viewExists(String dbName, String viewName) {
+        throw new UnsupportedOperationException("View is not supported.");
+    }
+
+    @Override
+    public void createOrReplaceBranch(TableIf dorisTable, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("branching operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.createOrReplaceBranch(externalTable, branchInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), externalTable.getDbName(),
+                    externalTable.getName());
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to create or replace branch for table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void createOrReplaceTag(TableIf dorisTable, CreateOrReplaceTagInfo tagInfo)
+            throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Tagging operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.createOrReplaceTag(externalTable, tagInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), externalTable.getDbName(),
+                    externalTable.getName());
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to create or replace tag for table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void replayOperateOnBranchOrTag(String dbName, String tblName) {
+        if (metadataOps != null) {
+            metadataOps.afterOperateOnBranchOrTag(dbName, tblName);
+        }
+    }
+
+    @Override
+    public void dropBranch(TableIf dorisTable, DropBranchInfo branchInfo) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("DropBranch operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.dropBranch(externalTable, branchInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), externalTable.getDbName(),
+                    externalTable.getName());
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop branch for table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void dropTag(TableIf dorisTable, DropTagInfo tagInfo) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("DropTag operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.dropTag(externalTable, tagInfo);
+            TableBranchOrTagInfo info = new TableBranchOrTagInfo(getName(), externalTable.getDbName(),
+                    externalTable.getName());
+            Env.getCurrentEnv().getEditLog().logBranchOrTag(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop tag for table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    /**
+     * Resets the name list in meta cache.
+     * Usually used after creating database in catalog, so that user can see newly created db immediately.
+     */
+    public void resetMetaCacheNames() {
+        if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
+            metaCache.resetNames();
+        } else {
+            resetToUninitialized(true);
+        }
+    }
+
+    // log the refresh external table operation
+    private void logRefreshExternalTable(ExternalTable dorisTable) {
+        Env.getCurrentEnv().getEditLog()
+                .logRefreshExternalTable(
+                        ExternalObjectLog.createForRefreshTable(dorisTable.getCatalog().getId(),
+                                dorisTable.getDbName(), dorisTable.getName()));
+    }
+
+    @Override
+    public void addColumn(TableIf dorisTable, Column column, ColumnPosition position) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Add column operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.addColumn(externalTable, column, position);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to add column {} to table {}.{} in catalog {}",
+                    column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void addColumns(TableIf dorisTable, List<Column> columns) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Add columns operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.addColumns(externalTable, columns);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to add columns to table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void dropColumn(TableIf dorisTable, String columnName) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Drop column operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.dropColumn(externalTable, columnName);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop column {} from table {}.{} in catalog {}",
+                    columnName, externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void renameColumn(TableIf dorisTable, String oldName, String newName) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Rename column operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.renameColumn(externalTable, oldName, newName);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to rename column {} to {} in table {}.{} in catalog {}",
+                    oldName, newName, externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void modifyColumn(TableIf dorisTable, Column column, ColumnPosition columnPosition) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Modify column operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.modifyColumn(externalTable, column, columnPosition);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to modify column {} in table {}.{} in catalog {}",
+                    column.getName(), externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void reorderColumns(TableIf dorisTable, List<String> newOrder) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Reorder columns operation is not supported for catalog: " + getName());
+        }
+        try {
+            metadataOps.reorderColumns(externalTable, newOrder);
+            logRefreshExternalTable(externalTable);
+        } catch (Exception e) {
+            LOG.warn("Failed to reorder columns in table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
+    }
 }
+

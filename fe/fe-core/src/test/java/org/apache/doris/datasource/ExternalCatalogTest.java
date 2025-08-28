@@ -17,15 +17,15 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
-import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -33,14 +33,9 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,71 +52,79 @@ public class ExternalCatalogTest extends TestWithFeService {
         rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
         // 1. create test catalog
-        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test1 properties(\n"
-                        + "    \"type\" = \"test\",\n"
-                        + "    \"catalog_provider.class\" "
-                        + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
-                        + "    \"include_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+        String createStmt = "create catalog test1 properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
+                + "    \"include_database_list\" = \"db1\"\n"
+                + ");";
 
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test2 properties(\n"
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+
+        createStmt = "create catalog test2 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"exclude_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test3 properties(\n"
+        createStmt = "create catalog test3 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"include_database_list\" = \"db1\",\n"
                         + "    \"exclude_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
         // use_meta_cache=false
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test4 properties(\n"
+        createStmt = "create catalog test4 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"include_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test5 properties(\n"
+        createStmt = "create catalog test5 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"exclude_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test6 properties(\n"
+        createStmt = "create catalog test6 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"include_database_list\" = \"db1\",\n"
                         + "    \"exclude_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Test
@@ -247,66 +250,5 @@ public class ExternalCatalogTest extends TestWithFeService {
         public Map<String, Map<String, List<Column>>> getMetadata() {
             return MOCKED_META;
         }
-    }
-
-    @Test
-    public void testSerialization() throws Exception {
-        MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
-        metaContext.setThreadLocalInfo();
-
-        // 1. Write objects to file
-        File file = new File("./external_catalog_persist_test.dat");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(file.toPath()));
-
-        TestExternalCatalog ctl = (TestExternalCatalog) mgr.getCatalog("test1");
-        ctl.write(dos);
-        dos.flush();
-        dos.close();
-
-        // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
-
-        TestExternalCatalog ctl2 = (TestExternalCatalog) ExternalCatalog.read(dis);
-        Configuration conf = ctl2.getConfiguration();
-        Assertions.assertNotNull(conf);
-
-        // 3. delete files
-        dis.close();
-        file.delete();
-    }
-
-    @Test
-    public void testSerializationWithComment() throws Exception {
-        MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
-        metaContext.setThreadLocalInfo();
-
-        // 1. Write objects to file
-        File file = new File("./external_catalog_with_comment_test.dat");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(file.toPath()));
-
-        TestExternalCatalog ctl = (TestExternalCatalog) mgr.getCatalog("test1");
-        String testComment = "This is a test comment for serialization";
-        ctl.setComment(testComment); // Set a custom comment value
-        ctl.write(dos);
-        dos.flush();
-        dos.close();
-
-        // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
-
-        TestExternalCatalog ctl2 = (TestExternalCatalog) ExternalCatalog.read(dis);
-        Configuration conf = ctl2.getConfiguration();
-        Assertions.assertNotNull(conf);
-
-        // Verify the comment is properly serialized and deserialized
-        Assertions.assertEquals(testComment, ctl2.getComment());
-
-        // 3. delete files
-        dis.close();
-        file.delete();
     }
 }

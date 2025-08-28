@@ -17,7 +17,7 @@
 
 import com.mysql.cj.jdbc.StatementImpl
 
-suite("insert_group_commit_into_unique_sync_mode") {
+suite("insert_group_commit_into_unique_sync_mode", "nonConcurrent") {
     def dbName = "regression_test_insert_p0"
     def tableName = "insert_group_commit_into_unique_sync"
     def dbTableName = dbName + "." + tableName

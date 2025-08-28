@@ -30,7 +30,6 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -60,7 +59,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0]))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "first argument for function: " << name << " should be DataTypeArray"
                 << " and arguments[0] is " << arguments[0]->get_name();
         return arguments[0];
@@ -80,7 +79,7 @@ public:
         }
 
         // time() and seed will not exceed the range of uint32.
-        std::mt19937 g(cast_set<uint32>(seed));
+        std::mt19937 g(cast_set<uint32_t>(seed));
         auto dest_column_ptr = _execute(src_column_array, g);
         if (!dest_column_ptr) {
             return Status::RuntimeError(

@@ -20,10 +20,9 @@
 #include <glog/logging.h>
 
 #include <array>
+#include <bit> // IWYU pragma: keep
 #include <cstring>
 #include <vector>
-
-#include "gutil/port.h"
 
 namespace doris {
 
@@ -40,25 +39,25 @@ inline void do_merge_streams(const uint8_t** src_streams, int width, int64_t nva
             for (int i = 0; i < kBlockSize; i += 8) {
                 uint64_t v;
                 std::memcpy(&v, src + i, sizeof(v));
-#ifdef IS_LITTLE_ENDIAN
-                dest[stream + i * width] = static_cast<uint8_t>(v);
-                dest[stream + (i + 1) * width] = static_cast<uint8_t>(v >> 8);
-                dest[stream + (i + 2) * width] = static_cast<uint8_t>(v >> 16);
-                dest[stream + (i + 3) * width] = static_cast<uint8_t>(v >> 24);
-                dest[stream + (i + 4) * width] = static_cast<uint8_t>(v >> 32);
-                dest[stream + (i + 5) * width] = static_cast<uint8_t>(v >> 40);
-                dest[stream + (i + 6) * width] = static_cast<uint8_t>(v >> 48);
-                dest[stream + (i + 7) * width] = static_cast<uint8_t>(v >> 56);
-#elif defined IS_BIG_ENDIAN
-                dest[stream + i * width] = static_cast<uint8_t>(v >> 56);
-                dest[stream + (i + 1) * width] = static_cast<uint8_t>(v >> 48);
-                dest[stream + (i + 2) * width] = static_cast<uint8_t>(v >> 40);
-                dest[stream + (i + 3) * width] = static_cast<uint8_t>(v >> 32);
-                dest[stream + (i + 4) * width] = static_cast<uint8_t>(v >> 24);
-                dest[stream + (i + 5) * width] = static_cast<uint8_t>(v >> 16);
-                dest[stream + (i + 6) * width] = static_cast<uint8_t>(v >> 8);
-                dest[stream + (i + 7) * width] = static_cast<uint8_t>(v);
-#endif
+                if constexpr (std::endian::native == std::endian::little) {
+                    dest[stream + i * width] = static_cast<uint8_t>(v);
+                    dest[stream + (i + 1) * width] = static_cast<uint8_t>(v >> 8);
+                    dest[stream + (i + 2) * width] = static_cast<uint8_t>(v >> 16);
+                    dest[stream + (i + 3) * width] = static_cast<uint8_t>(v >> 24);
+                    dest[stream + (i + 4) * width] = static_cast<uint8_t>(v >> 32);
+                    dest[stream + (i + 5) * width] = static_cast<uint8_t>(v >> 40);
+                    dest[stream + (i + 6) * width] = static_cast<uint8_t>(v >> 48);
+                    dest[stream + (i + 7) * width] = static_cast<uint8_t>(v >> 56);
+                } else if constexpr (std::endian::native == std::endian::big) {
+                    dest[stream + i * width] = static_cast<uint8_t>(v >> 56);
+                    dest[stream + (i + 1) * width] = static_cast<uint8_t>(v >> 48);
+                    dest[stream + (i + 2) * width] = static_cast<uint8_t>(v >> 40);
+                    dest[stream + (i + 3) * width] = static_cast<uint8_t>(v >> 32);
+                    dest[stream + (i + 4) * width] = static_cast<uint8_t>(v >> 24);
+                    dest[stream + (i + 5) * width] = static_cast<uint8_t>(v >> 16);
+                    dest[stream + (i + 6) * width] = static_cast<uint8_t>(v >> 8);
+                    dest[stream + (i + 7) * width] = static_cast<uint8_t>(v);
+                }
             }
             src_streams[stream] += kBlockSize;
         }

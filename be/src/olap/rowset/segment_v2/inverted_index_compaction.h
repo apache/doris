@@ -28,8 +28,8 @@
 namespace doris {
 class TabletIndex;
 namespace segment_v2 {
-class InvertedIndexFileWriter;
-class InvertedIndexFileReader;
+class IndexFileWriter;
+class IndexFileReader;
 
 Status compact_column(int64_t index_id,
                       std::vector<std::unique_ptr<DorisCompoundReader>>& src_index_dirs,

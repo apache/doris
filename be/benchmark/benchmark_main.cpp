@@ -17,8 +17,9 @@
 
 #include <benchmark/benchmark.h>
 
-#include <string>
-
+#include "benchmark_bit_pack.hpp"
+#include "benchmark_fastunion.hpp"
+#include "binary_cast_benchmark.hpp"
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
@@ -46,7 +47,6 @@ static void Example1(benchmark::State& state) {
 }
 // could BENCHMARK many functions to compare them together.
 BENCHMARK(Example1);
-
 } // namespace doris::vectorized
 
 BENCHMARK_MAIN();

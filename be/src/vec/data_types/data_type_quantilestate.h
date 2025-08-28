@@ -34,29 +34,22 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
 class DataTypeQuantileState : public IDataType {
 public:
     DataTypeQuantileState() = default;
     ~DataTypeQuantileState() override = default;
     using ColumnType = ColumnQuantileState;
     using FieldType = QuantileState;
+    static constexpr PrimitiveType PType = TYPE_QUANTILE_STATE;
 
     std::string do_get_name() const override { return get_family_name(); }
-    const char* get_family_name() const override { return "QuantileState"; }
-
-    TypeIndex get_type_id() const override { return TypeIndex::QuantileState; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_QUANTILE_STATE);
-    }
+    const std::string get_family_name() const override { return "QuantileState"; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_QUANTILE_STATE; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
@@ -67,6 +60,7 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     bool have_subtypes() const override { return false; }
     bool should_align_right_in_pretty_formats() const override { return false; }
@@ -86,19 +80,21 @@ public:
     }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
-    Field get_default() const override { return QuantileState(); }
+    Field get_default() const override {
+        return Field::create_field<TYPE_QUANTILE_STATE>(QuantileState());
+    }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for quantile state");
-        __builtin_unreachable();
     }
 
     static void serialize_as_stream(const QuantileState& value, BufferWritable& buf);
 
     static void deserialize_as_stream(QuantileState& value, BufferReadable& buf);
+    using SerDeType = DataTypeQuantileStateSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeQuantileStateSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 };
 } // namespace doris::vectorized

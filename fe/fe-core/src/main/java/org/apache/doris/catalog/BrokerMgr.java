@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -110,6 +109,21 @@ public class BrokerMgr {
         } finally {
             lock.unlock();
         }
+    }
+
+    public List<FsBroker> getBrokers(String brokerName) {
+        List<FsBroker> result = null;
+        lock.lock();
+        try {
+            List<FsBroker> brokerList = brokerListMap.get(brokerName);
+            if (brokerList == null || brokerList.isEmpty()) {
+                return null;
+            }
+            result = new ArrayList<>(brokerList);
+        } finally {
+            lock.unlock();
+        }
+        return result;
     }
 
     public FsBroker getAnyBroker(String brokerName) {
@@ -405,23 +419,7 @@ public class BrokerMgr {
         }
 
         public static ModifyBrokerInfo read(DataInput in) throws IOException {
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_134) {
-                ModifyBrokerInfo modifyBrokerInfo = new ModifyBrokerInfo();
-                modifyBrokerInfo.readFields(in);
-                return modifyBrokerInfo;
-            } else {
-                return GsonUtils.GSON.fromJson(Text.readString(in), ModifyBrokerInfo.class);
-            }
-        }
-
-        @Deprecated
-        public void readFields(DataInput in) throws IOException {
-            brokerName = Text.readString(in);
-            int size = in.readInt();
-            brokerAddresses = Lists.newArrayList();
-            for (int i = 0; i < size; ++i) {
-                brokerAddresses.add(FsBroker.readIn(in));
-            }
+            return GsonUtils.GSON.fromJson(Text.readString(in), ModifyBrokerInfo.class);
         }
     }
 }

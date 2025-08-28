@@ -77,8 +77,9 @@ Status SpillStreamManager::init() {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(spill_dir));
         }
     }
+    // Reduce min threads to 1, to avoid occupy too many threads at start time.
     static_cast<void>(ThreadPoolBuilder("SpillIOThreadPool")
-                              .set_min_threads(config::spill_io_thread_pool_thread_num)
+                              .set_min_threads(1)
                               .set_max_threads(config::spill_io_thread_pool_thread_num)
                               .set_max_queue_size(config::spill_io_thread_pool_queue_size)
                               .build(&_spill_io_thread_pool));
@@ -153,7 +154,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                                                  const std::string& query_id,
                                                  const std::string& operator_name, int32_t node_id,
                                                  int32_t batch_rows, size_t batch_bytes,
-                                                 RuntimeProfile* profile) {
+                                                 RuntimeProfile* operator_profile) {
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
         data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
@@ -173,6 +174,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                                 node_id, state->task_id(), id);
         auto st = io::global_local_filesystem()->create_directory(spill_dir);
         if (!st.ok()) {
+            std::cerr << "create spill dir failed: " << st.to_string();
             continue;
         }
         data_dir = dir;
@@ -183,7 +185,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                 "there is no available disk that can be used to spill.");
     }
     spill_stream = std::make_shared<SpillStream>(state, id, data_dir, spill_dir, batch_rows,
-                                                 batch_bytes, profile);
+                                                 batch_bytes, operator_profile);
     RETURN_IF_ERROR(spill_stream->prepare());
     return Status::OK();
 }

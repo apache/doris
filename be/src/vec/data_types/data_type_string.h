@@ -36,29 +36,26 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferWritable;
 class IColumn;
 class ReadBuffer;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 class DataTypeString : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = String;
+    static constexpr PrimitiveType PType = TYPE_STRING;
     static constexpr bool is_parametric = false;
 
-    const char* get_family_name() const override { return "String"; }
+    const std::string get_family_name() const override { return "String"; }
 
-    TypeIndex get_type_id() const override { return TypeIndex::String; }
-
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_STRING);
+    DataTypeString(int len = -1, PrimitiveType primitive_type = PrimitiveType::TYPE_STRING)
+            : _len(len), _primitive_type(primitive_type) {
+        DCHECK(is_string_type(primitive_type)) << primitive_type;
     }
+    PrimitiveType get_primitive_type() const override { return _primitive_type; }
+
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_STRING;
     }
@@ -69,14 +66,18 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
         DCHECK(node.__isset.string_literal);
-        return Field(node.string_literal.value);
+        return Field::create_field<TYPE_STRING>(node.string_literal.value);
     }
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 
     bool equals(const IDataType& rhs) const override;
 
@@ -89,9 +90,34 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    using SerDeType = DataTypeStringSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeStringSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
+    bool is_char_type() const { return _primitive_type == PrimitiveType::TYPE_CHAR; }
+    int len() const { return _len; }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        if (_primitive_type == TYPE_CHAR || _primitive_type == TYPE_VARCHAR) {
+            scalar_type->set_len(_len);
+        }
+    }
+#ifdef BE_TEST
+    void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
+        IDataType::to_thrift(thrift_type, node);
+        TScalarType& scalar_type = node.scalar_type;
+        scalar_type.__set_len(_len);
+    }
+#endif
+
+private:
+    // Fixed-length `char` type.
+    const int _len;
+    const PrimitiveType _primitive_type;
 };
+
+template <typename T>
+constexpr static bool IsStringType = false;
+template <>
+inline constexpr bool IsStringType<DataTypeString> = true;
 
 } // namespace doris::vectorized

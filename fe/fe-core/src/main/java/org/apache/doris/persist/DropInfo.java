@@ -17,8 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
@@ -128,27 +126,8 @@ public class DropInfo implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        forceDrop = in.readBoolean();
-        boolean hasIndexId = in.readBoolean();
-        if (hasIndexId) {
-            indexId = in.readLong();
-        } else {
-            indexId = -1L;
-        }
-    }
-
     public static DropInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), DropInfo.class);
-        } else {
-            DropInfo dropInfo = new DropInfo();
-            dropInfo.readFields(in);
-            return dropInfo;
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), DropInfo.class);
     }
 
     public boolean equals(Object obj) {

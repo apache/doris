@@ -27,7 +27,7 @@ suite("hll", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
 
-    createMV "CREATE materialized VIEW amt_count AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;"
+    createMV "CREATE materialized VIEW amt_count AS SELECT store_id as a1, hll_union(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;"
 
     sql "insert into test_materialized_view_hll1 values(1, 1, 1, '2020-05-30',100);"
     sql "insert into test_materialized_view_hll1 values(2, 1, 1, '2020-05-30',100);"

@@ -60,7 +60,8 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
             {"required_fields", join(required_fields, ",")},
             {"instant_time", _hudi_params.instant_time},
             {"serde", _hudi_params.serde},
-            {"input_format", _hudi_params.input_format}};
+            {"input_format", _hudi_params.input_format},
+            {"time_zone", state->timezone_obj().name()}};
 
     // Use compatible hadoop client to read data
     for (const auto& kv : _scan_params.properties) {
@@ -71,31 +72,12 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
         }
     }
 
-    if (_hudi_params.hudi_jni_scanner == "hadoop") {
-        _jni_connector = std::make_unique<JniConnector>(
-                "org/apache/doris/hudi/HadoopHudiJniScanner", params, required_fields);
-    } else if (_hudi_params.hudi_jni_scanner == "spark") {
-        _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner",
-                                                        params, required_fields);
-    } else {
-        DCHECK(false) << "Unsupported hudi jni scanner: " << _hudi_params.hudi_jni_scanner;
-    }
-}
-
-Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    return _jni_connector->get_next_block(block, read_rows, eof);
-}
-
-Status HudiJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                                  std::unordered_set<std::string>* missing_cols) {
-    for (const auto& desc : _file_slot_descs) {
-        name_to_type->emplace(desc->col_name(), desc->type());
-    }
-    return Status::OK();
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HadoopHudiJniScanner",
+                                                    params, required_fields);
 }
 
 Status HudiJniReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);

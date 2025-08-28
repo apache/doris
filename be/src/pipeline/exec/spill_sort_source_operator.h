@@ -58,8 +58,6 @@ protected:
     std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
 
-    std::shared_ptr<Dependency> _spill_dependency;
-
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     // counters for spill merge sort
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
@@ -73,7 +71,7 @@ public:
     ~SpillSortSourceOperatorX() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
 

@@ -60,6 +60,11 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
+        DBUG_EXECUTE_IF("CloudTxnDeleteBitmapCache.get_tablet_txn_info.not_found", {
+            return Status::Error<ErrorCode::NOT_FOUND>(
+                    "not found txn info for test, tablet_id={}, transaction_id={}", tablet_id,
+                    transaction_id);
+        });
         auto iter = _txn_map.find(key);
         if (iter == _txn_map.end()) {
             return Status::Error<ErrorCode::NOT_FOUND, false>(
@@ -81,6 +86,9 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         if (delete_bitmap != nullptr) {
             *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
         }
+        // to avoid to skip calculating
+        **publish_status = PublishStatus::INIT;
+
         return Status::OK();
     }
     return st;
@@ -166,7 +174,9 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
             .tag("txn_id", transaction_id)
             .tag("expiration", txn_expiration)
             .tag("tablet_id", tablet_id)
-            .tag("delete_bitmap_size", charge);
+            .tag("delete_bitmap_size", charge)
+            .tag("delete_bitmap_count", delete_bitmap->get_delete_bitmap_count())
+            .tag("delete_bitmap_cardinality", delete_bitmap->cardinality());
 }
 
 Status CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transaction_id,
@@ -202,6 +212,15 @@ Status CloudTxnDeleteBitmapCache::update_tablet_txn_info(TTransactionId transact
     // must call release handle to reduce the reference count,
     // otherwise there will be memory leak
     release(handle);
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("update txn related delete bitmap")
+                .tag("txn_id", transaction_id)
+                .tag("tablt_id", tablet_id)
+                .tag("delete_bitmap_size", charge)
+                .tag("delete_bitmap_count", delete_bitmap->get_delete_bitmap_count())
+                .tag("delete_bitmap_cardinality", delete_bitmap->cardinality())
+                .tag("publish_status", static_cast<int>(publish_status));
+    }
     return Status::OK();
 }
 

@@ -40,10 +40,6 @@ public class ArrayFilter extends ScalarFunction
                     ArrayType.of(BooleanType.INSTANCE))
     );
 
-    private ArrayFilter(List<Expression> expressions) {
-        super("array_filter", expressions);
-    }
-
     /**
      * constructor with arguments.
      * array_filter(lambda, a1, ...) = array_filter(a1, array_map(lambda, a1, ...))
@@ -60,9 +56,14 @@ public class ArrayFilter extends ScalarFunction
         super("array_filter", arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayFilter(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ArrayFilter withChildren(List<Expression> children) {
-        return new ArrayFilter(children);
+        return new ArrayFilter(getFunctionParams(children));
     }
 
     @Override

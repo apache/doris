@@ -17,12 +17,8 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
@@ -100,13 +96,11 @@ public class HiveMetadataOpsTest {
     }
 
     private void createDb(String dbName, Map<String, String> props) throws DdlException {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, new DbName("hive", dbName), props);
-        metadataOps.createDb(createDbStmt);
+        metadataOps.createDb(dbName, true, props);
     }
 
     private void dropDb(String dbName, boolean forceDrop) throws DdlException {
-        DropDbStmt dropDbStmt = new DropDbStmt(true, new DbName("hive", dbName), forceDrop);
-        metadataOps.dropDb(dropDbStmt);
+        metadataOps.dropDb(dbName, true, forceDrop);
     }
 
     private void createTable(TableName tableName,
@@ -121,7 +115,7 @@ public class HiveMetadataOpsTest {
             distributionDesc = new HashDistributionDesc(10, buckets);
         }
         List<String> colsName = cols.stream().map(Column::getName).collect(Collectors.toList());
-        CreateTableStmt stmt = new CreateTableStmt(true, false,
+        CreateTableStmt stmt = new CreateTableStmt(true, false, false,
                 tableName,
                 cols, null,
                 "hive",
@@ -136,8 +130,11 @@ public class HiveMetadataOpsTest {
     }
 
     private void dropTable(TableName tableName, boolean forceDrop) throws DdlException {
-        DropTableStmt dropTblStmt = new DropTableStmt(true, tableName, forceDrop);
-        metadataOps.dropTable(dropTblStmt);
+        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(
+                mockedCatalog, 0, tableName.getDb(), tableName.getDb());
+        HMSExternalTable externalTable = new HMSExternalTable(
+                1, tableName.getTbl(), tableName.getTbl(), mockedCatalog, externalDatabase);
+        metadataOps.dropTable(externalTable, true);
     }
 
     @Test

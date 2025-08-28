@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -166,11 +167,20 @@ public class ShowAnalyzeCommand extends ShowCommand {
                 row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
                 if (databaseIf.isPresent()) {
                     Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                    row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+                    row.add(table.isPresent() ? Util.getTempTableDisplayName(table.get().getName())
+                            : "Table may get deleted");
                 } else {
                     row.add("DB may get deleted");
                 }
-                row.add(analysisInfo.colName);
+                String colNames = analysisInfo.colName;
+                List<String> displayNameList = new ArrayList<>();
+                if (colNames != null && colNames.length() > 1) {
+                    colNames = colNames.substring(1, colNames.length() - 1);
+                    for (String colName : colNames.split(",")) {
+                        displayNameList.add(Util.getTempTableDisplayName(colName));
+                    }
+                }
+                row.add(displayNameList.toString());
                 row.add(analysisInfo.jobType.toString());
                 row.add(analysisInfo.analysisType.toString());
                 row.add(analysisInfo.message);
@@ -196,7 +206,12 @@ public class ShowAnalyzeCommand extends ShowCommand {
                         analysisInfo.catalogId, analysisInfo.dbId, analysisInfo.tblId, e.getMessage());
             }
         }
-        return new ShowResultSet(META_DATA, resultRows);
+        return new ShowResultSet(getMetaData(), resultRows);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
     }
 
     @Override

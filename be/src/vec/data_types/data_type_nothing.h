@@ -36,13 +36,9 @@
 #include "vec/data_types/serde/data_type_nothing_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
-class IColumn;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+
+class IColumn;
 
 /** Data type that cannot have any values.
   * Used to represent NULL of unknown type as Nullable(Nothing),
@@ -50,19 +46,16 @@ namespace doris::vectorized {
   */
 class DataTypeNothing final : public IDataType {
 public:
-    static constexpr bool is_parametric = false;
-
-    const char* get_family_name() const override { return "Nothing"; }
-    TypeIndex get_type_id() const override { return TypeIndex::Nothing; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(INVALID_TYPE);
-    }
+    static constexpr PrimitiveType PType = INVALID_TYPE;
+    const std::string get_family_name() const override { return "Nothing"; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::INVALID_TYPE; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;
     }
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     bool equals(const IDataType& rhs) const override;
 
@@ -82,19 +75,22 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method get_default() is not implemented for data type {}.",
                                get_name());
-        __builtin_unreachable();
     }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for Nothing");
-        __builtin_unreachable();
     }
 
     bool have_subtypes() const override { return false; }
+    using SerDeType = DataTypeNothingSerde;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeNothingSerde>();
+        return std::make_shared<SerDeType>();
     };
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        return FieldWithDataType {.field = Field(), .base_scalar_type_id = get_primitive_type()};
+    }
 };
 
 } // namespace doris::vectorized

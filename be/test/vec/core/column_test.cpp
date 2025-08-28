@@ -17,10 +17,11 @@
 
 #include <gtest/gtest.h>
 
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
@@ -45,29 +46,32 @@ protected:
         col_dcm->insert_value(7.89);
 
         col_arr = ColumnArray::create(ColumnInt64::create(), ColumnArray::ColumnOffsets::create());
-        Array array1 = {1, 2, 3};
-        Array array2 = {4};
-        col_arr->insert(array1);
-        col_arr->insert(Array());
-        col_arr->insert(array2);
+        Array array1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                        Field::create_field<TYPE_BIGINT>(3)};
+        Array array2 = {Field::create_field<TYPE_BIGINT>(4)};
+        col_arr->insert(Field::create_field<TYPE_ARRAY>(array1));
+        col_arr->insert(Field::create_field<TYPE_ARRAY>(Array()));
+        col_arr->insert(Field::create_field<TYPE_ARRAY>(array2));
 
         col_map = ColumnMap::create(ColumnString::create(), ColumnInt64::create(),
                                     ColumnArray::ColumnOffsets::create());
-        Array k1 = {"a", "b", "c"};
-        Array v1 = {1, 2, 3};
-        Array k2 = {"d"};
-        Array v2 = {4};
+        Array k1 = {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
+                    Field::create_field<TYPE_STRING>("c")};
+        Array v1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                    Field::create_field<TYPE_BIGINT>(3)};
+        Array k2 = {Field::create_field<TYPE_STRING>("d")};
+        Array v2 = {Field::create_field<TYPE_BIGINT>(4)};
         Array a = Array();
         Map map1, map2, map3;
-        map1.push_back(k1);
-        map1.push_back(v1);
-        col_map->insert(map1);
-        map3.push_back(a);
-        map3.push_back(a);
-        col_map->insert(map3);
-        map2.push_back(k2);
-        map2.push_back(v2);
-        col_map->insert(map2);
+        map1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        map1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        col_map->insert(Field::create_field<TYPE_MAP>(map1));
+        map3.push_back(Field::create_field<TYPE_ARRAY>(a));
+        map3.push_back(Field::create_field<TYPE_ARRAY>(a));
+        col_map->insert(Field::create_field<TYPE_MAP>(map3));
+        map2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        map2.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        col_map->insert(Field::create_field<TYPE_MAP>(map2));
     }
 
     ColumnString::MutablePtr col_str;
@@ -191,8 +195,12 @@ TEST_F(ColumnTest, ShrinkColumnMap) {
     EXPECT_EQ(data_col->size(), 3);
     auto v = get<Map>(shrunk_col->operator[](0));
     EXPECT_EQ(v.size(), 2);
-    EXPECT_EQ(get<Array>(v[0]), Array({"a", "b", "c"}));
-    EXPECT_EQ(get<Array>(v[1]), Array({1, 2, 3}));
+    EXPECT_EQ(get<Array>(v[0]),
+              Array({Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
+                     Field::create_field<TYPE_STRING>("c")}));
+    EXPECT_EQ(get<Array>(v[1]),
+              Array({Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2),
+                     Field::create_field<TYPE_INT>(3)}));
     v = get<Map>(shrunk_col->operator[](1));
     EXPECT_EQ(v.size(), 2);
     EXPECT_EQ(get<Array>(v[0]), Array());
@@ -209,8 +217,12 @@ TEST_F(ColumnTest, ShrinkColumnMap) {
     EXPECT_EQ(data_col->size(), 3);
     v = get<Map>(shrunk_col->operator[](0));
     EXPECT_EQ(v.size(), 2);
-    EXPECT_EQ(get<Array>(v[0]), Array({"a", "b", "c"}));
-    EXPECT_EQ(get<Array>(v[1]), Array({1, 2, 3}));
+    EXPECT_EQ(get<Array>(v[0]),
+              Array({Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
+                     Field::create_field<TYPE_STRING>("c")}));
+    EXPECT_EQ(get<Array>(v[1]),
+              Array({Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2),
+                     Field::create_field<TYPE_INT>(3)}));
     v = get<Map>(shrunk_col->operator[](1));
     EXPECT_EQ(v.size(), 2);
     EXPECT_EQ(get<Array>(v[0]), Array());

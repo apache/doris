@@ -68,7 +68,7 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
             file "baseall.txt"
         }
 
-        def load_with_injection = { injection, error_msg, success=false->
+        def load_with_injection = { injection, error_msg="", success=false->
             try {
                 GetDebugPoint().enableDebugPointForAllBEs(injection)
                 sql "insert into test select * from baseall where k1 <= 3"
@@ -103,6 +103,27 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
         load_with_injection("VTabletWriterV2._close_wait.load_timeout", "load timed out before close waiting")
         // DeltaWriterV2 stream_size is 0
         load_with_injection("DeltaWriterV2.init.stream_size", "failed to find tablet schema")
+
+        // injection cases for VTabletWriterV2 close logic
+        // Test LoadStreamStub close_finish_check close failed
+        load_with_injection("LoadStreamStub::close_finish_check.close_failed")
+        // Test LoadStreamStub _check_cancel when cancelled
+        load_with_injection("LoadStreamStub._check_cancel.cancelled")
+        // Test LoadStreamStub _send_with_retry stream write failed
+        load_with_injection("LoadStreamStub._send_with_retry.stream_write_failed")
+        // Test LoadStreamStub _handle_failure for different opcodes
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("LoadStreamStub._send_with_retry.stream_write_failed")
+            load_with_injection("LoadStreamStub._handle_failure.append_data_failed")
+            load_with_injection("LoadStreamStub._handle_failure.add_segment_failed")
+            load_with_injection("LoadStreamStub._handle_failure.close_load_failed")
+            load_with_injection("LoadStreamStub._handle_failure.get_schema_failed")
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("LoadStreamStub._send_with_retry.stream_write_failed")
+        }
+        // Test LoadStreamStub skip send segment
+        load_with_injection("LoadStreamStub.skip_send_segment")
+        load_with_injection("VTabletWriterV2._check_streams_finish.close_stream_failed")
 
         sql """ set enable_memtable_on_sink_node=false """
     }

@@ -172,8 +172,8 @@ PhysicalResultSink
 
 -- !pushdown_inner_join_subquery --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as BIGINT) = sum(id))) otherCondition=()
-----filter((cast(id as BIGINT) = 1) and (t1.id = 1))
+--NestedLoopJoin[CROSS_JOIN]
+----filter((t1.id = 1))
 ------PhysicalOlapScan[t1]
 ----filter((sum(id) = 1))
 ------hashAgg[GLOBAL]

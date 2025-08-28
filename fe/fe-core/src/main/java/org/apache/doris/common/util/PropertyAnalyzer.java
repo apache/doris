@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -37,6 +38,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -60,6 +62,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -102,6 +105,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_STORAGE_PAGE_SIZE = "storage_page_size";
     public static final long STORAGE_PAGE_SIZE_DEFAULT_VALUE = 65536L;
+
+    public static final String PROPERTIES_STORAGE_DICT_PAGE_SIZE = "storage_dict_page_size";
+    public static final long STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE = 262144L;
 
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
@@ -240,6 +246,10 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
+
+    public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
+
+    public static final String PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE = "variant_enable_typed_paths_to_sparse";
 
     public enum RewriteType {
         PUT,      // always put property
@@ -896,7 +906,8 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
-    public static String analyzeCompactionPolicy(Map<String, String> properties) throws AnalysisException {
+    public static String analyzeCompactionPolicy(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return SIZE_BASED_COMPACTION_POLICY;
         }
@@ -911,6 +922,9 @@ public class PropertyAnalyzer {
             }
         }
 
+        if (keysType == KeysType.UNIQUE_KEYS && compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)) {
+            throw new AnalysisException("Time series compaction policy is not supported for unique key table");
+        }
         return compactionPolicy;
     }
 
@@ -1106,6 +1120,24 @@ public class PropertyAnalyzer {
         return storagePageSize;
     }
 
+    public static long analyzeStorageDictPageSize(Map<String, String> properties) throws AnalysisException {
+        long storageDictPageSize = STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_DICT_PAGE_SIZE)) {
+            String storageDictPageSizeStr = properties.get(PROPERTIES_STORAGE_DICT_PAGE_SIZE);
+            try {
+                storageDictPageSize = Long.parseLong(storageDictPageSizeStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid storage dict page size: " + storageDictPageSizeStr);
+            }
+            if (storageDictPageSize < 0 || storageDictPageSize > 104857600) {
+                throw new AnalysisException("Storage dict page size must be between 0 and 100MB.");
+            }
+            storageDictPageSize = alignTo4K(storageDictPageSize);
+            properties.remove(PROPERTIES_STORAGE_DICT_PAGE_SIZE);
+        }
+        return storageDictPageSize;
+    }
+
     // analyzeStorageFormat will parse the storage format from properties
     // sql: alter table tablet_name set ("storage_format" = "v2")
     // Use this sql to convert all tablets(base and rollup index) to a new format segment
@@ -1193,28 +1225,56 @@ public class PropertyAnalyzer {
         return storagePolicy;
     }
 
-    /**
-     * @param properties
-     * @return <storageVaultName, storageVaultId>
-     * @throws AnalysisException
-     */
-    public static Pair<String, String> analyzeStorageVault(Map<String, String> properties) throws AnalysisException {
+    public static boolean hasStoragePolicy(Map<String, String> properties) {
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            return true;
+        }
+        return false;
+    }
+
+    public static String analyzeStorageVaultName(Map<String, String> properties) {
         String storageVaultName = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
             storageVaultName = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
             properties.remove(PROPERTIES_STORAGE_VAULT_NAME);
         }
 
+        return storageVaultName;
+    }
+
+    /**
+     * @param properties, db
+     * @return <storageVaultName, storageVaultId>
+     * @throws AnalysisException
+     */
+    public static Pair<String, String> analyzeStorageVault(Map<String, String> properties, Database db)
+            throws AnalysisException {
+        String storageVaultName = analyzeStorageVaultName(properties);
+        String storageVaultId = null;
+
         if (Strings.isNullOrEmpty(storageVaultName)) {
-            // If user does not specify one storage vault then FE would use the default vault
-            Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
-            if (info == null) {
-                throw new AnalysisException("No default storage vault."
-                        + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
-                        + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+            // If user does not specify one storage vault then FE would check db's storage vault then the default vault
+            // the storage vault inherit order is as follows: table -> db -> default
+            if (db.getDbProperties() != null) {
+                Map<String, String> dbProperties = new HashMap<>(db.getDbProperties().getProperties());
+                storageVaultName = PropertyAnalyzer.analyzeStorageVaultName(dbProperties);
             }
-            storageVaultName = info.first;
-            LOG.info("Using default storage vault, name:{} id:{}", info.first, info.second);
+
+            if (!Strings.isNullOrEmpty(storageVaultName)) {
+                storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+                LOG.info("Using database[{}] storage vault: name={}, id={}",
+                        db.getName(), storageVaultName, storageVaultId);
+            } else {
+                // continue to check default vault
+                Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
+                if (info == null || Strings.isNullOrEmpty(info.first) || Strings.isNullOrEmpty(info.second)) {
+                    throw new AnalysisException("No default storage vault."
+                            + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                            + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+                }
+                storageVaultName = info.first;
+                LOG.info("Using default storage vault, name:{} id:{}", info.first, info.second);
+            }
         }
 
         if (Strings.isNullOrEmpty(storageVaultName)) {
@@ -1223,7 +1283,7 @@ public class PropertyAnalyzer {
                     + " and pick one to set the table property `\"storage_vault_name\" = \"<vault_name>\"`");
         }
 
-        String storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+        storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
         if (Strings.isNullOrEmpty(storageVaultId)) {
             throw new AnalysisException("Storage vault '" + storageVaultName + "' does not exist. "
                     + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
@@ -1262,11 +1322,14 @@ public class PropertyAnalyzer {
         if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
-        PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
+
+        Type type = DataType.convertFromString(typeStr.toLowerCase()).toCatalogDataType();
+
         if (!type.isFixedPointType() && !type.isDateType()) {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
-        return ScalarType.createType(type);
+
+        return type;
     }
 
     public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)
@@ -1770,5 +1833,39 @@ public class PropertyAnalyzer {
                     Boolean.toString(Config.enable_skip_bitmap_column_by_default));
         }
         return properties;
+    }
+
+    public static int analyzeVariantMaxSubcolumnsCount(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSubcoumnsCount = defuatValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+            String maxSubcoumnsCountStr = properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+            try {
+                maxSubcoumnsCount = Integer.parseInt(maxSubcoumnsCountStr);
+                if (maxSubcoumnsCount < 0 || maxSubcoumnsCount > 100000) {
+                    throw new AnalysisException("varaint max counts count must between 0 and 100000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("varaint max counts count format error");
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+        }
+        return maxSubcoumnsCount;
+    }
+
+    public static boolean analyzeEnableTypedPathsToSparse(Map<String, String> properties,
+                        boolean defaultValue) throws AnalysisException {
+        boolean enableTypedPathsToSparse = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
+            String enableTypedPathsToSparseStr = properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+            try {
+                enableTypedPathsToSparse = Boolean.parseBoolean(enableTypedPathsToSparseStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+        }
+        return enableTypedPathsToSparse;
     }
 }

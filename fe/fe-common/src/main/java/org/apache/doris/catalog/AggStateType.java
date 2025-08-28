@@ -85,6 +85,8 @@ public class AggStateType extends Type {
             stringBuilder.append(subTypes.get(i).toSql());
             if (subTypeNullables.get(i)) {
                 stringBuilder.append(" null");
+            } else {
+                stringBuilder.append(" not null");
             }
         }
         stringBuilder.append(")");

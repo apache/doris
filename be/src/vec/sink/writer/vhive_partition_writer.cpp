@@ -53,34 +53,23 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _hive_serde_properties(hive_serde_properties),
           _hadoop_conf(hadoop_conf) {}
 
-Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
     _state = state;
 
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
+    if (!_write_info.broker_addresses.empty()) {
+        fs_properties.broker_addresses = &(_write_info.broker_addresses);
+    }
     io::FileDescription file_description = {
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
             .fs_name {}};
-    // If the destination path contains a schema, use the schema directly.
-    // If not, use defaultFS.
-    // Otherwise a write error will occur.
-    // example:
-    //    hdfs://host:port/path1/path2  --> hdfs://host:port
-    //    hdfs://nameservice/path1/path2 --> hdfs://nameservice
-    string::size_type idx = file_description.path.find("://");
-    if (idx != string::npos) {
-        idx = file_description.path.find("/", idx + 3);
-        if (idx != string::npos) {
-            file_description.fs_name = file_description.path.substr(0, idx);
-        }
-    }
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = true};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        bool parquet_disable_dictionary = false;
         TParquetCompressionType::type parquet_compression_type;
         switch (_hive_compress_type) {
         case TFileCompressType::PLAIN: {
@@ -100,10 +89,11 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
                                          to_string(_hive_compress_type));
         }
         }
+        ParquetFileOptions parquet_options = {parquet_compression_type,
+                                              TParquetVersion::PARQUET_1_0, false, true};
         _file_format_transformer = std::make_unique<VParquetTransformer>(
-                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names,
-                parquet_compression_type, parquet_disable_dictionary, TParquetVersion::PARQUET_1_0,
-                false);
+                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
+                parquet_options);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
@@ -145,7 +135,8 @@ Status VHivePartitionWriter::close(const Status& status) {
         }
     }
     if (status_ok) {
-        _state->hive_partition_updates().emplace_back(_build_partition_update());
+        auto partition_update = _build_partition_update();
+        _state->add_hive_partition_updates(partition_update);
     }
     return result_status;
 }

@@ -29,6 +29,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Base of lru cache, allow prune stale entry and prune all entry.
 class LRUCachePolicy : public CachePolicy {
@@ -47,6 +48,7 @@ public:
             _cache = std::make_shared<doris::DummyLRUCache>();
         }
         _init_mem_tracker(lru_cache_type_string(lru_cache_type));
+        CacheManager::instance()->register_cache(this);
     }
 
     LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
@@ -66,6 +68,7 @@ public:
             _cache = std::make_shared<doris::DummyLRUCache>();
         }
         _init_mem_tracker(lru_cache_type_string(lru_cache_type));
+        CacheManager::instance()->register_cache(this);
     }
 
     void reset_cache() { _cache.reset(); }
@@ -238,9 +241,9 @@ public:
         }
     }
 
-    int64_t adjust_capacity_weighted(double adjust_weighted) override {
-        std::lock_guard<std::mutex> l(_lock);
-        auto capacity = static_cast<size_t>(_initial_capacity * adjust_weighted);
+    int64_t adjust_capacity_weighted_unlocked(double adjust_weighted) {
+        auto capacity =
+                static_cast<size_t>(static_cast<double>(_initial_capacity) * adjust_weighted);
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
         COUNTER_SET(_cost_timer, (int64_t)0);
@@ -269,6 +272,25 @@ public:
         return _freed_entrys_counter->value();
     }
 
+    int64_t adjust_capacity_weighted(double adjust_weighted) override {
+        std::lock_guard<std::mutex> l(_lock);
+        return adjust_capacity_weighted_unlocked(adjust_weighted);
+    }
+
+    int64_t reset_initial_capacity(double adjust_weighted) override {
+        DCHECK(adjust_weighted != 0.0); // otherwise initial_capacity will always to be 0.
+        std::lock_guard<std::mutex> l(_lock);
+        int64_t prune_num = adjust_capacity_weighted_unlocked(adjust_weighted);
+        size_t old_capacity = _initial_capacity;
+        _initial_capacity =
+                static_cast<size_t>(static_cast<double>(_initial_capacity) * adjust_weighted);
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] {} reset initial capacity, new capacity {}, old capacity {}, prune num "
+                "{}",
+                type_string(_type), _initial_capacity, old_capacity, prune_num);
+        return prune_num;
+    };
+
 protected:
     void _init_mem_tracker(const std::string& type_name) {
         if (std::find(CachePolicy::MetadataCache.begin(), CachePolicy::MetadataCache.end(),
@@ -295,4 +317,5 @@ protected:
     std::shared_ptr<MemTracker> _value_mem_tracker;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

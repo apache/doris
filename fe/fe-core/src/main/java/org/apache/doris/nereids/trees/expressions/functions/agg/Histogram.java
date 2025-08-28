@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -43,9 +42,7 @@ public class Histogram extends NotNullableAggregateFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(AnyDataType.INSTANCE_WITHOUT_INDEX),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(AnyDataType.INSTANCE_WITHOUT_INDEX, IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(AnyDataType.INSTANCE_WITHOUT_INDEX, DoubleType.INSTANCE, IntegerType.INSTANCE)
+                    .args(AnyDataType.INSTANCE_WITHOUT_INDEX, IntegerType.INSTANCE)
     );
 
     private Histogram(boolean distinct, List<Expression> args) {
@@ -88,6 +85,11 @@ public class Histogram extends NotNullableAggregateFunction
         super("histogram", distinct, arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Histogram(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!(child(0).getDataType() instanceof PrimitiveType)) {
@@ -100,7 +102,7 @@ public class Histogram extends NotNullableAggregateFunction
      */
     @Override
     public Histogram withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new Histogram(distinct, children);
+        return new Histogram(getFunctionParams(distinct, children));
     }
 
     @Override

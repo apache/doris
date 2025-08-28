@@ -82,10 +82,7 @@ public:
 
     PipelinePtr add_pipeline(PipelinePtr parent = nullptr, int idx = -1);
 
-    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
-
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
-    // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 
     Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
@@ -95,8 +92,6 @@ public:
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
     void cancel(const Status reason);
-
-    // TODO: Support pipeline runtime filter
 
     TUniqueId get_query_id() const { return _query_id; }
 
@@ -121,22 +116,6 @@ public:
 
     [[nodiscard]] std::vector<PipelineTask*> get_revocable_tasks() const;
 
-    void set_memory_sufficient(bool sufficient);
-
-    void instance_ids(std::vector<TUniqueId>& ins_ids) const {
-        ins_ids.resize(_fragment_instance_ids.size());
-        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
-            ins_ids[i] = _fragment_instance_ids[i];
-        }
-    }
-
-    void instance_ids(std::vector<string>& ins_ids) const {
-        ins_ids.resize(_fragment_instance_ids.size());
-        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
-            ins_ids[i] = print_id(_fragment_instance_ids[i]);
-        }
-    }
-
     void clear_finished_tasks() {
         for (size_t j = 0; j < _tasks.size(); j++) {
             for (size_t i = 0; i < _tasks[j].size(); i++) {
@@ -144,6 +123,8 @@ public:
             }
         }
     }
+
+    std::string get_load_error_url();
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
@@ -237,7 +218,12 @@ private:
     std::atomic_bool _disable_period_report = true;
     std::atomic_uint64_t _previous_report_time = 0;
 
-    // profile reporting-related
+    // This callback is used to notify the FE of the status of the fragment.
+    // For example:
+    // 1. when the fragment is cancelled, it will be called.
+    // 2. when the fragment is finished, it will be called. especially, when the fragment is
+    // a insert into select statement, it should notfiy FE every fragment's status.
+    // And also, this callback is called periodly to notify FE the load process.
     report_status_callback _report_status_cb;
 
     DescriptorTbl* _desc_tbl = nullptr;
@@ -248,7 +234,7 @@ private:
 
     OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
+    std::vector<std::vector<std::shared_ptr<PipelineTask>>> _tasks;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
@@ -293,8 +279,22 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            _op_id_to_le_state;
+    /**
+     * Some states are shared by tasks in different pipeline task (e.g. local exchange , broadcast join).
+     *
+     * local exchange sink 0 ->                               -> local exchange source 0
+     *                            LocalExchangeSharedState
+     * local exchange sink 1 ->                               -> local exchange source 1
+     *
+     * hash join build sink 0 ->                               -> hash join build source 0
+     *                              HashJoinSharedState
+     * hash join build sink 1 ->                               -> hash join build source 1
+     *
+     * So we should keep states here.
+     */
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            _op_id_to_shared_state;
 
     std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
     std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
@@ -319,8 +319,6 @@ private:
      * +--------------------------------------+-------+
      */
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
-
-    std::vector<RuntimeFilterParamsContext*> _runtime_filter_states;
 
     // Total instance num running on all BEs
     int _total_instances = -1;

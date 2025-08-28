@@ -62,33 +62,31 @@ public:
 
 private:
     template <bool is_min>
-    DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
+    DecimalV2Value _get_decimalv2_min_or_max(const DataTypePtr& type);
 
     template <typename DecimalType, bool IsMin>
-    DecimalType _get_decimalv3_min_or_max(const TypeDescriptor& type);
+    DecimalType _get_decimalv3_min_or_max(const DataTypePtr& type);
 
-    Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
-                            vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
+    Status _validate_column(RuntimeState* state, const DataTypePtr& type,
+                            vectorized::ColumnPtr column, size_t slot_index,
                             fmt::memory_buffer& error_prefix, const size_t row_count,
                             vectorized::IColumn::Permutation* rows = nullptr) {
         RETURN_IF_CATCH_EXCEPTION({
-            return _internal_validate_column(state, type, is_nullable, column, slot_index,
-                                             stop_processing, error_prefix, row_count, rows);
+            return _internal_validate_column(state, type, column, slot_index, error_prefix,
+                                             row_count, rows);
         });
     }
 
-    Status _internal_validate_column(RuntimeState* state, const TypeDescriptor& type,
-                                     bool is_nullable, vectorized::ColumnPtr column,
-                                     size_t slot_index, bool* stop_processing,
+    Status _internal_validate_column(RuntimeState* state, const DataTypePtr& type,
+                                     vectorized::ColumnPtr column, size_t slot_index,
                                      fmt::memory_buffer& error_prefix, const size_t row_count,
                                      vectorized::IColumn::Permutation* rows = nullptr);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
-    // set stop_processing if we want to stop the whole process now.
     Status _validate_data(RuntimeState* state, vectorized::Block* block, const size_t rows,
-                          int& filtered_rows, bool* stop_processing);
+                          int& filtered_rows);
 
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation

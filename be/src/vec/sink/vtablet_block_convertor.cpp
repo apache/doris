@@ -48,11 +48,16 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer_to_string.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -93,14 +98,11 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         SCOPED_RAW_TIMER(&_validate_data_ns);
         _filter_map.clear();
         _filter_map.resize(rows, 0);
-        bool stop_processing = false;
-        RETURN_IF_ERROR(_validate_data(state, block.get(), rows, filtered_rows, &stop_processing));
+        auto st = _validate_data(state, block.get(), rows, filtered_rows);
         _num_filtered_rows += filtered_rows;
         has_filtered_rows = filtered_rows > 0;
-        if (stop_processing) {
-            // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
-            // because of "data unqualified"
-            return Status::DataQualityError("Encountered unqualified data, stop processing");
+        if (!st.ok()) {
+            return st;
         }
         _convert_to_dest_desc_block(block.get());
     }
@@ -130,7 +132,7 @@ void OlapTableBlockConvertor::init_autoinc_info(int64_t db_id, int64_t table_id,
 }
 
 template <bool is_min>
-DecimalV2Value OlapTableBlockConvertor::_get_decimalv2_min_or_max(const TypeDescriptor& type) {
+DecimalV2Value OlapTableBlockConvertor::_get_decimalv2_min_or_max(const DataTypePtr& type) {
     std::map<std::pair<int, int>, DecimalV2Value>* pmap;
     if constexpr (is_min) {
         pmap = &_min_decimalv2_val;
@@ -139,7 +141,8 @@ DecimalV2Value OlapTableBlockConvertor::_get_decimalv2_min_or_max(const TypeDesc
     }
 
     // found
-    auto iter = pmap->find({type.precision, type.scale});
+    auto iter = pmap->find(
+            {remove_nullable(type)->get_precision(), remove_nullable(type)->get_scale()});
     if (iter != pmap->end()) {
         return iter->second;
     }
@@ -147,16 +150,16 @@ DecimalV2Value OlapTableBlockConvertor::_get_decimalv2_min_or_max(const TypeDesc
     // save min or max DecimalV2Value for next time
     DecimalV2Value value;
     if constexpr (is_min) {
-        value.to_min_decimal(type.precision, type.scale);
+        value.to_min_decimal(type->get_precision(), type->get_scale());
     } else {
-        value.to_max_decimal(type.precision, type.scale);
+        value.to_max_decimal(type->get_precision(), type->get_scale());
     }
-    pmap->emplace(std::pair<int, int> {type.precision, type.scale}, value);
+    pmap->emplace(std::pair<int, int> {type->get_precision(), type->get_scale()}, value);
     return value;
 }
 
 template <typename DecimalType, bool IsMin>
-DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescriptor& type) {
+DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const DataTypePtr& type) {
     std::map<int, typename DecimalType::NativeType>* pmap;
     if constexpr (std::is_same_v<DecimalType, vectorized::Decimal32>) {
         pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
@@ -169,25 +172,24 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
     }
 
     // found
-    auto iter = pmap->find(type.precision);
+    auto iter = pmap->find(type->get_precision());
     if (iter != pmap->end()) {
         return DecimalType(iter->second);
     }
 
     typename DecimalType::NativeType value;
     if constexpr (IsMin) {
-        value = vectorized::min_decimal_value<DecimalType>(type.precision);
+        value = vectorized::min_decimal_value<DecimalType::PType>(type->get_precision());
     } else {
-        value = vectorized::max_decimal_value<DecimalType>(type.precision);
+        value = vectorized::max_decimal_value<DecimalType::PType>(type->get_precision());
     }
-    pmap->emplace(type.precision, value);
+    pmap->emplace(type->get_precision(), value);
     return DecimalType(value);
 }
 
 Status OlapTableBlockConvertor::_internal_validate_column(
-        RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
-        vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
-        fmt::memory_buffer& error_prefix, const size_t row_count,
+        RuntimeState* state, const DataTypePtr& type, vectorized::ColumnPtr column,
+        size_t slot_index, fmt::memory_buffer& error_prefix, const size_t row_count,
         vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
@@ -197,8 +199,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                                                    [&error_prefix, &error_msg]() -> std::string {
                                                        return fmt::to_string(error_prefix) +
                                                               fmt::to_string(error_msg);
-                                                   },
-                                                   stop_processing);
+                                                   });
         error_msg.clear();
         return ret;
     };
@@ -211,10 +212,15 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     };
 
     auto string_column_checker = [&](const ColumnString* column_string) {
-        size_t limit = config::string_type_length_soft_limit_bytes;
+        int limit = config::string_type_length_soft_limit_bytes;
+        int len = -1;
         // when type.len is negative, std::min will return overflow value, so we need to check it
-        if (type.len >= 0) {
-            limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        if (const auto* type_str =
+                    check_and_get_data_type<DataTypeString>(remove_nullable(type).get())) {
+            if (type_str->len() >= 0) {
+                len = type_str->len();
+                limit = std::min(limit, type_str->len());
+            }
         }
 
         auto* __restrict offsets = column_string->get_offsets().data();
@@ -230,12 +236,12 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                     auto str_val = column_string->get_data_at(j);
                     bool invalid = str_val.size > limit;
                     if (invalid) {
-                        if (str_val.size > type.len) {
+                        if (str_val.size > len) {
                             fmt::format_to(error_msg, "{}",
                                            "the length of input is too long than schema. ");
                             fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
                                            str_val.to_prefix(32));
-                            fmt::format_to(error_msg, "schema length: {}; ", type.len);
+                            fmt::format_to(error_msg, "schema length: {}; ", len);
                             fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
                         } else if (str_val.size > limit) {
                             fmt::format_to(
@@ -243,7 +249,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                                     "the length of input string is too long than vec schema. ");
                             fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
                                            str_val.to_prefix(32));
-                            fmt::format_to(error_msg, "schema length: {}; ", type.len);
+                            fmt::format_to(error_msg, "schema length: {}; ", len);
                             fmt::format_to(error_msg, "limit length: {}; ", limit);
                             fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
                         }
@@ -255,7 +261,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         return Status::OK();
     };
 
-    switch (type.type) {
+    switch (type->get_primitive_type()) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
@@ -269,7 +275,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                 assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
         for (size_t j = 0; j < row_count; ++j) {
             if (!_filter_map[j]) {
-                if (is_nullable && column_ptr && column_ptr->is_null_at(j)) {
+                if (type->is_nullable() && column_ptr && column_ptr->is_null_at(j)) {
                     continue;
                 }
                 auto str_val = column_string->get_data_at(j);
@@ -284,9 +290,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         break;
     }
     case TYPE_DECIMALV2: {
-        auto* column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
-                assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
-                        real_column_ptr.get()));
+        auto* column_decimal = const_cast<vectorized::ColumnDecimal128V2*>(
+                assert_cast<const vectorized::ColumnDecimal128V2*>(real_column_ptr.get()));
         const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
         const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
         for (size_t j = 0; j < row_count; ++j) {
@@ -296,8 +301,9 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                         column_decimal->get_data()[j]);
                 bool invalid = false;
 
-                if (dec_val.greater_than_scale(type.scale)) {
-                    auto code = dec_val.round(&dec_val, type.scale, HALF_UP);
+                if (dec_val.greater_than_scale(type->get_scale())) {
+                    auto code =
+                            dec_val.round(&dec_val, remove_nullable(type)->get_scale(), HALF_UP);
                     column_decimal->get_data()[j] = dec_val.value();
 
                     if (code != E_DEC_OK) {
@@ -309,8 +315,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                 if (dec_val > max_decimalv2 || dec_val < min_decimalv2) {
                     fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");
                     fmt::format_to(error_msg, ", value={}", dec_val.to_string());
-                    fmt::format_to(error_msg, ", precision={}, scale={}", type.precision,
-                                   type.scale);
+                    fmt::format_to(error_msg, ", precision={}, scale={}", type->get_precision(),
+                                   type->get_scale());
                     fmt::format_to(error_msg, ", min={}, max={}; ", min_decimalv2.to_string(),
                                    max_decimalv2.to_string());
                     invalid = true;
@@ -325,8 +331,9 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
     case TYPE_DECIMAL32: {
 #define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                               \
-    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType>*>(                    \
-            assert_cast<const vectorized::ColumnDecimal<DecimalType>*>(real_column_ptr.get()));   \
+    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType::PType>*>(             \
+            assert_cast<const vectorized::ColumnDecimal<DecimalType::PType>*>(                    \
+                    real_column_ptr.get()));                                                      \
     const auto& max_decimal = _get_decimalv3_min_or_max<DecimalType, false>(type);                \
     const auto& min_decimal = _get_decimalv3_min_or_max<DecimalType, true>(type);                 \
     const auto* __restrict datas = column_decimal->get_data().data();                             \
@@ -343,10 +350,11 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                 bool invalid = false;                                                             \
                 if (dec_val > max_decimal || dec_val < min_decimal) {                             \
                     fmt::format_to(error_msg, "{}", "decimal value is not valid for definition"); \
-                    fmt::format_to(error_msg, ", value={}", dec_val);                             \
-                    fmt::format_to(error_msg, ", precision={}, scale={}", type.precision,         \
-                                   type.scale);                                                   \
-                    fmt::format_to(error_msg, ", min={}, max={}; ", min_decimal, max_decimal);    \
+                    fmt::format_to(error_msg, ", value={}", dec_val.value);                       \
+                    fmt::format_to(error_msg, ", precision={}, scale={}", type->get_precision(),  \
+                                   type->get_scale());                                            \
+                    fmt::format_to(error_msg, ", min={}, max={}; ", min_decimal.value,            \
+                                   max_decimal.value);                                            \
                     invalid = true;                                                               \
                 }                                                                                 \
                 if (invalid) {                                                                    \
@@ -374,8 +382,9 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     case TYPE_ARRAY: {
         const auto* column_array =
                 assert_cast<const vectorized::ColumnArray*>(real_column_ptr.get());
-        DCHECK(type.children.size() == 1);
-        auto nested_type = type.children[0];
+        const auto* type_array =
+                assert_cast<const vectorized::DataTypeArray*>(remove_nullable(type).get());
+        auto nested_type = type_array->get_nested_type();
         const auto& offsets = column_array->get_offsets();
         vectorized::IColumn::Permutation permutation(offsets.back());
         for (size_t r = 0; r < row_count; ++r) {
@@ -384,16 +393,17 @@ Status OlapTableBlockConvertor::_internal_validate_column(
             }
         }
         fmt::format_to(error_prefix, "ARRAY type failed: ");
-        RETURN_IF_ERROR(_validate_column(state, nested_type, type.contains_nulls[0],
-                                         column_array->get_data_ptr(), slot_index, stop_processing,
-                                         error_prefix, permutation.size(), &permutation));
+        RETURN_IF_ERROR(_validate_column(state, nested_type, column_array->get_data_ptr(),
+                                         slot_index, error_prefix, permutation.size(),
+                                         &permutation));
         break;
     }
     case TYPE_MAP: {
         const auto column_map = assert_cast<const vectorized::ColumnMap*>(real_column_ptr.get());
-        DCHECK(type.children.size() == 2);
-        auto key_type = type.children[0];
-        auto val_type = type.children[1];
+        const auto* type_map =
+                assert_cast<const vectorized::DataTypeMap*>(remove_nullable(type).get());
+        auto key_type = type_map->get_key_type();
+        auto val_type = type_map->get_value_type();
         const auto& offsets = column_map->get_offsets();
         vectorized::IColumn::Permutation permutation(offsets.back());
         for (size_t r = 0; r < row_count; ++r) {
@@ -402,24 +412,23 @@ Status OlapTableBlockConvertor::_internal_validate_column(
             }
         }
         fmt::format_to(error_prefix, "MAP type failed: ");
-        RETURN_IF_ERROR(_validate_column(state, key_type, type.contains_nulls[0],
-                                         column_map->get_keys_ptr(), slot_index, stop_processing,
+        RETURN_IF_ERROR(_validate_column(state, key_type, column_map->get_keys_ptr(), slot_index,
                                          error_prefix, permutation.size(), &permutation));
-        RETURN_IF_ERROR(_validate_column(state, val_type, type.contains_nulls[1],
-                                         column_map->get_values_ptr(), slot_index, stop_processing,
+        RETURN_IF_ERROR(_validate_column(state, val_type, column_map->get_values_ptr(), slot_index,
                                          error_prefix, permutation.size(), &permutation));
         break;
     }
     case TYPE_STRUCT: {
         const auto column_struct =
                 assert_cast<const vectorized::ColumnStruct*>(real_column_ptr.get());
-        DCHECK(type.children.size() == column_struct->tuple_size());
+        const auto* type_struct =
+                assert_cast<const vectorized::DataTypeStruct*>(remove_nullable(type).get());
+        DCHECK(type_struct->get_elements().size() == column_struct->tuple_size());
         fmt::format_to(error_prefix, "STRUCT type failed: ");
         for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
-            RETURN_IF_ERROR(_validate_column(state, type.children[sc], type.contains_nulls[sc],
-                                             column_struct->get_column_ptr(sc), slot_index,
-                                             stop_processing, error_prefix,
-                                             column_struct->get_column_ptr(sc)->size()));
+            RETURN_IF_ERROR(_validate_column(
+                    state, type_struct->get_element(sc), column_struct->get_column_ptr(sc),
+                    slot_index, error_prefix, column_struct->get_column_ptr(sc)->size()));
         }
         break;
     }
@@ -438,12 +447,12 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     // Only two case:
     // 1. column is nullable but the desc is not nullable
     // 2. desc->type is BITMAP
-    if ((!is_nullable || type == TYPE_OBJECT) && column_ptr) {
+    if ((!type->is_nullable() || type->get_primitive_type() == TYPE_BITMAP) && column_ptr) {
         for (int j = 0; j < row_count; ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (null_map[j] && !_filter_map[row]) {
                 fmt::format_to(error_msg, "null value for not null column, type={}",
-                               type.debug_string());
+                               type->get_name());
                 RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
             }
         }
@@ -453,8 +462,13 @@ Status OlapTableBlockConvertor::_internal_validate_column(
 }
 
 Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::Block* block,
-                                               const size_t rows, int& filtered_rows,
-                                               bool* stop_processing) {
+                                               const size_t rows, int& filtered_rows) {
+    filtered_rows = 0;
+    Defer defer {[&] {
+        for (int i = 0; i < rows; ++i) {
+            filtered_rows += _filter_map[i];
+        }
+    }};
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         block->get_by_position(i).column =
@@ -463,13 +477,7 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::
 
         fmt::memory_buffer error_prefix;
         fmt::format_to(error_prefix, "column_name[{}], ", desc->col_name());
-        RETURN_IF_ERROR(_validate_column(state, desc->type(), desc->is_nullable(), column, i,
-                                         stop_processing, error_prefix, rows));
-    }
-
-    filtered_rows = 0;
-    for (int i = 0; i < rows; ++i) {
-        filtered_rows += _filter_map[i];
+        RETURN_IF_ERROR(_validate_column(state, desc->type(), column, i, error_prefix, rows));
     }
     return Status::OK();
 }
@@ -498,7 +506,7 @@ void OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::vectorized::Blo
 Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, size_t rows) {
     size_t idx = _auto_inc_col_idx.value();
     SlotDescriptor* slot = _output_tuple_desc->slots()[idx];
-    DCHECK(slot->type().type == PrimitiveType::TYPE_BIGINT);
+    DCHECK(slot->type()->get_primitive_type() == PrimitiveType::TYPE_BIGINT);
     DCHECK(!slot->is_nullable());
 
     size_t null_value_count = 0;
@@ -552,8 +560,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
         return Status::OK();
     }
     block->get_by_position(idx).column = std::move(dst_column);
-    block->get_by_position(idx).type =
-            vectorized::DataTypeFactory::instance().create_data_type(slot->type(), false);
+    block->get_by_position(idx).type = remove_nullable(slot->type());
     return Status::OK();
 }
 
@@ -576,7 +583,7 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::B
         dst_values.emplace_back(_auto_inc_id_allocator.next_id());
     }
     block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
-                                                    std::make_shared<DataTypeNumber<Int64>>(),
+                                                    std::make_shared<DataTypeInt64>(),
                                                     BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
     return Status::OK();
 }

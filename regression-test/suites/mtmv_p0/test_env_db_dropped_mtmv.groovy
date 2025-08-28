@@ -90,4 +90,8 @@ suite("test_env_db_dropped_mtmv") {
     def msg = sql """select ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"""
     logger.info(msg.toString())
     assertTrue(msg.toString().contains("does not exist"))
+
+    // select ${dbName2}.${mvName} should not throw exception
+    order_qt_query1 "select count(*) from ${dbName2}.${mvName};"
+    order_qt_query2 "select * from ${dbName2}.${mvName};"
 }

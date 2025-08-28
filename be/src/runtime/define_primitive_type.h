@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <type_traits>
+#include <cstdint>
 
-#include "gutil/integral_types.h"
 namespace doris {
 
 using PrimitiveNative = uint8_t;
@@ -27,14 +26,14 @@ using PrimitiveNative = uint8_t;
 enum PrimitiveType : PrimitiveNative {
     INVALID_TYPE = 0,
     TYPE_NULL,     /* 1 */
-    TYPE_BOOLEAN,  /* 2 */
-    TYPE_TINYINT,  /* 3 */
-    TYPE_SMALLINT, /* 4 */
-    TYPE_INT,      /* 5 */
-    TYPE_BIGINT,   /* 6 */
-    TYPE_LARGEINT, /* 7 */
-    TYPE_FLOAT,    /* 8 */
-    TYPE_DOUBLE,   /* 9 */
+    TYPE_BOOLEAN,  /* 2, uint8 */
+    TYPE_TINYINT,  /* 3, int8 */
+    TYPE_SMALLINT, /* 4, int16 */
+    TYPE_INT,      /* 5, int32 */
+    TYPE_BIGINT,   /* 6, int64 */
+    TYPE_LARGEINT, /* 7, int128 */
+    TYPE_FLOAT,    /* 8, float32 */
+    TYPE_DOUBLE,   /* 9, float64*/
     TYPE_VARCHAR,  /* 10 */
     TYPE_DATE,     /* 11 */
     TYPE_DATETIME, /* 12 */
@@ -47,28 +46,29 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_ARRAY,     /* 17 */
     TYPE_MAP,       /* 18 */
     TYPE_HLL,       /* 19 */
-    TYPE_DECIMALV2, /* 20 */
+    TYPE_DECIMALV2, /* 20, v2 128bit */
 
     TYPE_TIME [[deprecated]], /*TYPE_TIMEV2*/
 
-    TYPE_OBJECT,          /* 22 */
-    TYPE_STRING,          /* 23 */
-    TYPE_QUANTILE_STATE,  /* 24 */
-    TYPE_DATEV2,          /* 25 */
-    TYPE_DATETIMEV2,      /* 26 */
-    TYPE_TIMEV2,          /* 27 */
-    TYPE_DECIMAL32,       /* 28 */
-    TYPE_DECIMAL64,       /* 29 */
-    TYPE_DECIMAL128I,     /* 30 */
-    TYPE_JSONB,           /* 31 */
-    TYPE_VARIANT,         /* 32 */
-    TYPE_LAMBDA_FUNCTION, /* 33 */
-    TYPE_AGG_STATE,       /* 34 */
-    TYPE_DECIMAL256,      /* 35 */
-    TYPE_IPV4,            /* 36 */
-    TYPE_IPV6             /* 37 */
+    TYPE_BITMAP,             /* 22, bitmap */
+    TYPE_STRING,             /* 23 */
+    TYPE_QUANTILE_STATE,     /* 24 */
+    TYPE_DATEV2,             /* 25 */
+    TYPE_DATETIMEV2,         /* 26 */
+    TYPE_TIMEV2,             /* 27 */
+    TYPE_DECIMAL32,          /* 28 */
+    TYPE_DECIMAL64,          /* 29 */
+    TYPE_DECIMAL128I,        /* 30, v3 128bit */
+    TYPE_JSONB,              /* 31 */
+    TYPE_VARIANT,            /* 32 */
+    TYPE_LAMBDA_FUNCTION,    /* 33 */
+    TYPE_AGG_STATE,          /* 34 */
+    TYPE_DECIMAL256,         /* 35 */
+    TYPE_IPV4,               /* 36 */
+    TYPE_IPV6,               /* 37 */
+    TYPE_UINT32,             /* 38, used as offset */
+    TYPE_UINT64,             /* 39, used as offset */
+    TYPE_FIXED_LENGTH_OBJECT /* 40, represent fixed-length object on BE */
 };
 
-constexpr PrimitiveNative BEGIN_OF_PRIMITIVE_TYPE = INVALID_TYPE;
-constexpr PrimitiveNative END_OF_PRIMITIVE_TYPE = TYPE_DECIMAL256;
 } // namespace doris

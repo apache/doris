@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -139,9 +138,10 @@ public:
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
             std::string full_key;
-            full_key.resize(sizeof(int64_t) + key.size);
-            int8store(&full_key.front(), tablet_id);
-            memcpy((&full_key.front()) + sizeof(tablet_id), key.data, key.size);
+            full_key.reserve(sizeof(int64_t) + key.size);
+            const char* tid = reinterpret_cast<const char*>(&tablet_id);
+            full_key.append(tid, tid + sizeof(int64_t));
+            full_key.append(key.data, key.size);
             return full_key;
         }
     };
@@ -245,9 +245,9 @@ private:
         std::string key = encode_key(cache_id);
         auto* value = new CacheValue;
         value->item = item;
-        LOG(INFO) << "Add item mem"
-                  << ", cache_capacity: " << get_capacity() << ", cache_usage: " << get_usage()
-                  << ", mem_consum: " << mem_consumption();
+        VLOG_DEBUG << "Add item mem"
+                   << ", cache_capacity: " << get_capacity() << ", cache_usage: " << get_usage()
+                   << ", mem_consum: " << mem_consumption();
         auto* lru_handle = insert(key, value, 1, sizeof(Reusable), CachePriority::NORMAL);
         release(lru_handle);
     }

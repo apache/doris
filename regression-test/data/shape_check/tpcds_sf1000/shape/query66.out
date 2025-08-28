@@ -4,12 +4,12 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------PhysicalUnion
-------------------PhysicalProject
+--------PhysicalProject
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------PhysicalUnion
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
@@ -30,11 +30,10 @@ PhysicalResultSink
 ----------------------------------------filter((date_dim.d_year = 2001))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------filter((cast(t_time as BIGINT) <= 71770) and (time_dim.t_time >= 42970))
+------------------------------------filter((time_dim.t_time <= 71770) and (time_dim.t_time >= 42970))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[warehouse]
-------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
@@ -55,7 +54,7 @@ PhysicalResultSink
 ----------------------------------------filter((date_dim.d_year = 2001))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------filter((cast(t_time as BIGINT) <= 71770) and (time_dim.t_time >= 42970))
+------------------------------------filter((time_dim.t_time <= 71770) and (time_dim.t_time >= 42970))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[warehouse]

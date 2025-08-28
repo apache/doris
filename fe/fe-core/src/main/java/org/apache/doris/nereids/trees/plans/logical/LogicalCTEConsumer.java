@@ -108,9 +108,10 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
         return new SlotReference(StatementScopeIdGenerator.newExprId(),
                 producerOutputSlot.getName(), producerOutputSlot.getDataType(),
                 producerOutputSlot.nullable(), ImmutableList.of(cteName),
-                slotRef != null ? (slotRef.getTable().isPresent() ? slotRef.getTable().get() : null) : null,
-                slotRef != null ? (slotRef.getColumn().isPresent() ? slotRef.getColumn().get() : null) : null,
-                slotRef != null ? Optional.of(slotRef.getInternalName()) : Optional.empty());
+                slotRef != null ? slotRef.getOriginalTable().orElse(null) : null,
+                slotRef != null ? slotRef.getOriginalColumn().orElse(null) : null,
+                slotRef != null ? slotRef.getOneLevelTable().orElse(null) : null,
+                slotRef != null ? slotRef.getOneLevelColumn().orElse(null) : null);
     }
 
     public Map<Slot, Slot> getConsumerToProducerOutputMap() {
@@ -193,9 +194,27 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalCteConsumer[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalCteConsumer[" + id.asInt() + "]",
                 "cteId", cteId,
                 "relationId", relationId,
-                "name", name);
+                "name", name,
+                "stats", statistics);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        LogicalCTEConsumer that = (LogicalCTEConsumer) o;
+        return Objects.equals(consumerToProducerOutputMap, that.consumerToProducerOutputMap);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
     }
 }

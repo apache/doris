@@ -79,10 +79,10 @@ public:
 
     ~VDataStreamRecvr() override;
 
-    Status create_merger(const VExprContextSPtrs& ordering_expr,
-                         const std::vector<bool>& is_asc_order,
-                         const std::vector<bool>& nulls_first, size_t batch_size, int64_t limit,
-                         size_t offset);
+    MOCK_FUNCTION Status create_merger(const VExprContextSPtrs& ordering_expr,
+                                       const std::vector<bool>& is_asc_order,
+                                       const std::vector<bool>& nulls_first, size_t batch_size,
+                                       int64_t limit, size_t offset);
 
     std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
 
@@ -92,7 +92,7 @@ public:
 
     void add_block(Block* block, int sender_id, bool use_move);
 
-    Status get_next(Block* block, bool* eos);
+    MOCK_FUNCTION Status get_next(Block* block, bool* eos);
 
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     PlanNodeId dest_node_id() const { return _dest_node_id; }
@@ -103,7 +103,7 @@ public:
 
     void cancel_stream(Status exec_status);
 
-    void close();
+    MOCK_FUNCTION void close();
 
     // When the source reaches eos = true
     void set_sink_dep_always_ready() const;
@@ -111,7 +111,7 @@ public:
     // Careful: stream sender will call this function for a local receiver,
     // accessing members of receiver that are allocated by Object pool
     // in this function is not safe.
-    bool exceeds_limit(size_t block_byte_size);
+    MOCK_FUNCTION bool exceeds_limit(size_t block_byte_size);
     bool queue_exceeds_limit(size_t byte_size) const;
     bool is_closed() const { return _is_closed; }
 

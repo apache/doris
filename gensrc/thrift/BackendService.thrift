@@ -186,11 +186,16 @@ enum TDownloadType {
     S3 = 1,
 }
 
+enum TWarmUpEventType {
+    LOAD = 0,
+    QUERY = 1,
+}
+
 enum TWarmUpTabletsRequestType {
     SET_JOB = 0,
     SET_BATCH = 1,
     GET_CURRENT_JOB_STATE_AND_LEASE = 2,
-    CLEAR_JOB = 3,
+    CLEAR_JOB = 3
 }
 
 struct TJobMeta {
@@ -205,6 +210,7 @@ struct TWarmUpTabletsRequest {
     2: required i64 batch_id
     3: optional list<TJobMeta> job_metas
     4: required TWarmUpTabletsRequestType type
+    5: optional TWarmUpEventType event
 }
 
 struct TWarmUpTabletsResponse {
@@ -239,12 +245,12 @@ struct TQueryIngestBinlogRequest {
 }
 
 enum TIngestBinlogStatus {
-    ANALYSIS_ERROR,
-    UNKNOWN,
-    NOT_FOUND,
-    OK,
-    FAILED,
-    DOING
+    ANALYSIS_ERROR = 0,
+    UNKNOWN = 1,
+    NOT_FOUND = 2,
+    OK = 3,
+    FAILED = 4,
+    DOING = 5
 }
 
 struct TQueryIngestBinlogResult {
@@ -253,8 +259,8 @@ struct TQueryIngestBinlogResult {
 }
 
 enum TTopicInfoType {
-    WORKLOAD_GROUP = 0
-    MOVE_QUERY_TO_GROUP = 1
+    WORKLOAD_GROUP = 0,
+    MOVE_QUERY_TO_GROUP = 1,
     WORKLOAD_SCHED_POLICY = 2
 }
 
@@ -287,17 +293,17 @@ struct TWorkloadGroupInfo {
 }
 
 enum TWorkloadMetricType {
-    QUERY_TIME = 0
-    BE_SCAN_ROWS = 1
-    BE_SCAN_BYTES = 2
+    QUERY_TIME = 0,
+    BE_SCAN_ROWS = 1,
+    BE_SCAN_BYTES = 2,
     QUERY_BE_MEMORY_BYTES = 3
 }
 
 enum TCompareOperator {
-    EQUAL = 0
-    GREATER = 1
-    GREATER_EQUAL = 2
-    LESS = 3
+    EQUAL = 0,
+    GREATER = 1,
+    GREATER_EQUAL = 2,
+    LESS = 3,
     LESS_EQUAL = 4
 }
 
@@ -308,7 +314,7 @@ struct TWorkloadCondition {
 }
 
 enum TWorkloadActionType {
-    MOVE_QUERY_TO_GROUP = 0
+    MOVE_QUERY_TO_GROUP = 0,
     CANCEL_QUERY = 1
 }
 
@@ -344,11 +350,24 @@ struct TPublishTopicResult {
 struct TGetRealtimeExecStatusRequest {
     // maybe query id or other unique id
     1: optional Types.TUniqueId id
+    2: optional string req_type // "stats" or "profile"
 }
 
 struct TGetRealtimeExecStatusResponse {
     1: optional Status.TStatus status
     2: optional FrontendService.TReportExecStatusParams report_exec_status_params
+    // query_stats is for getting real-time query statistics of a certain query
+    3: optional FrontendService.TQueryStatistics query_stats
+}
+
+struct TDictionaryStatus {
+    1: optional i64 dictionary_id
+    2: optional i64 version_id
+    3: optional i64 dictionary_memory_size
+}
+
+struct TDictionaryStatusList {
+    1: optional list<TDictionaryStatus> dictionary_status_list
 }
 
 service BackendService {
@@ -414,4 +433,7 @@ service BackendService {
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 
     TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
+
+    // if empty, return all dictionary status.
+    TDictionaryStatusList get_dictionary_status(1:list<i64> dictionary_ids);
 }

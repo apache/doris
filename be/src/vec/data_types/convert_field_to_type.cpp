@@ -34,6 +34,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/typeid_cast.h"
@@ -58,40 +59,17 @@ namespace doris::vectorized {
 // TODO support more types
 class FieldVisitorToStringSimple : public StaticVisitor<String> {
 public:
-    String operator()(const Null& x) const { return "NULL"; }
-    String operator()(const UInt64& x) const { return std::to_string(x); }
-    String operator()(const Int64& x) const { return std::to_string(x); }
-    String operator()(const Float64& x) const { return std::to_string(x); }
-    String operator()(const String& x) const { return x; }
-    [[noreturn]] String operator()(const UInt128& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const Array& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const Tuple& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal32>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal64>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal128V2>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal128V3>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal256>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const JsonbField& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const VariantMap& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    template <PrimitiveType T>
+    String apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+        if constexpr (T == TYPE_NULL) {
+            return "NULL";
+        } else if constexpr (T == TYPE_BIGINT || T == TYPE_DOUBLE) {
+            return std::to_string(x);
+        } else if constexpr (is_string_type(T)) {
+            return x;
+        } else {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+        }
     }
 };
 
@@ -112,6 +90,11 @@ public:
         writer->writeStartString();
         writer->writeString(x);
         writer->writeEndString();
+    }
+    void operator()(const JsonbField& x, JsonbWriter* writer) const {
+        JsonbDocument* doc;
+        THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(x.get_value(), x.get_size(), &doc));
+        writer->writeValue(doc->getValue());
     }
     void operator()(const Array& x, JsonbWriter* writer) const;
 
@@ -148,9 +131,6 @@ public:
     void operator()(const Map& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
-    void operator()(const JsonbField& x, JsonbWriter* writer) const {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
 };
 
 void FieldVisitorToJsonb::operator()(const Array& x, JsonbWriter* writer) const {
@@ -164,27 +144,23 @@ void FieldVisitorToJsonb::operator()(const Array& x, JsonbWriter* writer) const 
 }
 
 namespace {
-template <typename From, typename To>
+template <typename From, PrimitiveType T>
 Field convert_numeric_type_impl(const Field& from) {
-    To result;
+    typename PrimitiveTypeTraits<T>::ColumnItemType result;
     if (!accurate::convertNumeric(from.get<From>(), result)) {
         return {};
     }
-    return result;
+    return Field::create_field<T>(result);
 }
 
-template <typename To>
+template <PrimitiveType T>
 void convert_numric_type(const Field& from, const IDataType& type, Field* to) {
-    if (from.get_type() == Field::Types::UInt64) {
-        *to = convert_numeric_type_impl<UInt64, To>(from);
-    } else if (from.get_type() == Field::Types::Int64) {
-        *to = convert_numeric_type_impl<Int64, To>(from);
-    } else if (from.get_type() == Field::Types::Float64) {
-        *to = convert_numeric_type_impl<Float64, To>(from);
-    } else if (from.get_type() == Field::Types::UInt128) {
-        // *to = convert_numeric_type_impl<UInt128, To>(from);
-    } else if (from.get_type() == Field::Types::Int128) {
-        *to = convert_numeric_type_impl<Int128, To>(from);
+    if (from.get_type() == PrimitiveType::TYPE_BIGINT) {
+        *to = convert_numeric_type_impl<Int64, T>(from);
+    } else if (from.get_type() == PrimitiveType::TYPE_DOUBLE) {
+        *to = convert_numeric_type_impl<Float64, T>(from);
+    } else if (from.get_type() == PrimitiveType::TYPE_LARGEINT) {
+        *to = convert_numeric_type_impl<Int128, T>(from);
     } else {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
@@ -198,72 +174,60 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         *to = src;
         return;
     }
-    WhichDataType which_type(type);
     // TODO add more types
-    if (type.is_value_represented_by_number() && src.get_type() != Field::Types::String) {
-        if (which_type.is_uint8()) {
-            return convert_numric_type<UInt8>(src, type, to);
-        }
-        if (which_type.is_uint16()) {
-            return convert_numric_type<UInt16>(src, type, to);
-        }
-        if (which_type.is_uint32()) {
-            return convert_numric_type<UInt32>(src, type, to);
-        }
-        if (which_type.is_uint64()) {
-            return convert_numric_type<UInt64>(src, type, to);
-        }
-        if (which_type.is_uint128()) {
-            // return convert_numric_type<UInt128>(src, type, to);
-        }
-        if (which_type.is_int8()) {
-            return convert_numric_type<Int8>(src, type, to);
-        }
-        if (which_type.is_int16()) {
-            return convert_numric_type<Int16>(src, type, to);
-        }
-        if (which_type.is_int32()) {
-            return convert_numric_type<Int32>(src, type, to);
-        }
-        if (which_type.is_int64()) {
-            return convert_numric_type<Int64>(src, type, to);
-        }
-        if (which_type.is_int128()) {
-            return convert_numric_type<Int128>(src, type, to);
-        }
-        if (which_type.is_float32()) {
-            return convert_numric_type<Float32>(src, type, to);
-        }
-        if (which_type.is_float64()) {
-            return convert_numric_type<Float64>(src, type, to);
-        }
-        if ((which_type.is_date() || which_type.is_date_time()) &&
-            src.get_type() == Field::Types::UInt64) {
+    if (type.is_value_represented_by_number() && !is_string_type(src.get_type())) {
+        switch (type.get_primitive_type()) {
+        case PrimitiveType::TYPE_BOOLEAN:
+            return convert_numric_type<TYPE_BOOLEAN>(src, type, to);
+        case PrimitiveType::TYPE_TINYINT:
+            return convert_numric_type<TYPE_TINYINT>(src, type, to);
+        case PrimitiveType::TYPE_SMALLINT:
+            return convert_numric_type<TYPE_SMALLINT>(src, type, to);
+        case PrimitiveType::TYPE_INT:
+            return convert_numric_type<TYPE_INT>(src, type, to);
+        case PrimitiveType::TYPE_BIGINT:
+            return convert_numric_type<TYPE_BIGINT>(src, type, to);
+        case PrimitiveType::TYPE_LARGEINT:
+            return convert_numric_type<TYPE_LARGEINT>(src, type, to);
+        case PrimitiveType::TYPE_FLOAT:
+            return convert_numric_type<TYPE_FLOAT>(src, type, to);
+        case PrimitiveType::TYPE_DOUBLE:
+            return convert_numric_type<TYPE_DOUBLE>(src, type, to);
+        case PrimitiveType::TYPE_DATE:
+        case PrimitiveType::TYPE_DATETIME: {
             /// We don't need any conversion UInt64 is under type of Date and DateTime
-            *to = src;
-            return;
+            if (is_date_type(src.get_type())) {
+                *to = src;
+                return;
+            }
+            break;
         }
-    } else if (which_type.is_string_or_fixed_string()) {
-        if (src.get_type() == Field::Types::String) {
+        default:
+            break;
+        }
+    } else if (is_string_type(type.get_primitive_type())) {
+        if (is_string_type(src.get_type())) {
             *to = src;
             return;
         }
         // TODO this is a very simple translator, support more complex types
-        *to = apply_visitor(FieldVisitorToStringSimple(), src);
+        FieldVisitorToStringSimple v;
+        *to = Field::create_field<TYPE_STRING>(apply_visitor(v, src));
         return;
-    } else if (which_type.is_json()) {
-        if (src.get_type() == Field::Types::JSONB) {
+    } else if (type.get_primitive_type() == PrimitiveType::TYPE_JSONB) {
+        if (src.get_type() == PrimitiveType::TYPE_JSONB) {
             *to = src;
             return;
         }
         JsonbWriter writer;
         Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                         src);
-        *to = JsonbField(writer.getOutput()->getBuffer(),
-                         cast_set<UInt32, size_t, false>(writer.getOutput()->getSize()));
+        *to = Field::create_field<TYPE_JSONB>(
+                JsonbField(writer.getOutput()->getBuffer(),
+                           cast_set<UInt32, size_t, false>(writer.getOutput()->getSize())));
         return;
-    } else if (which_type.is_variant_type()) {
-        if (src.get_type() == Field::Types::VariantMap) {
+    } else if (type.get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        if (src.get_type() == PrimitiveType::TYPE_VARIANT) {
             *to = src;
             return;
         }
@@ -272,7 +236,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
                                type.get_name(), src.get_type());
         return;
     } else if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(&type)) {
-        if (src.get_type() == Field::Types::Array) {
+        if (src.get_type() == PrimitiveType::TYPE_ARRAY) {
             const Array& src_arr = src.get<Array>();
             size_t src_arr_size = src_arr.size();
             const auto& element_type = *(type_array->get_nested_type());
@@ -284,7 +248,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
                                            element_type.get_name());
                 }
             }
-            *to = Field(res);
+            *to = Field::create_field<TYPE_ARRAY>(res);
             return;
         }
     }
@@ -306,7 +270,7 @@ void convert_field_to_type(const Field& from_value, const IDataType& to_type, Fi
     if (const auto* nullable_type = typeid_cast<const DataTypeNullable*>(&to_type)) {
         const IDataType& nested_type = *nullable_type->get_nested_type();
         /// NULL remains NULL after any conversion.
-        if (WhichDataType(nested_type).is_nothing()) {
+        if (nested_type.get_primitive_type() == INVALID_TYPE) {
             *to = {};
             return;
         }
@@ -319,4 +283,5 @@ void convert_field_to_type(const Field& from_value, const IDataType& to_type, Fi
         return convert_field_to_typeImpl(from_value, to_type, from_type_hint, to);
     }
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

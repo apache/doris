@@ -89,7 +89,7 @@ suite("test_stream_load_with_inverted_index_p0", "p0, nonConcurrent") {
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
             backend_id = tablet.BackendId
-            (code, out, err) = calc_file_crc_on_tablet(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            def (code, out, err) = calc_file_crc_on_tablet(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Run calc file: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def resultJson = parseJson(out.trim())
@@ -105,14 +105,14 @@ suite("test_stream_load_with_inverted_index_p0", "p0, nonConcurrent") {
     }
 
     set_be_config("inverted_index_ram_dir_enable", "true")
-    sql """ set disable_inverted_index_v1_for_variant = false """
-    test.call("V1")
-    sql """ set disable_inverted_index_v1_for_variant = true """
+    setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
+        if (isCloudMode()) {
+            return;
+        }
+        test.call("V1")
+    }
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "false")
-    sql """ set disable_inverted_index_v1_for_variant = false """
-    test.call("V1")
-    sql """ set disable_inverted_index_v1_for_variant = true """
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "true")
 }

@@ -20,11 +20,11 @@
 #include <fmt/compile.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <string.h>
-#include <time.h>
 
-#include <ostream>
+#include <cstring>
+#include <ctime>
 
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -85,43 +85,8 @@ DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& d
                              date_str.size());
     return val;
 }
-// refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
-// the time value between '-838:59:59' and '838:59:59'
-/// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
-int32_t time_to_buffer_from_double(double time, char* buffer) {
-    char* begin = buffer;
-    if (time < 0) {
-        time = -time;
-        *buffer++ = '-';
-    }
-    if (time > 3020399) {
-        time = 3020399;
-    }
-    int64_t hour = (int64_t)(time / 3600);
-    if (hour >= 100) {
-        buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
-    } else {
-        *buffer++ = (char)('0' + (hour / 10));
-        *buffer++ = (char)('0' + (hour % 10));
-    }
-    *buffer++ = ':';
-    int32_t minute = ((int32_t)(time / 60)) % 60;
-    *buffer++ = (char)('0' + (minute / 10));
-    *buffer++ = (char)('0' + (minute % 10));
-    *buffer++ = ':';
-    int32_t second = ((int32_t)time) % 60;
-    *buffer++ = (char)('0' + (second / 10));
-    *buffer++ = (char)('0' + (second % 10));
-    return buffer - begin;
-}
 
-int64_t check_over_max_time(int64_t time) {
-    const static int64_t max_time = (int64_t)3020399 * 1000 * 1000;
-    if (time > max_time) {
-        return max_time;
-    }
-    return time;
-}
+//FIXME: try to remove or refactor all those time input/output functions.
 int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     static int pow10[7] = {1, 10, 100, 1000, 10000, 100000, 1000000};
 
@@ -130,9 +95,7 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
         time = -time;
         *buffer++ = '-';
     }
-    auto m_time = int64_t(time);
-    // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
-    m_time = check_over_max_time(m_time);
+    auto m_time = (int64_t)TimeValue::limit_with_bound(time);
     int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
     if (hour >= 100) {
         buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
@@ -159,7 +122,7 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     buffer += scale;
     int32_t micosecond = m_time % (1000 * 1000);
     micosecond /= pow10[6 - scale];
-    auto it = buffer - 1;
+    auto* it = buffer - 1;
     while (micosecond) {
         *it = (char)('0' + (micosecond % 10));
         micosecond /= 10;
@@ -168,70 +131,50 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     return buffer - begin;
 }
 
-std::string time_to_buffer_from_double(double time) {
-    fmt::memory_buffer buffer;
-    if (time < 0) {
-        time = -time;
-        fmt::format_to(buffer, "-");
-    }
-    if (time > 3020399) {
-        time = 3020399;
-    }
-    int64_t hour = (int64_t)(time / 3600);
-    int32_t minute = ((int32_t)(time / 60)) % 60;
-    int32_t second = ((int32_t)time) % 60;
-    if (hour >= 100) {
-        fmt::format_to(buffer, fmt::format("{}", hour));
-    } else {
-        fmt::format_to(buffer, fmt::format("{:02d}", hour));
-    }
-    fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}", minute, second));
-    return fmt::to_string(buffer);
-}
-
 std::string timev2_to_buffer_from_double(double time, int scale) {
-    static int pow10[7] = {1, 10, 100, 1000, 10000, 100000, 1000000};
     fmt::memory_buffer buffer;
     if (time < 0) {
         time = -time;
         fmt::format_to(buffer, "-");
     }
-    auto m_time = int64_t(time);
-    m_time = check_over_max_time(m_time);
-    // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
-    int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
+    auto m_time = TimeValue::limit_with_bound(time);
+    auto hour = TimeValue::hour(m_time);
     if (hour >= 100) {
         fmt::format_to(buffer, fmt::format("{}", hour));
     } else {
         fmt::format_to(buffer, fmt::format("{:02d}", hour));
     }
-    m_time %= (int64_t)3600 * 1000 * 1000;
-    int64_t minute = m_time / (60 * 1000 * 1000);
-    m_time %= 60 * 1000 * 1000;
-    int32_t second = m_time / (1000 * 1000);
-    int32_t micosecond = m_time % (1000 * 1000);
-    micosecond /= pow10[6 - scale];
+    auto minute = TimeValue::minute(m_time);
+    auto second = TimeValue::second(m_time);
+    auto micosecond = TimeValue::microsecond(m_time);
+    micosecond /= common::exp10_i32(6 - scale);
     switch (scale) {
     case 0:
-        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}", minute, second, micosecond));
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}"), minute, second));
         break;
     case 1:
-        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:01d}", minute, second, micosecond));
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:01d}"), minute, second,
+                                           micosecond));
         break;
     case 2:
-        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:02d}", minute, second, micosecond));
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:02d}"), minute, second,
+                                           micosecond));
         break;
     case 3:
-        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:03d}", minute, second, micosecond));
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:03d}"), minute, second,
+                                           micosecond));
         break;
     case 4:
-        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:04d}", minute, second, micosecond));
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:04d}"), minute, second,
+                                           micosecond));
         break;
     case 5:
-        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:05d}", minute, second, micosecond));
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:05d}"), minute, second,
+                                           micosecond));
         break;
     case 6:
-        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:06d}", minute, second, micosecond));
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:06d}"), minute, second,
+                                           micosecond));
         break;
     }
 

@@ -25,7 +25,7 @@
 #include <mutex>
 
 #include "common/metric.h"
-#include "txn_kv.h"
+#include "meta-store/txn_kv.h"
 
 namespace doris::cloud {
 

@@ -123,7 +123,7 @@ public:
     void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
-        return ColumnConst::create(data, new_size);
+        return ColumnConst::create(data->clone_resized(1), new_size);
     }
 
     size_t size() const override { return s; }
@@ -140,16 +140,31 @@ public:
 
     bool is_null_at(size_t) const override { return data->is_null_at(0); }
 
-    void insert_range_from(const IColumn&, size_t /*start*/, size_t length) override {
+    void insert_range_from(const IColumn& src, size_t /*start*/, size_t length) override {
+        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "ColumnConst::insert_indices_from: src is not const or not equal to dst");
+        }
         s += length;
     }
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override {
+        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "ColumnConst::insert_indices_from: src is not const or not equal to dst");
+        }
         s += length;
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
+        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "ColumnConst::insert_indices_from: src is not const or not equal to dst");
+        }
         s += (indices_end - indices_begin);
     }
 
@@ -157,7 +172,14 @@ public:
 
     void insert_data(const char*, size_t) override { ++s; }
 
-    void insert_from(const IColumn&, size_t) override { ++s; }
+    void insert_from(const IColumn& src, size_t) override {
+        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "ColumnConst::insert_indices_from: src is not const or not equal to dst");
+        }
+        ++s;
+    }
 
     void clear() override { s = 0; }
 
@@ -165,21 +187,24 @@ public:
 
     void pop_back(size_t n) override { s -= n; }
 
-    StringRef serialize_value_into_arena(size_t, Arena& arena, char const*& begin) const override {
-        return data->serialize_value_into_arena(0, arena, begin);
+    StringRef serialize_value_into_arena(size_t n, Arena& arena,
+                                         char const*& begin) const override {
+        DCHECK_EQ(data->size(), 1);
+        auto* pos = arena.alloc_continue(data->serialize_size_at(0), begin);
+        return {pos, serialize_impl(pos, n)};
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        const auto* res = data->deserialize_and_insert_from_arena(pos);
-        data->pop_back(1);
-        ++s;
-        return res;
+        return pos + deserialize_impl(pos);
     }
 
     size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
 
-    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override {
-        data->serialize_vec(keys, num_rows, max_row_byte_size);
+    void serialize_vec(StringRef* keys, size_t num_rows) const override {
+        DCHECK_EQ(data->size(), 1);
+        for (size_t i = 0; i < num_rows; i++) {
+            serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+        }
     }
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
@@ -197,11 +222,6 @@ public:
         get_data_column_ptr()->update_crc_with_value(start, end, hash, nullptr);
     }
 
-    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                     const uint8_t* null_map) const override {
-        data->serialize_vec_with_null_map(keys, num_rows, null_map);
-    }
-
     void update_hash_with_value(size_t, SipHash& hash) const override {
         data->update_hash_with_value(0, hash);
     }
@@ -209,9 +229,7 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 
-    ColumnPtr replicate(const Offsets& offsets) const override;
-
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override;
@@ -267,13 +285,45 @@ public:
     template <typename T>
     T get_value() const {
         // Here the cast is correct, relevant code is rather tricky.
-        return static_cast<T>(get_field().safe_get<NearestFieldType<T>>());
+        return static_cast<T>(get_field().get<NearestFieldType<T>>());
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data->replace_column_data(rhs, row, self_row);
     }
+
+    void finalize() override { data->finalize(); }
+
+    void erase(size_t start, size_t length) override {
+        if (start >= s || length == 0) {
+            return;
+        }
+        length = std::min(length, s - start);
+        s = s - length;
+    }
+
+    size_t serialize_impl(char* pos, const size_t row) const override {
+        return data->serialize_impl(pos, 0);
+    }
+
+    size_t serialize_size_at(size_t row) const override { return data->serialize_size_at(0); }
+
+    size_t deserialize_impl(const char* pos) override {
+        ++s;
+        return data->deserialize_impl(pos);
+    }
 };
+
+// For example, DataType may not correspond to a type and const,
+// so it is necessary to make a special judgment of ColumnConst.
+template <typename Type>
+const Type* check_and_get_column_with_const(const IColumn& column) {
+    if (const auto* col_const = check_and_get_column<ColumnConst>(&column)) {
+        return check_and_get_column<Type>(col_const->get_data_column());
+    }
+    return check_and_get_column<Type>(column);
+}
+
 } // namespace doris::vectorized
 #include "common/compile_check_end.h"

@@ -305,12 +305,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 "markJoinSlotReference", markJoinSlotReference,
                 "hashJoinConjuncts", hashJoinConjuncts,
                 "otherJoinConjuncts", otherJoinConjuncts,
-                "markJoinConjuncts", markJoinConjuncts);
+                "markJoinConjuncts", markJoinConjuncts,
+                "stats", statistics);
         if (hint.distributeType != DistributeType.NONE) {
             args.add("hint");
             args.add(hint.getExplainString());
         }
-        return Utils.toSqlString("LogicalJoin[" + id.asInt() + "]", args.toArray());
+        return Utils.toSqlStringSkipNull("LogicalJoin[" + id.asInt() + "]", args.toArray());
     }
 
     @Override
@@ -426,12 +427,32 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), Optional.of(getLogicalProperties()), children, otherJoinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
-            List<Expression> hashJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
+    /**
+     * Creates a new LogicalJoin with updated hash join conjuncts, mark join conjuncts, and child plans.
+     *
+     * @param hashJoinConjuncts the list of hash join conjuncts used for hash-based join conditions.
+     * @param markJoinConjuncts the list of mark join conjuncts used for marking specific join conditions.
+     *                          These are typically used in semi-join or anti-join scenarios to track
+     *                          whether a condition is satisfied.
+     * @param left the left child plan.
+     * @param right the right child plan.
+     * @param otherJoinReorderContext the context for join reordering.
+     * @return a new LogicalJoin instance with the specified parameters.
+     */
+    public LogicalJoin<Plan, Plan> withHashAndMarkJoinConjunctsAndChildren(
+            List<Expression> hashJoinConjuncts, List<Expression> markJoinConjuncts,
+            Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, exceptAsteriskOutputs,
                 Optional.empty(), Optional.empty(), ImmutableList.of(left, right), otherJoinReorderContext);
+    }
+
+    public LogicalJoin<Plan, Plan> withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, exceptAsteriskOutputs,
+                Optional.empty(), Optional.empty(),
+                ImmutableList.of(left(), right()), joinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
@@ -452,7 +473,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, exceptAsteriskOutputs,
-                groupExpression, Optional.of(getLogicalProperties()), children, joinReorderContext);
+                groupExpression, Optional.empty(), children, joinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withJoinTypeAndContext(JoinType joinType,
@@ -467,6 +488,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, exceptAsteriskOutputs,
                 Optional.empty(), Optional.empty(), ImmutableList.of(left, right), otherJoinReorderContext);
+    }
+
+    public LogicalJoin<Plan, Plan> withDistributeHintChildren(DistributeHint hint, Plan left, Plan right) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, exceptAsteriskOutputs,
+                Optional.empty(), Optional.empty(), ImmutableList.of(left, right), joinReorderContext);
     }
 
     /**
@@ -636,5 +663,15 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         if (!joinType.isRightSemiOrAntiJoin()) {
             builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
         }
+    }
+
+    @Override
+    public String getFingerprint() {
+        List<Object> args = Lists.newArrayList(
+                "type", joinType,
+                "hashCondition", hashJoinConjuncts,
+                "otherCondition", otherJoinConjuncts,
+                "markCondition", markJoinConjuncts);
+        return Utils.toSqlString("JOIN", args.toArray());
     }
 }

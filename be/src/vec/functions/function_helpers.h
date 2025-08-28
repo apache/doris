@@ -57,7 +57,7 @@ const ColumnConst* check_and_get_column_const(const IColumn* column) {
 
     const auto* res = assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(column);
 
-    if (!check_column<Type>(&res->get_data_column())) {
+    if (!is_column<Type>(&res->get_data_column())) {
         return nullptr;
     }
 
@@ -84,16 +84,16 @@ bool check_column_const(const IColumn* column) {
 const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColumn* column);
 
 /// Transform anything to Field.
-template <typename T>
-    requires(!IsDecimalNumber<T>)
-Field to_field(const T& x) {
-    return Field(NearestFieldType<T>(x));
+template <PrimitiveType T>
+    requires(!is_decimal(T))
+Field to_field(const typename PrimitiveTypeTraits<T>::ColumnItemType& x) {
+    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::NearestFieldType(x));
 }
 
-template <typename T>
-    requires IsDecimalNumber<T>
-Field to_field(const T& x, UInt32 scale) {
-    return Field(NearestFieldType<T>(x, scale));
+template <PrimitiveType T>
+    requires(is_decimal(T))
+Field to_field(const typename PrimitiveTypeTraits<T>::ColumnItemType& x, UInt32 scale) {
+    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::NearestFieldType(x, scale));
 }
 
 Columns convert_const_tuple_to_constant_elements(const ColumnConst& column);

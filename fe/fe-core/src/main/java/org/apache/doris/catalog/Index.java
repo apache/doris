@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
@@ -65,19 +66,15 @@ public class Index implements Writable {
     private Map<String, String> properties;
     @SerializedName(value = "ct", alternate = {"comment"})
     private String comment;
-    @SerializedName(value = "cui", alternate = {"columnUniqueIds"})
-    private List<Integer> columnUniqueIds;
 
     public Index(long indexId, String indexName, List<String> columns,
-            IndexDef.IndexType indexType, Map<String, String> properties, String comment,
-            List<Integer> columnUniqueIds) {
+            IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
         this.indexId = indexId;
         this.indexName = indexName;
         this.columns = columns == null ? Lists.newArrayList() : Lists.newArrayList(columns);
         this.indexType = indexType;
         this.properties = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
         this.comment = comment;
-        this.columnUniqueIds = columnUniqueIds == null ? Lists.newArrayList() : Lists.newArrayList(columnUniqueIds);
         if (indexType == IndexDef.IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
                 if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
@@ -101,7 +98,6 @@ public class Index implements Writable {
         this.indexType = null;
         this.properties = null;
         this.comment = null;
-        this.columnUniqueIds = null;
     }
 
     public long getIndexId() {
@@ -149,11 +145,16 @@ public class Index implements Writable {
             return "";
         }
 
-        return "(" + new PrintableMap(properties, "=", true, false, ",").toString() + ")";
+        // Use TreeMap to ensure consistent ordering of properties
+        return "(" + new PrintableMap(new java.util.TreeMap<>(properties), "=", true, false, ",").toString() + ")";
     }
 
     public String getInvertedIndexParser() {
         return InvertedIndexUtil.getInvertedIndexParser(properties);
+    }
+
+    public boolean isInvertedIndexParserNone() {
+        return InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equals(getInvertedIndexParser());
     }
 
     public String getInvertedIndexParserMode() {
@@ -172,8 +173,30 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
     }
 
+    // Whether the index can be changed in light mode
     public boolean isLightIndexChangeSupported() {
         return indexType == IndexDef.IndexType.INVERTED;
+    }
+
+    // Whether the index can be added in light mode
+    // cloud mode supports light add for ngram_bf index and non-tokenized inverted index (parser="none")
+    // local mode supports light add for both inverted index and ngram_bf index
+    // the rest of the index types do not support light add
+    public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
+        if (Config.isCloudMode()) {
+            if (indexType == IndexDef.IndexType.INVERTED) {
+                return isInvertedIndexParserNone() && enableAddIndexForNewData;
+            } else if (indexType == IndexDef.IndexType.NGRAM_BF) {
+                return enableAddIndexForNewData;
+            }
+            return false;
+        }
+        return (indexType == IndexDef.IndexType.NGRAM_BF && enableAddIndexForNewData)
+                || (indexType == IndexDef.IndexType.INVERTED);
+    }
+
+    public String getInvertedIndexCustomAnalyzer() {
+        return InvertedIndexUtil.getInvertedIndexCustomAnalyzer(properties);
     }
 
     public String getComment() {
@@ -189,14 +212,6 @@ public class Index implements Writable {
 
     public void setComment(String comment) {
         this.comment = comment;
-    }
-
-    public List<Integer> getColumnUniqueIds() {
-        return columnUniqueIds;
-    }
-
-    public void setColumnUniqueIds(List<Integer> columnUniqueIds) {
-        this.columnUniqueIds = columnUniqueIds;
     }
 
     @Override
@@ -216,7 +231,7 @@ public class Index implements Writable {
 
     public Index clone() {
         return new Index(indexId, indexName, new ArrayList<>(columns),
-                indexType, new HashMap<>(properties), comment, columnUniqueIds);
+                indexType, new HashMap<>(properties), comment);
     }
 
     @Override
@@ -246,12 +261,26 @@ public class Index implements Writable {
             sb.append(getPropertiesString());
         }
         if (StringUtils.isNotBlank(comment)) {
-            sb.append(" COMMENT '").append(getComment(true)).append("'");
+            sb.append(" COMMENT \"").append(getComment(true)).append("\"");
         }
         return sb.toString();
     }
 
-    public TOlapTableIndex toThrift() {
+    public List<Integer> getColumnUniqueIds(List<Column> schema) {
+        List<Integer> columnUniqueIds = new ArrayList<>();
+        if (schema != null) {
+            for (String columnName : columns) {
+                for (Column column : schema) {
+                    if (columnName.equalsIgnoreCase(column.getName())) {
+                        columnUniqueIds.add(column.getUniqueId());
+                    }
+                }
+            }
+        }
+        return columnUniqueIds;
+    }
+
+    public TOlapTableIndex toThrift(List<Integer> indexColumnUniqueIds) {
         TOlapTableIndex tIndex = new TOlapTableIndex();
         tIndex.setIndexId(indexId);
         tIndex.setIndexName(indexName);
@@ -260,15 +289,16 @@ public class Index implements Writable {
         if (properties != null) {
             tIndex.setProperties(properties);
         }
-        tIndex.setColumnUniqueIds(columnUniqueIds);
+        tIndex.setColumnUniqueIds(indexColumnUniqueIds);
         return tIndex;
     }
 
-    public OlapFile.TabletIndexPB toPb(Map<Integer, Column> columnMap) {
+    public OlapFile.TabletIndexPB toPb(Map<Integer, Column> columnMap, List<Integer> indexColumnUniqueIds) {
         OlapFile.TabletIndexPB.Builder builder = OlapFile.TabletIndexPB.newBuilder();
         builder.setIndexId(indexId);
         builder.setIndexName(indexName);
-        for (Integer columnUniqueId : columnUniqueIds) {
+
+        for (Integer columnUniqueId : indexColumnUniqueIds) {
             Column column = columnMap.get(columnUniqueId);
             if (column != null) {
                 builder.addColUniqueId(column.getUniqueId());

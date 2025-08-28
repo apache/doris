@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -44,11 +43,11 @@ class ExistsApplyToJoinTest implements MemoPatternMatchSupported {
         LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(0, "t2", 1);
         List<Slot> rightSlots = right.getOutput();
         EqualTo equalTo = new EqualTo(leftSlots.get(0), rightSlots.get(0));
-        Exists exists = new Exists(right, false);
         LogicalApply<LogicalOlapScan, LogicalOlapScan> apply =
                 new LogicalApply<>(ImmutableList.of(leftSlots.get(0), rightSlots.get(0)),
-                        exists, Optional.of(equalTo), Optional.empty(),
-                        false, false, false, left, right);
+                        LogicalApply.SubQueryType.EXITS_SUBQUERY, false, Optional.empty(), Optional.empty(),
+                        Optional.of(equalTo), Optional.empty(),
+                        false, false, left, right);
         PlanChecker.from(MemoTestUtils.createConnectContext(), apply)
                 .applyTopDown(new ExistsApplyToJoin())
                 .matchesFromRoot(logicalJoin(
@@ -64,11 +63,11 @@ class ExistsApplyToJoinTest implements MemoPatternMatchSupported {
         LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(0, "t2", 1);
         List<Slot> rightSlots = right.getOutput();
         EqualTo equalTo = new EqualTo(leftSlots.get(0), rightSlots.get(0));
-        Exists exists = new Exists(right, false);
         LogicalApply<LogicalOlapScan, LogicalOlapScan> apply =
                 new LogicalApply<>(Collections.emptyList(),
-                        exists, Optional.of(equalTo), Optional.empty(),
-                        false, false, false, left, right);
+                        LogicalApply.SubQueryType.EXITS_SUBQUERY, false, Optional.empty(), Optional.empty(),
+                        Optional.of(equalTo), Optional.empty(),
+                        false, false, left, right);
         PlanChecker.from(MemoTestUtils.createConnectContext(), apply)
                 .applyTopDown(new ExistsApplyToJoin())
                 .matchesFromRoot(logicalJoin(
@@ -84,11 +83,11 @@ class ExistsApplyToJoinTest implements MemoPatternMatchSupported {
         LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(0, "t2", 1);
         List<Slot> rightSlots = right.getOutput();
         EqualTo equalTo = new EqualTo(leftSlots.get(0), rightSlots.get(0));
-        Exists exists = new Exists(right, true);
         LogicalApply<LogicalOlapScan, LogicalOlapScan> apply =
                 new LogicalApply<>(Collections.emptyList(),
-                        exists, Optional.of(equalTo), Optional.empty(),
-                        false, false, false, left, right);
+                        LogicalApply.SubQueryType.EXITS_SUBQUERY, true, Optional.empty(), Optional.empty(),
+                        Optional.of(equalTo), Optional.empty(),
+                        false, false, left, right);
         PlanChecker.from(MemoTestUtils.createConnectContext(), apply)
                 .applyTopDown(new ExistsApplyToJoin())
                 .matchesFromRoot(logicalFilter(logicalJoin(
@@ -105,11 +104,11 @@ class ExistsApplyToJoinTest implements MemoPatternMatchSupported {
         LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(0, "t2", 1);
         List<Slot> rightSlots = right.getOutput();
         EqualTo equalTo = new EqualTo(leftSlots.get(0), rightSlots.get(0));
-        Exists exists = new Exists(right, true);
         LogicalApply<LogicalOlapScan, LogicalOlapScan> apply =
                 new LogicalApply<>(ImmutableList.of(leftSlots.get(0), rightSlots.get(0)),
-                        exists, Optional.of(equalTo), Optional.empty(),
-                        false, false, false, left, right);
+                        LogicalApply.SubQueryType.EXITS_SUBQUERY, true, Optional.empty(), Optional.empty(),
+                        Optional.of(equalTo), Optional.empty(),
+                        false, false, left, right);
         PlanChecker.from(MemoTestUtils.createConnectContext(), apply)
                 .applyTopDown(new ExistsApplyToJoin())
                 .matchesFromRoot(logicalJoin(

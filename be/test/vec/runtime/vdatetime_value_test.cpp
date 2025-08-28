@@ -630,4 +630,252 @@ TEST(VDateTimeValueTest, date_v2_daynr_test) {
     }
 }
 
+TEST(VDateTimeValueTest, date_v2_from_date_format_str_with_all_space) {
+    auto test_all_space = [](const std::string& format_str) {
+        std::string date_str = "   ";
+        {
+            DateV2Value<DateTimeV2ValueType> date;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+
+        {
+            DateV2Value<DateV2ValueType> date;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+
+        {
+            VecDateTimeValue date;
+            date._type = TIME_DATE;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+
+        {
+            VecDateTimeValue date;
+            date._type = TIME_DATETIME;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+    };
+
+    test_all_space("%Y-%m-%d %H:%i:%s.%f");
+    test_all_space("%Y");
+    test_all_space("%Y-%m-%d");
+    test_all_space("%Y-%m-%d %H:%i:%s");
+    test_all_space("%Y-%m-%d %H:%i:%s.%f %p");
+    for (char ch = 'a'; ch <= 'z'; ch++) {
+        std::string fomat_str = "%" + std::string(1, ch);
+        test_all_space(fomat_str);
+    }
+    for (char ch = 'A'; ch <= 'Z'; ch++) {
+        std::string fomat_str = "%" + std::string(1, ch);
+        test_all_space(fomat_str);
+    }
+}
+
+TEST(VDateTimeValueTest, datetime_diff_test) {
+    // Test case 1: DATE to DATE - Different years, months, days
+    {
+        DateV2Value<DateV2ValueType> date1;
+        std::string date_str1 = "2020-01-15";
+        std::string format = "%Y-%m-%d";
+        EXPECT_TRUE(date1.from_date_format_str(format.data(), format.size(), date_str1.data(),
+                                               date_str1.size()));
+
+        DateV2Value<DateV2ValueType> date2;
+        std::string date_str2 = "2023-08-20";
+        EXPECT_TRUE(date2.from_date_format_str(format.data(), format.size(), date_str2.data(),
+                                               date_str2.size()));
+
+        // Test all time units for DATE to DATE
+        EXPECT_EQ(datetime_diff<TimeUnit::YEAR>(date1, date2), 3);
+        EXPECT_EQ(datetime_diff<TimeUnit::MONTH>(date1, date2), 3 * 12 + 7);
+        EXPECT_EQ(datetime_diff<TimeUnit::WEEK>(date1, date2), 187); // Approximately
+        EXPECT_EQ(datetime_diff<TimeUnit::DAY>(date1, date2), 1313);
+        EXPECT_EQ(datetime_diff<TimeUnit::HOUR>(date1, date2), 1313 * 24);
+        EXPECT_EQ(datetime_diff<TimeUnit::MINUTE>(date1, date2), 1313 * 24 * 60);
+        EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(date1, date2), 1313 * 24 * 60 * 60);
+        EXPECT_EQ(datetime_diff<TimeUnit::MILLISECOND>(date1, date2), 1313 * 24 * 60 * 60 * 1000LL);
+        EXPECT_EQ(datetime_diff<TimeUnit::MICROSECOND>(date1, date2),
+                  1313 * 24 * 60 * 60 * 1000000LL);
+    }
+
+    // Test case 2: DATETIME to DATETIME - Testing rounding consistency across units
+    {
+        // Test 2.1: Hour rounding - less than 1 hour should truncate to 0
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 10:00:00.000000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 10:59:59.999999";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::HOUR>(dt1, dt2), 0);
+        }
+
+        // Test 2.2: Hour rounding - exactly 1 hour
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 10:00:00.000000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 11:00:00.000000";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::HOUR>(dt1, dt2), 1);
+        }
+
+        // Test 2.3: Minute rounding - less than 1 minute should truncate to 0
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 10:15:00.000000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 10:15:59.999999";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::MINUTE>(dt1, dt2), 0);
+        }
+
+        // Test 2.4: Minute rounding - exactly 1 minute
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 10:15:00.000000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 10:16:00.000000";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::MINUTE>(dt1, dt2), 1);
+        }
+
+        // Test 2.5: Second rounding - less than 1 second should truncate to 0
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 10:15:30.000000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 10:15:30.999999";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(dt1, dt2), 0);
+        }
+
+        // Test 2.6: Second rounding - exactly 1 second
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 10:15:30.000000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 10:15:31.000000";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(dt1, dt2), 1);
+        }
+
+        // Test 2.7: Mixed unit truncating case - complex example with multiple units
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 10:00:00.000000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 11:29:45.750000";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::HOUR>(dt1, dt2),
+                      1); // 1h 29m 45.75s = 1.496h, truncates to 1
+            EXPECT_EQ(datetime_diff<TimeUnit::MINUTE>(dt1, dt2),
+                      89); // 1h 29m 45.75s = 89.7625m, truncates to 89
+            EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(dt1, dt2),
+                      5385); // 1h 29m 45.75s = 5385.75s, truncates to 5385
+        }
+
+        // Test 2.8: Negative differences with truncating - less than 1 unit
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 10:15:00.000000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 10:14:30.250000";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::MINUTE>(dt1, dt2), 0);   // -0.5m truncates to 0
+            EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(dt1, dt2), -29); // -29.75s truncates to -29
+        }
+
+        // Test 2.9: Negative differences with truncating - exact unit
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 10:15:00.000000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 10:14:00.000000";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::MINUTE>(dt1, dt2), -1);  // Exactly -1 minute
+            EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(dt1, dt2), -60); // Exactly -60 seconds
+        }
+
+        // Test 2.10: Negative differences with truncating - complex example
+        {
+            DateV2Value<DateTimeV2ValueType> dt1;
+            std::string dt_str1 = "2023-05-10 11:30:30.750000";
+            std::string format = "%Y-%m-%d %H:%i:%s.%f";
+            EXPECT_TRUE(dt1.from_date_format_str(format.data(), format.size(), dt_str1.data(),
+                                                 dt_str1.size()));
+
+            DateV2Value<DateTimeV2ValueType> dt2;
+            std::string dt_str2 = "2023-05-10 10:00:00.000000";
+            EXPECT_TRUE(dt2.from_date_format_str(format.data(), format.size(), dt_str2.data(),
+                                                 dt_str2.size()));
+
+            EXPECT_EQ(datetime_diff<TimeUnit::HOUR>(dt1, dt2),
+                      -1); // -1h 30m 30.75s = -1.5085h, truncates to -1
+            EXPECT_EQ(datetime_diff<TimeUnit::MINUTE>(dt1, dt2),
+                      -90); // -1h 30m 30.75s = -90.5125m, truncates to -90
+            EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(dt1, dt2),
+                      -5430); // -1h 30m 30.75s = -5430.75s, truncates to -5430
+        }
+    }
+}
+
 } // namespace doris::vectorized

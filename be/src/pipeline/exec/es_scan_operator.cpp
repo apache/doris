@@ -19,7 +19,7 @@
 
 #include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
-#include "vec/exec/scan/new_es_scanner.h"
+#include "vec/exec/scan/es_scanner.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -45,9 +45,9 @@ static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& 
 Status EsScanLocalState::_init_profile() {
     RETURN_IF_ERROR(Base::_init_profile());
 
-    _blocks_read_counter = ADD_COUNTER(_runtime_profile, "BlocksRead", TUnit::UNIT);
-    _read_timer = ADD_TIMER(_runtime_profile, "TotalRawReadTime(*)");
-    _materialize_timer = ADD_TIMER(_runtime_profile, "MaterializeTupleTime(*)");
+    _blocks_read_counter = ADD_COUNTER(custom_profile(), "BlocksRead", TUnit::UNIT);
+    _read_timer = ADD_TIMER(custom_profile(), "TotalRawReadTime(*)");
+    _materialize_timer = ADD_TIMER(custom_profile(), "MaterializeTupleTime(*)");
     return Status::OK();
 }
 
@@ -62,7 +62,7 @@ Status EsScanLocalState::_process_conjuncts(RuntimeState* state) {
     return Status::OK();
 }
 
-Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status EsScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -78,13 +78,11 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
             properties[ESScanReader::KEY_TYPE] = es_scan_range->type;
         }
         properties[ESScanReader::KEY_SHARD] = std::to_string(es_scan_range->shard_id);
-        properties[ESScanReader::KEY_BATCH_SIZE] =
-                std::to_string(RuntimeFilterConsumer::_state->batch_size());
+        properties[ESScanReader::KEY_BATCH_SIZE] = std::to_string(_state->batch_size());
         properties[ESScanReader::KEY_HOST_PORT] = get_host_and_port(es_scan_range->es_hosts);
         // push down limit to Elasticsearch
         // if predicate in _conjuncts can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
-        if (p.limit() != -1 && p.limit() <= RuntimeFilterConsumer::_state->batch_size() &&
-            p.conjuncts().empty()) {
+        if (p.limit() != -1 && p.limit() <= _state->batch_size() && p.conjuncts().empty()) {
             properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(p.limit());
         }
 
@@ -92,12 +90,11 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
         properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
                 properties, p._column_names, p._docvalue_context, &doc_value_mode);
 
-        std::shared_ptr<vectorized::NewEsScanner> scanner = vectorized::NewEsScanner::create_shared(
-                RuntimeFilterConsumer::_state, this, p._limit, p._tuple_id, properties,
-                p._docvalue_context, doc_value_mode,
-                RuntimeFilterConsumer::_state->runtime_profile());
+        std::shared_ptr<vectorized::EsScanner> scanner = vectorized::EsScanner::create_shared(
+                _state, this, p._limit, p._tuple_id, properties, p._docvalue_context,
+                doc_value_mode, _state->runtime_profile());
 
-        RETURN_IF_ERROR(scanner->prepare(RuntimeFilterConsumer::_state, Base::_conjuncts));
+        RETURN_IF_ERROR(scanner->prepare(_state, Base::_conjuncts));
         scanners->push_back(scanner);
     }
 
@@ -136,8 +133,8 @@ Status EsScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status EsScanOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::open(state));
+Status EsScanOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::prepare(state));
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {

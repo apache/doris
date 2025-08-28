@@ -39,8 +39,8 @@ suite ("multi_agg_with_same_slot") {
     sql "insert into d_table select 2,2,2,'b',2;"
     sql "insert into d_table select 3,-3,null,'c',-3;"
 
-    createMV("create materialized view kmv as select k1,k2,avg(k3),max(k3) from d_table group by k1,k2;")
-    createMV("create materialized view kmv2 as select k1,k2,avg(k5),max(k5) from d_table group by k1,k2;")
+    createMV("create materialized view kmv as select k1 as a1,k2 as a2,avg(k3) as a3,max(k3) as a4 from d_table group by k1,k2;")
+    createMV("create materialized view kmv2 as select k1 as b1 ,k2 as b2,avg(k5) as b3,max(k5) as b4 from d_table group by k1,k2;")
 
     sql "insert into d_table select -4,-4,-4,'d',-4;"
     sql "insert into d_table(k4,k2,k5) values('d',4,4);"

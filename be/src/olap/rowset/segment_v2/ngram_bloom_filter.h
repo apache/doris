@@ -29,6 +29,7 @@ namespace doris {
 static constexpr uint64_t SEED_GEN = 217728422;
 
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 enum HashStrategyPB : int;
 
 class NGramBloomFilter : public BloomFilter {
@@ -37,13 +38,13 @@ public:
     static const size_t HASH_FUNCTIONS = 2;
     using UnderType = uint64_t;
     NGramBloomFilter(size_t size);
-    void add_bytes(const char* data, uint32_t len) override;
+    void add_bytes(const char* data, size_t len) override;
     bool contains(const BloomFilter& bf_) const override;
-    Status init(const char* buf, uint32_t size, HashStrategyPB strategy) override;
+    Status init(const char* buf, size_t size, HashStrategyPB strategy) override;
     char* data() const override {
         return reinterpret_cast<char*>(const_cast<uint64_t*>(filter.data()));
     }
-    uint32_t size() const override { return _size; }
+    size_t size() const override { return _size; }
     void add_hash(uint64_t) override {}
     bool test_hash(uint64_t hash) const override { return true; }
     bool has_null() const override { return true; }
@@ -55,13 +56,14 @@ private:
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
-    size_t _size;
+    size_t _size = 0;
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-    size_t words;
+    size_t words = 0;
     std::vector<uint64_t> filter;
 };
 
 } // namespace segment_v2
 } // namespace doris
+#include "common/compile_check_end.h"

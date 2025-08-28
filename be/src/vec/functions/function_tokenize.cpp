@@ -18,9 +18,11 @@
 #include "vec/functions/function_tokenize.h"
 
 #include <glog/logging.h>
+#include <rapidjson/prettywriter.h>
 
 #include <algorithm>
 #include <boost/regex.hpp>
+#include <memory>
 #include <utility>
 
 #include "CLucene/StdHeader.h"
@@ -36,6 +38,8 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+using namespace doris::segment_v2::inverted_index;
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
     boost::regex pattern(
@@ -59,52 +63,72 @@ Status parse(const std::string& str, std::map<std::string, std::string>& result)
     return Status::OK();
 }
 
-void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
-                                    InvertedIndexCtx& inverted_index_ctx,
-                                    IColumn& dest_nested_column,
-                                    ColumnArray::Offsets64& dest_offsets,
-                                    NullMapType* dest_nested_null_map) const {
-    ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
-    ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
-    ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
-    column_string_chars.reserve(0);
-
-    ColumnArray::Offset64 string_pos = 0;
-    ColumnArray::Offset64 dest_pos = 0;
+void FunctionTokenize::_do_tokenize_none(const ColumnString& src_column_string,
+                                         const MutableColumnPtr& dest_column_ptr) const {
     ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
-
     for (size_t i = 0; i < src_offsets_size; i++) {
         const StringRef tokenize_str = src_column_string.get_data_at(i);
 
+        rapidjson::Document doc;
+        doc.SetArray();
+        rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+
+        rapidjson::Value obj(rapidjson::kObjectType);
+        obj.AddMember(
+                "token",
+                rapidjson::Value(tokenize_str.data,
+                                 static_cast<rapidjson::SizeType>(tokenize_str.size), allocator)
+                        .Move(),
+                allocator);
+        doc.PushBack(obj, allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+        writer.SetFormatOptions(rapidjson::kFormatSingleLineArray);
+        doc.Accept(writer);
+        const std::string json_array_str = buffer.GetString();
+
+        dest_column_ptr->insert_data(json_array_str.data(), json_array_str.size());
+    }
+}
+
+void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
+                                    InvertedIndexCtx& inverted_index_ctx,
+                                    const MutableColumnPtr& dest_column_ptr) const {
+    ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
+    for (size_t i = 0; i < src_offsets_size; i++) {
+        const StringRef tokenize_str = src_column_string.get_data_at(i);
         if (tokenize_str.size == 0) {
-            dest_offsets.push_back(dest_pos);
+            dest_column_ptr->insert_data("", 0);
             continue;
         }
-        auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-                inverted_index_ctx.char_filter_map);
-        reader->init(tokenize_str.data, tokenize_str.size, true);
 
-        std::vector<std::string> query_tokens =
-                doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        reader.get(), inverted_index_ctx.analyzer, "tokenize",
-                        doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
-        for (auto token : query_tokens) {
-            const size_t old_size = column_string_chars.size();
-            const size_t split_part_size = token.length();
-            if (split_part_size > 0) {
-                const size_t new_size = old_size + split_part_size;
-                column_string_chars.resize(new_size);
-                memcpy(column_string_chars.data() + old_size, token.data(), split_part_size);
-                // add dist string offset
-                string_pos += split_part_size;
+        auto reader = InvertedIndexAnalyzer::create_reader(inverted_index_ctx.char_filter_map);
+        reader->init(tokenize_str.data, (int)tokenize_str.size, true);
+        auto analyzer_tokens = InvertedIndexAnalyzer::get_analyse_result(
+                reader.get(), inverted_index_ctx.analyzer);
+
+        rapidjson::Document doc;
+        doc.SetArray();
+        rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+        for (const auto& analyzer_token : analyzer_tokens) {
+            rapidjson::Value obj(rapidjson::kObjectType);
+            obj.AddMember(
+                    "token",
+                    rapidjson::Value(analyzer_token.get_single_term().c_str(), allocator).Move(),
+                    allocator);
+            if (inverted_index_ctx.support_phrase == INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+                obj.AddMember("position", analyzer_token.position, allocator);
             }
-            column_string_offsets.push_back(string_pos);
-            // not null
-            (*dest_nested_null_map).push_back(false);
-            // array offset + 1
-            dest_pos++;
+            doc.PushBack(obj, allocator);
         }
-        dest_offsets.push_back(dest_pos);
+        rapidjson::StringBuffer buffer;
+        rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+        writer.SetFormatOptions(rapidjson::kFormatSingleLineArray);
+        doc.Accept(writer);
+        const std::string json_array_str = buffer.GetString();
+
+        dest_column_ptr->insert_data(json_array_str.data(), json_array_str.size());
     }
 }
 
@@ -117,44 +141,44 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
     const auto& [right_column, right_const] =
             unpack_if_const(block.get_by_position(arguments[1]).column);
 
-    DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
-    auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(),
-                                               ColumnArray::ColumnOffsets::create());
+    auto dest_column_type = std::make_shared<vectorized::DataTypeString>();
+    auto dest_column_ptr = dest_column_type->create_column();
 
-    IColumn* dest_nested_column = &dest_column_ptr->get_data();
-    auto& dest_offsets = dest_column_ptr->get_offsets();
-    DCHECK(dest_nested_column != nullptr);
-    dest_nested_column->reserve(0);
-    dest_offsets.reserve(0);
-
-    NullMapType* dest_nested_null_map = nullptr;
-    ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
-    dest_nested_column = dest_nullable_col->get_nested_column_ptr().get();
-    dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
-
-    if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
-        if (auto col_right = check_and_get_column<ColumnString>(right_column.get())) {
+    if (const auto* col_left = check_and_get_column<ColumnString>(src_column.get())) {
+        if (const auto* col_right = check_and_get_column<ColumnString>(right_column.get())) {
             InvertedIndexCtx inverted_index_ctx;
             std::map<std::string, std::string> properties;
             auto st = parse(col_right->get_data_at(0).to_string(), properties);
             if (!st.ok()) {
                 return st;
             }
+            inverted_index_ctx.custom_analyzer =
+                    get_custom_analyzer_string_from_properties(properties);
             inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties));
             if (inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
-                return Status::Error<doris::ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
-                        "unsupported parser type. currently, only 'english', 'chinese', and "
-                        "'unicode' analyzers are supported.");
+                return Status::Error<doris::ErrorCode::INDEX_INVALID_PARAMETERS>(
+                        "unsupported parser type. currently, only 'english', 'chinese', "
+                        "'unicode', 'icu', 'basic' and 'ik' analyzers are supported.");
+            }
+
+            // Special handling for PARSER_NONE: return original string as single token
+            if (inverted_index_ctx.custom_analyzer.empty() &&
+                inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_NONE) {
+                _do_tokenize_none(*col_left, dest_column_ptr);
+                block.replace_by_position(result, std::move(dest_column_ptr));
+                return Status::OK();
             }
 
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
+            inverted_index_ctx.support_phrase =
+                    get_parser_phrase_support_string_from_properties(properties);
             inverted_index_ctx.char_filter_map =
                     get_parser_char_filter_map_from_properties(properties);
             inverted_index_ctx.lower_case = get_parser_lowercase_from_properties(properties);
             inverted_index_ctx.stop_words = get_parser_stopwords_from_properties(properties);
 
-            std::unique_ptr<lucene::analysis::Analyzer> analyzer;
+            std::shared_ptr<lucene::analysis::Analyzer> analyzer;
             try {
                 analyzer =
                         doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
@@ -162,11 +186,13 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             } catch (CLuceneError& e) {
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                         "inverted index create analyzer failed: {}", e.what());
+            } catch (Exception& e) {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                        "inverted index create analyzer failed: {}", e.what());
             }
 
             inverted_index_ctx.analyzer = analyzer.get();
-            _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,
-                         dest_nested_null_map);
+            _do_tokenize(*col_left, inverted_index_ctx, dest_column_ptr);
 
             block.replace_by_position(result, std::move(dest_column_ptr));
             return Status::OK();
@@ -174,4 +200,10 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
     }
     return Status::RuntimeError("unimplemented function {}", get_name());
 }
+
+void register_function_tokenize(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionTokenize>();
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -38,7 +38,8 @@ public final class GlobalVariable {
     public static final int VARIABLE_VERSION_101 = 101;
     public static final int VARIABLE_VERSION_200 = 200;
     public static final int VARIABLE_VERSION_300 = 300;
-    public static final int CURRENT_VARIABLE_VERSION = VARIABLE_VERSION_300;
+    public static final int VARIABLE_VERSION_400 = 400;
+    public static final int CURRENT_VARIABLE_VERSION = VARIABLE_VERSION_400;
     public static final String VARIABLE_VERSION = "variable_version";
 
     public static final String VERSION_COMMENT = "version_comment";
@@ -64,6 +65,7 @@ public final class GlobalVariable {
     public static final String AUDIT_PLUGIN_MAX_BATCH_BYTES = "audit_plugin_max_batch_bytes";
     public static final String AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC = "audit_plugin_max_batch_interval_sec";
     public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
+    public static final String AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH = "audit_plugin_max_insert_stmt_length";
     public static final String AUDIT_PLUGIN_LOAD_TIMEOUT = "audit_plugin_load_timeout";
 
     public static final String ENABLE_GET_ROW_COUNT_FROM_FILE_LIST = "enable_get_row_count_from_file_list";
@@ -76,6 +78,9 @@ public final class GlobalVariable {
     public static final String HUGE_PARTITION_LOWER_BOUND_ROWS = "huge_partition_lower_bound_rows";
 
     public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
+
+    public static final String ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR
+            = "enable_ansi_query_organization_behavior";
 
     @VariableMgr.VarAttr(name = VARIABLE_VERSION, flag = VariableMgr.INVISIBLE
             | VariableMgr.READ_ONLY | VariableMgr.GLOBAL)
@@ -151,6 +156,16 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VariableMgr.GLOBAL)
     public static int auditPluginMaxSqlLength = 4096;
 
+    @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH, flag = VariableMgr.GLOBAL,
+            description = {"专门用于限制 INSERT 语句的长度。如果该值大于 AUDIT_PLUGIN_MAX_SQL_LENGTH，"
+                    + "则使用 AUDIT_PLUGIN_MAX_SQL_LENGTH 的值。"
+                    + "如果 INSERT 语句超过该长度，将会被截断。",
+                    "This is specifically used to limit the length of INSERT statements. "
+                            + "If this value is greater than AUDIT_PLUGIN_MAX_SQL_LENGTH, "
+                            + "it will use the value of AUDIT_PLUGIN_MAX_SQL_LENGTH. "
+                            + "If an INSERT statement exceeds this length, it will be truncated."})
+    public static int auditPluginMaxInsertStmtLength = Integer.MAX_VALUE;
+
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_LOAD_TIMEOUT, flag = VariableMgr.GLOBAL)
     public static int auditPluginLoadTimeoutS = 600;
 
@@ -191,6 +206,18 @@ public final class GlobalVariable {
                 "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
                 "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
     public static boolean enableFetchIcebergStats = false;
+
+
+    @VariableMgr.VarAttr(name = ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR, flag = VariableMgr.GLOBAL,
+            description = {
+                    "控制 query organization 的行为。当设置为 true 时使用 ANSI 的 query organization 行为，即作用于整个语句。"
+                            + "当设置为 false 时，使用 Doris 历史版本的行为，"
+                            + "即 order by 默认只作用于 set operation 的最后一个 operand。",
+                    "Controls the behavior of query organization. When set to true, uses the ANSI query"
+                            + " organization behavior, which applies to the entire statement. When set to false,"
+                            + " uses the behavior of Doris's historical versions, where order by by default only"
+                            + " applies to the last operand of the set operation."})
+    public static boolean enable_ansi_query_organization_behavior = true;
 
     // Don't allow creating instance.
     private GlobalVariable() {

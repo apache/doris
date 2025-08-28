@@ -19,8 +19,11 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.rules.expression.rules.ColumnBound;
+import org.apache.doris.nereids.rules.expression.rules.ColumnRange;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -29,10 +32,14 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.RangeSet;
+import com.google.common.collect.TreeRangeSet;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -41,7 +48,6 @@ import java.util.stream.Collectors;
  * 3 in (1, null, 3, 4) => null
  */
 public class InPredicate extends Expression {
-
     private final Expression compareExpr;
     private final List<Expression> options;
 
@@ -59,6 +65,56 @@ public class InPredicate extends Expression {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitInPredicate(this, context);
+    }
+
+    /** optionsAreLiterals */
+    public boolean optionsAreLiterals() {
+        return getOrInitMutableState("ALL_CHILDREN_ARE_LITERALS", () -> {
+            boolean allChildrenAreLiterals = true;
+            for (Expression option : options) {
+                if (!(option instanceof Literal)) {
+                    allChildrenAreLiterals = false;
+                    break;
+                }
+            }
+            return allChildrenAreLiterals;
+        });
+    }
+
+    /** getLiteralOptionSet */
+    public Set<Literal> getLiteralOptionSet() {
+        return getOrInitMutableState("OPTIONS_SET", () -> {
+            TreeSet<Literal> literals = new TreeSet<>();
+            for (Expression option : options) {
+                literals.add((Literal) option);
+            }
+            return literals;
+        });
+    }
+
+    /** optionsContainsNullLiteral */
+    public boolean optionsContainsNullLiteral() {
+        return getOrInitMutableState("OPTIONS_CONTAINS_NULL_LITERAL", () -> {
+            boolean containsNull = false;
+            for (Expression option : options) {
+                if (option instanceof NullLiteral) {
+                    containsNull = true;
+                    break;
+                }
+            }
+            return containsNull;
+        });
+    }
+
+    /** getLiteralOptionsRangeSet */
+    public ColumnRange getLiteralOptionsRangeSet() {
+        return getOrInitMutableState("OPTIONS_RANGE_SET", () -> {
+            RangeSet<ColumnBound> union = TreeRangeSet.create();
+            for (Expression expr : getOptions()) {
+                union.add(ColumnBound.singleton((Literal) expr));
+            }
+            return new ColumnRange(union);
+        });
     }
 
     @Override
@@ -121,6 +177,13 @@ public class InPredicate extends Expression {
         return compareExpr + " IN " + options.stream()
             .map(Expression::toString)
             .collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    @Override
+    public String getFingerprint() {
+        return compareExpr + " IN " + options.stream()
+                .map(Expression::getFingerprint)
+                .collect(Collectors.joining(", ", "(", ")"));
     }
 
     @Override

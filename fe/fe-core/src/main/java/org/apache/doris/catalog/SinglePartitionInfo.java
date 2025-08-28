@@ -17,26 +17,8 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.persist.gson.GsonUtils;
-
-import java.io.DataInput;
-import java.io.IOException;
-
 public class SinglePartitionInfo extends PartitionInfo {
     public SinglePartitionInfo() {
         super(PartitionType.UNPARTITIONED);
-    }
-
-    @Deprecated
-    public static PartitionInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), SinglePartitionInfo.class);
-        }
-
-        PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.readFields(in);
-        return partitionInfo;
     }
 }

@@ -35,12 +35,13 @@ struct Slice;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class BoolRLEDecoder final : public Decoder {
 public:
     BoolRLEDecoder() = default;
     ~BoolRLEDecoder() override = default;
 
-    void set_data(Slice* slice) override;
+    Status set_data(Slice* slice) override;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override;
@@ -55,6 +56,7 @@ private:
     RleDecoder<uint8_t> _decoder;
     std::vector<uint8_t> _values;
     size_t _num_bytes;
-    size_t _current_value_idx = 0;
 };
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

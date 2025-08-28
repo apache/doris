@@ -115,7 +115,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
             if (catalog instanceof HMSExternalCatalog) {
                 HMSExternalCatalog hmsExternalCatalog = (HMSExternalCatalog) catalog;
-                if (!hmsExternalCatalog.isEnableHmsEventsIncrementalSync()) {
+                if (!hmsExternalCatalog.getHmsProperties().isHmsEventsIncrementalSyncEnabled()) {
                     continue;
                 }
                 try {
@@ -128,7 +128,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                 } catch (MetastoreNotificationFetchException e) {
                     LOG.warn("Failed to fetch hms events on {}. msg: ", hmsExternalCatalog.getName(), e);
                 } catch (Exception ex) {
-                    hmsExternalCatalog.onRefreshCache(true);
+                    hmsExternalCatalog.onRefreshCache();
                     updateLastSyncedEventId(hmsExternalCatalog, -1);
                     LOG.warn("Failed to process hive metastore [{}] events .",
                             hmsExternalCatalog.getName(), ex);
@@ -212,7 +212,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             return null;
         }
 
-        int batchSize = hmsExternalCatalog.getHmsEventsBatchSizePerRpc();
+        int batchSize = hmsExternalCatalog.getHmsProperties().getHmsEventsBatchSizePerRpc();
         try {
             NotificationEventResponse notificationEventResponse =
                     hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, batchSize, null);
@@ -269,7 +269,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
 
         // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
         int maxEventSize = Math.min((int) (masterLastSyncedEventId - lastSyncedEventId),
-                hmsExternalCatalog.getHmsEventsBatchSizePerRpc());
+                hmsExternalCatalog.getHmsProperties().getHmsEventsBatchSizePerRpc());
         try {
             return hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, maxEventSize, null);
         } catch (MetastoreNotificationFetchException e) {
@@ -327,7 +327,6 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         String sql = "REFRESH CATALOG " + hmsExternalCatalog.getName();
         OriginStatement originStmt = new OriginStatement(sql, 0);
         ConnectContext ctx = new ConnectContext();
-        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setEnv(Env.getCurrentEnv());
         MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, ctx,

@@ -4,12 +4,12 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------PhysicalUnion
-------------------PhysicalProject
+--------PhysicalProject
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------PhysicalUnion
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
@@ -29,12 +29,11 @@ PhysicalResultSink
 ----------------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
+------------------------------------filter((time_dim.t_time <= 77621) and (time_dim.t_time >= 48821))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
 --------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------PhysicalOlapScan[ship_mode]
-------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
@@ -54,7 +53,7 @@ PhysicalResultSink
 ----------------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
+------------------------------------filter((time_dim.t_time <= 77621) and (time_dim.t_time >= 48821))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
 --------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))

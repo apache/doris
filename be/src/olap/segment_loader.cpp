@@ -67,7 +67,7 @@ Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t se
     }
     // If the segment is not healthy, then will create a new segment and will replace the unhealthy one in SegmentCache.
     segment_v2::SegmentSharedPtr segment;
-    RETURN_IF_ERROR(rowset->load_segment(segment_id, &segment));
+    RETURN_IF_ERROR(rowset->load_segment(segment_id, index_load_stats, &segment));
     if (need_load_pk_index_and_bf) {
         RETURN_IF_ERROR(segment->load_pk_index_and_bf(index_load_stats));
     }

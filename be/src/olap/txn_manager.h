@@ -172,7 +172,8 @@ public:
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
-                       TabletPublishStatistics* stats);
+                       TabletPublishStatistics* stats,
+                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, const Tablet& tablet,
@@ -190,7 +191,8 @@ public:
     // not persist rowset meta because
     Status publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
-                       TabletPublishStatistics* stats);
+                       TabletPublishStatistics* stats,
+                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info);
 
     // only abort not committed txn
     void abort_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
@@ -245,6 +247,9 @@ public:
     TxnState get_txn_state(TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, TabletUid tablet_uid);
 
+    void remove_txn_tablet_info(TPartitionId partition_id, TTransactionId transaction_id,
+                                TTabletId tablet_id, TabletUid tablet_uid);
+
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 
@@ -287,6 +292,11 @@ private:
     // get _txn_map_lock before calling.
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
+
+    void _remove_txn_tablet_info_unlocked(TPartitionId partition_id, TTransactionId transaction_id,
+                                          TTabletId tablet_id, TabletUid tablet_uid,
+                                          std::lock_guard<std::shared_mutex>& txn_lock,
+                                          std::lock_guard<std::shared_mutex>& wrlock);
 
     class TabletVersionCache : public LRUCachePolicy {
     public:

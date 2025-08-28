@@ -142,4 +142,31 @@ Status SchemaHelper::show_user(const std::string& ip, const int32_t port,
             });
 }
 
+Status SchemaHelper::fetch_routine_load_job(const std::string& ip, const int32_t port,
+                                            const TFetchRoutineLoadJobRequest& request,
+                                            TFetchRoutineLoadJobResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->fetchRoutineLoadJob(*result, request);
+            });
+}
+
+Status SchemaHelper::fetch_schema_table_data(const std::string& ip, const int32_t port,
+                                             const TFetchSchemaTableDataRequest& request,
+                                             TFetchSchemaTableDataResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->fetchSchemaTableData(*result, request);
+            });
+}
+
+Status SchemaHelper::get_master_keys(const std::string& ip, const int32_t port,
+                                     const TGetEncryptionKeysRequest& request,
+                                     TGetEncryptionKeysResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->getEncryptionKeys(*result, request);
+            });
+}
+
 } // namespace doris

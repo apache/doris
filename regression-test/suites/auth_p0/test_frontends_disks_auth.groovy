@@ -33,8 +33,10 @@ suite("test_frontends_disks_auth","p0,auth") {
     }
 
     sql """grant select_priv on regression_test to ${user}"""
+    sql """grant select_priv on internal.information_schema.* to ${user}"""
+    sql """revoke select_priv on internal.information_schema.* from ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
               sql """
                   select * from frontends_disks();
@@ -43,9 +45,9 @@ suite("test_frontends_disks_auth","p0,auth") {
         }
     }
 
-    sql """grant admin_priv on *.*.* to ${user}"""
+    sql """grant select_priv on internal.information_schema.* to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
          sql """
              select * from frontends_disks();
          """

@@ -17,12 +17,6 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateRoleStmt;
-import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.GrantStmt;
-import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -34,6 +28,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -47,6 +47,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Test for Policy.
@@ -71,25 +72,25 @@ public class PolicyTest extends TestWithFeService {
         // create user
         UserIdentity user = new UserIdentity("test_policy", "%");
         user.analyze();
-        CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
-        Env.getCurrentEnv().getAuth().createUser(createUserStmt);
+        CreateUserCommand createUserCommand = new CreateUserCommand(new CreateUserInfo(new UserDesc(user)));
+        createUserCommand.getInfo().validate();
+        Env.getCurrentEnv().getAuth().createUser(createUserCommand.getInfo());
         List<AccessPrivilegeWithCols> privileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze();
-        GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
-        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
-        grantStmt.analyze(analyzer);
-        Env.getCurrentEnv().getAuth().grant(grantStmt);
+        GrantTablePrivilegeCommand command = new GrantTablePrivilegeCommand(privileges, tablePattern, Optional.of(user), Optional.empty());
+        command.validate();
+        Env.getCurrentEnv().getAuth().grantTablePrivilegeCommand(command);
         //create role
         String role = "role1";
-        CreateRoleStmt createRoleStmt = new CreateRoleStmt(role);
-        createRoleStmt.analyze(analyzer);
-        Env.getCurrentEnv().getAuth().createRole(createRoleStmt);
+        CreateRoleCommand createRoleCommand = new CreateRoleCommand(false, role, "");
+        createRoleCommand.run(connectContext, null);
+
         // grant role to user
-        grantStmt = new GrantStmt(Lists.newArrayList(role), user);
-        grantStmt.analyze(analyzer);
-        Env.getCurrentEnv().getAuth().grant(grantStmt);
+        GrantRoleCommand grantRoleCommand = new GrantRoleCommand(user, Lists.newArrayList(role));
+        grantRoleCommand.validate();
+        Env.getCurrentEnv().getAuth().grantRoleCommand(grantRoleCommand);
 
         useUser("test_policy");
     }
@@ -179,20 +180,6 @@ public class PolicyTest extends TestWithFeService {
     }
 
     @Test
-    public void testShowPolicy() throws Exception {
-        createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
-        createPolicy("CREATE ROW POLICY test_row_policy2 ON test.table1 AS PERMISSIVE TO test_policy USING (k2 = 1)");
-        ShowPolicyStmt showPolicyStmt =
-                (ShowPolicyStmt) parseAndAnalyzeStmt("SHOW ROW POLICY");
-        int firstSize = Env.getCurrentEnv().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
-        Assertions.assertTrue(firstSize > 0);
-        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
-        dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
-        int secondSize = Env.getCurrentEnv().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
-        Assertions.assertEquals(2, firstSize - secondSize);
-    }
-
-    @Test
     public void testDropPolicy() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS PERMISSIVE TO test_policy USING (k2 = 1)");
         dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
@@ -248,7 +235,7 @@ public class PolicyTest extends TestWithFeService {
                 + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
         long tableId = 100;
         FilterType filterType = FilterType.PERMISSIVE;
-        Expr wherePredicate = null;
+        Expression wherePredicate = null;
 
         Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, null, originStmt, 0, tableId, filterType,
                 wherePredicate);

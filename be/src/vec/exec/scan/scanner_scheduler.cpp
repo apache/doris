@@ -28,8 +28,10 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "file_scanner.h"
 #include "olap/tablet.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -41,12 +43,12 @@
 #include "util/defer_op.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/new_olap_scanner.h" // IWYU pragma: keep
+#include "vec/exec/scan/olap_scanner.h" // IWYU pragma: keep
+#include "vec/exec/scan/scan_node.h"
+#include "vec/exec/scan/scanner.h"
 #include "vec/exec/scan/scanner_context.h"
-#include "vec/exec/scan/vscan_node.h"
-#include "vec/exec/scan/vscanner.h"
-#include "vfile_scanner.h"
 
 namespace doris::vectorized {
 
@@ -61,40 +63,10 @@ void ScannerScheduler::stop() {
 
     _is_closed = true;
 
-    _limited_scan_thread_pool->shutdown();
-    _limited_scan_thread_pool->wait();
-
-    _local_scan_thread_pool->stop();
-    _remote_scan_thread_pool->stop();
-
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
-    // 1. local scan thread pool
-    _local_scan_thread_pool =
-            std::make_unique<vectorized::SimplifiedScanScheduler>("local_scan", nullptr);
-    Status ret1 = _local_scan_thread_pool->start(config::doris_scanner_thread_pool_thread_num,
-                                                 config::doris_scanner_thread_pool_thread_num,
-                                                 config::doris_scanner_thread_pool_queue_size);
-    RETURN_IF_ERROR(ret1);
-
-    // 2. remote scan thread pool
-    _remote_thread_pool_max_thread_num = ScannerScheduler::get_remote_scan_thread_num();
-    int remote_scan_pool_queue_size = ScannerScheduler::get_remote_scan_thread_queue_size();
-    _remote_scan_thread_pool =
-            std::make_unique<vectorized::SimplifiedScanScheduler>("RemoteScanThreadPool", nullptr);
-    Status ret2 = _remote_scan_thread_pool->start(_remote_thread_pool_max_thread_num,
-                                                  config::doris_scanner_min_thread_pool_thread_num,
-                                                  remote_scan_pool_queue_size);
-    RETURN_IF_ERROR(ret2);
-
-    // 3. limited scan thread pool
-    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
-                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                            .build(&_limited_scan_thread_pool));
     _is_init = true;
     return Status::OK();
 }
@@ -110,15 +82,16 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                   << " maybe finished";
         return Status::OK();
     }
+    std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
+    if (scanner_delegate == nullptr) {
+        return Status::OK();
+    }
 
-    if (ctx->thread_token != nullptr) {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return Status::OK();
-        }
-
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
+    scanner_delegate->_scanner->start_wait_worker_timer();
+    TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
+    auto sumbit_task = [&]() {
+        SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
+        auto work_func = [scanner_ref = scan_task, ctx]() {
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                 return Status::OK();
@@ -127,72 +100,40 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             if (!status.ok()) {
                 scanner_ref->set_status(status);
                 ctx->push_back_scan_task(scanner_ref);
+                return true;
             }
-        });
-        if (!s.ok()) {
-            scan_task->set_status(s);
-            return s;
-        }
-    } else {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return Status::OK();
-        }
-
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
-        auto sumbit_task = [&]() {
-            SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
-            auto work_func = [scanner_ref = scan_task, ctx]() {
-                auto status = [&] {
-                    RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                    return Status::OK();
-                }();
-
-                if (!status.ok()) {
-                    scanner_ref->set_status(status);
-                    ctx->push_back_scan_task(scanner_ref);
-                }
-            };
-            SimplifiedScanTask simple_scan_task = {work_func, ctx};
-            return scan_sched->submit_scan_task(simple_scan_task);
+            return scanner_ref->is_eos();
         };
+        SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
+        return scan_sched->submit_scan_task(simple_scan_task);
+    };
 
-        Status submit_status = sumbit_task();
-        if (!submit_status.ok()) {
-            // User will see TooManyTasks error. It looks like a more reasonable error.
-            Status scan_task_status = Status::TooManyTasks(
-                    "Failed to submit scanner to scanner pool reason:" +
-                    std::string(submit_status.msg()) + "|type:" + std::to_string(type));
-            scan_task->set_status(scan_task_status);
-            return scan_task_status;
-        }
+    Status submit_status = sumbit_task();
+    if (!submit_status.ok()) {
+        // User will see TooManyTasks error. It looks like a more reasonable error.
+        Status scan_task_status = Status::TooManyTasks(
+                "Failed to submit scanner to scanner pool reason:" +
+                std::string(submit_status.msg()) + "|type:" + std::to_string(type));
+        scan_task->set_status(scan_task_status);
+        return scan_task_status;
     }
 
     return Status::OK();
 }
 
-std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
-        ThreadPool::ExecutionMode mode, int max_concurrency) {
-    return _limited_scan_thread_pool->new_token(mode, max_concurrency);
-}
-
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
                                    const Status& st, size_t reserve_size) {
     ctx->clear_free_blocks();
-    auto* pipeline_task = state->get_task();
     auto* local_state = ctx->local_state();
 
-    pipeline_task->inc_memory_reserve_failed_times();
     auto debug_msg = fmt::format(
             "Query: {} , scanner try to reserve: {}, operator name {}, "
             "operator "
             "id: {}, "
             "task id: "
-            "{}, revocable mem size: {}, failed: {}",
+            "{}, failed: {}",
             print_id(state->query_id()), PrettyPrinter::print_bytes(reserve_size),
             local_state->get_name(), local_state->parent()->node_id(), state->task_id(),
-            PrettyPrinter::print_bytes(pipeline_task->sink()->revocable_mem_size(state)),
             st.to_string());
     // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
     if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
@@ -209,6 +150,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     if (task_lock == nullptr) {
         return;
     }
+    SCOPED_ATTACH_TASK(ctx->state());
 
     ctx->update_peak_running_scanner(1);
     Defer defer([&] { ctx->update_peak_running_scanner(-1); });
@@ -218,8 +160,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         return;
     }
 
-    VScannerSPtr& scanner = scanner_delegate->_scanner;
-    SCOPED_ATTACH_TASK(scanner->runtime_state());
+    ScannerSPtr& scanner = scanner_delegate->_scanner;
     // for cpu hard limit, thread name should not be reset
     if (ctx->_should_reset_thread_name) {
         Thread::set_self_name("_scanner_scan");
@@ -228,7 +169,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 #ifndef __APPLE__
     // The configuration item is used to lower the priority of the scanner thread,
     // typically employed to ensure CPU scheduling for write operations.
-    if (config::scan_thread_nice_value != 0 && scanner->get_name() != VFileScanner::NAME) {
+    if (config::scan_thread_nice_value != 0 && scanner->get_name() != FileScanner::NAME) {
         Thread::set_thread_nice_value();
     }
 #endif
@@ -280,9 +221,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
             // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
             while (!eos && raw_bytes_read < raw_bytes_threshold &&
-                   !(ctx->low_memory_mode() && has_first_full_block) &&
-                   !(has_first_full_block &&
-                     doris::thread_context()->thread_mem_tracker()->limit_exceeded())) {
+                   (!ctx->low_memory_mode() || !has_first_full_block) &&
+                   (!has_first_full_block || doris::thread_context()
+                                                     ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                                     ->check_limit(1))) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
                     break;
@@ -296,9 +238,13 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 if (first_read) {
                     free_block = ctx->get_free_block(first_read);
                 } else {
-                    if (state->get_query_ctx()->enable_reserve_memory()) {
+                    if (state->get_query_ctx()
+                                ->resource_ctx()
+                                ->task_controller()
+                                ->is_enable_reserve_memory()) {
                         size_t block_avg_bytes = scanner->get_block_avg_bytes();
-                        auto st = thread_context()->try_reserve_memory(block_avg_bytes);
+                        auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                block_avg_bytes);
                         if (!st.ok()) {
                             handle_reserve_memory_failure(state, ctx, st, block_avg_bytes);
                             break;
@@ -313,9 +259,12 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
                 first_read = false;
                 if (!status.ok()) {
-                    LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
+                    LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
                     break;
                 }
+                // Check column type only after block is read successfully.
+                // Or it may cause a crash when the block is not normal.
+                _make_sure_virtual_col_is_materialized(scanner, free_block.get());
                 // Projection will truncate useless columns, makes block size change.
                 auto free_block_bytes = free_block->allocated_bytes();
                 raw_bytes_read += free_block_bytes;
@@ -384,6 +333,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scan_task->set_status(status);
         eos = true;
     }
+    // WorkloadGroup Policy will check cputime realtime, so that should update the counter
+    // as soon as possible, could not update it on close.
+    scanner->update_scan_cpu_timer();
+    scanner->update_realtime_counters();
 
     if (eos) {
         scanner->mark_to_need_to_close();
@@ -400,16 +353,78 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 }
 
 int ScannerScheduler::get_remote_scan_thread_num() {
-    int remote_max_thread_num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                                        ? config::doris_max_remote_scanner_thread_pool_thread_num
-                                        : std::max(512, CpuInfo::num_cores() * 10);
-    remote_max_thread_num =
-            std::max(remote_max_thread_num, config::doris_scanner_thread_pool_thread_num);
+    static int remote_max_thread_num = []() {
+        int num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
+                          ? config::doris_max_remote_scanner_thread_pool_thread_num
+                          : std::max(512, CpuInfo::num_cores() * 10);
+        return std::max(num, config::doris_scanner_thread_pool_thread_num);
+    }();
     return remote_max_thread_num;
 }
 
 int ScannerScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
+}
+
+void ScannerScheduler::_make_sure_virtual_col_is_materialized(
+        const std::shared_ptr<Scanner>& scanner, vectorized::Block* free_block) {
+#ifndef NDEBUG
+    // Currently, virtual column can only be used on olap table.
+    std::shared_ptr<OlapScanner> olap_scanner = std::dynamic_pointer_cast<OlapScanner>(scanner);
+    if (olap_scanner == nullptr) {
+        return;
+    }
+
+    size_t idx = 0;
+    for (const auto& entry : *free_block) {
+        // Virtual column must be materialized on the end of SegmentIterator's next batch method.
+        const vectorized::ColumnNothing* column_nothing =
+                vectorized::check_and_get_column<vectorized::ColumnNothing>(entry.column.get());
+        if (column_nothing == nullptr) {
+            idx++;
+            continue;
+        }
+
+        std::vector<std::string> vcid_to_idx;
+
+        for (const auto& pair : olap_scanner->_vir_cid_to_idx_in_block) {
+            vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+        }
+
+        std::string error_msg = fmt::format(
+                "Column in idx {} is nothing, block columns {}, normal_columns "
+                "{}, "
+                "vir_cid_to_idx_in_block_msg {}",
+                idx, free_block->columns(), olap_scanner->_return_columns.size(),
+                fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ",")));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, error_msg);
+    }
+#endif
+}
+
+Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono::nanoseconds) {
+    _started = true;
+    bool is_completed = _scan_func();
+    if (is_completed) {
+        _completion_future.set_value(Void {});
+    }
+    return SharedListenableFuture<Void>::create_ready(Void {});
+}
+
+bool ScannerSplitRunner::is_finished() {
+    return _completion_future.is_done();
+}
+
+Status ScannerSplitRunner::finished_status() {
+    return _completion_future.get_status();
+}
+
+bool ScannerSplitRunner::is_started() const {
+    return _started.load();
+}
+
+bool ScannerSplitRunner::is_auto_reschedule() const {
+    return false;
 }
 
 } // namespace doris::vectorized

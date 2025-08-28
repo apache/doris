@@ -17,19 +17,18 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -150,54 +149,6 @@ public class DeleteHandler implements Writable {
     }
 
     /**
-     * used for legacy planner
-     */
-    public void process(DeleteStmt stmt, QueryState execState) throws DdlException {
-        Database targetDb = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
-        OlapTable targetTbl = targetDb.getOlapTableOrDdlException(stmt.getTableName());
-        DeleteJob deleteJob = null;
-        try {
-            targetTbl.readLock();
-            try {
-                if (targetTbl.getState() != OlapTable.OlapTableState.NORMAL) {
-                    // table under alter operation can also do delete.
-                    // just add a comment here to notice.
-                }
-                deleteJob = DeleteJob.newBuilder()
-                        .buildWith(new DeleteJob.BuildParams(
-                                targetDb,
-                                targetTbl,
-                                stmt.getPartitionNames(),
-                                stmt.getDeleteConditions()));
-
-                long txnId = deleteJob.beginTxn();
-                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
-                        .getTransactionState(targetDb.getId(), txnId);
-                // must call this to make sure we only handle the tablet in the mIndex we saw here.
-                // table may be under schema change or rollup, and the newly created tablets will not be checked later,
-                // to make sure that the delete transaction can be done successfully.
-                txnState.addTableIndexes(targetTbl);
-                idToDeleteJob.put(txnId, deleteJob);
-                deleteJob.dispatch();
-            } finally {
-                targetTbl.readUnlock();
-            }
-            deleteJob.await();
-            String commitMsg = deleteJob.commit();
-            execState.setOk(0, 0, commitMsg);
-        } catch (Exception ex) {
-            if (deleteJob != null) {
-                deleteJob.cancel(ex.getMessage());
-            }
-            execState.setError(ex.getMessage());
-        } finally {
-            if (!FeConstants.runningUnitTest) {
-                clearJob(deleteJob);
-            }
-        }
-    }
-
-    /**
      * This method should always be called in the end of the delete process to clean the job.
      * Better put it in finally block.
      *
@@ -266,15 +217,23 @@ public class DeleteHandler implements Writable {
             }
 
             for (DeleteInfo deleteInfo : deleteInfoList) {
+                String tableName = deleteInfo.getTableName();
                 if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                                deleteInfo.getTableName(),
-                                PrivPredicate.LOAD)) {
+                            tableName, PrivPredicate.LOAD)) {
                     continue;
                 }
 
                 List<Comparable> info = Lists.newArrayList();
-                info.add(deleteInfo.getTableName());
+                if (Util.isTempTable(tableName)) {
+                    if (!Util.isTempTableInCurrentSession(tableName)) {
+                        continue;
+                    }
+                    info.add(Util.getTempTableDisplayName(tableName));
+                } else {
+                    info.add(deleteInfo.getTableName());
+                }
+
                 if (deleteInfo.isNoPartitionSpecified()) {
                     info.add("*");
                 } else {

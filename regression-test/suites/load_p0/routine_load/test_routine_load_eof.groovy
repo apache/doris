@@ -20,7 +20,7 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
-suite("test_routine_load_eof","p0") {
+suite("test_routine_load_eof","nonConcurrent") {
     def kafkaCsvTpoics = [
                   "test_eof",
                 ]
@@ -37,8 +37,33 @@ suite("test_routine_load_eof","p0") {
             props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
             props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
             props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+            // add timeout config
+            props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")  
+            props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+
+            // check conenction
+            def verifyKafkaConnection = { prod ->
+                try {
+                    logger.info("=====try to connect Kafka========")
+                    def partitions = prod.partitionsFor("__connection_verification_topic")
+                    return partitions != null
+                } catch (Exception e) {
+                    throw new Exception("Kafka connect fail: ${e.message}".toString())
+                }
+            }
             // Create kafka producer
             def producer = new KafkaProducer<>(props)
+            try {
+                logger.info("Kafka connecting: ${kafka_broker}")
+                if (!verifyKafkaConnection(producer)) {
+                    throw new Exception("can't get any kafka info")
+                }
+            } catch (Exception e) {
+                logger.error("FATAL: " + e.getMessage())
+                producer.close()
+                throw e  
+            }
+            logger.info("Kafka connect success")
 
             def count = 0
             while(true) {
@@ -52,7 +77,7 @@ suite("test_routine_load_eof","p0") {
                         producer.send(record)
                     }
                 }
-                if (count >= 120) {
+                if (count >= 180) {
                     break
                 }
                 count++
@@ -166,12 +191,37 @@ suite("test_routine_load_eof","p0") {
                 }
                 break;
             }
+            def committedTaskNum1 = 0
+            def committedTaskNum2 = 0
             sleep(60 * 1000)
             def res = sql "show routine load for ${jobName}"
             def statistic = res[0][14].toString()
             def json = parseJson(res[0][14])
             log.info("routine load statistic: ${res[0][14].toString()}".toString())
             if (json.committedTaskNum > 20) {
+                assertEquals(1, 2)
+            }
+            committedTaskNum1 = json.committedTaskNum
+            try {
+                GetDebugPoint().enableDebugPointForAllFEs("RoutineLoadTaskInfo.judgeEof")
+                sleep(30 * 1000)
+                res = sql "show routine load for ${jobName}"
+                statistic = res[0][14].toString()
+                json = parseJson(res[0][14])
+                log.info("routine load statistic: ${res[0][14].toString()}".toString())
+                if (json.committedTaskNum - committedTaskNum1 < 20) {
+                    assertEquals(1, 2)
+                }
+                committedTaskNum2 = json.committedTaskNum
+            } finally {
+                GetDebugPoint().disableDebugPointForAllFEs("RoutineLoadTaskInfo.judgeEof")
+            }
+            sleep(60 * 1000)
+            res = sql "show routine load for ${jobName}"
+            statistic = res[0][14].toString()
+            json = parseJson(res[0][14])
+            log.info("routine load statistic: ${res[0][14].toString()}".toString())
+            if (json.committedTaskNum - committedTaskNum2 > 20) {
                 assertEquals(1, 2)
             }
         } finally {

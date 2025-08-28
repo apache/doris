@@ -39,9 +39,9 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
@@ -50,6 +50,7 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 std::string BetaRowset::local_segment_path_segcompacted(const std::string& tablet_path,
@@ -171,14 +172,15 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
     int64_t seg_id = seg_id_begin;
     while (seg_id < seg_id_end) {
         std::shared_ptr<segment_v2::Segment> segment;
-        RETURN_IF_ERROR(load_segment(seg_id, &segment));
+        RETURN_IF_ERROR(load_segment(seg_id, nullptr, &segment));
         segments->push_back(std::move(segment));
         seg_id++;
     }
     return Status::OK();
 }
 
-Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment) {
+Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
+                                segment_v2::SegmentSharedPtr* segment) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -191,12 +193,13 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
                                                     : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true,
             .cache_base_path = "",
-            .file_size = _rowset_meta->segment_file_size(seg_id),
+            .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
     };
 
-    auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id, rowset_id(),
-                                       _schema, reader_options, segment,
-                                       _rowset_meta->inverted_index_file_info(seg_id));
+    auto s = segment_v2::Segment::open(
+            fs, seg_path, _rowset_meta->tablet_id(), static_cast<uint32_t>(seg_id), rowset_id(),
+            _schema, reader_options, segment,
+            _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
@@ -285,7 +288,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
 
     const auto& local_fs = io::global_local_filesystem();
     Status status;
-    std::vector<string> linked_success_files;
+    std::vector<std::string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
             LOG(WARNING) << "will delete linked success files due to error " << status;
@@ -578,7 +581,7 @@ Status BetaRowset::add_to_binlog() {
                               rowset_id().to_string(), segments_num);
 
     Status status;
-    std::vector<string> linked_success_files;
+    std::vector<std::string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
             LOG(WARNING) << "will delete linked success files due to error "
@@ -759,10 +762,10 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
 
         auto seg_path = DORIS_TRY(segment_path(seg_id));
         auto index_file_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
-        auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+        auto index_file_reader = std::make_unique<IndexFileReader>(
                 fs, std::string(index_file_path_prefix), storage_format);
-        RETURN_IF_ERROR(inverted_index_file_reader->init());
-        auto dirs = inverted_index_file_reader->get_all_directories();
+        RETURN_IF_ERROR(index_file_reader->init());
+        auto dirs = index_file_reader->get_all_directories();
 
         auto add_file_info_to_json = [&](const std::string& path,
                                          rapidjson::Value& json_value) -> Status {
@@ -780,15 +783,15 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
             return Status::OK();
         };
 
-        auto process_files = [&allocator, &inverted_index_file_reader](
-                                     auto& index_meta, rapidjson::Value& indices,
-                                     rapidjson::Value& index) -> Status {
+        auto process_files = [&allocator, &index_file_reader](auto& index_meta,
+                                                              rapidjson::Value& indices,
+                                                              rapidjson::Value& index) -> Status {
             rapidjson::Value files_value(rapidjson::kArrayType);
             std::vector<std::string> files;
-            auto ret = inverted_index_file_reader->open(&index_meta);
+            auto ret = index_file_reader->open(&index_meta);
             if (!ret.has_value()) {
-                LOG(INFO) << "InvertedIndexFileReader open error:" << ret.error();
-                return Status::InternalError("InvertedIndexFileReader open error");
+                LOG(INFO) << "IndexFileReader open error:" << ret.error();
+                return Status::InternalError("IndexFileReader open error");
             }
             using T = std::decay_t<decltype(ret)>;
             auto reader = std::forward<T>(ret).value();
@@ -867,5 +870,5 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
     rowset_value->AddMember("segments", segments, allocator);
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

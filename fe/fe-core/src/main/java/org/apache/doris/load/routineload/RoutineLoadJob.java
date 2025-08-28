@@ -17,15 +17,12 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -36,7 +33,6 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -46,21 +42,30 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -71,7 +76,6 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -83,13 +87,13 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -225,20 +229,6 @@ public abstract class RoutineLoadJob
 
     protected boolean memtableOnSinkNode = false;
 
-    /**
-     * RoutineLoad support json data.
-     * Require Params:
-     * 1) format = "json"
-     * 2) jsonPath = "$.XXX.xxx"
-     */
-    private static final String PROPS_FORMAT = "format";
-    private static final String PROPS_STRIP_OUTER_ARRAY = "strip_outer_array";
-    private static final String PROPS_NUM_AS_STRING = "num_as_string";
-    private static final String PROPS_JSONPATHS = "jsonpaths";
-    private static final String PROPS_JSONROOT = "json_root";
-    private static final String PROPS_FUZZY_PARSE = "fuzzy_parse";
-
-
     protected int currentTaskConcurrentNum;
     @SerializedName("pg")
     protected RoutineLoadProgress progress;
@@ -282,8 +272,6 @@ public abstract class RoutineLoadJob
     // save the latest 3 error log urls
     private Queue<String> errorLogUrls = EvictingQueue.create(3);
 
-    protected boolean isTypeRead = false;
-
     @SerializedName("ccid")
     private String cloudClusterId;
 
@@ -292,18 +280,21 @@ public abstract class RoutineLoadJob
     protected byte escape = 0;
 
     // use for cloud cluster mode
-    protected String qualifiedUser;
+    @SerializedName("ccn")
     protected String cloudCluster;
-
-    public void setTypeRead(boolean isTypeRead) {
-        this.isTypeRead = isTypeRead;
-    }
 
     public RoutineLoadJob(long id, LoadDataSourceType type) {
         this.id = id;
         this.dataSourceType = type;
         if (ConnectContext.get() != null) {
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+            if (Config.isCloudMode()) {
+                try {
+                    this.cloudCluster = ConnectContext.get().getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to get cloud cluster", e);
+                }
+            }
         }
     }
 
@@ -321,6 +312,13 @@ public abstract class RoutineLoadJob
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+            if (Config.isCloudMode()) {
+                try {
+                    this.cloudCluster = ConnectContext.get().getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to get cloud cluster", e);
+                }
+            }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -343,7 +341,6 @@ public abstract class RoutineLoadJob
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
-            this.qualifiedUser = ConnectContext.get().getQualifiedUser();
             try {
                 this.cloudCluster = ConnectContext.get().getCloudCluster();
             } catch (ComputeGroupException e) {
@@ -354,6 +351,74 @@ public abstract class RoutineLoadJob
         }
     }
 
+    protected void setOptional(CreateRoutineLoadInfo info) throws UserException {
+        setRoutineLoadDesc(info.getRoutineLoadDesc());
+        if (info.getDesiredConcurrentNum() != -1) {
+            this.desireTaskConcurrentNum = info.getDesiredConcurrentNum();
+        }
+        if (info.getMaxErrorNum() != -1) {
+            this.maxErrorNum = info.getMaxErrorNum();
+        }
+        if (info.getMaxFilterRatio() != -1) {
+            this.maxFilterRatio = info.getMaxFilterRatio();
+        }
+        if (info.getMaxBatchIntervalS() != -1) {
+            this.maxBatchIntervalS = info.getMaxBatchIntervalS();
+        }
+        if (info.getMaxBatchRows() != -1) {
+            this.maxBatchRows = info.getMaxBatchRows();
+        }
+        if (info.getMaxBatchSizeBytes() != -1) {
+            this.maxBatchSizeBytes = info.getMaxBatchSizeBytes();
+        }
+        if (info.getExecMemLimit() != -1) {
+            this.execMemLimit = info.getExecMemLimit();
+        }
+        if (info.getSendBatchParallelism() > 0) {
+            this.sendBatchParallelism = info.getSendBatchParallelism();
+        }
+        if (info.isLoadToSingleTablet()) {
+            this.loadToSingleTablet = info.isLoadToSingleTablet();
+        }
+        jobProperties.put(info.TIMEZONE, info.getTimezone());
+        jobProperties.put(info.STRICT_MODE, String.valueOf(info.isStrictMode()));
+        jobProperties.put(info.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
+        jobProperties.put(info.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
+        jobProperties.put(info.PARTIAL_COLUMNS, info.isPartialUpdate() ? "true" : "false");
+        if (info.isPartialUpdate()) {
+            this.isPartialUpdate = true;
+        }
+        jobProperties.put(info.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
+
+        FileFormatProperties fileFormatProperties = info.getFileFormatProperties();
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
+            jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
+                    new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+            jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
+                    new String(new byte[]{csvFileFormatProperties.getEscape()}));
+            this.enclose = csvFileFormatProperties.getEnclose();
+            this.escape = csvFileFormatProperties.getEscape();
+        } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
+            JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+            jobProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, jsonFileFormatProperties.getJsonPaths());
+            jobProperties.put(JsonFileFormatProperties.PROP_JSON_ROOT, jsonFileFormatProperties.getJsonRoot());
+            jobProperties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
+                    String.valueOf(jsonFileFormatProperties.isStripOuterArray()));
+            jobProperties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING,
+                    String.valueOf(jsonFileFormatProperties.isNumAsString()));
+            jobProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE,
+                    String.valueOf(jsonFileFormatProperties.isFuzzyParse()));
+        } else {
+            throw new UserException("Invalid format type.");
+        }
+
+        if (!StringUtils.isEmpty(info.getWorkloadGroupName())) {
+            jobProperties.put(WORKLOAD_GROUP, info.getWorkloadGroupName());
+        }
+    }
 
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
         setRoutineLoadDesc(stmt.getRoutineLoadDesc());
@@ -393,49 +458,32 @@ public abstract class RoutineLoadJob
             this.isPartialUpdate = true;
         }
         jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
-        if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
-            jobProperties.put(PROPS_FORMAT, "csv");
-        } else if (stmt.getFormat().equals("json")) {
-            jobProperties.put(PROPS_FORMAT, "json");
+
+        FileFormatProperties fileFormatProperties = stmt.getFileFormatProperties();
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
+            jobProperties.put(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+            jobProperties.put(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
+            this.enclose = csvFileFormatProperties.getEnclose();
+            this.escape = csvFileFormatProperties.getEscape();
+        } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
+            JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+            jobProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, jsonFileFormatProperties.getJsonPaths());
+            jobProperties.put(JsonFileFormatProperties.PROP_JSON_ROOT, jsonFileFormatProperties.getJsonRoot());
+            jobProperties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
+                    String.valueOf(jsonFileFormatProperties.isStripOuterArray()));
+            jobProperties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING,
+                    String.valueOf(jsonFileFormatProperties.isNumAsString()));
+            jobProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE,
+                    String.valueOf(jsonFileFormatProperties.isFuzzyParse()));
         } else {
             throw new UserException("Invalid format type.");
         }
 
-        if (!Strings.isNullOrEmpty(stmt.getJsonPaths())) {
-            jobProperties.put(PROPS_JSONPATHS, stmt.getJsonPaths());
-        } else {
-            jobProperties.put(PROPS_JSONPATHS, "");
-        }
-        if (!Strings.isNullOrEmpty(stmt.getJsonRoot())) {
-            jobProperties.put(PROPS_JSONROOT, stmt.getJsonRoot());
-        } else {
-            jobProperties.put(PROPS_JSONROOT, "");
-        }
-        if (stmt.isStripOuterArray()) {
-            jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "true");
-        } else {
-            jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
-        }
-        if (stmt.isNumAsString()) {
-            jobProperties.put(PROPS_NUM_AS_STRING, "true");
-        } else {
-            jobProperties.put(PROPS_NUM_AS_STRING, "false");
-        }
-        if (stmt.isFuzzyParse()) {
-            jobProperties.put(PROPS_FUZZY_PARSE, "true");
-        } else {
-            jobProperties.put(PROPS_FUZZY_PARSE, "false");
-        }
-        if (String.valueOf(stmt.getEnclose()) != null) {
-            this.enclose = stmt.getEnclose();
-            jobProperties.put(LoadStmt.KEY_ENCLOSE, String.valueOf(stmt.getEnclose()));
-        }
-        if (String.valueOf(stmt.getEscape()) != null) {
-            this.escape = stmt.getEscape();
-            jobProperties.put(LoadStmt.KEY_ESCAPE, String.valueOf(stmt.getEscape()));
-        }
-        if (stmt.getWorkloadGroupId() > 0) {
-            jobProperties.put(WORKLOAD_GROUP, String.valueOf(stmt.getWorkloadGroupId()));
+        if (!StringUtils.isEmpty(stmt.getWorkloadGroupName())) {
+            jobProperties.put(WORKLOAD_GROUP, stmt.getWorkloadGroupName());
         }
     }
 
@@ -502,6 +550,18 @@ public abstract class RoutineLoadJob
         return dbId;
     }
 
+    public String getCreateTimestampString() {
+        return TimeUtils.longToTimeString(createTimestamp);
+    }
+
+    public String getPauseTimestampString() {
+        return TimeUtils.longToTimeString(pauseTimestamp);
+    }
+
+    public String getEndTimestampString() {
+        return TimeUtils.longToTimeString(endTimestamp);
+    }
+
     public void setOtherMsg(String otherMsg) {
         writeLock();
         try {
@@ -509,6 +569,14 @@ public abstract class RoutineLoadJob
         } finally {
             writeUnlock();
         }
+    }
+
+    public ErrorReason getPauseReason() {
+        return pauseReason;
+    }
+
+    public RoutineLoadStatistic getRoutineLoadStatistic() {
+        return jobStatistic;
     }
 
     public String getDbFullName() throws MetaNotFoundException {
@@ -527,12 +595,8 @@ public abstract class RoutineLoadJob
         return database.getTableOrMetaException(tableId).getName();
     }
 
-    public long getWorkloadId() {
-        String workloadIdStr = jobProperties.get(WORKLOAD_GROUP);
-        if (!StringUtils.isEmpty(workloadIdStr)) {
-            return Long.parseLong(workloadIdStr);
-        }
-        return -1;
+    public String getWorkloadGroup() {
+        return jobProperties.get(WORKLOAD_GROUP);
     }
 
     public JobState getState() {
@@ -545,6 +609,10 @@ public abstract class RoutineLoadJob
 
     public long getEndTimestamp() {
         return endTimestamp;
+    }
+
+    public RoutineLoadStatistic getJobStatistic() {
+        return jobStatistic;
     }
 
     public PartitionNames getPartitions() {
@@ -661,7 +729,7 @@ public abstract class RoutineLoadJob
     }
 
     public String getFormat() {
-        String value = jobProperties.get(PROPS_FORMAT);
+        String value = jobProperties.get(FileFormatProperties.PROP_FORMAT);
         if (value == null) {
             return "csv";
         }
@@ -670,17 +738,17 @@ public abstract class RoutineLoadJob
 
     @Override
     public boolean isStripOuterArray() {
-        return Boolean.parseBoolean(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
+        return Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY));
     }
 
     @Override
     public boolean isNumAsString() {
-        return Boolean.parseBoolean(jobProperties.get(PROPS_NUM_AS_STRING));
+        return Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_NUM_AS_STRING));
     }
 
     @Override
     public boolean isFuzzyParse() {
-        return Boolean.parseBoolean(jobProperties.get(PROPS_FUZZY_PARSE));
+        return Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_FUZZY_PARSE));
     }
 
     @Override
@@ -728,7 +796,7 @@ public abstract class RoutineLoadJob
     }
 
     public String getJsonPaths() {
-        String value = jobProperties.get(PROPS_JSONPATHS);
+        String value = jobProperties.get(JsonFileFormatProperties.PROP_JSON_PATHS);
         if (value == null) {
             return "";
         }
@@ -736,7 +804,7 @@ public abstract class RoutineLoadJob
     }
 
     public String getJsonRoot() {
-        String value = jobProperties.get(PROPS_JSONROOT);
+        String value = jobProperties.get(JsonFileFormatProperties.PROP_JSON_ROOT);
         if (value == null) {
             return "";
         }
@@ -765,10 +833,6 @@ public abstract class RoutineLoadJob
         this.comment = comment;
     }
 
-    public String getQualifiedUser() {
-        return qualifiedUser;
-    }
-
     public String getCloudCluster() {
         return cloudCluster;
     }
@@ -780,6 +844,10 @@ public abstract class RoutineLoadJob
         } finally {
             readUnlock();
         }
+    }
+
+    public Queue<String> getErrorLogUrls() {
+        return errorLogUrls;
     }
 
     // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
@@ -837,14 +905,14 @@ public abstract class RoutineLoadJob
         }
     }
 
+    public boolean isAbnormalPause() {
+        return this.state == JobState.PAUSED && this.pauseReason != null
+                    && this.pauseReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR;
+    }
+
     // All of private method could not be call without lock
     private void checkStateTransform(RoutineLoadJob.JobState desireState) throws UserException {
         switch (state) {
-            case RUNNING:
-                if (desireState == JobState.NEED_SCHEDULE) {
-                    throw new DdlException("Could not transform " + state + " to " + desireState);
-                }
-                break;
             case PAUSED:
                 if (desireState == JobState.PAUSED) {
                     throw new DdlException("Could not transform " + state + " to " + desireState);
@@ -861,7 +929,7 @@ public abstract class RoutineLoadJob
     // if rate of error data is more than max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
-                attachment.getReceivedBytes(), false /* not replay */);
+                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), false /* not replay */);
     }
 
     protected void updateCloudProgress(RLTaskTxnCommitAttachment attachment) {
@@ -877,7 +945,7 @@ public abstract class RoutineLoadJob
     }
 
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
-                                 boolean isReplay) throws UserException {
+                                 long taskExecutionTime, boolean isReplay) throws UserException {
         this.jobStatistic.totalRows += numOfTotalRows;
         this.jobStatistic.errorRows += numOfErrorRows;
         this.jobStatistic.unselectedRows += unselectedRows;
@@ -888,6 +956,8 @@ public abstract class RoutineLoadJob
             MetricRepo.COUNTER_ROUTINE_LOAD_ROWS.increase(numOfTotalRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_ERROR_ROWS.increase(numOfErrorRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_RECEIVED_BYTES.increase(receivedBytes);
+            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(taskExecutionTime);
+            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(1L);
         }
 
         // check error rate
@@ -929,6 +999,7 @@ public abstract class RoutineLoadJob
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
             this.otherMsg = "";
+            this.jobStatistic.currentAbortedTaskNum = 0;
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
                     && ((double) this.jobStatistic.currentErrorRows
@@ -957,10 +1028,18 @@ public abstract class RoutineLoadJob
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         try {
             updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
-                    attachment.getReceivedBytes(), true /* is replay */);
+                    attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), true /* is replay */);
         } catch (UserException e) {
             LOG.error("should not happen", e);
         }
+    }
+
+    public Long totalProgress() {
+        return 0L;
+    }
+
+    public Long totalLag() {
+        return 0L;
     }
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo);
@@ -969,7 +1048,37 @@ public abstract class RoutineLoadJob
     // derived class can override this.
     public abstract void prepare() throws UserException;
 
-    public TPipelineFragmentParams plan(StreamLoadPlanner planner, TUniqueId loadId, long txnId) throws UserException {
+    // make this public here just for UT.
+    public void setComputeGroup() {
+        ComputeGroup computeGroup = null;
+        try {
+            if (ConnectContext.get() == null) {
+                ConnectContext ctx = new ConnectContext();
+                ctx.setThreadLocalInfo();
+            }
+            String currentUser = ConnectContext.get().getQualifiedUser();
+            if (StringUtils.isEmpty(currentUser)) {
+                currentUser = getUserIdentity().getQualifiedUser();
+            }
+            if (StringUtils.isEmpty(currentUser)) {
+                LOG.warn("can not find user in routine load");
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+            } else {
+                computeGroup = Env.getCurrentEnv().getAuth().getComputeGroup(currentUser);
+            }
+            if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
+                LOG.warn("get an invalid compute group in routine load");
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+            }
+        } catch (Throwable t) {
+            LOG.warn("error happens when set compute group for routine load", t);
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+        }
+        ConnectContext.get().setComputeGroup(computeGroup);
+    }
+
+    public TPipelineFragmentParams plan(NereidsStreamLoadPlanner planner, TUniqueId loadId, long txnId)
+            throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
@@ -977,22 +1086,20 @@ public abstract class RoutineLoadJob
         table.readLock();
         try {
             if (Config.isCloudMode()) {
-                String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getClusterNameByClusterId(cloudClusterId);
-                if (Strings.isNullOrEmpty(clusterName)) {
-                    String err = String.format("cluster name is empty, cluster id is %s", cloudClusterId);
-                    LOG.warn(err);
-                    throw new UserException(err);
-                }
-
                 if (ConnectContext.get() == null) {
                     ConnectContext ctx = new ConnectContext();
                     ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(clusterName);
+                    ctx.setCloudCluster(cloudCluster);
                     needCleanCtx = true;
                 } else {
-                    ConnectContext.get().setCloudCluster(clusterName);
+                    ConnectContext.get().setCloudCluster(cloudCluster);
                 }
+                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
+            } else {
+                setComputeGroup();
+            }
+            if (ConnectContext.get().getEnv() == null) {
+                ConnectContext.get().setEnv(Env.getCurrentEnv());
             }
 
             TPipelineFragmentParams planParams = planner.plan(loadId);
@@ -1228,6 +1335,7 @@ public abstract class RoutineLoadJob
                             .build());
                 }
                 ++this.jobStatistic.abortedTaskNum;
+                ++this.jobStatistic.currentAbortedTaskNum;
                 TransactionState.TxnStatusChangeReason txnStatusChangeReason = null;
                 if (txnStatusChangeReasonString != null) {
                     txnStatusChangeReason =
@@ -1362,6 +1470,10 @@ public abstract class RoutineLoadJob
             return;
         }
 
+        if (olapTable.isTemporary()) {
+            throw new DdlException("Cannot create routine load for temporary table "
+                + olapTable.getDisplayName());
+        }
         // check partitions
         olapTable.readLock();
         try {
@@ -1565,27 +1677,15 @@ public abstract class RoutineLoadJob
         this.origStmt = origStmt;
     }
 
-    public void setCloudCluster(String cloudClusterName) throws UserException {
-        if (Strings.isNullOrEmpty(cloudClusterName)) {
-            LOG.warn("cluster name is empty");
-            throw new UserException("cluster name is empty");
-        }
-
-        this.cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getCloudClusterIdByName(cloudClusterName);
-        if (Strings.isNullOrEmpty(this.cloudClusterId)) {
-            LOG.warn("cluster id is empty, cluster name {}", cloudClusterName);
-            throw new UserException("cluster id is empty, cluster name: " + cloudClusterName);
+    public void setCloudCluster() {
+        if (Strings.isNullOrEmpty(cloudCluster)) {
+            this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getClusterNameByClusterId(cloudClusterId);
         }
     }
 
-    public String getCloudClusterId() {
-        return cloudClusterId;
-    }
-
-    public void setCloudClusterById() {
-        this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getClusterNameByClusterId(cloudClusterId);
+    public void setCloudCluster(String cloudCluster) {
+        this.cloudCluster = cloudCluster;
     }
 
     // check the correctness of commit info
@@ -1593,9 +1693,20 @@ public abstract class RoutineLoadJob
                                                TransactionState txnState,
                                                TransactionState.TxnStatusChangeReason txnStatusChangeReason);
 
-    protected abstract String getStatistic();
+    public abstract String getStatistic();
 
-    protected abstract String getLag();
+    public abstract String getLag();
+
+    public String getStateReason() {
+        switch (state) {
+            case PAUSED:
+                return pauseReason == null ? "" : pauseReason.toString();
+            case CANCELLED:
+                return cancelReason == null ? "" : cancelReason.toString();
+            default:
+                return "";
+        }
+    }
 
     public List<String> getShowInfo() {
         Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
@@ -1625,16 +1736,7 @@ public abstract class RoutineLoadJob
             row.add(getStatistic());
             row.add(getProgress().toJsonString());
             row.add(getLag());
-            switch (state) {
-                case PAUSED:
-                    row.add(pauseReason == null ? "" : pauseReason.toString());
-                    break;
-                case CANCELLED:
-                    row.add(cancelReason == null ? "" : cancelReason.toString());
-                    break;
-                default:
-                    row.add("");
-            }
+            row.add(getStateReason());
             row.add(Joiner.on(", ").join(errorLogUrls));
             row.add(otherMsg);
             row.add(userIdentity.getQualifiedUser());
@@ -1694,7 +1796,7 @@ public abstract class RoutineLoadJob
         }
         // 4.3.where_predicates
         if (whereExpr != null) {
-            sb.append("WHERE ").append(whereExpr.toSql()).append(",\n");
+            sb.append("WHERE ").append(whereExpr.toSqlWithoutTbl()).append(",\n");
         }
         // 4.4.partitions
         if (partitions != null) {
@@ -1702,7 +1804,7 @@ public abstract class RoutineLoadJob
         }
         // 4.5.delete_on_predicates
         if (deleteCondition != null) {
-            sb.append("DELETE ON ").append(deleteCondition.toSql()).append(",\n");
+            sb.append("DELETE ON ").append(deleteCondition.toSqlWithoutTbl()).append(",\n");
         }
         // 4.6.source_sequence
         if (sequenceCol != null) {
@@ -1710,7 +1812,7 @@ public abstract class RoutineLoadJob
         }
         // 4.7.preceding_predicates
         if (precedingFilter != null) {
-            sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
+            sb.append("PRECEDING FILTER ").append(precedingFilter.toSqlWithoutTbl()).append(",\n");
         }
         // remove the last ,
         if (sb.charAt(sb.length() - 2) == ',') {
@@ -1724,15 +1826,15 @@ public abstract class RoutineLoadJob
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
-        appendProperties(sb, PROPS_FORMAT, getFormat(), false);
+        appendProperties(sb, FileFormatProperties.PROP_FORMAT, getFormat(), false);
         if (isPartialUpdate) {
             appendProperties(sb, CreateRoutineLoadStmt.PARTIAL_COLUMNS, isPartialUpdate, false);
         }
-        appendProperties(sb, PROPS_JSONPATHS, getJsonPaths(), false);
-        appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
-        appendProperties(sb, PROPS_NUM_AS_STRING, isNumAsString(), false);
-        appendProperties(sb, PROPS_FUZZY_PARSE, isFuzzyParse(), false);
-        appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_JSON_PATHS, getJsonPaths(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_NUM_AS_STRING, isNumAsString(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_FUZZY_PARSE, isFuzzyParse(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
         appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
         appendProperties(sb, LoadStmt.EXEC_MEM_LIMIT, getMemLimit(), true);
@@ -1797,22 +1899,30 @@ public abstract class RoutineLoadJob
         }
     }
 
-    private String jobPropertiesToJsonString() {
+    // jobPropertiesJsonString contains both load properties and job properties defined in CreateRoutineLoadStmt
+    public String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
+        // load properties defined in CreateRoutineLoadStmt
         jobProperties.put("partitions", partitions == null
                 ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null
                 ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
-        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
-        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
+        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSqlWithoutTbl());
+        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSqlWithoutTbl());
         if (getFormat().equalsIgnoreCase("json")) {
-            jobProperties.put(PROPS_FORMAT, "json");
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
         } else {
             jobProperties.put(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR,
                     columnSeparator == null ? "\t" : columnSeparator.toString());
             jobProperties.put(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER,
                     lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
+        jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
+                deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
+        jobProperties.put(LoadStmt.KEY_IN_PARAM_SEQUENCE_COL,
+                sequenceCol == null ? STAR_STRING : sequenceCol);
+
+        // job properties defined in CreateRoutineLoadStmt
         jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
         jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
         jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
@@ -1824,20 +1934,18 @@ public abstract class RoutineLoadJob
                 String.valueOf(desireTaskConcurrentNum));
         jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
         jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
-        jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
-                deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
     }
 
-    abstract String dataSourcePropertiesJsonToString();
+    public abstract String dataSourcePropertiesJsonToString();
 
-    abstract String customPropertiesJsonToString();
+    public abstract String customPropertiesJsonToString();
 
-    abstract Map<String, String> getDataSourceProperties();
+    public abstract Map<String, String> getDataSourceProperties();
 
-    abstract Map<String, String> getCustomProperties();
+    public abstract Map<String, String> getCustomProperties();
 
     public boolean isExpired() {
         if (!isFinal()) {
@@ -1852,21 +1960,7 @@ public abstract class RoutineLoadJob
     }
 
     public static RoutineLoadJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            RoutineLoadJob job = null;
-            LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
-            if (type == LoadDataSourceType.KAFKA) {
-                job = new KafkaRoutineLoadJob();
-            } else {
-                throw new IOException("Unknown load data source type: " + type.name());
-            }
-
-            job.setTypeRead(true);
-            job.readFields(in);
-            return job;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), RoutineLoadJob.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), RoutineLoadJob.class);
     }
 
     @Override
@@ -1884,124 +1978,40 @@ public abstract class RoutineLoadJob
                 isPartialUpdate = Boolean.parseBoolean(v);
             }
         });
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
-        CreateRoutineLoadStmt stmt = null;
         try {
-            stmt = (CreateRoutineLoadStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
-            stmt.checkLoadProperties();
-            setRoutineLoadDesc(stmt.getRoutineLoadDesc());
+            ConnectContext ctx = new ConnectContext();
+            ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
+            StatementContext statementContext = new StatementContext();
+            statementContext.setConnectContext(ctx);
+            ctx.setStatementContext(statementContext);
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getState().reset();
+            try {
+                ctx.setThreadLocalInfo();
+                NereidsParser nereidsParser = new NereidsParser();
+                CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
+                        origStmt.originStmt);
+                CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                createRoutineLoadInfo.validate(ctx);
+                setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
+            } finally {
+                ctx.cleanup();
+            }
         } catch (Exception e) {
-            throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
+            this.state = JobState.CANCELLED;
+            LOG.warn("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
         if (userIdentity != null) {
             userIdentity.setIsAnalyzed();
         }
     }
 
-    @Deprecated
-    protected void readFields(DataInput in) throws IOException {
-        if (!isTypeRead) {
-            dataSourceType = LoadDataSourceType.valueOf(Text.readString(in));
-            isTypeRead = true;
-        }
-
-        id = in.readLong();
-        name = Text.readString(in);
-        // cluster
-        Text.readString(in);
-        dbId = in.readLong();
-        tableId = in.readLong();
-        if (tableId == 0) {
-            isMultiTable = true;
-        }
-        desireTaskConcurrentNum = in.readInt();
-        state = JobState.valueOf(Text.readString(in));
-        maxErrorNum = in.readLong();
-        maxBatchIntervalS = in.readLong();
-        maxBatchRows = in.readLong();
-        maxBatchSizeBytes = in.readLong();
-
-        switch (dataSourceType) {
-            case KAFKA: {
-                progress = new KafkaProgress();
-                progress.readFields(in);
-                break;
-            }
-            default:
-                throw new IOException("unknown data source type: " + dataSourceType);
-        }
-
-        createTimestamp = in.readLong();
-        pauseTimestamp = in.readLong();
-        endTimestamp = in.readLong();
-
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_101) {
-            this.jobStatistic.currentErrorRows = in.readLong();
-            this.jobStatistic.currentTotalRows = in.readLong();
-            this.jobStatistic.errorRows = in.readLong();
-            this.jobStatistic.totalRows = in.readLong();
-            this.jobStatistic.errorRowsAfterResumed = 0;
-            this.jobStatistic.unselectedRows = in.readLong();
-            this.jobStatistic.receivedBytes = in.readLong();
-            this.jobStatistic.totalTaskExcutionTimeMs = in.readLong();
-            this.jobStatistic.committedTaskNum = in.readLong();
-            this.jobStatistic.abortedTaskNum = in.readLong();
-        } else {
-            this.jobStatistic = RoutineLoadStatistic.read(in);
-        }
-        origStmt = OriginStatement.read(in);
-
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            jobProperties.put(key, value);
-            if (key.equals(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
-                isPartialUpdate = Boolean.parseBoolean(value);
-            }
-        }
-
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            sessionVariables.put(key, value);
-        }
-
-        // parse the origin stmt to get routine load desc
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
-        CreateRoutineLoadStmt stmt = null;
-        try {
-            stmt = (CreateRoutineLoadStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
-            stmt.checkLoadProperties();
-            setRoutineLoadDesc(stmt.getRoutineLoadDesc());
-        } catch (Exception e) {
-            throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
-        }
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_110) {
-            if (in.readBoolean()) {
-                userIdentity = UserIdentity.read(in);
-                userIdentity.setIsAnalyzed();
-            } else {
-                userIdentity = UserIdentity.UNKNOWN;
-            }
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_123 && Config.isCloudMode()) {
-            cloudClusterId = Text.readString(in);
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
-            comment = Text.readString(in);
-        } else {
-            comment = "";
-        }
-    }
-
-    public abstract void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
+    public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
+
+    public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) {
@@ -2018,6 +2028,7 @@ public abstract class RoutineLoadJob
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY)) {
             this.maxFilterRatio = Double.parseDouble(
                     jobProperties.remove(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY));
+            this.jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {

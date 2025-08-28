@@ -475,6 +475,30 @@ suite("test_date_function") {
     qt_sql """ select year('2050-01-01') """
     qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
 
+    // YEAROFWEEK
+    qt_sql """ select year_of_week('1987-01-01') """
+    qt_sql """ select year_of_week('2050-01-01') """
+    qt_sql """ select test_datetime, year_of_week(test_datetime) from ${tableName} order by test_datetime """
+
+    qt_sql """ select yow('1987-01-01') """
+
+    qt_sql "select year_of_week('2005-01-01')" // 2004-W53-6 
+    qt_sql "select year_of_week('2005-01-02')" // 2004-W53-7 
+    qt_sql "select year_of_week('2005-12-31')" // 2005-W52-6 
+    qt_sql "select year_of_week('2007-01-01')" // 2007-W01-1 
+    qt_sql "select year_of_week('2007-12-30')" // 2007-W52-7 
+    qt_sql "select year_of_week('2007-12-31')" // 2008-W01-1 
+    qt_sql "select year_of_week('2008-01-01')" // 2008-W01-2 
+    qt_sql "select year_of_week('2008-12-28')" // 2008-W52-7 
+    qt_sql "select year_of_week('2008-12-29')" // 2009-W01-1 
+    qt_sql "select year_of_week('2008-12-30')" // 2009-W01-2 
+    qt_sql "select year_of_week('2008-12-31')" // 2009-W01-3 
+    qt_sql "select year_of_week('2009-01-01')" // 2009-W01-4 
+    qt_sql "select year_of_week('2009-12-31')" // 2009-W53-4 
+    qt_sql "select year_of_week('2010-01-01')" // 2009-W53-5 
+    qt_sql "select year_of_week('2010-01-02')" // 2009-W53-6 
+    qt_sql "select year_of_week('2010-01-03')" // 2009-W53-7 
+
     // YEARWEEK
     qt_sql """ select yearweek('2021-1-1') """
     qt_sql """ select yearweek('2020-7-1') """
@@ -829,4 +853,30 @@ suite("test_date_function") {
             result([[true]])
         }
     }()
+
+    sql "drop table if exists date_add_test123"
+    sql """
+    CREATE TABLE date_add_test123(
+        id INT,
+        date_col DATE,
+        days_col INT,
+        months_col INT,
+        years_col INT,
+        datetime_col DATETIME,
+        invalid_col VARCHAR(50)
+    ) ENGINE = OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 10 PROPERTIES ("replication_num" = "1");
+    """
+    sql """
+    INSERT INTO date_add_test123
+    VALUES (1,'2023-05-15',10,2,1,'2023-05-15 12:00:00','invalid'    ),
+    (2,'2023-12-31',-5,-1,0,'2023-12-31 23:59:59','2023-13-40'    ),
+    (3, NULL, NULL, NULL, NULL, NULL, NULL),
+    (4,'2023-01-01',366,12,100,'2023-01-01 00:00:00','2023-01-01'    );
+"""
+
+    order_qt_sql1 """ SELECT 
+    DATE_ADD(invalid_col, INTERVAL '1+2' DAY)
+    FROM date_add_test123; """
+
+    order_qt_sql2 """ SELECT invalid_col,     DATE_ADD(invalid_col, INTERVAL 1+2 DAY)     FROM date_add_test123 """
 }

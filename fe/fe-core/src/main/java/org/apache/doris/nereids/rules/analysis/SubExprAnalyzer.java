@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -75,13 +74,16 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                     new Exists(((Exists) child).getQueryPlan(), true), context);
         } else if (child instanceof InSubquery) {
             return visitInSubquery(new InSubquery(((InSubquery) child).getCompareExpr(),
-                    ((InSubquery) child).getListQuery(), true), context);
+                    ((InSubquery) child).getQueryPlan(), true), context);
         }
         return visit(not, context);
     }
 
     @Override
     public Expression visitExistsSubquery(Exists exists, T context) {
+        if (!exists.getCorrelateSlots().isEmpty()) {
+            return exists;
+        }
         LogicalPlan queryPlan = exists.getQueryPlan();
         // distinct is useless, remove it
         if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
@@ -95,12 +97,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
                     + analyzedResult.getLogicalPlan());
         }
-        return new Exists(analyzedResult.getLogicalPlan(),
-                analyzedResult.getCorrelatedSlots(), exists.isNot());
+        return new Exists(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
 
     @Override
     public Expression visitInSubquery(InSubquery expr, T context) {
+        if (!expr.getCorrelateSlots().isEmpty()) {
+            return expr;
+        }
         LogicalPlan queryPlan = expr.getQueryPlan();
         // distinct is useless, remove it
         if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
@@ -114,16 +118,24 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
         return new InSubquery(
                 expr.getCompareExpr().accept(this, context),
-                new ListQuery(analyzedResult.getLogicalPlan()),
+                analyzedResult.getLogicalPlan(),
                 analyzedResult.getCorrelatedSlots(), expr.isNot());
     }
 
     @Override
     public Expression visitScalarSubquery(ScalarSubquery scalar, T context) {
+        if (!scalar.getCorrelateSlots().isEmpty()) {
+            return scalar;
+        }
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
         boolean isCorrelated = analyzedResult.isCorrelated();
         LogicalPlan analyzedSubqueryPlan = analyzedResult.logicalPlan;
         checkOutputColumn(analyzedSubqueryPlan);
+        // use limitOneIsEliminated to indicate if subquery has limit 1 clause
+        // because limit 1 clause will ensure subquery output at most 1 row
+        // we eliminate limit 1 clause and pass this info to later SubqueryToApply rule
+        // so when creating LogicalApply node, we don't need to add AssertTrue function
+        boolean limitOneIsEliminated = false;
         if (isCorrelated) {
             if (analyzedSubqueryPlan instanceof LogicalLimit) {
                 LogicalLimit limit = (LogicalLimit) analyzedSubqueryPlan;
@@ -131,6 +143,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                     // skip useless limit node
                     analyzedResult = new AnalyzedResult((LogicalPlan) analyzedSubqueryPlan.child(0),
                             analyzedResult.correlatedSlots);
+                    limitOneIsEliminated = true;
                 } else {
                     throw new AnalysisException("limit is not supported in correlated subquery "
                             + analyzedResult.getLogicalPlan());
@@ -148,7 +161,17 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             validateSubquery(analyzedResult.logicalPlan, validator, nodeInfoList, topAgg);
         }
 
-        if (analyzedResult.getLogicalPlan() instanceof LogicalProject) {
+        if (analyzedResult.getLogicalPlan() instanceof LogicalOneRowRelation) {
+            LogicalOneRowRelation oneRowRelation = (LogicalOneRowRelation) analyzedResult.getLogicalPlan();
+            if (oneRowRelation.getProjects().size() == 1 && oneRowRelation.getProjects().get(0) instanceof Alias) {
+                // if scalar subquery is like select '2024-02-02 00:00:00'
+                // we can just return the constant expr '2024-02-02 00:00:00'
+                Alias alias = (Alias) oneRowRelation.getProjects().get(0);
+                if (alias.isConstant()) {
+                    return alias.child();
+                }
+            }
+        } else if (analyzedResult.getLogicalPlan() instanceof LogicalProject) {
             LogicalProject project = (LogicalProject) analyzedResult.getLogicalPlan();
             if (project.child() instanceof LogicalOneRowRelation
                     && project.getProjects().size() == 1
@@ -170,7 +193,8 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             }
         }
 
-        return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
+        return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(),
+                limitOneIsEliminated);
     }
 
     private void checkOutputColumn(LogicalPlan plan) {

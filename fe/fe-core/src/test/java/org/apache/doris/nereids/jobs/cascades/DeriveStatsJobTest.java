@@ -81,8 +81,9 @@ public class DeriveStatsJobTest {
         long tableId1 = 0;
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         List<String> qualifier = ImmutableList.of("test", "t");
-        slot1 = new SlotReference(new ExprId(1), "c1", IntegerType.INSTANCE, true, qualifier, table1,
-                    new Column("e", PrimitiveType.INT));
+        slot1 = new SlotReference(new ExprId(1), "c1", IntegerType.INSTANCE, true, qualifier,
+                table1, new Column("e", PrimitiveType.INT),
+                table1, new Column("e", PrimitiveType.INT));
         new Expectations() {{
                 ConnectContext.get();
                 result = context;

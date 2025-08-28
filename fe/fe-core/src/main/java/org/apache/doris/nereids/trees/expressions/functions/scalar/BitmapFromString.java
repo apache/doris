@@ -51,13 +51,18 @@ public class BitmapFromString extends ScalarFunction
         super("bitmap_from_string", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapFromString(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapFromString withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapFromString(children.get(0));
+        return new BitmapFromString(getFunctionParams(children));
     }
 
     @Override

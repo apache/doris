@@ -31,8 +31,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -236,14 +234,7 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int size = in.readInt();
-        partitionIdToOffset = new ConcurrentHashMap<>();
-        for (int i = 0; i < size; i++) {
-            partitionIdToOffset.put(in.readInt(), in.readLong());
-        }
+    public Long totalProgress() {
+        return partitionIdToOffset.values().stream().reduce(0L, Long::sum);
     }
-
 }

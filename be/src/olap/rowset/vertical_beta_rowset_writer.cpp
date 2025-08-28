@@ -37,7 +37,6 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "util/slice.h"
-#include "util/spinlock.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -170,10 +169,9 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     RETURN_IF_ERROR(BaseBetaRowsetWriter::create_file_writer(seg_id, segment_file_writer));
     DCHECK(segment_file_writer != nullptr);
 
-    InvertedIndexFileWriterPtr inverted_index_file_writer;
+    IndexFileWriterPtr index_file_writer;
     if (context.tablet_schema->has_inverted_index()) {
-        RETURN_IF_ERROR(RowsetWriter::create_inverted_index_file_writer(
-                seg_id, &inverted_index_file_writer));
+        RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(seg_id, &index_file_writer));
     }
 
     segment_v2::SegmentWriterOptions writer_options;
@@ -183,11 +181,11 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), seg_id, context.tablet_schema, context.tablet,
-            context.data_dir, writer_options, inverted_index_file_writer.get());
+            context.data_dir, writer_options, index_file_writer.get());
 
     RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(segment_file_writer)));
     if (context.tablet_schema->has_inverted_index()) {
-        RETURN_IF_ERROR(this->_idx_files.add(seg_id, std::move(inverted_index_file_writer)));
+        RETURN_IF_ERROR(this->_idx_files.add(seg_id, std::move(index_file_writer)));
     }
 
     auto s = (*writer)->init(column_ids, is_key);

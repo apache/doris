@@ -26,7 +26,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
@@ -37,36 +36,320 @@ template <template <typename> class AggregateFunctionTemplate,
           template <typename, bool> class Impl, bool result_is_nullable, bool arg_is_nullable>
 AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
                                                          const DataTypes& argument_types) {
-    auto type = remove_nullable(argument_types[0]);
-    WhichDataType which(*type);
-
     bool arg_ignore_null_value = false;
     // FE have rewrite case first_value(k1,false)--->first_value(k1)
     // so size is 2, must will be arg_ignore_null_value
     if (argument_types.size() == 2) {
-        DCHECK(name == "first_value" || name == "last_value") << "invalid function name: " << name;
+        DCHECK(name == "first_value" || name == "last_value" || name == "nth_value")
+                << "invalid function name: " << name;
         arg_ignore_null_value = true;
     }
-
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                        \
-    if (which.idx == TypeIndex::TYPE) {                                                    \
-        if (arg_ignore_null_value) {                                                       \
-            return std::make_shared<AggregateFunctionTemplate<                             \
-                    Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>, true>>>(  \
-                    argument_types);                                                       \
-        } else {                                                                           \
-            return std::make_shared<AggregateFunctionTemplate<                             \
-                    Impl<Data<COLUMN_TYPE, result_is_nullable, arg_is_nullable>, false>>>( \
-                    argument_types);                                                       \
-        }                                                                                  \
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnUInt8, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnUInt8, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
     }
-
-    TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
-
-    LOG(WARNING) << "with unknowed type, failed in  create_aggregate_function_" << name
-                 << " and type is: " << argument_types[0]->get_name();
-    return nullptr;
+    case PrimitiveType::TYPE_TINYINT: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt8, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt8, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_SMALLINT: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt16, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt16, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_INT: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt32, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt32, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_BIGINT: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt64, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt64, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_LARGEINT: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt128, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnInt128, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_FLOAT: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnFloat32, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnFloat32, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DOUBLE: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnFloat64, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnFloat64, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DECIMAL32: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal32, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal32, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DECIMAL64: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal64, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal64, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DECIMAL128I: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal128V3, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal128V3, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DECIMALV2: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal128V2, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal128V2, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DECIMAL256: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal256, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDecimal256, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_JSONB: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnString, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnString, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DATE: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDate, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDate, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DATETIME: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDateTime, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDateTime, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DATETIMEV2: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDateTimeV2, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDateTimeV2, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DATEV2: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDateV2, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDateV2, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_IPV4: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnIPv4, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnIPv4, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_IPV6: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnIPv6, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnIPv6, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_ARRAY: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnArray, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnArray, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_MAP: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnMap, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnMap, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_STRUCT: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnStruct, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnStruct, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_VARIANT: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnVariant, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnVariant, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_BITMAP: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnBitmap, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnBitmap, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_HLL: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnHLL, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnHLL, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_QUANTILE_STATE: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnQuantileState, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnQuantileState, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    default:
+        LOG(WARNING) << "with unknowed type, failed in  create_aggregate_function_" << name
+                     << " and type is: " << argument_types[0]->get_name();
+        return nullptr;
+    }
 }
 
 #define CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(CREATE_FUNCTION_NAME, FUNCTION_DATA,             \
@@ -101,6 +384,8 @@ CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_first
                                           WindowFunctionFirstImpl);
 CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_last, FirstLastData,
                                           WindowFunctionLastImpl);
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_nth_value, NthValueData,
+                                          WindowFunctionNthValueImpl);
 
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("dense_rank", creator_without_type::creator<WindowFunctionDenseRank>);
@@ -118,6 +403,7 @@ void register_aggregate_function_window_lead_lag_first_last(
     factory.register_function_both("lag", create_aggregate_function_window_lag);
     factory.register_function_both("first_value", create_aggregate_function_window_first);
     factory.register_function_both("last_value", create_aggregate_function_window_last);
+    factory.register_function_both("nth_value", create_aggregate_function_window_nth_value);
 }
 
 } // namespace doris::vectorized

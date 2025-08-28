@@ -23,13 +23,14 @@
 #include <cstddef>
 
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_vector.h"
 #include "vec/core/field.h"
 
 namespace doris::vectorized {
-TEST(ColumnStructTest, StringTest) {
+TEST(ColumnStructTest2, StringTest) {
     auto str64_column = ColumnString64::create();
     auto i32_column = ColumnInt32::create();
 
@@ -63,17 +64,17 @@ TEST(ColumnStructTest, StringTest) {
     EXPECT_EQ(str32_struct_column->size(), indices.size());
     auto t = get<Tuple>(str32_struct_column->operator[](0));
     EXPECT_EQ(t.size(), 2);
-    EXPECT_EQ(t[0], "aaa");
-    EXPECT_EQ(t[1], 111);
+    EXPECT_EQ(t[0], Field::create_field<TYPE_STRING>("aaa"));
+    EXPECT_EQ(t[1], Field::create_field<TYPE_BIGINT>(111));
 
     t = get<Tuple>(str32_struct_column->operator[](1));
     EXPECT_EQ(t.size(), 2);
-    EXPECT_EQ(t[0], "ccc");
-    EXPECT_EQ(t[1], 333);
+    EXPECT_EQ(t[0], Field::create_field<TYPE_STRING>("ccc"));
+    EXPECT_EQ(t[1], Field::create_field<TYPE_BIGINT>(333));
 
     t = get<Tuple>(str32_struct_column->operator[](2));
     EXPECT_EQ(t.size(), 2);
-    EXPECT_EQ(t[0], "ddd");
-    EXPECT_EQ(t[1], 444);
+    EXPECT_EQ(t[0], Field::create_field<TYPE_STRING>("ddd"));
+    EXPECT_EQ(t[1], Field::create_field<TYPE_BIGINT>(444));
 };
 } // namespace doris::vectorized

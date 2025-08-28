@@ -41,6 +41,7 @@ class RuntimeProfile;
 using namespace ErrorCode;
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
@@ -213,23 +214,23 @@ public:
                 const auto* col_schema = _schema.column(j);
                 switch (col_schema->type()) {
                 case FieldType::OLAP_FIELD_TYPE_SMALLINT:
-                    *(int16_t*)data = _rows_returned + j;
+                    *(int16_t*)data = cast_set<int16_t>(_rows_returned + j);
                     data_len = sizeof(int16_t);
                     break;
                 case FieldType::OLAP_FIELD_TYPE_INT:
-                    *(int32_t*)data = _rows_returned + j;
+                    *(int32_t*)data = cast_set<int32_t>(_rows_returned + j);
                     data_len = sizeof(int32_t);
                     break;
                 case FieldType::OLAP_FIELD_TYPE_BIGINT:
-                    *(int64_t*)data = _rows_returned + j;
+                    *(int64_t*)data = cast_set<int64_t>(_rows_returned + j);
                     data_len = sizeof(int64_t);
                     break;
                 case FieldType::OLAP_FIELD_TYPE_FLOAT:
-                    *(float*)data = _rows_returned + j;
+                    *(float*)data = cast_set<float>(_rows_returned + j);
                     data_len = sizeof(float);
                     break;
                 case FieldType::OLAP_FIELD_TYPE_DOUBLE:
-                    *(double*)data = _rows_returned + j;
+                    *(double*)data = cast_set<double>(_rows_returned + j);
                     data_len = sizeof(double);
                     break;
                 default:
@@ -367,11 +368,10 @@ public:
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override;
 
-    bool update_profile(RuntimeProfile* profile) override {
+    void update_profile(RuntimeProfile* profile) override {
         if (_cur_iter != nullptr) {
-            return _cur_iter->update_profile(profile);
+            _cur_iter->update_profile(profile);
         }
-        return false;
     }
 
 private:
@@ -449,6 +449,7 @@ RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num
     return std::make_unique<VAutoIncrementIterator>(schema, num_rows);
 }
 
+#include "common/compile_check_end.h"
 } // namespace vectorized
 
 } // namespace doris

@@ -22,6 +22,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -91,10 +92,25 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         } else {
             doBeforeCommit();
             summaryProfile.ifPresent(profile -> profile.setTransactionBeginTime(transactionType()));
-            transactionManager.commit(txnId);
+            if (table instanceof ExternalTable) {
+                try {
+                    ExternalTable externalTable = (ExternalTable) table;
+                    externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
+                        try {
+                            transactionManager.commit(txnId);
+                        } catch (UserException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                } catch (Exception e) {
+                    throw new UserException(Util.getRootCauseMessage(e), e);
+                }
+            } else {
+                transactionManager.commit(txnId);
+            }
             summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
-            Env.getCurrentEnv().getRefreshManager().refreshTable(
+            Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
                     catalogName,
                     table.getDatabase().getFullName(),
                     table.getName(),
@@ -113,7 +129,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
 
     @Override
     protected void onFail(Throwable t) {
-        errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
+        errMsg = Util.getRootCauseMessage(t);
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
@@ -125,7 +141,19 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             }
         }
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, t.getMessage());
-        transactionManager.rollback(txnId);
+
+        if (table instanceof ExternalTable) {
+            try {
+                ExternalTable externalTable = (ExternalTable) table;
+                externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
+                    transactionManager.rollback(txnId);
+                });
+            } catch (Exception e) {
+                LOG.warn("errors when abort txn. {} for table: {}", txnId, table.getName(), e);
+            }
+        } else {
+            transactionManager.rollback(txnId);
+        }
     }
 
     @Override

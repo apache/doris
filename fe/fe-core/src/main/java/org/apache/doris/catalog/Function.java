@@ -21,8 +21,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -639,107 +637,13 @@ public class Function implements Writable {
         return null;
     }
 
-    enum FunctionType {
-        ORIGIN(0),
-        SCALAR(1),
-        AGGREGATE(2),
-        ALIAS(3);
-
-        @SerializedName("c")
-        private int code;
-
-        FunctionType(int code) {
-            this.code = code;
-        }
-
-        public int getCode() {
-            return code;
-        }
-
-        public static FunctionType fromCode(int code) {
-            switch (code) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
-                case 0:
-                    return ORIGIN;
-                case 1:
-                    return SCALAR;
-                case 2:
-                    return AGGREGATE;
-                case 3:
-                    return ALIAS;
-            }
-            return null;
-        }
-
-        public static FunctionType read(DataInput input) throws IOException {
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-                return fromCode(input.readInt());
-            } else {
-                return GsonUtils.GSON.fromJson(Text.readString(input), FunctionType.class);
-            }
-        }
-    }
-
     @Override
     public void write(DataOutput output) throws IOException {
         Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 
-    protected void readFields(DataInput input) throws IOException {
-        id = input.readLong();
-        name = FunctionName.read(input);
-        retType = ColumnType.read(input);
-        int numArgs = input.readInt();
-        argTypes = new Type[numArgs];
-        for (int i = 0; i < numArgs; ++i) {
-            argTypes[i] = ColumnType.read(input);
-        }
-        hasVarArgs = input.readBoolean();
-        userVisible = input.readBoolean();
-        binaryType = TFunctionBinaryType.findByValue(input.readInt());
-
-        boolean hasLocation = input.readBoolean();
-        if (hasLocation) {
-            String locationStr = Text.readString(input);
-            try {
-                location = URI.create(locationStr);
-            } catch (AnalysisException e) {
-                LOG.warn("failed to parse location:" + locationStr);
-            }
-
-        }
-        boolean hasChecksum = input.readBoolean();
-        if (hasChecksum) {
-            checksum = Text.readString(input);
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_126) {
-            nullableMode = NullableMode.valueOf(input.readUTF());
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_131) {
-            isUDTFunction = input.readBoolean();
-        }
-    }
-
     public static Function read(DataInput input) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
-            return GsonUtils.GSON.fromJson(Text.readString(input), Function.class);
-        }
-        Function function;
-        FunctionType functionType = FunctionType.read(input);
-        switch (functionType) {
-            case SCALAR:
-                function = new ScalarFunction();
-                break;
-            case AGGREGATE:
-                function = new AggregateFunction();
-                break;
-            case ALIAS:
-                function = new AliasFunction();
-                break;
-            default:
-                throw new Error("Unsupported function type, type=" + functionType);
-        }
-        function.readFields(input);
-        return function;
+        return GsonUtils.GSON.fromJson(Text.readString(input), Function.class);
     }
 
     public String getProperties() {
@@ -922,13 +826,14 @@ public class Function implements Writable {
 
     public static FunctionCallExpr convertForEachCombinator(FunctionCallExpr fnCall) {
         Function aggFunction = fnCall.getFn();
-        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_FOREACH_SUFFIX));
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction()
+                + Expr.AGG_FOREACH_SUFFIX + "v2"));
         List<Type> argTypes = new ArrayList();
         for (Type type : aggFunction.argTypes) {
             argTypes.add(new ArrayType(type));
         }
         aggFunction.setArgs(argTypes);
-        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), fnCall.isNullable()));
+        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), true));
         aggFunction.setNullableMode(NullableMode.ALWAYS_NULLABLE);
         return fnCall;
     }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -25,6 +24,10 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -36,6 +39,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.commons.text.StringSubstitutor;
 
@@ -63,7 +68,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     private boolean partitionColumnSampleTooManyRows = false;
     private boolean scanFullTable = false;
     private static final long MAXIMUM_SAMPLE_ROWS = 1_000_000_000;
-    private static final int PARTITION_COUNT_TO_SAMPLE = 5;
+    public static final long NO_SKIP_TABLET_ID = -1;
 
     @VisibleForTesting
     public OlapAnalysisTask() {
@@ -130,13 +135,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     protected ResultRow collectMinMax() {
-        // Agg table value columns has no zone map.
-        // For these columns, skip collecting min and max value to avoid scan whole table.
-        if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS) && !col.isKey()) {
-            LOG.info("Aggregation table {} column {} is not a key column, skip collecting min and max.",
-                    tbl.getName(), col.getName());
-            return null;
-        }
         long startTime = System.currentTimeMillis();
         Map<String, String> params = buildSqlParams();
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -165,7 +163,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     protected Pair<List<Long>, Long> getSampleTablets() {
         long targetSampleRows = getSampleRows();
         OlapTable olapTable = (OlapTable) tbl;
-        boolean forPartitionColumn = tbl.isPartitionColumn(col.getName());
+        boolean forPartitionColumn = tbl.isPartitionColumn(col);
         long avgTargetRowsPerPartition = targetSampleRows / Math.max(olapTable.getPartitions().size(), 1);
         List<Long> sampleTabletIds = new ArrayList<>();
         long selectedRows = 0;
@@ -173,6 +171,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         // Sort the partitions to get stable result.
         List<Partition> sortedPartitions = olapTable.getPartitions().stream().sorted(
                 Comparator.comparing(Partition::getName)).collect(Collectors.toList());
+        long largeTabletId = 0;
+        long largeTabletRows = Long.MAX_VALUE;
         for (Partition p : sortedPartitions) {
             MaterializedIndex materializedIndex = info.indexId == -1 ? p.getBaseIndex() : p.getIndex(info.indexId);
             if (materializedIndex == null) {
@@ -191,8 +191,20 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             for (int i = 0; i < tabletCounts; i++) {
                 int seekTid = (int) ((i + seek) % ids.size());
                 long tabletId = ids.get(seekTid);
-                sampleTabletIds.add(tabletId);
                 long tabletRows = materializedIndex.getTablet(tabletId).getMinReplicaRowCount(p.getVisibleVersion());
+                if (tabletRows > MAXIMUM_SAMPLE_ROWS) {
+                    LOG.debug("Found one large tablet id {} in table {}, rows {}",
+                            largeTabletId, tbl.getName(), largeTabletRows);
+                    // Skip very large tablet and record the smallest large tablet id and row count.
+                    if (tabletRows < largeTabletRows) {
+                        LOG.debug("Current smallest large tablet id {} in table {}, rows {}",
+                                largeTabletId, tbl.getName(), largeTabletRows);
+                        largeTabletId = tabletId;
+                        largeTabletRows = tabletRows;
+                    }
+                    continue;
+                }
+                sampleTabletIds.add(tabletId);
                 if (tabletRows > 0) {
                     selectedRows += tabletRows;
                     // For regular column, will stop adding more tablets when selected tablets'
@@ -209,6 +221,13 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 break;
             }
         }
+        // If we skipped some large tablets and this cause the sampled rows is not enough, we add the large tablet back.
+        if (!enough && largeTabletId != 0) {
+            sampleTabletIds.add(largeTabletId);
+            selectedRows += largeTabletRows;
+            LOG.info("Add large tablet {} in table {} back, with rows {}",
+                    largeTabletId, tbl.getName(), largeTabletRows);
+        }
         if (selectedRows < targetSampleRows) {
             scanFullTable = true;
         } else if (forPartitionColumn && selectedRows > MAXIMUM_SAMPLE_ROWS) {
@@ -216,7 +235,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             partitionColumnSampleTooManyRows = true;
             sampleTabletIds.clear();
             Collections.shuffle(sortedPartitions);
-            selectedRows = pickSamplePartition(sortedPartitions, sampleTabletIds);
+            selectedRows = pickSamplePartition(sortedPartitions, sampleTabletIds, getSkipPartitionId(sortedPartitions));
         } else if (col.isKey() && selectedRows > MAXIMUM_SAMPLE_ROWS) {
             // For key column, if a single tablet contains too many rows, need to use limit to control rows to read.
             // In most cases, a single tablet shouldn't contain more than MAXIMUM_SAMPLE_ROWS, in this case, we
@@ -236,12 +255,21 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("rowCount", String.valueOf(tableRowCount));
         params.put("type", col.getType().toString());
         params.put("limit", "");
+        params.put("subStringColName", getStringTypeColName(col));
+
+        // For agg table and mor unique table, set PREAGGOPEN preAggHint.
+        if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS)
+                || ((OlapTable) tbl).getKeysType().equals(KeysType.UNIQUE_KEYS)
+                && !((OlapTable) tbl).isUniqKeyMergeOnWrite()) {
+            params.put("preAggHint", "/*+PREAGGOPEN*/");
+        }
 
         // If table row count is less than the target sample row count, simple scan the full table.
         if (tableRowCount <= targetSampleRows) {
             params.put("scaleFactor", "1");
             params.put("sampleHints", "");
             params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             scanFullTable = true;
             return;
         }
@@ -272,6 +300,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         // Set algorithm related params.
         if (useLinearAnalyzeTemplate()) {
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             // For single unique key, use count as ndv.
             if (isSingleUniqueKey()) {
                 params.put("ndvFunction", String.valueOf(tableRowCount));
@@ -281,7 +310,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         } else {
             params.put("ndvFunction", getNdvFunction(String.valueOf(tableRowCount)));
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
-            params.put("subStringColName", getStringTypeColName(col));
+            params.put("rowCount2", "(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)");
         }
     }
 
@@ -361,6 +390,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("colName", StatisticsUtil.escapeColumnName(String.valueOf(info.colName)));
         params.put("tblName", String.valueOf(tbl.getName()));
         params.put("index", getIndex());
+        params.put("preAggHint", "");
         return params;
     }
 
@@ -373,12 +403,65 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
     }
 
-    protected long pickSamplePartition(List<Partition> partitions, List<Long> pickedTabletIds) {
-        long averageRowsPerPartition = tbl.getRowCount() / partitions.size();
+    // For partition tables with single time type partition column, we'd better to skip sampling the partition
+    // that contains all the history data. Because this partition may contain many old data which is not
+    // visited by most queries. To sample this partition may cause the statistics not accurate.
+    // For example, one table has 366 partitions, partition 1 ~ 365 store date for each day of the year from now.
+    // Partition 0 stores all the history data earlier than 1 year. We want to skip sampling partition 0.
+    protected long getSkipPartitionId(List<Partition> partitions) {
+        if (partitions == null || partitions.size() < StatisticsUtil.getPartitionSampleCount()) {
+            return NO_SKIP_TABLET_ID;
+        }
+        PartitionInfo partitionInfo = ((OlapTable) tbl).getPartitionInfo();
+        if (!PartitionType.RANGE.equals(partitionInfo.getType())) {
+            return NO_SKIP_TABLET_ID;
+        }
+        if (partitionInfo.getPartitionColumns().size() != 1) {
+            return NO_SKIP_TABLET_ID;
+        }
+        Column column = partitionInfo.getPartitionColumns().get(0);
+        if (!column.getType().isDateType()) {
+            return NO_SKIP_TABLET_ID;
+        }
+        PartitionKey lowestKey = PartitionKey.createMaxPartitionKey();
+        long lowestPartitionId = -1;
+        for (Partition p : partitions) {
+            RangePartitionItem item = (RangePartitionItem) partitionInfo.getItem(p.getId());
+            Range<PartitionKey> items = item.getItems();
+            if (!items.hasLowerBound()) {
+                lowestPartitionId = p.getId();
+                break;
+            }
+            if (items.lowerEndpoint().compareTo(lowestKey) < 0) {
+                lowestKey = items.lowerEndpoint();
+                lowestPartitionId = p.getId();
+            }
+        }
+        return lowestPartitionId;
+    }
+
+    protected long pickSamplePartition(List<Partition> partitions, List<Long> pickedTabletIds, long skipPartitionId) {
+        Partition partition = ((OlapTable) tbl).getPartition(skipPartitionId);
+        long averageRowsPerPartition;
+        if (partition != null) {
+            LOG.debug("Going to skip partition {} in table {}", skipPartitionId, tbl.getName());
+            // If we want to skip the oldest partition, calculate the average rows per partition value without
+            // the oldest partition, otherwise if the oldest partition is very large, we may skip all partitions.
+            // Because we only pick partitions which meet partitionRowCount >= averageRowsPerPartition.
+            Preconditions.checkNotNull(partitions, "Partition list of table " + tbl.getName() + " is null");
+            Preconditions.checkState(partitions.size() > 1, "Too few partitions in " + tbl.getName());
+            averageRowsPerPartition = (tbl.getRowCount() - partition.getRowCount()) / (partitions.size() - 1);
+        } else {
+            averageRowsPerPartition = tbl.getRowCount() / partitions.size();
+        }
         long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
         long pickedRows = 0;
         int pickedPartitionCount = 0;
         for (Partition p : partitions) {
+            if (skipPartitionId == p.getId()) {
+                LOG.info("Partition {} in table {} skipped", skipPartitionId, tbl.getName());
+                continue;
+            }
             long partitionRowCount = p.getRowCount();
             if (partitionRowCount >= averageRowsPerPartition) {
                 pickedRows += partitionRowCount;
@@ -386,7 +469,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 MaterializedIndex materializedIndex = p.getIndex(indexId);
                 pickedTabletIds.addAll(materializedIndex.getTabletIdsInOrder());
             }
-            if (pickedRows >= MAXIMUM_SAMPLE_ROWS || pickedPartitionCount > PARTITION_COUNT_TO_SAMPLE) {
+            if (pickedRows >= StatisticsUtil.getPartitionSampleRowCount()
+                    || pickedPartitionCount >= StatisticsUtil.getPartitionSampleCount()) {
                 break;
             }
         }
@@ -411,7 +495,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return false;
         }
         // Partition column need to scan tablets from all partitions.
-        return !tbl.isPartitionColumn(col.getName());
+        return !tbl.isPartitionColumn(col);
     }
 
     /**
@@ -439,12 +523,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (isSingleUniqueKey()) {
             return true;
         }
-        String columnName = col.getName();
-        if (columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
-            columnName = columnName.substring(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX.length());
-        }
         Set<String> distributionColumns = tbl.getDistributionColumnNames();
-        return distributionColumns.size() == 1 && distributionColumns.contains(columnName.toLowerCase());
+        return distributionColumns.size() == 1
+                && distributionColumns.contains(col.tryGetBaseColumnName().toLowerCase());
     }
 
     /**

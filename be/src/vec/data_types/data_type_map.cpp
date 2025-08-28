@@ -26,6 +26,7 @@
 #include <typeinfo>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
@@ -49,9 +50,9 @@ Field DataTypeMap::get_default() const {
     Array key, val;
     key.push_back(key_type->get_default());
     val.push_back(value_type->get_default());
-    m.push_back(key);
-    m.push_back(val);
-    return m;
+    m.push_back(Field::create_field<TYPE_ARRAY>(key));
+    m.push_back(Field::create_field<TYPE_ARRAY>(val));
+    return Field::create_field<TYPE_MAP>(m);
 };
 
 std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {
@@ -76,7 +77,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
         }
         if (nested_keys_column.is_null_at(i)) {
             str += "null";
-        } else if (WhichDataType(remove_nullable(key_type)).is_string_or_fixed_string()) {
+        } else if (is_string_type(key_type->get_primitive_type())) {
             str += "\"" + key_type->to_string(nested_keys_column, i) + "\"";
         } else {
             str += key_type->to_string(nested_keys_column, i);
@@ -84,7 +85,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
         str += ":";
         if (nested_values_column.is_null_at(i)) {
             str += "null";
-        } else if (WhichDataType(remove_nullable(value_type)).is_string_or_fixed_string()) {
+        } else if (is_string_type(value_type->get_primitive_type())) {
             str += "\"" + value_type->to_string(nested_values_column, i) + "\"";
         } else {
             str += value_type->to_string(nested_values_column, i);
@@ -252,6 +253,13 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
 MutableColumnPtr DataTypeMap::create_column() const {
     return ColumnMap::create(key_type->create_column(), value_type->create_column(),
                              ColumnArray::ColumnOffsets::create());
+}
+
+Status DataTypeMap::check_column(const IColumn& column) const {
+    const auto* column_map = DORIS_TRY(check_column_nested_type<ColumnMap>(column));
+    RETURN_IF_ERROR(key_type->check_column(column_map->get_keys()));
+    RETURN_IF_ERROR(value_type->check_column(column_map->get_values()));
+    return Status::OK();
 }
 
 void DataTypeMap::to_pb_column_meta(PColumnMeta* col_meta) const {

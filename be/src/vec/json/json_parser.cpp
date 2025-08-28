@@ -27,12 +27,14 @@
 #include <algorithm>
 #include <string_view>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename ParserImpl>
 std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
@@ -59,18 +61,26 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
     if (element.isObject()) {
         traverseObject(element.getObject(), ctx);
     } else if (element.isArray()) {
+        if (ctx.has_nested_in_flatten) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Nesting of array in Nested array within variant subcolumns is "
+                                   "currently not supported.");
+        }
         has_nested = false;
         check_has_nested_object(element);
+        ctx.has_nested_in_flatten = has_nested && ctx.enable_flatten_nested;
         if (has_nested && !ctx.enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
             traverseArrayAsJsonb(element.getArray(), writer);
             ctx.paths.push_back(ctx.builder.get_parts());
-            ctx.values.push_back(
-                    JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize()));
+            ctx.values.push_back(Field::create_field<TYPE_JSONB>(
+                    JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize())));
         } else {
             traverseArray(element.getArray(), ctx);
         }
+        // we should set has_nested_in_flatten to false when traverse array finished for next array otherwise it will be true for next array
+        ctx.has_nested_in_flatten = false;
     } else {
         ctx.paths.push_back(ctx.builder.get_parts());
         ctx.values.push_back(getValueAsField(element));
@@ -82,6 +92,10 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
     ctx.values.reserve(ctx.values.size() + object.size());
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
+        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        }
         ctx.builder.append(key, false);
         traverse(value, ctx);
         ctx.builder.pop_back();
@@ -118,7 +132,11 @@ void JSONDataParser<ParserImpl>::traverseObjectAsJsonb(const JSONObject& object,
     writer.writeStartObject();
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
-        writer.writeKey(key.data(), key.size());
+        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        }
+        writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
         traverseAsJsonb(value, writer);
     }
     writer.writeEndObject();
@@ -137,6 +155,7 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseContext& ctx) {
     /// Traverse elements of array and collect an array of fields by each path.
     ParseArrayContext array_ctx;
+    array_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     array_ctx.total_size = array.size();
     for (auto it = array.begin(); it != array.end(); ++it) {
         traverseArrayElement(*it, array_ctx);
@@ -145,7 +164,7 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
     auto&& arrays_by_path = array_ctx.arrays_by_path;
     if (arrays_by_path.empty()) {
         ctx.paths.push_back(ctx.builder.get_parts());
-        ctx.values.push_back(Array());
+        ctx.values.push_back(Field::create_field<TYPE_ARRAY>(Array()));
     } else {
         ctx.paths.reserve(ctx.paths.size() + arrays_by_path.size());
         ctx.values.reserve(ctx.values.size() + arrays_by_path.size());
@@ -153,7 +172,7 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
             auto&& [path, path_array] = it->second;
             /// Merge prefix path and path of array element.
             ctx.paths.push_back(ctx.builder.append(path, true).get_parts());
-            ctx.values.push_back(std::move(path_array));
+            ctx.values.push_back(Field::create_field<TYPE_ARRAY>(std::move(path_array)));
             ctx.builder.pop_back(path.size());
         }
     }
@@ -162,8 +181,9 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
                                                       ParseArrayContext& ctx) {
     ParseContext element_ctx;
+    element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     traverse(element, element_ctx);
-    auto& [_, paths, values, flatten_nested] = element_ctx;
+    auto& [_, paths, values, flatten_nested, __] = element_ctx;
     size_t size = paths.size();
     size_t keys_to_update = ctx.arrays_by_path.size();
     for (size_t i = 0; i < size; ++i) {
@@ -207,7 +227,8 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
                     /// If newly added element is part of the Nested then
                     /// resize its elements to keep correct sizes of Nested arrays.
                     for (size_t j = 0; j < ctx.current_size; ++j) {
-                        path_array[j] = Array(current_nested_sizes[j]);
+                        path_array[j] =
+                                Field::create_field<TYPE_ARRAY>(Array(current_nested_sizes[j]));
                     }
                 }
                 if (current_nested_sizes.size() == ctx.current_size) {
@@ -271,14 +292,14 @@ bool JSONDataParser<ParserImpl>::tryInsertDefaultFromNested(ParseArrayContext& c
         current_nested_sizes.push_back(0);
     }
     size_t array_size = current_nested_sizes.back();
-    array.push_back(Array(array_size));
+    array.push_back(Field::create_field<TYPE_ARRAY>(Array(array_size)));
     return true;
 }
 
 template <typename ParserImpl>
 StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& path,
                                                       const Field& value) {
-    if (value.get_type() != Field::Types::Array || path.empty()) {
+    if (value.get_type() != PrimitiveType::TYPE_ARRAY || path.empty()) {
         return {};
     }
     /// Find first key that is marked as nested,
@@ -294,6 +315,8 @@ StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& p
     }
     return {};
 }
+
+#include "common/compile_check_end.h"
 
 template class JSONDataParser<SimdJSONParser>;
 } // namespace doris::vectorized

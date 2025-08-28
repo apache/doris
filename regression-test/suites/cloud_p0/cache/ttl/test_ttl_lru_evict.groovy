@@ -38,8 +38,15 @@ import org.apache.http.impl.client.LaxRedirectStrategy;
 //  - set smaller max_ttl_cache_ratio in this test
 
 suite("test_ttl_lru_evict") {
-    //sql """ use @regression_cluster_name1 """
-    sql """ use @compute_cluster """
+    def clusters = sql " SHOW CLUSTERS; "
+    assertTrue(!clusters.isEmpty())
+    def validCluster = clusters[0][0]
+    sql """use @${validCluster};""";
+
+    logger.info("getS3AK:${getS3AK()}");
+    logger.info("getS3SK:${getS3SK()}");
+    logger.info("getS3Endpoint:${getS3Endpoint()}");
+
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="150") """
     String[][] backends = sql """ show backends """
     String backendId;
@@ -48,7 +55,7 @@ suite("test_ttl_lru_evict") {
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
         // if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
-        if (backend[9].equals("true") && backend[19].contains("compute_cluster")) {
+        if (backend[9].equals("true") && backend[19].contains("${validCluster}")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])

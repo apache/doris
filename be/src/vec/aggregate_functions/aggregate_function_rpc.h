@@ -33,7 +33,6 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -43,6 +42,8 @@
 #include "vec/functions/function_rpc.h"
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
+#include "common/compile_check_avoid_begin.h"
+// The rpc function has now been deprecated to avoid compilation checks.
 
 #define error_default_str "#$@"
 
@@ -245,13 +246,13 @@ public:
         } else {
             LOG(ERROR) << "serialize empty buf";
         }
-        write_binary(serialize_data, buf);
+        buf.write_binary(serialize_data);
     }
 
     void deserialize(BufferReadable& buf) {
         static_cast<void>(send_buffer_to_rpc_server());
         std::string serialize_data;
-        read_binary(serialize_data, buf);
+        buf.read_binary(serialize_data);
         if (error_default_str != serialize_data) {
             _res.ParseFromString(serialize_data);
             set_last_result(true);
@@ -295,22 +296,25 @@ public:
             result_type =
                     reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
         }
-        WhichDataType which(result_type);
-        if (which.is_float32()) {
+        switch (result_type->get_primitive_type()) {
+        case TYPE_FLOAT:
             GETDATA(float, float);
-        } else if (which.is_float64()) {
+            break;
+        case TYPE_DOUBLE:
             GETDATA(double, double);
-        } else if (which.is_int32()) {
+            break;
+        case TYPE_INT:
             GETDATA(int32_t, int32);
-        } else if (which.is_uint32()) {
-            GETDATA(uint32_t, uint32);
-        } else if (which.is_int64()) {
+            break;
+        case TYPE_BIGINT:
             GETDATA(int64_t, int64);
-        } else if (which.is_uint64()) {
-            GETDATA(uint64_t, uint64);
-        } else if (which.is_uint8()) {
+            break;
+        case TYPE_BOOLEAN:
             GETDATA(uint8_t, bool);
-        } else if (which.is_string()) {
+            break;
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR: {
             if (response.result_size() > 0 && response.result(0).string_value_size() > 0) {
                 std::string ret = response.result(0).string_value(0);
                 to.insert_data(ret.c_str(), ret.size());
@@ -320,7 +324,9 @@ public:
                               "result is empty";
                 to.insert_default();
             }
-        } else {
+            break;
+        }
+        default:
             LOG(ERROR) << "failed to get result cause unkown return type";
             to.insert_default();
         }
@@ -358,20 +364,20 @@ public:
     DataTypePtr get_return_type() const override { return _return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         static_cast<void>(
                 this->data(place).buffer_add(columns, row_num, row_num + 1, argument_types));
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena&) const override {
         static_cast<void>(this->data(place).add(columns, 0, batch_size, argument_types));
     }
 
     void reset(AggregateDataPtr place) const override {}
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         static_cast<void>(this->data(place).merge(this->data(const_cast<AggregateDataPtr>(rhs))));
     }
 
@@ -380,7 +386,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).deserialize(buf);
     }
 
@@ -393,4 +399,5 @@ private:
     DataTypePtr _return_type;
 };
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

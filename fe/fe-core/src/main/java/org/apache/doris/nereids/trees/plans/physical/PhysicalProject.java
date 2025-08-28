@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -34,21 +35,25 @@ import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Physical project plan.
@@ -71,21 +76,30 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
-        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
+        this.projects = Utils.fastToImmutableList(
+                Objects.requireNonNull(projects, "projects can not be null")
+        );
+        this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
     }
 
+    /** PhysicalProject */
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics,
-                child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
-        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
+        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics, child);
+        this.projects = Utils.fastToImmutableList(
+                Objects.requireNonNull(projects, "projects can not be null")
+        );
+        this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
     }
 
     public List<NamedExpression> getProjects() {
         return projects;
+    }
+
+    @Override
+    public PhysicalProject<Plan> withProjects(List<NamedExpression> projects) {
+        return withProjectionsAndChild(projects, child());
     }
 
     @Override
@@ -98,6 +112,23 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "stats", statistics, "projects", projects, "multi_proj", cse.toString()
         );
+    }
+
+    @Override
+    public String shapeInfo() {
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
+            StringBuilder builder = new StringBuilder();
+            builder.append(getClass().getSimpleName());
+            // the internal project list's order may be unstable, especial for join tables,
+            // so sort the projects to make it stable
+            builder.append(projects.stream().map(Expression::shapeInfo).sorted()
+                    .collect(Collectors.joining(", ", "[", "]")));
+            return builder.toString();
+        } else {
+            return super.shapeInfo();
+        }
     }
 
     @Override
@@ -165,7 +196,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
      * @return new project
      */
     public PhysicalProject<Plan> withProjectionsAndChild(List<NamedExpression> projections, Plan child) {
-        return new PhysicalProject<>(ImmutableList.copyOf(projections),
+        return new PhysicalProject<>(Utils.fastToImmutableList(projections),
                 groupExpression,
                 getLogicalProperties(),
                 physicalProperties,
@@ -177,13 +208,16 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     @Override
     public List<Slot> computeOutput() {
         List<NamedExpression> output = projects;
-        if (! multiLayerProjects.isEmpty()) {
+        if (!multiLayerProjects.isEmpty()) {
             int layers = multiLayerProjects.size();
             output = multiLayerProjects.get(layers - 1);
         }
-        return output.stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+
+        Builder<Slot> slots = ImmutableList.builderWithExpectedSize(output.size());
+        for (NamedExpression project : output) {
+            slots.add(project.toSlot());
+        }
+        return slots.build();
     }
 
     @Override
@@ -263,7 +297,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
             if (proj.child(0) instanceof Uuid) {
                 builder.addUniqueSlot(proj.toSlot());
             } else if (ExpressionUtils.isInjective(proj.child(0))) {
-                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
+                ImmutableSet<Slot> inputs = Utils.fastToImmutableSet(proj.getInputSlots());
                 if (child(0).getLogicalProperties().getTrait().isUnique(inputs)) {
                     builder.addUniqueSlot(proj.toSlot());
                 }
@@ -318,5 +352,28 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
             }
         }
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return projects;
+    }
+
+    @Override
+    public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
+        List<NamedExpression> allProjects = new ArrayList<>(prunedOutputs);
+        for (NamedExpression expression : projects) {
+            if (expression.containsType(NoneMovableFunction.class)) {
+                if (!prunedOutputs.contains(expression)) {
+                    allProjects.add(expression);
+                }
+            }
+        }
+        return withProjects(allProjects);
+    }
+
+    @Override
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return true;
     }
 }

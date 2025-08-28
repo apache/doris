@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -75,8 +76,8 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
                                     .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
-                                            || f instanceof Count && !f.isDistinct()
-                                            && (f.children().isEmpty() || f.child(0) instanceof Slot)));
+                                            || f instanceof Count) && !f.isDistinct()
+                                            && (f.children().isEmpty() || f.child(0) instanceof Slot));
                         })
                         .thenApply(ctx -> {
                             LogicalAggregate<LogicalJoin<Plan, Plan>> agg = ctx.root;
@@ -84,8 +85,6 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                         })
                         .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE),
                 logicalAggregate(logicalProject(innerLogicalJoin()))
-                        // .when(agg -> agg.child().isAllSlots())
-                        // .when(agg -> agg.child().child().getOtherJoinConjuncts().isEmpty())
                         .whenNot(agg -> agg.child()
                                 .child(0).children().stream().anyMatch(p -> p instanceof LogicalAggregate))
                         .when(agg -> {
@@ -156,7 +155,15 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 } else if (rightOutput.contains(slot)) {
                     rightFuncs.add(func);
                 } else {
-                    throw new IllegalStateException("Slot " + slot + " not found in join output");
+                    /*
+                        agg(sum(C))
+                           -->project(A+B as C)
+                              -->join
+                                -->Scan(T1[A...])
+                                -->Scan(T2[B...])
+                         sum(C) cannot be pushed down
+                     */
+                    return null;
                 }
             }
         }
@@ -172,7 +179,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 return null;
             }
         }
-        for (Expression condition : join.getHashJoinConjuncts()) {
+        for (Expression condition : join.getExpressions()) {
             for (Slot joinConditionSlot : condition.getInputSlots()) {
                 if (leftOutput.contains(joinConditionSlot)) {
                     leftGroupBy.add(joinConditionSlot);
@@ -236,7 +243,8 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                     Expression newFunc = replaceAggFunc(func, rightSlotToOutput.get(slot).toSlot());
                     newOutputExprs.add((NamedExpression) ne.withChildren(newFunc));
                 } else {
-                    throw new IllegalStateException("Slot " + slot + " not found in join output");
+                    // unsupported
+                    return (LogicalAggregate<Plan>) agg;
                 }
             } else {
                 newOutputExprs.add(ne);
@@ -260,7 +268,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
 
     private static Expression replaceAggFunc(AggregateFunction func, Slot inputSlot) {
         if (func instanceof Count) {
-            return new Sum(inputSlot);
+            return new Sum0(inputSlot);
         } else {
             return func.withChildren(inputSlot);
         }

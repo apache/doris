@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <brpc/controller.h>
 #include <brpc/uri.h>
 #include <gen_cpp/cloud.pb.h>
 
@@ -40,6 +41,8 @@ HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
                              std::optional<std::string> body = {});
 
 HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri);
+
+HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* ctrl);
 
 HttpResponse process_http_encode_key(const brpc::URI& uri);
 

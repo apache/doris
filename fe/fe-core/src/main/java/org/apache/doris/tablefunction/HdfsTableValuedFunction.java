@@ -18,15 +18,13 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.URI;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
-import com.google.common.base.Strings;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -39,7 +37,6 @@ import java.util.Map;
 public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
     public static final Logger LOG = LogManager.getLogger(HdfsTableValuedFunction.class);
     public static final String NAME = "hdfs";
-    private static final String PROP_URI = "uri";
 
     public HdfsTableValuedFunction(Map<String, String> properties) throws AnalysisException {
         init(properties);
@@ -47,28 +44,15 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
 
     private void init(Map<String, String> properties) throws AnalysisException {
         // 1. analyze common properties
-        Map<String, String> otherProps = super.parseCommonProperties(properties);
-
+        Map<String, String> props = super.parseCommonProperties(properties);
         // 2. analyze uri
-        String uriStr = getOrDefaultAndRemove(otherProps, PROP_URI, null);
-        if (Strings.isNullOrEmpty(uriStr)) {
-            throw new AnalysisException(String.format("Properties '%s' is required.", PROP_URI));
-        }
-        URI uri = URI.create(uriStr);
-        StorageBackend.checkUri(uri, StorageType.HDFS);
-        filePath = uri.getScheme() + "://" + uri.getAuthority() + uri.getPath();
-
-        // 3. analyze other properties
-        for (String key : otherProps.keySet()) {
-            if (HdfsResource.HADOOP_FS_NAME.equalsIgnoreCase(key)) {
-                locationProperties.put(HdfsResource.HADOOP_FS_NAME, otherProps.get(key));
-            } else {
-                locationProperties.put(key, otherProps.get(key));
-            }
-        }
-        // If the user does not specify the HADOOP_FS_NAME, we will use the uri's scheme and authority
-        if (!locationProperties.containsKey(HdfsResource.HADOOP_FS_NAME)) {
-            locationProperties.put(HdfsResource.HADOOP_FS_NAME, uri.getScheme() + "://" + uri.getAuthority());
+        try {
+            this.storageProperties = StorageProperties.createPrimary(props);
+            backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
+            String uri = storageProperties.validateAndGetUri(props);
+            filePath = storageProperties.validateAndNormalizeUri(uri);
+        } catch (UserException e) {
+            throw new AnalysisException("Failed check storage props, " + e.getMessage(), e);
         }
 
         if (!FeConstants.runningUnitTest) {
@@ -91,7 +75,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("HdfsTvfBroker", StorageType.HDFS, locationProperties);
+        return new BrokerDesc("HdfsTvfBroker", StorageType.HDFS, processedParams);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

@@ -26,7 +26,7 @@ suite ("test_row_store") {
         """
 
     test {
-        sql "create materialized view kavg as select k1,k4,avg(k2) from d_table group by k1,k4;"
+        sql "create materialized view kavg as select k1 as a1,k4 as a2,avg(k2) from d_table group by k1,k4;"
         exception "RowStore table can't create materialized view"
     }
 

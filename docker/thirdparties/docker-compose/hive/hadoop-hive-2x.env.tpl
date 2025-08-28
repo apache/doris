@@ -15,3 +15,5 @@
 # limitations under the License.
 #
 
+
+HIVE_SITE_CONF_hive_stats_column_autogather=false

@@ -27,6 +27,7 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 
 import org.apache.logging.log4j.LogManager;
@@ -148,19 +149,28 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
-
+        Pair<String, Long> maxTabletSize = Pair.of(/* tablet id= */null, /* byte size= */0L);
+        Pair<String, Long> maxPartitionSize = Pair.of(/* partition id= */null, /* byte size= */0L);
+        Pair<String, Long> maxTableSize = Pair.of(/* table id= */null, /* byte size= */0L);
+        Pair<String, Long> minTabletSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
+        Pair<String, Long> minPartitionSize = Pair.of(/* partition id= */null, /* byte size= */Long.MAX_VALUE);
+        Pair<String, Long> minTableSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
+        Long totalTableSize = 0L;
+        Long tabletCount = 0L;
+        Long partitionCount = 0L;
+        Long tableCount = 0L;
         Map<Pair<Long, Long>, OlapTable.Statistics> newCloudTableStatsMap = new HashMap<>();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
-
             List<Table> tableList = db.getTables();
             for (Table table : tableList) {
                 if (!table.isManagedTable()) {
                     continue;
                 }
+                tableCount++;
                 OlapTable olapTable = (OlapTable) table;
 
                 Long tableDataSize = 0L;
@@ -178,10 +188,15 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     continue;
                 }
                 try {
-                    for (Partition partition : olapTable.getAllPartitions()) {
+                    List<Partition> allPartitions = olapTable.getAllPartitions();
+                    partitionCount += allPartitions.size();
+                    for (Partition partition : allPartitions) {
+                        Long partitionDataSize = 0L;
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
-                            for (Tablet tablet : index.getTablets()) {
+                            List<Tablet> tablets = index.getTablets();
+                            tabletCount += tablets.size();
+                            for (Tablet tablet : tablets) {
                                 long tabletDataSize = 0L;
 
                                 long tabletRowsetCount = 0L;
@@ -219,6 +234,13 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 }
 
                                 tableDataSize += tabletDataSize;
+                                partitionDataSize += tabletDataSize;
+                                if (maxTabletSize.second <= tabletDataSize) {
+                                    maxTabletSize = Pair.of("" + tablet.getId(), tabletDataSize);
+                                }
+                                if (minTabletSize.second >= tabletDataSize) {
+                                    minTabletSize = Pair.of("" + tablet.getId(), tabletDataSize);
+                                }
 
                                 tableRowCount += tabletRowCount;
                                 indexRowCount += tabletRowCount;
@@ -231,7 +253,19 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             index.setRowCountReported(true);
                             index.setRowCount(indexRowCount);
                         } // end for indices
+                        if (maxPartitionSize.second <= partitionDataSize) {
+                            maxPartitionSize = Pair.of("" + partition.getId(), partitionDataSize);
+                        }
+                        if (minPartitionSize.second >= partitionDataSize) {
+                            minPartitionSize = Pair.of("" + partition.getId(), partitionDataSize);
+                        }
                     } // end for partitions
+                    if (maxTableSize.second <= tableDataSize) {
+                        maxTableSize = Pair.of("" + table.getId(), tableDataSize);
+                    }
+                    if (minTableSize.second >= tableDataSize) {
+                        minTableSize = Pair.of("" + table.getId(), tableDataSize);
+                    }
 
                     //  this is only one thread to update table statistics, readLock is enough
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(),
@@ -243,15 +277,42 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 } finally {
                     table.readUnlock();
                 }
-
+                totalTableSize += tableDataSize;
                 newCloudTableStatsMap.put(Pair.of(dbId, table.getId()), new OlapTable.Statistics(db.getName(),
                         table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
                         tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount, 0L, 0L, 0L, 0L));
             }
         }
         this.cloudTableStatsMap = newCloudTableStatsMap;
+
+        MetricRepo.GAUGE_MAX_TABLE_SIZE_BYTES.setValue(maxTableSize.second);
+        MetricRepo.GAUGE_MAX_PARTITION_SIZE_BYTES.setValue(maxPartitionSize.second);
+        MetricRepo.GAUGE_MAX_TABLET_SIZE_BYTES.setValue(maxTabletSize.second);
+        long minTableSizeTmp = minTableSize.second == Long.MAX_VALUE ? 0 : minTableSize.second;
+        MetricRepo.GAUGE_MIN_TABLE_SIZE_BYTES.setValue(minTableSizeTmp);
+        long minPartitionSizeTmp = minPartitionSize.second == Long.MAX_VALUE ? 0 : minPartitionSize.second;
+        MetricRepo.GAUGE_MIN_PARTITION_SIZE_BYTES.setValue(minPartitionSizeTmp);
+        long minTabletSizeTmp = minTabletSize.second == Long.MAX_VALUE ? 0 : minTabletSize.second;
+        MetricRepo.GAUGE_MIN_TABLET_SIZE_BYTES.setValue(minTabletSizeTmp);
+        long avgTableSize = totalTableSize / Math.max(1, tableCount); // avoid ArithmeticException: / by zero
+        MetricRepo.GAUGE_AVG_TABLE_SIZE_BYTES.setValue(avgTableSize);
+        long avgPartitionSize = totalTableSize / Math.max(1, partitionCount); // avoid ArithmeticException: / by zero
+        MetricRepo.GAUGE_AVG_PARTITION_SIZE_BYTES.setValue(avgPartitionSize);
+        long avgTabletSize = totalTableSize / Math.max(1, tabletCount); // avoid ArithmeticException: / by zero
+        MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(avgTabletSize);
         LOG.info("finished to update index row num of all databases. cost: {} ms",
                 (System.currentTimeMillis() - start));
+        LOG.info("Olap table num=" + tableCount + ", partition num=" + partitionCount + ", tablet num=" + tabletCount
+                + ", max tablet byte size=" + maxTabletSize.second + "(tablet_id=" + maxTableSize.first + ")"
+                + ", min tablet byte size=" + minTabletSizeTmp + "(tablet_id=" + minTabletSize.first + ")"
+                + ", avg tablet byte size=" + avgTabletSize
+                + ", max partition byte size=" + maxPartitionSize.second + "(partition_id=" + maxPartitionSize.first
+                + ")"
+                + ", min partition byte size=" + minPartitionSizeTmp + "(partition_id=" + minPartitionSize.first + ")"
+                + ", avg partition byte size=" + avgPartitionSize
+                + ", max table byte size=" + maxTableSize.second + "(table_id=" + maxTableSize.first + ")"
+                + ", min table byte size=" + minTableSizeTmp + "(table_id=" + minTableSize.first + ")"
+                + ", avg table byte size=" + avgTableSize);
     }
 
     private void updateTabletStat(GetTabletStatsResponse response) {

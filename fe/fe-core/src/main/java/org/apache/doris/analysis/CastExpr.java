@@ -27,8 +27,9 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Pair;
@@ -45,10 +46,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 
 
@@ -140,6 +138,9 @@ public class CastExpr extends Expr {
             if (type.isStructType() && e.type.isStructType()) {
                 getChild(0).setType(type);
             }
+            if (type.isScalarType()) {
+                targetTypeDef = new TypeDef(type);
+            }
             analysisDone();
             return;
         }
@@ -158,8 +159,6 @@ public class CastExpr extends Expr {
             if (from.isComplexType() && type.isJsonbType()) {
                 nullableMode = Function.NullableMode.ALWAYS_NULLABLE;
             }
-            Preconditions.checkState(nullableMode != null,
-                    "cannot find nullable node for cast from " + from + " to " + to);
             fn = new Function(new FunctionName(getFnName(type)), Lists.newArrayList(e.type), type,
                     false, true, nullableMode);
         } else {
@@ -217,13 +216,24 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (needExternalSql) {
-            return getChild(0).toSql();
-        }
         if (isAnalyzed) {
             return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
         } else {
             return "CAST(" + getChild(0).toSql() + " AS "
+                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
+        }
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
+        if (needExternalSql) {
+            return getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
+        }
+        if (isAnalyzed) {
+            return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
+                    + type.toSql() + ")";
+        } else {
+            return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
                     + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
         }
     }
@@ -357,25 +367,6 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (isImplicit) {
-            return;
-        }
-        // When cast target type is string and it's length is default -1, the result length
-        // of cast is decided by child.
-        if (targetTypeDef.getType().isScalarType()) {
-            final ScalarType targetType = (ScalarType) targetTypeDef.getType();
-            if (!(targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet())) {
-                targetTypeDef.analyze(analyzer);
-            }
-        } else {
-            targetTypeDef.analyze(analyzer);
-        }
-        type = targetTypeDef.getType();
-        analyze();
-    }
-
-    @Override
     public int hashCode() {
         return super.hashCode();
     }
@@ -387,21 +378,6 @@ public class CastExpr extends Expr {
         }
         CastExpr expr = (CastExpr) obj;
         return this.opcode == expr.opcode;
-    }
-
-    /**
-     * Returns child expr if this expr is an implicit cast, otherwise returns 'this'.
-     */
-    @Override
-    public Expr ignoreImplicitCast() {
-        if (isImplicit) {
-            // we don't expect to see to consecutive implicit casts
-            Preconditions.checkState(!(getChild(0) instanceof CastExpr)
-                    || !((CastExpr) getChild(0)).isImplicit());
-            return getChild(0);
-        } else {
-            return this;
-        }
     }
 
     public boolean canHashPartition() {
@@ -473,102 +449,6 @@ public class CastExpr extends Expr {
         return this;
     }
 
-    public static CastExpr read(DataInput input) throws IOException {
-        CastExpr castExpr = new CastExpr();
-        castExpr.readFields(input);
-        return castExpr;
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        isImplicit = in.readBoolean();
-        ScalarType scalarType = TypeUtils.readScalaType(in);
-        targetTypeDef = new TypeDef(scalarType);
-        int counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            children.add(Expr.readIn(in));
-        }
-    }
-
-    public CastExpr rewriteExpr(List<String> parameters, List<Expr> inputParamsExprs) throws AnalysisException {
-        // child
-        Expr child = this.getChild(0);
-        Expr newChild = null;
-        if (child instanceof SlotRef) {
-            String columnName = ((SlotRef) child).getColumnName();
-            int index = parameters.indexOf(columnName);
-            if (index != -1) {
-                newChild = inputParamsExprs.get(index);
-            }
-        }
-        // rewrite cast expr in children
-        if (child instanceof CastExpr) {
-            newChild = ((CastExpr) child).rewriteExpr(parameters, inputParamsExprs);
-        }
-
-        // type def
-        ScalarType targetType = (ScalarType) targetTypeDef.getType();
-        PrimitiveType primitiveType = targetType.getPrimitiveType();
-        ScalarType newTargetType = null;
-        switch (primitiveType) {
-            case DECIMALV2:
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128:
-            case DECIMAL256:
-                // normal decimal
-                if (targetType.getPrecision() != 0) {
-                    newTargetType = targetType;
-                    break;
-                }
-                int precision = getDigital(targetType.getScalarPrecisionStr(), parameters, inputParamsExprs);
-                int scale = getDigital(targetType.getScalarScaleStr(), parameters, inputParamsExprs);
-                if (precision != -1 && scale != -1) {
-                    newTargetType = ScalarType.createType(primitiveType, 0, precision, scale);
-                } else if (precision != -1) {
-                    newTargetType = ScalarType.createType(primitiveType, 0, precision, ScalarType.DEFAULT_SCALE);
-                }
-                break;
-            case CHAR:
-            case VARCHAR:
-                // normal char/varchar
-                if (targetType.getLength() != -1) {
-                    newTargetType = targetType;
-                    break;
-                }
-                int len = getDigital(targetType.getLenStr(), parameters, inputParamsExprs);
-                if (len != -1) {
-                    newTargetType = ScalarType.createType(primitiveType, len, 0, 0);
-                }
-                // default char/varchar, which len is -1
-                if (len == -1 && targetType.getLength() == -1) {
-                    newTargetType = targetType;
-                }
-                break;
-            default:
-                newTargetType = targetType;
-                break;
-        }
-
-        if (newTargetType != null && newChild != null) {
-            TypeDef typeDef = new TypeDef(newTargetType);
-            return new CastExpr(typeDef, newChild);
-        }
-
-        return this;
-    }
-
-    private int getDigital(String desc, List<String> parameters, List<Expr> inputParamsExprs) {
-        int index = parameters.indexOf(desc);
-        if (index != -1) {
-            Expr expr = inputParamsExprs.get(index);
-            if (expr.getType().isIntegerType()) {
-                return ((Long) ((IntLiteral) expr).getRealValue()).intValue();
-            }
-        }
-        return -1;
-    }
-
     @Override
     public boolean isNullable() {
         return children.get(0).isNullable()
@@ -577,16 +457,17 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return children.get(0).getStringValueForArray(options);
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        return children.get(0).getStringValueForStreamLoad(options);
+    }
+
+    @Override
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return children.get(0).getStringValueInComplexTypeForQuery(options);
     }
 
     public void setNotFold(boolean notFold) {
         this.notFold = notFold;
-    }
-
-    public boolean isNotFold() {
-        return this.notFold;
     }
 
     @Override

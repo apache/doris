@@ -71,6 +71,21 @@ inline bool ends_with(std::string const& value, std::string const& ending) {
     return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
 
+inline std::string_view trim(std::string_view sv) {
+    size_t start = 0;
+    size_t end = sv.size();
+
+    while (start < end && std::isspace(static_cast<unsigned char>(sv[start]))) {
+        ++start;
+    }
+
+    while (end > start && std::isspace(static_cast<unsigned char>(sv[end - 1]))) {
+        --end;
+    }
+
+    return sv.substr(start, end - start);
+}
+
 inline std::vector<std::string> split(const std::string& s, const std::string& delim) {
     std::vector<std::string> out;
     size_t pos {};
@@ -127,7 +142,7 @@ public:
 };
 
 size_t hash_of_path(const std::string& identifier, const std::string& path);
-
+Result<int> safe_stoi(const std::string& input, const std::string& name);
 using StringCaseSet = std::set<std::string, StringCaseLess>;
 using StringCaseUnorderedSet = std::unordered_set<std::string, StringCaseHasher, StringCaseEqual>;
 template <class T>

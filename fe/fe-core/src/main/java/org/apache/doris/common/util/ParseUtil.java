@@ -48,10 +48,10 @@ public class ParseUtil {
             try {
                 dataVolumn = Long.parseLong(m.group(1));
             } catch (NumberFormatException nfe) {
-                throw new AnalysisException("invalid data volumn:" + m.group(1));
+                throw new AnalysisException("invalid data volume:" + m.group(1));
             }
             if (dataVolumn <= 0L) {
-                throw new AnalysisException("Data volumn must larger than 0");
+                throw new AnalysisException("Data volume must larger than 0");
             }
 
             String unit = "B";
@@ -65,7 +65,7 @@ public class ParseUtil {
                 throw new AnalysisException("invalid unit:" + tmpUnit);
             }
         } else {
-            throw new AnalysisException("invalid data volumn expression:" + dataVolumnStr);
+            throw new AnalysisException("invalid data volume expression:" + dataVolumnStr);
         }
         return dataVolumn;
     }
@@ -75,10 +75,10 @@ public class ParseUtil {
         try {
             replicaNumber = Long.parseLong(replicaNumberStr);
         } catch (NumberFormatException nfe) {
-            throw new AnalysisException("invalid data volumn:" + replicaNumberStr);
+            throw new AnalysisException("invalid data volume:" + replicaNumberStr);
         }
         if (replicaNumber <= 0L) {
-            throw new AnalysisException("Replica volumn must larger than 0");
+            throw new AnalysisException("Replica volume must larger than 0");
         }
         return replicaNumber;
     }
@@ -88,7 +88,7 @@ public class ParseUtil {
         try {
             transactionNumber = Long.parseLong(transactionNumberStr);
         } catch (NumberFormatException nfe) {
-            throw new AnalysisException("invalid data volumn:" + transactionNumberStr);
+            throw new AnalysisException("invalid data volume:" + transactionNumberStr);
         }
         if (transactionNumber <= 0L) {
             throw new AnalysisException("Transaction quota size must larger than 0");

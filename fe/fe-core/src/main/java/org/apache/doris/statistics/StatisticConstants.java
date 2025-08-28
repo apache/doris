@@ -17,8 +17,10 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -28,6 +30,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class StatisticConstants {
 
@@ -73,6 +76,13 @@ public class StatisticConstants {
     public static final String FULL_QUALIFIED_PARTITION_STATS_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
             + "." + FeConstants.INTERNAL_DB_NAME + "." + PARTITION_STATISTIC_TBL_NAME;
 
+    public static final String INSERT_INTO_COLUMN_STATS_PREFIX =
+            "INSERT INTO " + FULL_QUALIFIED_STATS_TBL_NAME + "("
+                    + InternalSchema.TABLE_STATS_SCHEMA.stream()
+                        .map(ColumnDef::getName).map(s -> String.format("`%s`", s))
+                        .collect(Collectors.joining(", "))
+                    + ") VALUES ";
+
     public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
 
     public static final int RETRY_LOAD_QUEUE_SIZE = 1000;
@@ -102,6 +112,10 @@ public class StatisticConstants {
     public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 300;
 
     public static final int MSG_LEN_UPPER_BOUND = 1024;
+
+    public static final int PARTITION_SAMPLE_COUNT = 30;
+
+    public static final long PARTITION_SAMPLE_ROW_COUNT = 3_000_000_000L;
 
     static {
         SYSTEM_DBS.add(FeConstants.INTERNAL_DB_NAME);

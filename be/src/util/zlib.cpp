@@ -25,14 +25,14 @@
 #include <ostream>
 #include <string>
 
-using std::ostream;
-using std::string;
+#include "common/cast_set.h"
 
 #define ZRETURN_NOT_OK(call) RETURN_IF_ERROR(ZlibResultToStatus(call))
 
 namespace doris {
 using namespace ErrorCode;
 namespace zlib {
+#include "common/compile_check_begin.h"
 
 namespace {
 Status ZlibResultToStatus(int rc) {
@@ -61,17 +61,17 @@ Status ZlibResultToStatus(int rc) {
 }
 } // anonymous namespace
 
-Status Compress(Slice input, ostream* out) {
+Status Compress(Slice input, std::ostream* out) {
     return CompressLevel(input, Z_DEFAULT_COMPRESSION, out);
 }
 
-Status CompressLevel(Slice input, int level, ostream* out) {
+Status CompressLevel(Slice input, int level, std::ostream* out) {
     z_stream zs;
     memset(&zs, 0, sizeof(zs));
     ZRETURN_NOT_OK(deflateInit2(&zs, level, Z_DEFLATED, 15 + 16 /* 15 window bits, enable gzip */,
                                 8 /* memory level, max is 9 */, Z_DEFAULT_STRATEGY));
 
-    zs.avail_in = input.get_size();
+    zs.avail_in = cast_set<unsigned int>(input.get_size());
     zs.next_in = (unsigned char*)(input.mutable_data());
     const int kChunkSize = 256 * 1024;
     std::unique_ptr<unsigned char[]> chunk(new unsigned char[kChunkSize]);
@@ -84,7 +84,7 @@ Status CompressLevel(Slice input, int level, ostream* out) {
         if (!s.ok() && !s.is<END_OF_FILE>()) {
             return s;
         }
-        int out_size = zs.next_out - chunk.get();
+        int out_size = cast_set<int>(zs.next_out - chunk.get());
         if (out_size > 0) {
             out->write(reinterpret_cast<char*>(chunk.get()), out_size);
         }
@@ -97,7 +97,7 @@ Status Uncompress(Slice compressed, std::ostream* out) {
     z_stream zs;
     memset(&zs, 0, sizeof(zs));
     zs.next_in = (unsigned char*)(compressed.mutable_data());
-    zs.avail_in = compressed.get_size();
+    zs.avail_in = cast_set<unsigned int>(compressed.get_size());
     ZRETURN_NOT_OK(inflateInit2(&zs, 15 + 16 /* 15 window bits, enable zlib */));
     int flush;
     Status s;
@@ -116,6 +116,7 @@ Status Uncompress(Slice compressed, std::ostream* out) {
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace zlib
 } // namespace doris

@@ -19,7 +19,9 @@ package org.apache.doris.plugin.audit;
 
 import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DigitalVersion;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditField;
 import org.apache.doris.plugin.AuditEvent.EventType;
@@ -91,15 +93,12 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                     break;
             }
         } catch (Exception e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to process audit event", e);
-            }
+            LOG.warn("failed to process audit event: {}", event.queryId, e);
         }
     }
 
-    private void auditQueryLog(AuditEvent event) throws IllegalAccessException {
+    private String getAuditLogString(AuditEvent event) throws IllegalAccessException {
         StringBuilder sb = new StringBuilder();
-        long queryTime = 0;
         // get each field with annotation "AuditField" in AuditEvent
         // and assemble them into a string.
         Field[] fields = event.getClass().getFields();
@@ -109,20 +108,36 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                 continue;
             }
 
+            Object fieldValue = f.get(event);
+
             if (af.value().equals("Timestamp")) {
-                continue;
+                try {
+                    fieldValue = TimeUtils.longToTimeStringWithms((Long) fieldValue);
+                } catch (Throwable t) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("convert query start time failed", t);
+                    }
+                    fieldValue = FeConstants.null_string;
+                }
             }
 
-            if (af.value().equals("Time(ms)")) {
-                queryTime = (long) f.get(event);
+            // replace new line characters with escaped characters to make sure the stmt in one line
+            if (af.value().equals("Stmt")) {
+                fieldValue = ((String) fieldValue).replace("\n", "\\n")
+                        .replace("\r", "\\r");
             }
-            sb.append("|").append(af.value()).append("=").append(f.get(event));
+
+            sb.append("|").append(af.value()).append("=").append(fieldValue);
         }
 
-        String auditLog = sb.toString();
+        return sb.toString();
+    }
+
+    private void auditQueryLog(AuditEvent event) throws IllegalAccessException {
+        String auditLog = getAuditLogString(event);
         AuditLog.getQueryAudit().log(auditLog);
         // slow query
-        if (queryTime > Config.qe_slow_log_ms) {
+        if (event != null && !event.isInternal && event.queryTime > Config.qe_slow_log_ms) {
             AuditLog.getSlowAudit().log(auditLog);
         }
     }

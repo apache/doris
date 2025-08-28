@@ -27,7 +27,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -180,6 +179,7 @@ public:
             col_offset[row] = col_offset[row - 1] + str_length;
             deserialize((char*)arg, col_data.data() + str_length * row);
         }
+        col_data.resize(str_length * input_rows_count);
         block.replace_by_position(result, std::move(result_column));
         return Status::OK();
     }

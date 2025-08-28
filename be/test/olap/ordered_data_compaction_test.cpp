@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/stringprintf.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/cumulative_compaction.h"
@@ -107,6 +106,7 @@ protected:
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
         config::enable_ordered_data_compaction = true;
         config::ordered_data_compaction_min_segment_size = 10;
+        config::segments_key_bounds_truncation_threshold = -1;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
@@ -468,7 +468,7 @@ protected:
 private:
     const std::string kTestDir = "/ut_dir/ordered_compaction_test";
     const std::string tmp_dir = "./ut_dir/ordered_compaction_test/tmp";
-    string absolute_dir;
+    std::string absolute_dir;
     std::unique_ptr<DataDir> _data_dir;
 };
 
@@ -491,7 +491,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false, 10000, false);
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
     // create input rowset
-    vector<RowsetSharedPtr> input_rowsets;
+    std::vector<RowsetSharedPtr> input_rowsets;
     SegmentsOverlapPB new_overlap = NONOVERLAPPING;
     for (auto i = 0; i < num_input_rowset; i++) {
         RowsetSharedPtr rowset = create_rowset(tablet_schema, tablet, new_overlap, input_data[i]);
@@ -562,7 +562,7 @@ TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false, 10000, false);
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
 
-    vector<RowsetSharedPtr> input_rowsets;
+    std::vector<RowsetSharedPtr> input_rowsets;
     SegmentsOverlapPB new_overlap = NONOVERLAPPING;
     for (auto i = 0; i < num_input_rowset; i++) {
         RowsetWriterContext writer_context;

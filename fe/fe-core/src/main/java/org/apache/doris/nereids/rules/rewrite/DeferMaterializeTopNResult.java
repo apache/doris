@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResultSink;
@@ -39,9 +41,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -68,6 +72,38 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                                                 .allMatch(Expression::isColumnFromTable))
                         ).then(r -> deferMaterialize(r, r.child(),
                                 Optional.empty(), Optional.empty(), r.child().child()))
+                ),
+                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
+                        logicalResultSink(
+                                logicalTopN(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                                        .when(s -> s.getTable().getEnableLightSchemaChange())
+                                                        .when(s -> s.getTable().isDupKeysOrMergeOnWrite())
+                                        )
+                                ).when(t -> t.getLimit() < getTopNOptLimitThreshold())
+                                        .whenNot(t -> t.getOrderKeys().isEmpty())
+                                        .when(t -> {
+                                            for (OrderKey orderKey : t.getOrderKeys()) {
+                                                if (!orderKey.getExpr().isColumnFromTable()) {
+                                                    return false;
+                                                }
+                                                if (!(orderKey.getExpr() instanceof SlotReference)) {
+                                                    return false;
+                                                }
+                                                SlotReference slotRef = (SlotReference) orderKey.getExpr();
+                                                // do not support alias in project now
+                                                if (!t.child().getProjects().contains(slotRef)) {
+                                                    return false;
+                                                }
+                                            }
+                                            return true;
+                                        })
+                        ).then(r -> {
+                            LogicalProject<LogicalOlapScan> project = r.child().child();
+                            return deferMaterialize(r, r.child(), Optional.of(project),
+                                    Optional.empty(), project.child());
+                        })
                 ),
                 RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
                         logicalResultSink(
@@ -126,6 +162,65 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                 RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
                         logicalResultSink(logicalProject(
                                 logicalTopN(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                                        .when(s -> s.getTable().getEnableLightSchemaChange())
+                                                        .when(s -> s.getTable().isDupKeysOrMergeOnWrite())
+
+                                        )
+                                ).when(t -> t.getLimit() < getTopNOptLimitThreshold())
+                                        .whenNot(t -> t.getOrderKeys().isEmpty())
+                                        .when(t -> {
+                                            for (OrderKey orderKey : t.getOrderKeys()) {
+                                                if (!orderKey.getExpr().isColumnFromTable()) {
+                                                    return false;
+                                                }
+                                                if (!(orderKey.getExpr() instanceof SlotReference)) {
+                                                    return false;
+                                                }
+                                                SlotReference slotRef = (SlotReference) orderKey.getExpr();
+                                                // do not support alias in project now
+                                                if (!t.child().getProjects().contains(slotRef)) {
+                                                    return false;
+                                                }
+                                            }
+                                            return true;
+                                        })
+                        ).when(project -> project.canMergeChildProjections(project.child().child()))).then(r -> {
+                            LogicalProject<?> upperProject = r.child();
+                            LogicalProject<LogicalOlapScan> bottomProject = r.child().child().child();
+                            List<NamedExpression> projections = upperProject.mergeProjections(bottomProject);
+                            LogicalProject<?> project = upperProject.withProjects(projections);
+                            return deferMaterialize(r, r.child().child(), Optional.of(project),
+                                    Optional.empty(), bottomProject.child());
+                        })
+                ),
+                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
+                        logicalResultSink(logicalProject(
+                                logicalTopN(
+                                        logicalOlapScan()
+                                                .when(s -> s.getTable().getEnableLightSchemaChange())
+                                                .when(s -> s.getTable().isDupKeysOrMergeOnWrite())
+
+                                ).when(t -> t.getLimit() < getTopNOptLimitThreshold())
+                                        .whenNot(t -> t.getOrderKeys().isEmpty())
+                                        .when(t -> {
+                                            for (OrderKey orderKey : t.getOrderKeys()) {
+                                                if (!orderKey.getExpr().isColumnFromTable()) {
+                                                    return false;
+                                                }
+                                                if (!(orderKey.getExpr() instanceof SlotReference)) {
+                                                    return false;
+                                                }
+                                            }
+                                            return true;
+                                        })
+                        )).then(r -> deferMaterialize(r, r.child().child(), Optional.of(r.child()),
+                                Optional.empty(), r.child().child().child()))
+                ),
+                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
+                        logicalResultSink(logicalProject(
+                                logicalTopN(
                                         logicalProject(logicalFilter(
                                                         logicalOlapScan()
                                                                 .when(s -> s.getTable().getEnableLightSchemaChange())
@@ -150,7 +245,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                                             }
                                             return true;
                                         })
-                        )).then(r -> {
+                        ).when(project -> project.canMergeChildProjections(project.child().child()))).then(r -> {
                             LogicalProject<?> upperProject = r.child();
                             LogicalProject<LogicalFilter<LogicalOlapScan>> bottomProject = r.child().child().child();
                             List<NamedExpression> projections = upperProject.mergeProjections(bottomProject);
@@ -166,9 +261,13 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
     private Plan deferMaterialize(LogicalResultSink<? extends Plan> logicalResultSink,
             LogicalTopN<? extends Plan> logicalTopN, Optional<LogicalProject<? extends Plan>> logicalProject,
             Optional<LogicalFilter<? extends Plan>> logicalFilter, LogicalOlapScan logicalOlapScan) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableTopnLazyMaterialization) {
+            return null;
+        }
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         Column rowId = new Column(Column.ROWID_COL, Type.STRING, false, null, false, "", "rowid column");
         SlotReference columnId = SlotReference.fromColumn(
-                logicalOlapScan.getTable(), rowId, logicalOlapScan.getQualifier());
+                exprIdGenerator.getNextId(), logicalOlapScan.getTable(), rowId, logicalOlapScan.getQualifier());
         Set<Slot> orderKeys = Sets.newHashSet();
         Set<ExprId> deferredMaterializedExprIds = Sets.newHashSet(logicalOlapScan.getOutputExprIdSet());
         logicalFilter.ifPresent(filter -> filter.getConjuncts()
@@ -207,7 +306,13 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
         root = new LogicalDeferMaterializeTopN<>((LogicalTopN<? extends Plan>) logicalTopN.withChildren(root),
                 deferredMaterializedExprIds, columnId);
         if (logicalProject.isPresent()) {
-            root = logicalProject.get().withChildren(root);
+            // generate projections with the order exactly same as result output's
+            Map<Slot, NamedExpression> projectsMap = Maps.newHashMap();
+            logicalProject.get().getProjects().forEach(p -> projectsMap.put(p.toSlot(), p));
+            List<NamedExpression> outputProjects = logicalResultSink.getOutput().stream()
+                    .map(projectsMap::get)
+                    .collect(ImmutableList.toImmutableList());
+            root = logicalProject.get().withProjectsAndChild(outputProjects, root);
         }
         root = logicalResultSink.withChildren(root);
         return new LogicalDeferMaterializeResultSink<>((LogicalResultSink<? extends Plan>) root,

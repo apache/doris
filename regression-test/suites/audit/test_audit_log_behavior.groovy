@@ -47,27 +47,27 @@ suite("test_audit_log_behavior") {
                     "insert into audit_log_behavior values (1, '3F6B9A_${cnt++}')"
             ],
             [
-                    "insert into audit_log_behavior values (1, '3F6B9A_${cnt}'), (2, 'Jelly')",
-                    "insert into audit_log_behavior values (1, '3F6B9A_${cnt++}'), (2, ... /* total 2 rows, truncated audit_plugin_max_sql_length=58 */"
+                    "insert into audit_log_behavior values (2, '3F6B9A_${cnt}'), (2, 'Jelly')",
+                    "insert into audit_log_behavior values (2, '3F6B9A_${cnt++}'), (2, ... /* total 2 rows, truncated. audit_plugin_max_insert_stmt_length=58 */"
             ],
             [
-                    "insert into audit_log_behavior values (1, '3F6B9A_${cnt}'), (2, 'Jelly'), (3, 'foobar')",
-                    "insert into audit_log_behavior values (1, '3F6B9A_${cnt++}'), (2, ... /* total 3 rows, truncated audit_plugin_max_sql_length=58 */"
+                    "insert into audit_log_behavior values (3, '3F6B9A_${cnt}'), (2, 'Jelly'), (3, 'foobar')",
+                    "insert into audit_log_behavior values (3, '3F6B9A_${cnt++}'), (2, ... /* total 3 rows, truncated. audit_plugin_max_insert_stmt_length=58 */"
             ],
             [
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt}'",
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt++}'"],
+                    "insert into audit_log_behavior select 4, '3F6B9A_${cnt}'",
+                    "insert into audit_log_behavior select 4, '3F6B9A_${cnt++}'"],
             [
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt}' union select 2, 'Jelly'",
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt++}' union  ... /* truncated audit_plugin_max_sql_length=58 */"
+                    "insert into audit_log_behavior select 5, '3F6B9A_${cnt}' union select 2, 'Jelly'",
+                    "insert into audit_log_behavior select 5, '3F6B9A_${cnt++}' union  ... /* total 2 rows, truncated. audit_plugin_max_insert_stmt_length=58 */"
             ],
             [
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt}' from audit_log_behavior",
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt++}' from a ... /* truncated audit_plugin_max_sql_length=58 */"
+                    "insert into audit_log_behavior select 6, '3F6B9A_${cnt}' from audit_log_behavior",
+                    "insert into audit_log_behavior select 6, '3F6B9A_${cnt++}' from a ... /* truncated. audit_plugin_max_sql_length=58 */"
             ],
             [
                     "select id, name from audit_log_behavior as loooooooooooooooong_alias",
-                    "select id, name from audit_log_behavior as loooooooooooooo ... /* truncated audit_plugin_max_sql_length=58 */"
+                    "select id, name from audit_log_behavior as loooooooooooooo ... /* truncated. audit_plugin_max_sql_length=58 */"
             ]
     ]
 
@@ -91,13 +91,12 @@ suite("test_audit_log_behavior") {
         def res = sql "${query}"
         while (res.isEmpty()) {
             if (retry-- < 0) {
-                logger.warn("It has retried a few but still failed, you need to check it")
-                return
+                throw new RuntimeException("It has retried a few but still failed, you need to check it")
             }
-            sleep(1000)
+            sleep(3000)
             res = sql "${query}"
         }
-        assertEquals(res[0][0].toString(), tuple2[1].toString())
+        assertEquals(tuple2[1].toString(), res[0][0].toString())
     }
 
     // do not turn off

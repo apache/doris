@@ -45,7 +45,7 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr arg = arguments[0];
-        while (is_array(arg)) {
+        while (arg->get_primitive_type() == TYPE_ARRAY) {
             arg = remove_nullable(assert_cast<const DataTypeArray*>(arg.get())->get_nested_type());
         }
         return std::make_shared<DataTypeArray>(make_nullable(arg));
@@ -59,6 +59,10 @@ public:
                 assert_cast<ColumnArray*>(remove_nullable(src_column)->assume_mutable().get());
         ColumnArray* nested_src_column_array_ptr = src_column_array_ptr;
 
+        DataTypePtr src_data_type = block.get_by_position(arguments[0]).type;
+        auto* src_data_type_array =
+                assert_cast<const DataTypeArray*>(remove_nullable(src_data_type).get());
+
         auto result_column_offsets =
                 assert_cast<ColumnArray::ColumnOffsets&>(src_column_array_ptr->get_offsets_column())
                         .clone();
@@ -66,7 +70,7 @@ public:
                                 ->get_data()
                                 .data();
 
-        while (src_column_array_ptr->get_data_ptr()->is_column_array()) {
+        while (src_data_type_array->get_nested_type()->get_primitive_type() == TYPE_ARRAY) {
             nested_src_column_array_ptr = assert_cast<ColumnArray*>(
                     remove_nullable(src_column_array_ptr->get_data_ptr())->assume_mutable().get());
 
@@ -74,6 +78,8 @@ public:
                 offsets[i] = nested_src_column_array_ptr->get_offsets()[offsets[i] - 1];
             }
             src_column_array_ptr = nested_src_column_array_ptr;
+            src_data_type_array = assert_cast<const DataTypeArray*>(
+                    remove_nullable(src_data_type_array->get_nested_type()).get());
         }
 
         block.replace_by_position(

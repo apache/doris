@@ -119,7 +119,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         DCHECK(!current->eof());
         DCHECK(current->block_ptr() != nullptr);
         while (_offset != 0) {
-            auto process_rows = std::min(current->rows - current->pos, _offset);
+            auto process_rows = std::min(current->rows - current->pos, (int)_offset);
             current->next(process_rows);
             _offset -= process_rows;
             if (current->is_last(0)) {
@@ -192,6 +192,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 ++merged_rows;
             }
 
+            current->next();
             if (_need_more_data(current)) {
                 do_insert();
                 return Status::OK();
@@ -210,8 +211,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
 }
 
 bool VSortedRunMerger::_need_more_data(MergeSortCursor& current) {
-    if (!current->is_last()) {
-        current->next();
+    if (!current->is_last(0)) {
         _priority_queue.push(current);
         return false;
     } else if (current->eof()) {

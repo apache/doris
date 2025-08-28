@@ -18,22 +18,19 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
-import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.catalog.Catalog;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -47,35 +44,65 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
     protected String icebergCatalogType;
     protected Catalog catalog;
-    private static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = 16;
+
+    private AbstractIcebergProperties msProperties;
 
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
     }
 
     // Create catalog based on catalog type
-    protected abstract void initCatalog();
+    protected void initCatalog() {
+        try {
+            msProperties = (AbstractIcebergProperties) MetastoreProperties
+                    .create(getProperties());
+            this.catalog = msProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
+                    .getStoragePropertiesMap().values()));
+
+            this.icebergCatalogType = msProperties.getIcebergCatalogType();
+        } catch (UserException e) {
+            throw new RuntimeException("Failed to initialize Iceberg catalog: " + e.getMessage(), e);
+        } catch (ClassCastException e) {
+            throw new RuntimeException("Invalid properties for Iceberg catalog: " + getProperties(), e);
+        } catch (Exception e) {
+            throw new RuntimeException("Unexpected error while initializing Iceberg catalog: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (executionAuthenticator == null) {
+            executionAuthenticator = msProperties.getExecutionAuthenticator();
+        }
+    }
 
     @Override
     protected void initLocalObjectsImpl() {
-        preExecutionAuthenticator = new PreExecutionAuthenticator();
-        // TODO If the storage environment does not support Kerberos (such as s3),
-        //      there is no need to generate a simple authentication information anymore.
-        AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-        HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-        preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
         initCatalog();
+        initPreExecutionAuthenticator();
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
-            ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
-            Integer.MAX_VALUE,
-            String.format("iceberg_catalog_%s_executor_pool", name),
-            true,
-            preExecutionAuthenticator);
+                ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+                Integer.MAX_VALUE,
+                String.format("iceberg_catalog_%s_executor_pool", name),
+                true,
+                executionAuthenticator);
         metadataOps = ops;
     }
 
+    /**
+     * Returns the underlying {@link Catalog} instance used by this external catalog.
+     *
+     * <p><strong>Warning:</strong> This method does not handle any authentication logic. If the
+     * returned catalog implementation relies on external systems
+     * that require authentication — especially in environments where Kerberos is enabled — the caller is
+     * fully responsible for ensuring the appropriate authentication has been performed <em>before</em>
+     * invoking this method.
+     * <p>Failing to authenticate beforehand may result in authorization errors or IO failures.
+     *
+     * @return the underlying catalog instance
+     */
     public Catalog getCatalog() {
         makeSureInitialized();
         return ((IcebergMetadataOps) metadataOps).getCatalog();
@@ -95,11 +122,24 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        return metadataOps.listTableNames(dbName);
+        // On the Doris side, the result of SHOW TABLES for Iceberg external tables includes both tables and views,
+        // so the combined set of tables and views is used here.
+        List<String> tableNames = metadataOps.listTableNames(dbName);
+        List<String> viewNames = metadataOps.listViewNames(dbName);
+        tableNames.addAll(viewNames);
+        return tableNames;
     }
 
-    protected void initS3Param(Configuration conf) {
-        Map<String, String> properties = catalogProperty.getHadoopProperties();
-        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
+    @Override
+    public void onClose() {
+        super.onClose();
+        if (null != catalog) {
+            catalog = null;
+        }
+    }
+
+    @Override
+    public boolean viewExists(String dbName, String viewName) {
+        return metadataOps.viewExists(dbName, viewName);
     }
 }

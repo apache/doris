@@ -22,27 +22,22 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * table name info
  */
-public class TableNameInfo implements Writable {
+public class TableNameInfo {
     @SerializedName(value = "c")
     private String ctl;
     @SerializedName(value = "t")
@@ -130,6 +125,14 @@ public class TableNameInfo implements Writable {
     }
 
     /**
+     * Returns true if this name has a non-empty catalog and a non-empty database field
+     * and a non-empty table name.
+     */
+    public boolean isFullyQualified() {
+        return Stream.of(ctl, db, tbl).noneMatch(Strings::isNullOrEmpty);
+    }
+
+    /**
      * get catalog name
      * @return ctlName
      */
@@ -154,6 +157,14 @@ public class TableNameInfo implements Writable {
     }
 
     /**
+     * set a new ctl name
+     * @param ctl new database name
+     */
+    public void setCtl(String ctl) {
+        this.ctl = ctl;
+    }
+
+    /**
      * get table name
      * @return tableName
      */
@@ -170,21 +181,16 @@ public class TableNameInfo implements Writable {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    /**
-     * read from json
-     * @param in DataInput
-     * @throws IOException IOException
-     */
-    public void readFields(DataInput in) throws IOException {
-        TableNameInfo fromJson = GsonUtils.GSON.fromJson(Text.readString(in), TableNameInfo.class);
-        ctl = fromJson.ctl;
-        db = fromJson.db;
-        tbl = fromJson.tbl;
+    public String toString() {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            stringBuilder.append(ctl).append(".");
+        }
+        if (db != null) {
+            stringBuilder.append(db).append(".");
+        }
+        stringBuilder.append(tbl);
+        return stringBuilder.toString();
     }
 
     /**
@@ -216,6 +222,21 @@ public class TableNameInfo implements Writable {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            stringBuilder.append("`").append(ctl).append("`.");
+        }
+        if (db != null) {
+            stringBuilder.append("`").append(db).append("`.");
+        }
+        stringBuilder.append("`").append(tbl).append("`");
+        return stringBuilder.toString();
+    }
+
+    /**
+     * toFullyQualified
+     */
+    public String toFullyQualified() {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (ctl != null) {
             stringBuilder.append("`").append(ctl).append("`.");
         }
         if (db != null) {

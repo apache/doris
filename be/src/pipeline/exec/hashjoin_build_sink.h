@@ -17,15 +17,15 @@
 
 #pragma once
 
-#include "exprs/runtime_filter_slots.h"
 #include "join_build_sink_operator.h"
 #include "operator.h"
+#include "runtime_filter/runtime_filter_producer_helper.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 class HashJoinBuildSinkOperatorX;
 
-class HashJoinBuildSinkLocalState final
+class HashJoinBuildSinkLocalState MOCK_REMOVE(final)
         : public JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
@@ -36,27 +36,18 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status terminate(RuntimeState* state) override;
     Status process_build_block(RuntimeState* state, vectorized::Block& block);
 
     void init_short_circuit_for_probe();
 
     bool build_unique() const;
-    std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
-
-    void add_hash_buckets_info(const std::string& info) const {
-        _profile->add_info_string("HashTableBuckets", info);
-    }
-    void add_hash_buckets_filled_info(const std::string& info) const {
-        _profile->add_info_string("HashTableFilledBuckets", info);
-    }
 
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 
     Status close(RuntimeState* state, Status exec_status) override;
 
-    Status disable_runtime_filters(RuntimeState* state);
-
-    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+    [[nodiscard]] MOCK_FUNCTION size_t get_reserve_mem_size(RuntimeState* state, bool eos);
 
 protected:
     Status _hash_table_init(RuntimeState* state);
@@ -80,13 +71,12 @@ protected:
 
     bool _should_build_hash_table = true;
 
-    bool _runtime_filters_disabled = false;
     size_t _evaluate_mem_usage = 0;
-
     size_t _build_side_rows = 0;
+    int _task_idx;
 
     vectorized::MutableBlock _build_side_mutable_block;
-    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
+    std::shared_ptr<RuntimeFilterProducerHelper> _runtime_filter_producer_helper;
 
     /*
      * The comparison result of a null value with any other value is null,
@@ -106,10 +96,9 @@ protected:
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
 };
 
-class HashJoinBuildSinkOperatorX final
+class HashJoinBuildSinkOperatorX MOCK_REMOVE(final)
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
@@ -121,7 +110,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -129,7 +118,7 @@ public:
 
     [[nodiscard]] size_t get_memory_usage(RuntimeState* state) const;
 
-    std::string get_memory_usage_debug_str(RuntimeState* state) const;
+    MOCK_FUNCTION std::string get_memory_usage_debug_str(RuntimeState* state) const;
 
     bool should_dry_run(RuntimeState* state) override {
         return _is_broadcast_join && !state->get_sink_local_state()
@@ -157,6 +146,7 @@ public:
         return _join_distribution != TJoinDistributionType::BROADCAST &&
                _join_distribution != TJoinDistributionType::NONE;
     }
+    std::vector<bool>& is_null_safe_eq_join() { return _is_null_safe_eq_join; }
 
 private:
     friend class HashJoinBuildSinkLocalState;
@@ -171,19 +161,25 @@ private:
     std::vector<bool> _is_null_safe_eq_join;
 
     bool _is_broadcast_join = false;
-    std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;
-
-    vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     const std::vector<TExpr> _partition_exprs;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _should_keep_column_flags;
     bool _should_keep_hash_key_column = false;
+    // if build side has variant column and need output variant column
+    // need to finalize variant column to speed up the join op
+    bool _need_finalize_variant_column = false;
+
+    bool _use_shared_hash_table = false;
+    std::atomic<bool> _signaled = false;
+    std::mutex _mutex;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _finish_dependencies;
+    std::map<int, std::shared_ptr<RuntimeFilterWrapper>> _runtime_filters;
 };
 
 template <class HashTableContext>
 struct ProcessHashTableBuild {
-    ProcessHashTableBuild(size_t rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
+    ProcessHashTableBuild(uint32_t rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
                           HashJoinBuildSinkLocalState* parent, int batch_size, RuntimeState* state)
             : _rows(rows),
               _build_raw_ptrs(build_raw_ptrs),
@@ -226,8 +222,13 @@ struct ProcessHashTableBuild {
             with_other_conjuncts) {
             // null aware join with other conjuncts
             keep_null_key = true;
-        } else if (_parent->_shared_state->is_null_safe_eq_join.size() == 1 &&
-                   _parent->_shared_state->is_null_safe_eq_join[0]) {
+        } else if (_parent->parent()
+                                   ->cast<HashJoinBuildSinkOperatorX>()
+                                   .is_null_safe_eq_join()
+                                   .size() == 1 &&
+                   _parent->parent()
+                           ->cast<HashJoinBuildSinkOperatorX>()
+                           .is_null_safe_eq_join()[0]) {
             // single null safe eq
             keep_null_key = true;
         }
@@ -245,7 +246,7 @@ struct ProcessHashTableBuild {
     }
 
 private:
-    const size_t _rows;
+    const uint32_t _rows;
     vectorized::ColumnRawPtrs& _build_raw_ptrs;
     HashJoinBuildSinkLocalState* _parent = nullptr;
     int _batch_size;

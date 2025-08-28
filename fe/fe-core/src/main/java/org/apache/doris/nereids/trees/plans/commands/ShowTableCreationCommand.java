@@ -64,6 +64,11 @@ public class ShowTableCreationCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = ConnectContext.get().getDatabase();
@@ -91,7 +96,7 @@ public class ShowTableCreationCommand extends ShowCommand {
             keyNameSet.add(resultRow.get(0));
         }
 
-        return new ShowResultSet(META_DATA, resultRowSet);
+        return new ShowResultSet(getMetaData(), resultRowSet);
     }
 
     @Override

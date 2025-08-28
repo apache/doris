@@ -19,25 +19,24 @@ package org.apache.doris.fs;
 
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.SwitchingFileSystem;
 
 import java.util.Map;
 
 public class FileSystemProviderImpl implements FileSystemProvider {
     private ExternalMetaCacheMgr extMetaCacheMgr;
-    private String bindBrokerName;
 
-    private Map<String, String> properties;
+    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
-    public FileSystemProviderImpl(ExternalMetaCacheMgr extMetaCacheMgr, String bindBrokerName,
-            Map<String, String> properties) {
+    public FileSystemProviderImpl(ExternalMetaCacheMgr extMetaCacheMgr,
+                                  Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
         this.extMetaCacheMgr = extMetaCacheMgr;
-        this.bindBrokerName = bindBrokerName;
-        this.properties = properties;
+        this.storagePropertiesMap = storagePropertiesMap;
     }
 
     @Override
     public FileSystem get(SessionContext ctx) {
-        return new SwitchingFileSystem(extMetaCacheMgr, bindBrokerName, properties);
+        return new SwitchingFileSystem(extMetaCacheMgr, storagePropertiesMap);
     }
 }

@@ -20,9 +20,7 @@ package org.apache.doris.persist;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database.DbState;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -94,23 +92,7 @@ public class DatabaseInfo implements Writable, GsonPostProcessable {
     }
 
     public static DatabaseInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_134) {
-            DatabaseInfo dbInfo = new DatabaseInfo();
-            dbInfo.readFields(in);
-            return dbInfo;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), DatabaseInfo.class);
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        this.dbName = ClusterNamespace.getNameFromFullName(Text.readString(in));
-        newDbName = ClusterNamespace.getNameFromFullName(Text.readString(in));
-        this.quota = in.readLong();
-        this.clusterName = Text.readString(in);
-        this.dbState = DbState.valueOf(Text.readString(in));
-        this.quotaType = QuotaType.valueOf(Text.readString(in));
+        return GsonUtils.GSON.fromJson(Text.readString(in), DatabaseInfo.class);
     }
 
     public QuotaType getQuotaType() {

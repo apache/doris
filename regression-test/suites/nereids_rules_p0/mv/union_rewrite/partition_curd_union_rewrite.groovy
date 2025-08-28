@@ -28,7 +28,7 @@ suite ("partition_curd_union_rewrite") {
     CREATE TABLE IF NOT EXISTS orders  (
       o_orderkey       integer not null,
       o_custkey        integer not null,
-      o_orderstatus    char(1) not null,
+      o_orderstatus    char(20) not null,
       o_totalprice     decimalv3(15,2) not null,
       o_orderdate      date not null,
       o_orderpriority  char(15) not null,  
@@ -180,11 +180,11 @@ suite ("partition_curd_union_rewrite") {
     waitingMTMVTaskFinished(getJobName(db, mv_name))
 
     // All partition is valid, test query and rewrite by materialized view
-    mv_rewrite_success(all_partition_sql, mv_name, true,
+    mv_rewrite_success(all_partition_sql, mv_name,
             is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
 
-    mv_rewrite_success(partition_sql, mv_name, true,
+    mv_rewrite_success(partition_sql, mv_name,
             is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 

@@ -17,13 +17,7 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.annotations.SerializedName;
-
-import java.io.DataInput;
-import java.io.IOException;
 
 /*
  * This class represents an origin statement
@@ -41,11 +35,6 @@ public class OriginStatement {
     public OriginStatement(String originStmt, int idx) {
         this.originStmt = originStmt;
         this.idx = idx;
-    }
-
-    public static OriginStatement read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, OriginStatement.class);
     }
 
     @Override

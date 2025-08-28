@@ -31,7 +31,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
-#include "vec/exec/scan/vfile_scanner.h"
+#include "vec/exec/scan/file_scanner.h"
 
 namespace doris {
 
@@ -73,7 +73,7 @@ public:
                       "fail to init _runtime_state");
     }
     void init();
-    void generate_scanner(std::shared_ptr<VFileScanner>& scanner);
+    void generate_scanner(std::shared_ptr<FileScanner>& scanner);
 
     void TearDown() override {
         WARN_IF_ERROR(_scan_node->close(&_runtime_state), "fail to close scan_node")
@@ -247,15 +247,16 @@ void VfileScannerExceptionTest::init() {
             std::make_shared<pipeline::FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
     _scan_node->_output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);
     WARN_IF_ERROR(_scan_node->init(_tnode, &_runtime_state), "fail to init scan_node");
-    WARN_IF_ERROR(_scan_node->open(&_runtime_state), "fail to open scan_node");
+    WARN_IF_ERROR(_scan_node->prepare(&_runtime_state), "fail to open scan_node");
 
     auto local_state =
             pipeline::FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
     std::vector<TScanRangeParams> scan_ranges;
-    std::map<int, std::pair<std::shared_ptr<pipeline::LocalExchangeSharedState>,
-                            std::shared_ptr<pipeline::Dependency>>>
-            le_state_map;
-    pipeline::LocalStateInfo info {&_global_profile, scan_ranges, nullptr, le_state_map, 0};
+    pipeline::LocalStateInfo info {.parent_profile = &_global_profile,
+                                   .scan_ranges = scan_ranges,
+                                   .shared_state = nullptr,
+                                   .shared_state_map = {},
+                                   .task_idx = 0};
     WARN_IF_ERROR(local_state->init(&_runtime_state, info), "fail to init local_state");
     _runtime_state.emplace_local_state(_scan_node->operator_id(), std::move(local_state));
 
@@ -276,11 +277,11 @@ void VfileScannerExceptionTest::init() {
     _env->_wal_manager = 0;
 }
 
-void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<VFileScanner>& scanner) {
+void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<FileScanner>& scanner) {
     auto split_source = std::make_shared<TestSplitSourceConnectorStub>(_scan_range);
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
     std::unordered_map<std::string, int> _colname_to_slot_id;
-    scanner = std::make_shared<VFileScanner>(
+    scanner = std::make_shared<FileScanner>(
             &_runtime_state,
             &(_runtime_state.get_local_state(0)->cast<pipeline::FileScanLocalState>()), -1,
             split_source, _profile, _kv_cache.get(), &_colname_to_value_range,
@@ -291,14 +292,14 @@ void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<VFileScanner>& 
 }
 
 TEST_F(VfileScannerExceptionTest, failure_case) {
-    std::shared_ptr<VFileScanner> scanner = nullptr;
+    std::shared_ptr<FileScanner> scanner = nullptr;
     generate_scanner(scanner);
     std::unique_ptr<vectorized::Block> block(new vectorized::Block());
     bool eof = false;
     auto st = scanner->get_block(&_runtime_state, block.get(), &eof);
     ASSERT_FALSE(st.ok());
     auto msg = st.to_string();
-    auto pos = msg.find("Failed to create reader for");
+    auto pos = msg.find("Not supported create reader");
     std::cout << "msg = " << msg << std::endl;
     ASSERT_TRUE(pos != msg.npos);
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");

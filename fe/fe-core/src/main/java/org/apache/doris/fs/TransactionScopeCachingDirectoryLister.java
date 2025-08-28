@@ -60,7 +60,8 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     private final DirectoryLister delegate;
 
     public TransactionScopeCachingDirectoryLister(DirectoryLister delegate, long transactionId,
-            Cache<TransactionDirectoryListingCacheKey, FetchingValueHolder> cache) {
+                                                  Cache<TransactionDirectoryListingCacheKey,
+                                                          FetchingValueHolder> cache) {
         this.delegate = Objects.requireNonNull(delegate, "delegate is null");
         this.transactionId = transactionId;
         this.cache = Objects.requireNonNull(cache, "cache is null");
@@ -73,7 +74,8 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
     private RemoteIterator<RemoteFile> listInternal(FileSystem fs, boolean recursive, TableIf table,
-            TransactionDirectoryListingCacheKey cacheKey) throws FileSystemIOException {
+                                                    TransactionDirectoryListingCacheKey cacheKey)
+            throws FileSystemIOException {
         FetchingValueHolder cachedValueHolder;
         try {
             cachedValueHolder = cache.get(cacheKey,
@@ -93,14 +95,15 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
     private RemoteIterator<RemoteFile> createListingRemoteIterator(FileSystem fs, boolean recursive,
-            TableIf table, TransactionDirectoryListingCacheKey cacheKey)
+                                                                   TableIf table,
+                                                                   TransactionDirectoryListingCacheKey cacheKey)
             throws FileSystemIOException {
         return delegate.listFiles(fs, recursive, table, cacheKey.getPath());
     }
 
 
     private RemoteIterator<RemoteFile> cachingRemoteIterator(FetchingValueHolder cachedValueHolder,
-            TransactionDirectoryListingCacheKey cacheKey) {
+                                                             TransactionDirectoryListingCacheKey cacheKey) {
         return new RemoteIterator<RemoteFile>() {
             private int fileIndex;
 

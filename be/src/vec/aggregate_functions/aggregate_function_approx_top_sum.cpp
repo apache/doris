@@ -23,27 +23,28 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <size_t N>
 AggregateFunctionPtr create_aggregate_function_multi_top_sum_impl(
         const DataTypes& argument_types, const bool result_is_nullable,
-        const std::vector<std::string>& column_names) {
+        const AggregateFunctionAttr& attr) {
     if (N == argument_types.size() - 3) {
-        return creator_with_type_base<true, false, false, N>::template create<
-                AggregateFunctionApproxTopSumSimple>(argument_types, result_is_nullable,
-                                                     column_names);
+        return creator_with_integer_type_with_index<N>::template create<
+                AggregateFunctionApproxTopSumSimple>(argument_types, result_is_nullable, attr,
+                                                     attr.column_names);
     } else {
-        return create_aggregate_function_multi_top_sum_impl<N - 1>(
-                argument_types, result_is_nullable, column_names);
+        return create_aggregate_function_multi_top_sum_impl<N - 1>(argument_types,
+                                                                   result_is_nullable, attr);
     }
 }
 
 template <>
 AggregateFunctionPtr create_aggregate_function_multi_top_sum_impl<0>(
         const DataTypes& argument_types, const bool result_is_nullable,
-        const std::vector<std::string>& column_names) {
-    return creator_with_type_base<true, false, false, 0>::template create<
-            AggregateFunctionApproxTopSumSimple>(argument_types, result_is_nullable, column_names);
+        const AggregateFunctionAttr& attr) {
+    return creator_with_integer_type::create<AggregateFunctionApproxTopSumSimple>(
+            argument_types, result_is_nullable, attr, attr.column_names);
 }
 
 AggregateFunctionPtr create_aggregate_function_approx_top_sum(const std::string& name,
@@ -60,12 +61,13 @@ AggregateFunctionPtr create_aggregate_function_approx_top_sum(const std::string&
                         "Argument types size exceeds the supported limit.");
     }
 
-    return create_aggregate_function_multi_top_sum_impl<max_param_value>(
-            argument_types, result_is_nullable, attr.column_names);
+    return create_aggregate_function_multi_top_sum_impl<max_param_value>(argument_types,
+                                                                         result_is_nullable, attr);
 }
 
 void register_aggregate_function_approx_top_sum(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("approx_top_sum", create_aggregate_function_approx_top_sum);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -21,8 +21,6 @@ import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
-import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
@@ -48,6 +46,22 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelDecommissionBackendCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddObserverOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropAllBrokerOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBrokerOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -207,6 +221,88 @@ public class SystemHandler extends AlterHandler {
         }
     }
 
+    @Override
+    // add synchronized to avoid process 2 or more stmts at same time
+    public synchronized void processForNereids(String rawSql, List<AlterCommand> alterCommands,
+                                     Database dummyDb,
+                                     OlapTable dummyTbl) throws UserException {
+        Preconditions.checkArgument(alterCommands.size() == 1);
+        AlterCommand alterCommand = alterCommands.get(0);
+        if (alterCommand instanceof AlterSystemCommand) {
+            AlterSystemCommand alterSystemCommand = (AlterSystemCommand) alterCommand;
+            if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_BACKEND)) {
+                // add backend
+                AddBackendOp op = (AddBackendOp) alterSystemCommand.getAlterSystemOp();
+                Env.getCurrentSystemInfo().addBackends(op.getHostInfos(), op.getTagMap());
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_BACKEND)) {
+                // drop backend
+                DropBackendOp op = (DropBackendOp) alterSystemCommand.getAlterSystemOp();
+                if (!op.isForce()) {
+                    throw new DdlException("It is highly NOT RECOMMENDED to use DROP BACKEND stmt."
+                            + "It is not safe to directly drop a backend. "
+                            + "All data on this backend will be discarded permanently. "
+                            + "If you insist, use DROPP instead of DROP");
+                }
+                if (op.getHostInfos().isEmpty()) {
+                    // drop by id
+                    Env.getCurrentSystemInfo().dropBackendsByIds(op.getIds());
+                } else {
+                    // drop by host
+                    Env.getCurrentSystemInfo().dropBackends(op.getHostInfos());
+                }
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND)) {
+                // decommission
+                DecommissionBackendOp op = (DecommissionBackendOp) alterSystemCommand.getAlterSystemOp();
+                // check request
+                List<Backend> decommissionBackends = checkDecommissionForNereids(op);
+
+                // set backend's state as 'decommissioned'
+                // for decommission operation, here is no decommission job. the system handler will check
+                // all backend in decommission state
+                for (Backend backend : decommissionBackends) {
+                    Env.getCurrentSystemInfo().decommissionBackend(backend);
+                }
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_OBSERVER)) {
+                AddObserverOp op = (AddObserverOp) alterSystemCommand.getAlterSystemOp();
+                Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, op.getHost(), op.getPort());
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_OBSERVER)) {
+                DropObserverOp op = (DropObserverOp) alterSystemCommand.getAlterSystemOp();
+                Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, op.getHost(), op.getPort());
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_FOLLOWER)) {
+                AddFollowerOp op = (AddFollowerOp) alterSystemCommand.getAlterSystemOp();
+                Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, op.getHost(), op.getPort());
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_FOLLOWER)) {
+                DropFollowerOp op = (DropFollowerOp) alterSystemCommand.getAlterSystemOp();
+                Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, op.getHost(), op.getPort());
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_ADD_BROKER)) {
+                AddBrokerOp op = (AddBrokerOp) alterSystemCommand.getAlterSystemOp();
+                Env.getCurrentEnv().getBrokerMgr().addBrokers(op.getBrokerName(), op.getHostPortPairs());
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_BROKER)) {
+                DropBrokerOp op = (DropBrokerOp) alterSystemCommand.getAlterSystemOp();
+                Env.getCurrentEnv().getBrokerMgr().dropBrokers(op.getBrokerName(), op.getHostPortPairs());
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_DROP_ALL_BROKER)) {
+                DropAllBrokerOp op = (DropAllBrokerOp) alterSystemCommand.getAlterSystemOp();
+                Env.getCurrentEnv().getBrokerMgr().dropAllBroker(op.getBrokerName());
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_MODIFY_BACKEND)) {
+                ModifyBackendOp op = (ModifyBackendOp) alterSystemCommand.getAlterSystemOp();
+                Env.getCurrentSystemInfo().modifyBackends(op);
+            } else if (alterSystemCommand.getType().equals(PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME)) {
+                ModifyFrontendOrBackendHostNameOp op =
+                        (ModifyFrontendOrBackendHostNameOp) alterSystemCommand.getAlterSystemOp();
+                if (op.getModifyOpType().equals(ModifyFrontendOrBackendHostNameOp.ModifyOpType.Frontend)) {
+                    Env.getCurrentEnv().modifyFrontendHostName(op.getHost(), op.getPort(), op.getNewHost());
+                } else {
+                    Env.getCurrentSystemInfo().modifyBackendHostName(op.getHost(), op.getPort(), op.getNewHost());
+                }
+            } else {
+                Preconditions.checkState(false, alterCommand.getClass());
+            }
+        } else {
+            throw new UserException("Not supported alter command type " + alterCommand.getType());
+        }
+
+    }
+
     /*
      * check if the specified backends can be dropped
      * 1. backend does not have any tablet.
@@ -356,6 +452,14 @@ public class SystemHandler extends AlterHandler {
         return checkDecommission(decommissionBackendClause.getHostInfos());
     }
 
+    private List<Backend> checkDecommissionForNereids(DecommissionBackendOp decommissionBackendOp)
+            throws DdlException {
+        if (decommissionBackendOp.getHostInfos().isEmpty()) {
+            return checkDecommissionByIds(decommissionBackendOp.getIds());
+        }
+        return checkDecommission(decommissionBackendOp.getHostInfos());
+    }
+
     /*
      * check if the specified backends can be decommissioned
      * 1. backend should exist.
@@ -488,19 +592,17 @@ public class SystemHandler extends AlterHandler {
         }
     }
 
-    @Override
-    public synchronized void cancel(CancelStmt stmt) throws DdlException {
-        CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) stmt;
+    public void cancel(CancelDecommissionBackendCommand command) throws DdlException {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         // check if backends is under decommission
-        List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
+        List<HostInfo> hostInfos = command.getHostInfos();
         if (hostInfos.isEmpty()) {
-            List<String> ids = cancelAlterSystemStmt.getIds();
+            List<String> ids = command.getIds();
             for (String id : ids) {
                 Backend backend = infoService.getBackend(Long.parseLong(id));
                 if (backend == null) {
                     throw new DdlException("Backend does not exist["
-                            + id + "]");
+                        + id + "]");
                 }
                 if (!backend.isDecommissioned()) {
                     // it's ok. just log
@@ -521,7 +623,7 @@ public class SystemHandler extends AlterHandler {
                         hostInfo.getPort());
                 if (backend == null) {
                     throw new DdlException("Backend does not exist["
-                            + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
+                        + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
                 }
 
                 if (!backend.isDecommissioned()) {

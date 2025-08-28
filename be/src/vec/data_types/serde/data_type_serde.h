@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <rapidjson/document.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -28,7 +26,6 @@
 #include "arrow/status.h"
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_buffer.hpp"
@@ -74,40 +71,23 @@ struct ColumnVectorBatch;
         ++*num_deserialized;                                                             \
     }
 
-#define INIT_MEMORY_FOR_ORC_WRITER()                                                 \
-    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);                                     \
-    if (!ptr) {                                                                      \
-        return Status::InternalError(                                                \
-                "malloc memory error when write largeint column data to orc file."); \
-    }                                                                                \
-    StringRef bufferRef;                                                             \
-    bufferRef.data = ptr;                                                            \
-    bufferRef.size = BUFFER_UNIT_SIZE;                                               \
-    size_t offset = 0;                                                               \
-    buffer_list.emplace_back(bufferRef);
-
-#define REALLOC_MEMORY_FOR_ORC_WRITER()                                                  \
-    while (bufferRef.size - BUFFER_RESERVED_SIZE < offset + len) {                       \
-        char* new_ptr = (char*)malloc(bufferRef.size + BUFFER_UNIT_SIZE);                \
-        if (!new_ptr) {                                                                  \
-            return Status::InternalError(                                                \
-                    "malloc memory error when write largeint column data to orc file."); \
-        }                                                                                \
-        memcpy(new_ptr, bufferRef.data, bufferRef.size);                                 \
-        free(const_cast<char*>(bufferRef.data));                                         \
-        bufferRef.data = new_ptr;                                                        \
-        bufferRef.size = bufferRef.size + BUFFER_UNIT_SIZE;                              \
-    }
-
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
+class JsonbOutStream;
 class SlotDescriptor;
+
+template <class OS_TYPE>
+class JsonbWriterT;
+
+using JsonbWriter = JsonbWriterT<JsonbOutStream>;
+
 #include "common/compile_check_begin.h"
 namespace vectorized {
 class IColumn;
 class Arena;
 class IDataType;
+struct CastParameters;
 
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
@@ -124,14 +104,11 @@ using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 // the developer does not know how many datatypes has to deal.
 class DataTypeSerDe {
 public:
+    // return type name , such as "BOOL", "BIGINT", "ARRAY<DATE>"
+    virtual std::string get_name() const = 0;
     // Text serialization/deserialization of data types depend on some settings witch we define
     // in formatOptions.
     struct FormatOptions {
-        /**
-         * if true, we will use olap format which defined in src/olap/types.h, but we do not suggest
-         * use this format in olap, because it is more slower, keep this option is for compatibility.
-         */
-        bool date_olap_format = false;
         /**
          * field delimiter is used to separate fields in one row
          */
@@ -150,6 +127,8 @@ public:
          *  by dropping the "" or ''.
          */
         bool converted_from_string = false;
+
+        char quote_char = '"';
 
         char escape_char = 0;
         /**
@@ -178,7 +157,24 @@ public:
          *       ["abc", "def", "", "hig"]
          */
         const char* nested_string_wrapper;
-        int wrapper_len;
+        int wrapper_len = 0;
+
+        /**
+         * mysql_collection_delim is used to separate elements in collection, such as array, map, struct
+         * It is used to write to mysql.
+         */
+        std::string mysql_collection_delim = ", ";
+
+        /**
+         * is_bool_value_num is used to display bool value in collection, such as array, map, struct
+         * eg, if set to true, the array<true> will be:
+         *      [1]
+         *     if set to false, the array<true> will be:
+         *      [true]
+         */
+        bool is_bool_value_num = true;
+
+        const cctz::time_zone* timezone = nullptr;
 
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
@@ -241,6 +237,36 @@ public:
 public:
     DataTypeSerDe(int nesting_level = 1) : _nesting_level(nesting_level) {};
     virtual ~DataTypeSerDe();
+
+    // All types can override this function
+    // When this function is called, column should be of the corresponding type
+    // everytime call this, should insert new cell to the end of column
+    virtual Status from_string(StringRef& str, IColumn& column,
+                               const FormatOptions& options) const {
+        return Status::NotSupported("from_string is not supported {}", get_name());
+    }
+
+    // Similar to from_string, but in strict mode, we should not handle errors.
+    // If conversion from string fails, we should return immediately
+    virtual Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                           const FormatOptions& options) const {
+        return from_string(str, column, options);
+    }
+
+    // Override functions with _batch suffix only when performance is critical
+    // Only used for basic data types, such as Ip, Date, Number, etc.
+    virtual Status from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                     const FormatOptions& options) const {
+        return Status::NotSupported("from_string is not supported");
+    }
+
+    // For strict mode, we should not have nullable columns, as we will directly report errors when string conversion fails instead of handling them
+    virtual Status from_string_strict_mode_batch(
+            const ColumnString& str, IColumn& column, const FormatOptions& options,
+            const NullMap::value_type* null_map = nullptr) const {
+        return Status::NotSupported("from_string is not supported");
+    }
+
     // Text serializer and deserializer with formatOptions to handle different text format
     virtual Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                               BufferWritable& bw, FormatOptions& options) const = 0;
@@ -252,6 +278,14 @@ public:
 
     virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                   const FormatOptions& options) const = 0;
+
+    // In some cases, CSV and JSON deserialization behaviors may differ
+    // so we provide a default implementation that uses JSON deserialization
+    virtual Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                                 const FormatOptions& options) const {
+        return deserialize_one_cell_from_json(column, slice, options);
+    }
+
     // deserialize text vector is to avoid virtual function call in complex type nested loop
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        uint64_t* num_deserialized,
@@ -303,6 +337,22 @@ public:
         return serialize_one_cell_to_json(column, row_num, bw, options);
     }
 
+    virtual Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                             JsonbWriter& writer) const {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    }
+
+    virtual Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                    ColumnString& to_column) const;
+
+    virtual Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
+                                                 CastParameters& castParms) const {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb_vector",
+                                    get_name());
+    }
+
+    Status parse_column_from_jsonb_string(IColumn& column, const JsonbValue* jsonb_value,
+                                          CastParameters& castParms) const;
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                                       int64_t end) const = 0;
@@ -311,7 +361,7 @@ public:
 
     // JSONB serializer and deserializer, should write col_id
     virtual void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                         Arena* mem_pool, int32_t col_id,
+                                         Arena& mem_pool, int32_t col_id,
                                          int64_t row_num) const = 0;
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
@@ -329,31 +379,30 @@ public:
     // JSON serializer and deserializer
 
     // Arrow serializer and deserializer
-    virtual void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                       arrow::ArrayBuilder* array_builder, int64_t start,
-                                       int64_t end, const cctz::time_zone& ctz) const = 0;
-    virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                        int64_t start, int64_t end,
-                                        const cctz::time_zone& ctz) const = 0;
+    virtual Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                         arrow::ArrayBuilder* array_builder, int64_t start,
+                                         int64_t end, const cctz::time_zone& ctz) const = 0;
+    virtual Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                          int64_t start, int64_t end,
+                                          const cctz::time_zone& ctz) const = 0;
 
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                        const NullMap* null_map,
                                        orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                       int64_t end, std::vector<StringRef>& buffer_list) const = 0;
+                                       int64_t end, vectorized::Arena& arena) const = 0;
     // ORC deserializer
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 
-    // rapidjson
-    virtual Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                          rapidjson::Document::AllocatorType& allocator,
-                                          Arena& mem_pool, int64_t row_num) const;
-    virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
-
     virtual DataTypeSerDeSPtrs get_nested_serdes() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method get_nested_serdes is not supported for this serde");
+    }
+
+    virtual void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                          int64_t row_num) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "write_one_cell_to_binary");
     }
 
 protected:
@@ -364,14 +413,6 @@ protected:
     // The _nesting_level of StructSerde is 1
     // The _nesting_level of StringSerde is 2
     int _nesting_level = 1;
-
-    static void convert_field_to_rapidjson(const vectorized::Field& field, rapidjson::Value& target,
-                                           rapidjson::Document::AllocatorType& allocator);
-    static void convert_array_to_rapidjson(const vectorized::Array& array, rapidjson::Value& target,
-                                           rapidjson::Document::AllocatorType& allocator);
-    static void convert_variant_map_to_rapidjson(const vectorized::VariantMap& array,
-                                                 rapidjson::Value& target,
-                                                 rapidjson::Document::AllocatorType& allocator);
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null
@@ -390,13 +431,13 @@ inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start,
     return res;
 }
 
-inline void checkArrowStatus(const arrow::Status& status, const std::string& column,
-                             const std::string& format_name) {
+inline Status checkArrowStatus(const arrow::Status& status, const std::string& column,
+                               const std::string& format_name) {
     if (!status.ok()) {
-        throw Exception(
-                Status::FatalError("arrow serde with arrow: {} with column : {} with error msg: {}",
-                                   format_name, column, status.ToString()));
+        return Status::FatalError("arrow serde with arrow: {} with column : {} with error msg: {}",
+                                  format_name, column, status.ToString());
     }
+    return Status::OK();
 }
 
 DataTypeSerDeSPtrs create_data_type_serdes(

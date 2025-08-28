@@ -96,6 +96,8 @@ Status localfs_error(const std::error_code& ec, std::string_view msg) {
         return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>(message);
     } else if (ec == std::errc::permission_denied) {
         return Status::Error<PERMISSION_DENIED, false>(message);
+    } else if (ec == std::errc::directory_not_empty) {
+        return Status::Error<DIRECTORY_NOT_EMPTY, false>(message);
     } else {
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>(message);
     }

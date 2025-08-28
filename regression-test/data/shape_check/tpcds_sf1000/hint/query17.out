@@ -44,6 +44,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(catalog_sales d3 { store_sales d1 { store_returns d2 } store item } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

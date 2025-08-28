@@ -53,7 +53,7 @@ suite("test_query_tvf_auth", "p0,auth,external,external_docker") {
 
         sql """grant select_priv on regression_test to ${dorisuser}"""
 
-        connect(user=dorisuser, password="${dorispwd}", url=context.config.jdbcUrl) {
+        connect(dorisuser, "${dorispwd}", context.config.jdbcUrl) {
             test {
                   sql """
                      select * from query('catalog' = '${catalog_name}', 'query' = 'select * from doris_test.all_types');
@@ -62,7 +62,7 @@ suite("test_query_tvf_auth", "p0,auth,external,external_docker") {
             }
         }
         sql """grant select_priv on ${catalog_name}.*.* to ${dorisuser}"""
-        connect(user=dorisuser, password="${dorispwd}", url=context.config.jdbcUrl) {
+        connect(dorisuser, "${dorispwd}", context.config.jdbcUrl) {
           sql """
              select * from query('catalog' = '${catalog_name}', 'query' = 'select * from doris_test.all_types');
           """

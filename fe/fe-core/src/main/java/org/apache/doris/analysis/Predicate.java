@@ -21,11 +21,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
-
-import com.google.common.base.Preconditions;
 
 public abstract class Predicate extends Expr {
     protected boolean isEqJoinConjunct;
@@ -42,18 +39,8 @@ public abstract class Predicate extends Expr {
         isEqJoinConjunct = other.isEqJoinConjunct;
     }
 
-    public boolean isEqJoinConjunct() {
-        return isEqJoinConjunct;
-    }
-
     public void setIsEqJoinConjunct(boolean v) {
         isEqJoinConjunct = v;
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // values: true/false/null
-        numDistinctValues = 3;
     }
 
     /**
@@ -94,59 +81,6 @@ public abstract class Predicate extends Expr {
             idxRef.setRef(Integer.valueOf(i));
         }
         return true;
-    }
-
-    public static boolean isEquivalencePredicate(Expr expr) {
-        return (expr instanceof BinaryPredicate)
-                && ((BinaryPredicate) expr).getOp().isEquivalence();
-    }
-
-    public static boolean isUnNullSafeEquivalencePredicate(Expr expr) {
-        return (expr instanceof BinaryPredicate)
-                && ((BinaryPredicate) expr).getOp().isUnNullSafeEquivalence();
-    }
-
-    public static boolean canPushDownPredicate(Expr expr) {
-        if (!(expr instanceof Predicate)) {
-            return false;
-        }
-
-        if (((Predicate) expr).isSingleColumnPredicate(null, null)) {
-            if (expr instanceof BinaryPredicate) {
-                BinaryPredicate binPredicate = (BinaryPredicate) expr;
-                Expr right = binPredicate.getChild(1);
-
-                // because isSingleColumnPredicate
-                Preconditions.checkState(right != null);
-
-                // ATTN(cmy): Usually, the BinaryPredicate in the query will be rewritten through ExprRewriteRule,
-                // and all SingleColumnPredicate will be rewritten as "column on the left and the constant on the right"
-                // So usually the right child is constant.
-                //
-                // But if there is a subquery in where clause, the planner will equal the subquery to join.
-                // During the equal, some auxiliary BinaryPredicate will be automatically generated,
-                // and these BinaryPredicates will not go through ExprRewriteRule.
-                // As a result, these BinaryPredicates may be as "column on the right and the constant on the left".
-                // Example can be found in QueryPlanTest.java
-                //   -> testJoinPredicateTransitivityWithSubqueryInWhereClause().
-                //
-                // Because our current planner implementation is very error-prone, so when this happens,
-                // we simply assume that these kind of BinaryPredicates cannot be pushed down,
-                // to ensure that this change will not affect other query plans.
-                if (!right.isConstant()) {
-                    return false;
-                }
-
-                return right instanceof LiteralExpr;
-            }
-
-            if (expr instanceof InPredicate) {
-                InPredicate inPredicate = (InPredicate) expr;
-                return inPredicate.isLiteralChildren();
-            }
-        }
-
-        return false;
     }
 
 

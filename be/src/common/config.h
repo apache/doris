@@ -195,20 +195,21 @@ DECLARE_Int64(memtable_limiter_reserved_memory_bytes);
 DECLARE_mString(process_minor_gc_size);
 DECLARE_mString(process_full_gc_size);
 
-// If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
-// when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
-// used memory and the exec_mem_limit will be canceled.
-// If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
-DECLARE_mBool(enable_query_memory_overcommit);
-
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
+// for the query being canceled,
+// if (current time - cancel start time) < revoke_memory_max_tolerance_ms, the query memory is counted in `freed_memory`,
+// and the query memory is expected to be released soon.
+// if > revoke_memory_max_tolerance_ms, the query memory will not be counted in `freed_memory`,
+// and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
+DECLARE_mInt64(revoke_memory_max_tolerance_ms);
+
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
 
-// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G,
+// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G - 1,
 // if alloc successful, will print a warning with stacktrace, but not prevent memory alloc.
 // if alloc failed using Doris Allocator, will print stacktrace in error log.
 // if is -1, disable print stacktrace when alloc large memory.
@@ -304,6 +305,8 @@ DECLARE_mBool(enable_batch_download);
 DECLARE_mBool(enable_download_md5sum_check);
 // download binlog meta timeout
 DECLARE_mInt32(download_binlog_meta_timeout_ms);
+// the interval time(seconds) for agent report index policy to FE
+DECLARE_mInt32(report_index_policy_interval_seconds);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
@@ -335,6 +338,20 @@ DECLARE_Int32(be_service_threads);
 
 // interval between profile reports; in seconds
 DECLARE_mInt32(pipeline_status_report_interval);
+// Time slice for pipeline task execution (ms)
+DECLARE_mInt32(pipeline_task_exec_time_slice);
+
+// task executor min concurrency per task
+DECLARE_mInt32(task_executor_min_concurrency_per_task);
+// task executor max concurrency per task
+DECLARE_mInt32(task_executor_max_concurrency_per_task);
+// task task executor inital split max concurrency per task, later concurrency may be adjusted dynamically
+DECLARE_mInt32(task_executor_initial_max_concurrency_per_task);
+// Enable task executor in internal table scan.
+DECLARE_Bool(enable_task_executor_in_internal_table);
+// Enable task executor in external table scan.
+DECLARE_Bool(enable_task_executor_in_external_table);
+
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
@@ -348,7 +365,6 @@ DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
 DECLARE_Int32(doris_scanner_thread_pool_queue_size);
 // default thrift client connect timeout(in seconds)
 DECLARE_mInt32(thrift_connect_timeout_seconds);
-DECLARE_mInt32(fetch_rpc_timeout_seconds);
 // default thrift client retry interval (in milliseconds)
 DECLARE_mInt64(thrift_client_retry_interval_ms);
 // max message size of thrift request
@@ -472,6 +488,7 @@ DECLARE_mInt32(max_single_replica_compaction_threads);
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
 DECLARE_mInt64(base_compaction_max_compaction_score);
+DECLARE_mInt64(mow_base_compaction_max_compaction_score);
 DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
@@ -524,6 +541,16 @@ DECLARE_mInt32(compaction_task_num_per_fast_disk);
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DECLARE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round);
+
+// Minimum number of threads required in the thread pool to activate the large cumu compaction delay strategy.
+// The delay strategy is only applied when the thread pool has at least this many threads.
+DECLARE_mInt32(large_cumu_compaction_task_min_thread_num);
+// Maximum size threshold (in bytes) for input rowsets. Compaction tasks with input size
+// exceeding this threshold will be delayed when thread pool is near capacity. Default 100MB.
+DECLARE_mInt32(large_cumu_compaction_task_bytes_threshold);
+// Maximum row count threshold for compaction input. Compaction tasks with row count
+// exceeding this threshold will be delayed when thread pool is near capacity. Default 1 million.
+DECLARE_mInt32(large_cumu_compaction_task_row_num_threshold);
 
 // Not compact the invisible versions, but with some limitations:
 // if not timeout, keep no more than compaction_keep_invisible_version_max_count versions;
@@ -637,9 +664,9 @@ DECLARE_mInt32(olap_table_sink_send_interval_microseconds);
 DECLARE_mDouble(olap_table_sink_send_interval_auto_partition_factor);
 
 // Fragment thread pool
-DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_min);
-DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_max);
-DECLARE_Int32(fragment_mgr_asynic_work_pool_queue_size);
+DECLARE_Int32(fragment_mgr_async_work_pool_thread_num_min);
+DECLARE_Int32(fragment_mgr_async_work_pool_thread_num_max);
+DECLARE_Int32(fragment_mgr_async_work_pool_queue_size);
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
@@ -672,20 +699,25 @@ DECLARE_Int32(num_cores);
 // When BE start, If there is a broken disk, BE process will exit by default.
 // Otherwise, we will ignore the broken disk,
 DECLARE_Bool(ignore_broken_disk);
+DECLARE_Bool(ignore_file_cache_dir_upgrade_failure);
 
 // Sleep time in milliseconds between memory maintenance iterations
 DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 
-// After full gc, no longer full gc and minor gc during sleep.
-// After minor gc, no minor gc during sleep, but full gc is possible.
+// Memory gc are expensive, wait a while to avoid too frequent.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
+
+DECLARE_mInt64(min_write_buffer_size_for_partial_update);
 // max parallel flush task per memtable writer
 DECLARE_mInt32(memtable_flush_running_count_limit);
+
+// maximum sleep time to wait for memory when writing or flushing memtable.
+DECLARE_mInt32(memtable_wait_for_memory_sleep_time_s);
 
 DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 
@@ -699,6 +731,9 @@ DECLARE_Int32(load_process_soft_mem_limit_percent);
 // If load memory consumption is within load_process_safe_mem_permit_percent,
 // memtable memory limiter will do nothing.
 DECLARE_Int32(load_process_safe_mem_permit_percent);
+
+// If there are a lot of memtable memory, then wait them flush finished.
+DECLARE_mDouble(load_max_wg_active_memtable_percent);
 
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
@@ -754,6 +789,8 @@ DECLARE_mInt32(es_http_timeout_ms);
 // TODO(cmy): use different config to set different client cache if necessary.
 DECLARE_Int32(max_client_cache_size_per_host);
 
+DECLARE_Int32(max_master_fe_client_cache_size);
+
 // Dir to save files downloaded by SmallFileMgr
 DECLARE_String(small_file_dir);
 // path gc
@@ -775,10 +812,6 @@ DECLARE_Int32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DECLARE_Int32(max_flush_thread_num_per_cpu);
-
-// workload group flush pool params
-DECLARE_mInt32(wg_flush_thread_num_per_store);
-DECLARE_mInt32(wg_flush_thread_num_per_cpu);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -837,6 +870,8 @@ DECLARE_Int32(query_cache_max_partition_count);
 // This is to avoid too many version num.
 DECLARE_mInt32(max_tablet_version_num);
 
+DECLARE_mInt32(time_series_max_tablet_version_num);
+
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 DECLARE_String(thrift_server_type_of_fe);
@@ -853,6 +888,13 @@ DECLARE_mInt32(zone_map_row_num_threshold);
 //    Debug = 5,
 //    Trace = 6
 DECLARE_Int32(aws_log_level);
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+DECLARE_Int32(azure_log_level);
 
 // the buffer size when read data from remote storage like s3
 DECLARE_mInt32(remote_storage_read_buffer_mb);
@@ -906,9 +948,6 @@ DECLARE_mInt32(max_segment_num_per_rowset);
 // segment_compression_threshold_kb.
 DECLARE_mInt32(segment_compression_threshold_kb);
 
-// The connection timeout when connecting to external table such as odbc table.
-DECLARE_mInt32(external_table_connect_timeout_sec);
-
 // Time to clean up useless JDBC connection pool cache
 DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
 
@@ -933,6 +972,9 @@ DECLARE_mString(kafka_debug);
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
 DECLARE_mInt32(routine_load_consumer_pool_size);
+
+// the timeout of condition variable wait in blocking_get and blocking_put
+DECLARE_mInt32(blocking_queue_cv_wait_timeout_ms);
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -1058,14 +1100,13 @@ DECLARE_Int32(segcompaction_task_max_rows);
 // Max total file size allowed in a single segcompaction task.
 DECLARE_Int64(segcompaction_task_max_bytes);
 
+DECLARE_Int32(segcompaction_wait_for_dbm_task_timeout_s);
+
 // Global segcompaction thread pool size.
 DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
-
-// enable prefetch tablets before opening
-DECLARE_mBool(enable_prefetch_tablet);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
@@ -1100,6 +1141,7 @@ DECLARE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent);
 DECLARE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent);
 DECLARE_mInt32(file_cache_evict_in_advance_interval_ms);
 DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
+DECLARE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
 // If true, evict the ttl cache using LRU when full.
@@ -1118,6 +1160,21 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
+DECLARE_mInt64(file_cache_background_gc_interval_ms);
+DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
+DECLARE_mInt64(file_cache_background_monitor_interval_ms);
+DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_ttl_gc_batch);
+DECLARE_Int32(file_cache_downloader_thread_num_min);
+DECLARE_Int32(file_cache_downloader_thread_num_max);
+// used to persist lru information before be reboot and load the info back
+DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
+// dump queue only if the queue update specific times through several dump intervals
+DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
+DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
+DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
+DECLARE_mBool(enable_evaluate_shadow_queue_diff);
+
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
@@ -1127,6 +1184,7 @@ DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 DECLARE_String(inverted_index_searcher_cache_limit);
 DECLARE_mBool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
+DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
 
@@ -1147,6 +1205,8 @@ DECLARE_mBool(inverted_index_compaction_enable);
 DECLARE_mBool(debug_inverted_index_compaction);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
+// wheather index by RAM directory when base compaction
+DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1177,6 +1237,8 @@ DECLARE_mInt32(schema_cache_sweep_time_sec);
 DECLARE_Int32(segment_cache_capacity);
 DECLARE_Int32(segment_cache_fd_percentage);
 DECLARE_Int32(segment_cache_memory_percentage);
+DECLARE_Bool(enable_segment_cache_prune);
+
 DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog
@@ -1208,6 +1270,9 @@ DECLARE_mString(kerberos_krb5_conf_path);
 // the interval for renew kerberos ticket cache
 DECLARE_mInt32(kerberos_refresh_interval_second);
 
+// JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
+DECLARE_mBool(jdk_process_reaper_use_default_stack_size);
+
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
 DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
@@ -1234,7 +1299,7 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
-DECLARE_mBool(variant_use_cloud_schema_dict);
+DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
@@ -1245,6 +1310,9 @@ DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table
 DECLARE_mBool(enable_mow_compaction_correctness_check_core);
+// USED FOR DEBUGING
+// let compaction fail if the compaction found there's duplicate key on mow table
+DECLARE_mBool(enable_mow_compaction_correctness_check_fail);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
 // missing rows correctness check when compaction for mow table
@@ -1259,6 +1327,12 @@ DECLARE_mInt64(mow_primary_key_index_max_size_in_memory);
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
 DECLARE_mInt32(publish_version_gap_logging_threshold);
+// get agg by cache for mow table
+DECLARE_mBool(enable_mow_get_agg_by_cache);
+// get agg correctness check for mow table
+DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
+DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
+DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1311,16 +1385,17 @@ DECLARE_mBool(enable_be_proc_monitor);
 DECLARE_mInt32(be_proc_monitor_interval_ms);
 DECLARE_Int32(workload_group_metrics_interval_ms);
 
-DECLARE_mBool(enable_workload_group_memory_gc);
-
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
-// Remove predicate that is always true for a segment.
-DECLARE_Bool(ignore_always_true_predicate_for_segment);
-
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
+
+// Ingest binlog with persistent connection
+DECLARE_Bool(enable_ingest_binlog_with_persistent_connection);
+
+// Log ingest binlog elapsed threshold, -1 means no log
+DECLARE_mInt64(ingest_binlog_elapsed_threshold_ms);
 
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
@@ -1332,6 +1407,9 @@ DECLARE_Bool(enable_snapshot_action);
 
 // The max columns size for a tablet schema
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
+
+// The max sparse column statistics size for a variant column
+DECLARE_mInt32(variant_max_sparse_column_statistics_size);
 
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
 
@@ -1370,6 +1448,8 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 DECLARE_Int32(num_query_ctx_map_partitions);
 
+DECLARE_mBool(force_azure_blob_global_endpoint);
+
 DECLARE_mBool(enable_s3_rate_limiter);
 DECLARE_mInt64(s3_get_bucket_tokens);
 DECLARE_mInt64(s3_get_token_per_second);
@@ -1387,6 +1467,7 @@ DECLARE_mInt32(max_s3_client_retry);
 // and the max retry time is max_s3_client_retry
 DECLARE_mInt32(s3_read_base_wait_time_ms);
 DECLARE_mInt32(s3_read_max_wait_time_ms);
+DECLARE_mBool(enable_s3_object_check_after_upload);
 
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
@@ -1501,17 +1582,54 @@ DECLARE_mInt32(check_score_rounds_num);
 DECLARE_Int32(query_cache_size);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
-DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 // Enable validation to check the correctness of table size.
 DECLARE_Bool(enable_table_size_correctness_check);
 // Enable sleep 5s between delete cumulative compaction.
 DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 
 DECLARE_mInt32(compaction_num_per_round);
+DECLARE_mInt32(max_automatic_compaction_num_per_round);
 
 DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
 DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
 DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
+DECLARE_mInt32(schema_dict_cache_capacity);
+
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
+
+DECLARE_mBool(enable_mow_verbose_log);
+
+DECLARE_mInt32(tablet_sched_delay_time_ms);
+DECLARE_mInt32(load_trigger_compaction_version_percent);
+DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
+DECLARE_mBool(enable_compaction_pause_on_high_memory);
+
+DECLARE_mBool(enable_quorum_success_write);
+DECLARE_mDouble(quorum_success_max_wait_multiplier);
+DECLARE_mInt64(quorum_success_min_wait_seconds);
+DECLARE_mInt32(quorum_success_remaining_timeout_seconds);
+
+DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
+
+DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
+
+// the max length of segments key bounds, in bytes
+// ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
+DECLARE_mInt32(segments_key_bounds_truncation_threshold);
+// ATTENTION: for test only, use random segments key bounds truncation threshold every time
+DECLARE_mBool(random_segments_key_bounds_truncation);
+
+DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
+
+DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
+
+// p0, daily, rqg, external
+DECLARE_String(fuzzy_test_type);
+
+// The maximum number of threads supported when executing LLMFunction
+DECLARE_mInt32(llm_max_concurrent_requests);
 
 #ifdef BE_TEST
 // test s3

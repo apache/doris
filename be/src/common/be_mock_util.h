@@ -45,6 +45,7 @@ void mock_random_sleep();
 #ifdef BE_TEST
 #define INJECT_MOCK_SLEEP(lock_guard) \
     DEFER(mock_random_sleep());       \
+    mock_random_sleep();              \
     lock_guard;
 #else
 #define INJECT_MOCK_SLEEP(lock_guard) lock_guard

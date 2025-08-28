@@ -17,15 +17,18 @@
 
 package org.apache.doris.job.extensions.mtmv;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -45,6 +48,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -53,6 +57,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
@@ -81,8 +86,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -112,7 +118,7 @@ public class MTMVTask extends AbstractTask {
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
     static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<String, Integer>();
         for (int i = 0; i < SCHEMA.size(); i++) {
             builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
         }
@@ -192,9 +198,15 @@ public class MTMVTask extends AbstractTask {
             tableIfs.sort(Comparator.comparing(TableIf::getId));
 
             MTMVRefreshContext context;
+            Pair<List<String>, List<PartitionKeyDesc>> syncPartitions = null;
             // lock table order by id to avoid deadlock
             MetaLockUtils.readLockTables(tableIfs);
             try {
+                // if mtmv is schema_change, check if column type has changed
+                // If it's not in the schema_change state, the column type definitely won't change.
+                if (MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
+                    checkColumnTypeIfChange(mtmv, ctx);
+                }
                 if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                     MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
                     if (!relatedTable.isValidRelatedTable()) {
@@ -203,8 +215,21 @@ public class MTMVTask extends AbstractTask {
                                 + " e.g. Table has multiple partition columns"
                                 + " or including not supported transform functions.");
                     }
-                    MTMVPartitionUtil.alignMvPartition(mtmv);
+                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
                 }
+            } finally {
+                MetaLockUtils.readUnlockTables(tableIfs);
+            }
+            if (syncPartitions != null) {
+                for (String pName : syncPartitions.first) {
+                    MTMVPartitionUtil.dropPartition(mtmv, pName);
+                }
+                for (PartitionKeyDesc partitionKeyDesc : syncPartitions.second) {
+                    MTMVPartitionUtil.addPartition(mtmv, partitionKeyDesc);
+                }
+            }
+            MetaLockUtils.readLockTables(tableIfs);
+            try {
                 context = MTMVRefreshContext.buildContext(mtmv);
                 this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
             } finally {
@@ -245,6 +270,39 @@ public class MTMVTask extends AbstractTask {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
             }
+        }
+    }
+
+    private void checkColumnTypeIfChange(MTMV mtmv, ConnectContext ctx) throws JobException {
+        List<ColumnDefinition> currentColumnsDefinition = MTMVPlanUtil.generateColumnsBySql(mtmv.getQuerySql(), ctx,
+                mtmv.getMvPartitionInfo().getPartitionCol(),
+                mtmv.getDistributionColumnNames(), null, mtmv.getTableProperty().getProperties());
+        List<Column> currentColumns = currentColumnsDefinition.stream()
+                .map(ColumnDefinition::translateToCatalogStyle)
+                .collect(Collectors.toList());
+        List<Column> originalColumns = mtmv.getBaseSchema(true);
+        if (currentColumns.size() != originalColumns.size()) {
+            throw new JobException(String.format(
+                    "column length not equals, please check whether columns of base table have changed, "
+                            + "original length is: %s, current length is: %s",
+                    originalColumns.size(), currentColumns.size()));
+        }
+        for (int i = 0; i < originalColumns.size(); i++) {
+            if (!isTypeLike(originalColumns.get(i).getType(), currentColumns.get(i).getType())) {
+                throw new JobException(String.format(
+                        "column type not same, please check whether columns of base table have changed, "
+                                + "column name is: %s, original type is: %s, current type is: %s",
+                        originalColumns.get(i).getName(), originalColumns.get(i).getType().toSql(),
+                        currentColumns.get(i).getType().toSql()));
+            }
+        }
+    }
+
+    private boolean isTypeLike(Type type, Type typeOther) {
+        if (type.isStringType()) {
+            return typeOther.isStringType();
+        } else {
+            return type.equals(typeOther);
         }
     }
 
@@ -329,32 +387,61 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
-    public synchronized void onFail() throws JobException {
+    public synchronized boolean onFail() throws JobException {
         LOG.info("mtmv task onFail, taskId: {}", super.getTaskId());
-        super.onFail();
+        boolean res = super.onFail();
+        if (!res) {
+            return false;
+        }
         after();
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_FAILED_NUM.increase(1L);
         }
+        return true;
     }
 
     @Override
-    public synchronized void onSuccess() throws JobException {
+    public synchronized boolean onSuccess() throws JobException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("mtmv task onSuccess, taskId: {}", super.getTaskId());
         }
-        super.onSuccess();
+        boolean res = super.onSuccess();
+        if (!res) {
+            return false;
+        }
         after();
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_ASYNC_MATERIALIZED_VIEW_TASK_DURATION.update(
                     super.getFinishTimeMs() - super.getStartTimeMs());
             MetricRepo.COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM.increase(1L);
         }
+        return true;
+    }
+
+    /**
+     * The reason for overriding the parent class is to add synchronized protection
+     */
+    @Override
+    public synchronized boolean cancel(boolean needWaitCancelComplete) throws JobException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task cancel, taskId: {}", super.getTaskId());
+        }
+        return super.cancel(needWaitCancelComplete);
     }
 
     @Override
-    protected synchronized void executeCancelLogic(boolean needWaitCancelComplete) {
-        LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
+    protected void executeCancelLogic(boolean needWaitCancelComplete) {
+        try {
+            // Mtmv is initialized in the before method.
+            // If the task has not yet run, the before method will not be used, so mtmv will be empty,
+            // which prevents the canceled task from being added to the history list
+            if (mtmv == null) {
+                mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
+            }
+        } catch (UserException e) {
+            LOG.warn("executeCancelLogic failed:", e);
+            return;
+        }
         if (executor != null) {
             executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"), needWaitCancelComplete);
         }
@@ -390,7 +477,7 @@ public class MTMVTask extends AbstractTask {
             }
             if (tableIf instanceof MvccTable) {
                 MvccTable mvccTable = (MvccTable) tableIf;
-                MvccSnapshot mvccSnapshot = mvccTable.loadSnapshot();
+                MvccSnapshot mvccSnapshot = mvccTable.loadSnapshot(Optional.empty(), null);
                 snapshots.put(new MvccTableInfo(mvccTable), mvccSnapshot);
             }
         }
@@ -478,11 +565,6 @@ public class MTMVTask extends AbstractTask {
         builder.append(needRefreshPartitions.size());
         builder.append(")");
         return builder.toString();
-    }
-
-    private TUniqueId generateQueryId() {
-        UUID taskId = UUID.randomUUID();
-        return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
     }
 
     private void after() {

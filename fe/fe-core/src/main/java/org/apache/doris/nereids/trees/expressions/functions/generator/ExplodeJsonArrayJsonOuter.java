@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.JsonType;
@@ -34,7 +34,7 @@ import java.util.List;
  * explode_json_array_json_outer("[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]"),
  * generate 3 lines include '{"id":1,"name":"John"}', '{"id":2,"name":"Mary"}' and '{"id":3,"name":"Bob"}'.
  */
-public class ExplodeJsonArrayJsonOuter extends TableGeneratingFunction implements UnaryExpression, PropagateNullable {
+public class ExplodeJsonArrayJsonOuter extends TableGeneratingFunction implements UnaryExpression, AlwaysNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(JsonType.INSTANCE).args(JsonType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT)
@@ -47,13 +47,18 @@ public class ExplodeJsonArrayJsonOuter extends TableGeneratingFunction implement
         super("explode_json_array_json_outer", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonArrayJsonOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonArrayJsonOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonArrayJsonOuter(children.get(0));
+        return new ExplodeJsonArrayJsonOuter(getFunctionParams(children));
     }
 
     @Override

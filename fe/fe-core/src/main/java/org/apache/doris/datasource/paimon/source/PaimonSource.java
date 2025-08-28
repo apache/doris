@@ -26,6 +26,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.thrift.TFileAttributes;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.paimon.table.Table;
 
 
@@ -33,6 +34,13 @@ public class PaimonSource {
     private final PaimonExternalTable paimonExtTable;
     private final Table originTable;
     private final TupleDescriptor desc;
+
+    @VisibleForTesting
+    public PaimonSource() {
+        this.desc = null;
+        this.paimonExtTable = null;
+        this.originTable = null;
+    }
 
     public PaimonSource(TupleDescriptor desc) {
         this.desc = desc;

@@ -773,7 +773,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.validate(connectContext);
-        Assertions.assertNull(createTableInfo.translateToLegacyStmt().getPartitionDesc());
+        Assertions.assertNull(createTableInfo.getPartitionDesc());
 
         // test with multi partitions
         LogicalPlan plan2 = new NereidsParser().parseSingle(
@@ -782,7 +782,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertTrue(plan2 instanceof CreateTableCommand);
         CreateTableInfo createTableInfo2 = ((CreateTableCommand) plan2).getCreateTableInfo();
         createTableInfo2.validate(connectContext);
-        PartitionDesc partitionDesc2 = createTableInfo2.translateToLegacyStmt().getPartitionDesc();
+        PartitionDesc partitionDesc2 = createTableInfo2.getPartitionDesc();
         List<Expr> partitionFields2 = partitionDesc2.getPartitionExprs();
         Assertions.assertEquals(5, partitionFields2.size());
 
@@ -834,7 +834,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.validate(connectContext);
-        return createTableInfo.translateToLegacyStmt().getPartitionDesc();
+        return createTableInfo.getPartitionDesc();
     }
 
     @Test

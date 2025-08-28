@@ -35,11 +35,8 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -112,32 +109,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
         Preconditions.checkNotNull(literalExpr);
         return literalExpr;
-    }
-
-    public static String getStringLiteralForComplexType(Expr v, FormatOptions options) {
-        if (!(v instanceof NullLiteral) && v.getType().isScalarType()
-                && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
-                || v.getType() == Type.BOOLEAN)) {
-            return v.getStringValueInFe(options);
-        } else if (v.getType().isComplexType()) {
-            // these type should also call getStringValueInFe which should handle special case for itself
-            return v.getStringValueInFe(options);
-        } else {
-            return v.getStringValueForArray(options);
-        }
-    }
-
-    public static String getStringLiteralForStreamLoad(Expr v, FormatOptions options) {
-        if (!(v instanceof NullLiteral) && v.getType().isScalarType()
-                && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
-                || v.getType() == Type.BOOLEAN)) {
-            return v.getStringValueInFe(options);
-        } else if (v.getType().isComplexType()) {
-            // these type should also call getStringValueInFe which should handle special case for itself
-            return v.getStringValueForStreamLoad(options);
-        } else {
-            return v.getStringValueForArray(options);
-        }
     }
 
     /**
@@ -233,11 +204,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
     }
 
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // Literals require no analysis.
-    }
-
     /*
      * return real value
      */
@@ -265,12 +231,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public abstract String getStringValue();
 
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         return getStringValue();
     }
-
-    @Override
-    public abstract String getStringValueForArray(FormatOptions options);
 
     public long getLongValue() {
         return 0;
@@ -300,9 +263,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     // Throws for non-numeric literals.
     public void swapSign() throws NotImplementedException {
         throw new NotImplementedException("swapSign() only implemented for numeric" + "literals");
-    }
-
-    public void readFields(DataInput in) throws IOException {
     }
 
     @Override
@@ -365,7 +325,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 literalExpr = LiteralExpr.create("0", Type.DECIMAL32);
                 break;
             case 11: // MYSQL_TYPE_TIME
-                literalExpr = LiteralExpr.create("", Type.TIME);
+                literalExpr = LiteralExpr.create("", Type.TIMEV2);
                 break;
             case 10: // MYSQL_TYPE_DATE
                 literalExpr = LiteralExpr.create("1970-01-01", Type.DATE);
@@ -437,11 +397,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
     }
 
-    @Override
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, TupleDescriptor tuple) {
-        return true;
-    }
-
     /** whether is ZERO value **/
     public boolean isZero() {
         boolean isZero = false;
@@ -487,11 +442,4 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
     }
 
-    // Parse from binary data, the format follows mysql binary protocal
-    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
-    // Return next offset
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        Preconditions.checkState(false,
-                "should implement this in derived class. " + this.type.toSql());
-    }
 }

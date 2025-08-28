@@ -17,6 +17,7 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -37,6 +38,8 @@ import java.util.stream.Collectors;
 public class AuditStreamLoader {
     private static final Logger LOG = LogManager.getLogger(AuditStreamLoader.class);
     private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
+    // timeout for both connection and read. 10 seconds is long enough.
+    private static final int HTTP_TIMEOUT_MS = 10000;
     private String hostPort;
     private String db;
     private String auditLogTbl;
@@ -48,8 +51,8 @@ public class AuditStreamLoader {
         this.db = FeConstants.INTERNAL_DB_NAME;
         this.auditLogTbl = AuditLoader.AUDIT_LOG_TABLE;
         this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
-        // currently, FE identity is FE's IP, so we replace the "." in IP to make it suitable for label
-        this.feIdentity = hostPort.replaceAll("\\.", "_").replaceAll(":", "_");
+        // currently, FE identity is FE's IP:port, so we replace the "." and ":" to make it suitable for label
+        this.feIdentity = Env.getCurrentEnv().getSelfNode().getIdent().replaceAll("\\.", "_").replaceAll(":", "_");
     }
 
     private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
@@ -62,12 +65,16 @@ public class AuditStreamLoader {
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
         conn.addRequestProperty("label", label);
+        conn.setConnectTimeout(HTTP_TIMEOUT_MS);
+        conn.setReadTimeout(HTTP_TIMEOUT_MS);
         conn.setRequestProperty("timeout", String.valueOf(GlobalVariable.auditPluginLoadTimeoutS));
         conn.addRequestProperty("max_filter_ratio", "1.0");
         conn.addRequestProperty("columns",
                 InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")));
         conn.addRequestProperty("redirect-policy", "random-be");
+        conn.addRequestProperty("column_separator", AuditLoader.AUDIT_TABLE_COL_SEPARATOR_STR);
+        conn.addRequestProperty("line_delimiter", AuditLoader.AUDIT_TABLE_LINE_DELIMITER_STR);
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;

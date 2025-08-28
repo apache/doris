@@ -89,6 +89,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
         params.put("limit", "");
         params.put("scaleFactor", "1");
         params.put("index", "");
+        params.put("preAggHint", "");
         if (col != null) {
             params.put("type", col.getType().toString());
         }

@@ -18,32 +18,41 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * explode_variant_array(variant([1, 2, 3])), generate 3 lines include 1, 2 and 3.
+ * explode_variant_array(variant([1, 2, 3])), generate three rows include 1, 2 and 3.
+ * explode_variant_array(variant([1, 2, 3]), variant([4, 5, 6])) generates two columns and three rows
+ * where the first column contains 1, 2, 3, and the second column contains 4, 5, 6.
  */
-public class ExplodeVariantArray extends TableGeneratingFunction implements UnaryExpression, AlwaysNullable {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(new VariantType()).args(new VariantType())
-    );
+public class ExplodeVariantArray extends TableGeneratingFunction implements
+        CustomSignature, ComputePrecision, AlwaysNullable {
 
     /**
-     * constructor with 1 argument.
+     * constructor with one or more argument.
      */
-    public ExplodeVariantArray(Expression arg) {
-        super("explode_variant_array", arg);
+    public ExplodeVariantArray(Expression[] args) {
+        super("explode_variant_array", args);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private ExplodeVariantArray(GeneratorFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -51,25 +60,38 @@ public class ExplodeVariantArray extends TableGeneratingFunction implements Unar
      */
     @Override
     public ExplodeVariantArray withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeVariantArray(children.get(0));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new ExplodeVariantArray(getFunctionParams(children));
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        if (!(child().getDataType() instanceof VariantType)) {
-            throw new AnalysisException("only support variant type for explode_variant_array function but got "
-                    + child().getDataType());
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
+    }
+
+    @Override
+    public FunctionSignature customSignature() {
+        List<DataType> arguments = new ArrayList<>();
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i).getDataType() instanceof VariantType) {
+                structFields.add(
+                    new StructField("col" + (i + 1), children.get(i).getDataType(), true, ""));
+                arguments.add(children.get(i).getDataType());
+            } else {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+            }
         }
-    }
-
-    @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        return FunctionSignature.of(new StructType(structFields.build()), arguments);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExplodeVariant(this, context);
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        return super.searchSignature(signatures);
     }
 }

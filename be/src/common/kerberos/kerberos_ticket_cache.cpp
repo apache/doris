@@ -23,6 +23,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "util/time.h"
 
 namespace doris::kerberos {
 
@@ -119,6 +120,8 @@ Status KerberosTicketCache::login() {
             }
             return status;
         }
+        _ticket_lifetime_sec = static_cast<int64_t>(creds.times.endtime) -
+                               static_cast<int64_t>(creds.times.starttime);
 
         // init ccache file
         status = _krb5_interface->cc_initialize(_context, temp_ccache, _principal);
@@ -214,7 +217,8 @@ void KerberosTicketCache::start_periodic_refresh() {
                     // ignore and continue
                     LOG(WARNING) << st.to_string();
                 } else {
-                    LOG(INFO) << "refresh kerberos ticket cache: " << _ticket_cache_path;
+                    LOG(INFO) << "refresh kerberos ticket cache: " << _ticket_cache_path
+                              << ", lifetime sec: " << _ticket_lifetime_sec;
                 }
             }
         }

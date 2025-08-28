@@ -27,9 +27,12 @@ const std::string CSV_WITH_NAMES_AND_TYPES = "csv_with_names_and_types";
 const std::string BLOCK_TEMP_COLUMN_PREFIX = "__TEMP__";
 const std::string BLOCK_TEMP_COLUMN_SCANNER_FILTERED = "__TEMP__scanner_filtered";
 const std::string ROWID_COL = "__DORIS_ROWID_COL__";
+const std::string GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
 const std::string ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
 const std::string DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
 const std::string PARTIAL_UPDATE_AUTO_INC_COL = "__PARTIAL_UPDATE_AUTO_INC_COLUMN__";
+const std::string VIRTUAL_COLUMN_PREFIX = "__DORIS_VIRTUAL_COL__";
+const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 
 /// The maximum precision representable by a 4-byte decimal (Decimal4Value)
 constexpr int MAX_DECIMAL32_PRECISION = 9;

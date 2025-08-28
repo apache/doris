@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -33,23 +31,23 @@ import java.util.ArrayList;
 /** CreateTableLikeInfo */
 public class CreateTableLikeInfo {
     private final boolean ifNotExists;
+    private final boolean isTemp;
     private final TableNameInfo tableName;
     private final TableNameInfo existedTableName;
     private final ArrayList<String> rollupNames;
     private final boolean withAllRollup;
 
-    public CreateTableLikeInfo(boolean ifNotExists, TableNameInfo tableName, TableNameInfo existedTableName,
-            ArrayList<String> rollupNames, boolean withAllRollup) {
+    /**
+     * constructor for create table like
+     */
+    public CreateTableLikeInfo(boolean ifNotExists, boolean isTemp, TableNameInfo tableName,
+            TableNameInfo existedTableName, ArrayList<String> rollupNames, boolean withAllRollup) {
         this.ifNotExists = ifNotExists;
+        this.isTemp = isTemp;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
         this.rollupNames = rollupNames;
         this.withAllRollup = withAllRollup;
-    }
-
-    public CreateTableLikeStmt translateToLegacyStmt() throws DdlException {
-        return new CreateTableLikeStmt(ifNotExists, tableName.transferToTableName(),
-                existedTableName.transferToTableName(), rollupNames, withAllRollup);
     }
 
     /** validate */
@@ -73,5 +71,37 @@ public class CreateTableLikeInfo {
                 tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
+    }
+
+    public String getExistedDbName() {
+        return existedTableName.getDb();
+    }
+
+    public String getExistedTableName() {
+        return existedTableName.getTbl();
+    }
+
+    public String getDbName() {
+        return tableName.getDb();
+    }
+
+    public String getTableName() {
+        return tableName.getTbl();
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
+    }
+
+    public ArrayList<String> getRollupNames() {
+        return rollupNames;
+    }
+
+    public boolean isWithAllRollup() {
+        return withAllRollup;
+    }
+
+    public boolean isTemp() {
+        return isTemp;
     }
 }

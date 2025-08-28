@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 public class TaskProcessor {
     private ExecutorService executor;
 
-    public  TaskProcessor(int numberOfThreads, int queueSize, ThreadFactory threadFactory) {
+    public TaskProcessor(int numberOfThreads, int queueSize, ThreadFactory threadFactory) {
         this.executor = new ThreadPoolExecutor(
                 numberOfThreads,
                 numberOfThreads,

@@ -267,6 +267,86 @@ suite("test_primary_key_partial_update", "p0") {
             sql "UPDATE ${tableName} set corp_name = 'B';"
             qt_select_update "select corp_name from ${tableName};"
 
+
+            tableName = "test_primary_key_partial_update_1"
+            sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
+            sql """ CREATE TABLE IF NOT EXISTS ${tableName} (
+                    `k1` int NOT NULL,
+                    `c1` int,
+                    `c2` int,
+                    `c3` int,
+                    `c4` int
+                    )UNIQUE KEY(k1)
+                DISTRIBUTED BY HASH(k1) BUCKETS 1
+                PROPERTIES (
+                    "disable_auto_compaction" = "true",
+                    "replication_num" = "1"); """
+
+            sql "insert into ${tableName} values(1,1,1,1,1);"
+            sql "insert into ${tableName} values(2,2,2,2,2);"
+            sql "insert into ${tableName} values(3,3,3,3,3);"
+            sql "sync;"
+            qt_sql "select * from ${tableName} order by k1;"
+
+            String content1 = 
+"""
+1,99,99,99,99,0
+2,88,88,88,88,0
+4,77,77,77,77,0
+3,23,23,23,23,1
+""".trim()
+            streamLoad {
+                table "${tableName}"
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'partial_columns', 'true'
+                set 'hidden_columns', '__DORIS_DELETE_SIGN__'
+                inputStream new ByteArrayInputStream(content1.getBytes()) 
+                time 10000// limit inflight 10s
+            }
+            qt_sql "select * from ${tableName} order by k1;"
+
+            // MERGE_TYPE=MERGE, test delete on illegal column
+            String content2 = "1,99,1"
+            streamLoad {
+                table "${tableName}"
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'columns', 'k1,c2'
+                set 'partial_columns', 'true'
+                set 'merge_type', 'MERGE'
+                set 'delete', 'c3=1'
+                inputStream new ByteArrayInputStream(content2.getBytes()) 
+                time 10000
+                check {result, exception, startTime, endTime ->
+                    assertTrue(exception == null)
+                    def json = parseJson(result)
+                    assertEquals("Fail", json.Status)
+                    assertTrue(json.Message.contains("Unknown column 'c3'"))
+                }
+            }
+
+            String content3 = 
+"""
+1,99
+2,88,
+""".trim()
+            streamLoad {
+                table "${tableName}"
+                set 'column_separator', ','
+                set 'format', 'csv'
+                set 'columns', 'k1,c4'
+                set 'partial_columns', 'true'
+                set 'where', 'c5=1'
+                inputStream new ByteArrayInputStream(content3.getBytes()) 
+                time 10000
+                check {result, exception, startTime, endTime ->
+                    assertTrue(exception == null)
+                    def json = parseJson(result)
+                    assertEquals("Fail", json.Status)
+                    assertTrue(json.Message.contains("Unknown column 'c5'"))
+                }
+            }
         }
     }
 }

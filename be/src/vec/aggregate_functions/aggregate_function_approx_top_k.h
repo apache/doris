@@ -32,7 +32,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/space_saving.h"
 #include "vec/common/string_ref.h"
@@ -41,9 +40,9 @@
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct AggregateFunctionTopKGenericData {
     using Set = SpaceSaving<StringRef, StringRefHash>;
@@ -73,20 +72,20 @@ public:
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).value.write(buf);
 
-        write_var_uint(_column_names.size(), buf);
+        buf.write_var_uint(_column_names.size());
         for (const auto& column_name : _column_names) {
-            write_string_binary(column_name, buf);
+            buf.write_binary(column_name);
         }
-        write_var_uint(_threshold, buf);
-        write_var_uint(_reserved, buf);
+        buf.write_var_uint(_threshold);
+        buf.write_var_uint(_reserved);
     }
 
     // Deserializes the aggregate function's state from a buffer (including the SpaceSaving structure and threshold).
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena& arena) const override {
         auto readStringBinaryInto = [](Arena& arena, BufferReadable& buf) {
             uint64_t size = 0;
-            read_var_uint(size, buf);
+            buf.read_var_uint(size);
 
             if (UNLIKELY(size > DEFAULT_MAX_STRING_SIZE)) {
                 throw Exception(ErrorCode::INTERNAL_ERROR, "Too large string size.");
@@ -102,7 +101,7 @@ public:
         set.clear();
 
         uint64_t size = 0;
-        read_var_uint(size, buf);
+        buf.read_var_uint(size);
         if (UNLIKELY(size > TOP_K_MAX_SIZE)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Too large size ({}) for aggregate function '{}' state (maximum is {})",
@@ -111,32 +110,32 @@ public:
 
         set.resize(size);
         for (size_t i = 0; i < size; ++i) {
-            auto ref = readStringBinaryInto(*arena, buf);
+            auto ref = readStringBinaryInto(arena, buf);
             uint64_t count = 0;
             uint64_t error = 0;
-            read_var_uint(count, buf);
-            read_var_uint(error, buf);
+            buf.read_var_uint(count);
+            buf.read_var_uint(error);
             set.insert(ref, count, error);
-            arena->rollback(ref.size);
+            arena.rollback(ref.size);
         }
 
         set.read_alpha_map(buf);
 
         uint64_t column_size = 0;
-        read_var_uint(column_size, buf);
+        buf.read_var_uint(column_size);
         _column_names.clear();
         for (uint64_t i = 0; i < column_size; i++) {
             std::string column_name;
-            read_string_binary(column_name, buf);
+            buf.read_binary(column_name);
             _column_names.emplace_back(std::move(column_name));
         }
-        read_var_uint(_threshold, buf);
-        read_var_uint(_reserved, buf);
+        buf.read_var_uint(_threshold);
+        buf.read_var_uint(_reserved);
     }
 
     // Adds a new row of data to the aggregate function (inserts a new value into the SpaceSaving structure).
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         if (!_init_flag) {
             lazy_init(columns, row_num, this->get_argument_types());
         }
@@ -147,12 +146,12 @@ public:
         }
 
         auto all_serialize_value_into_arena =
-                [](size_t i, size_t keys_size, const IColumn** columns, Arena* arena) -> StringRef {
+                [](size_t i, size_t keys_size, const IColumn** columns, Arena& arena) -> StringRef {
             const char* begin = nullptr;
 
             size_t sum_size = 0;
             for (size_t j = 0; j < keys_size; ++j) {
-                sum_size += columns[j]->serialize_value_into_arena(i, *arena, begin).size;
+                sum_size += columns[j]->serialize_value_into_arena(i, arena, begin).size;
             }
 
             return {begin, sum_size};
@@ -161,11 +160,11 @@ public:
         StringRef str_serialized =
                 all_serialize_value_into_arena(row_num, _column_names.size(), columns, arena);
         set.insert(str_serialized);
-        arena->rollback(str_serialized.size);
+        arena.rollback(str_serialized.size);
     }
 
     void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
-                  std::vector<int>& rows, Arena* arena) const override {
+                  std::vector<int>& rows, Arena& arena) const override {
         for (auto row : rows) {
             add(place, columns, row, arena);
         }
@@ -177,7 +176,7 @@ public:
 
     // Merges the state of another aggregate function into the current one (merges two SpaceSaving sets).
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         auto& rhs_set = this->data(rhs).value;
         if (!rhs_set.size()) {
             return;
@@ -212,8 +211,9 @@ public:
             for (size_t i = 0; i < _column_names.size(); i++) {
                 begin = argument_columns[i]->deserialize_and_insert_from_arena(begin);
                 std::string row_str = argument_types[i]->to_string(*argument_columns[i], 0);
-                sub_writer.Key(_column_names[i].data(), _column_names[i].size());
-                sub_writer.String(row_str.data(), row_str.size());
+                sub_writer.Key(_column_names[i].data(),
+                               cast_set<uint32_t>(_column_names[i].size()));
+                sub_writer.String(row_str.data(), cast_set<uint32_t>(row_str.size()));
             }
             sub_writer.Key("count");
             sub_writer.String(std::to_string(result.count).c_str());
@@ -226,4 +226,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

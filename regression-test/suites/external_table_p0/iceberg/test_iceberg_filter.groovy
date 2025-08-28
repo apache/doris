@@ -19,7 +19,7 @@ suite("test_iceberg_filter", "p0,external,doris,external_docker,external_docker_
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            sql """set num_partitions_in_batch_mode=0"""
+            sql """set enable_external_table_batch_mode=false"""
             String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
             String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -65,6 +65,7 @@ suite("test_iceberg_filter", "p0,external,doris,external_docker,external_docker_
             explain {
                 sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56'")
                 contains "inputSplitNum=0"
+                contains "table: test_iceberg_filter.multi_catalog.tb_ts_filter"
             }
             explain {
                 sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56.12'")
@@ -92,7 +93,7 @@ suite("test_iceberg_filter", "p0,external,doris,external_docker,external_docker_
             }
 
         } finally {
-            sql """set num_partitions_in_batch_mode=1024"""
+            sql """set enable_external_table_batch_mode=true"""
         }
     }
 }

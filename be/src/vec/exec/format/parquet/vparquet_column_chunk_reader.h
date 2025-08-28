@@ -30,7 +30,6 @@
 #include "level_decoder.h"
 #include "util/slice.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_page_reader.h"
@@ -49,7 +48,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -228,6 +227,7 @@ private:
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
     Statistics _statistics;
 };
+#include "common/compile_check_end.h"
 
 bool has_dict_page(const tparquet::ColumnMetaData& column);
 

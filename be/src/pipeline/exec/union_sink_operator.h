@@ -59,22 +59,30 @@ private:
     RuntimeProfile::Counter* _expr_timer = nullptr;
 };
 
-class UnionSinkOperatorX final : public DataSinkOperatorX<UnionSinkLocalState> {
+class UnionSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<UnionSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<UnionSinkLocalState>;
 
     friend class UnionSinkLocalState;
     UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
                        const TPlanNode& tnode, const DescriptorTbl& descs);
+#ifdef BE_TEST
+    UnionSinkOperatorX(int child_size, int cur_child_id, int first_materialized_child_idx)
+            : _first_materialized_child_idx(first_materialized_child_idx),
+              _cur_child_id(cur_child_id),
+              _child_size(child_size) {}
+#endif
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      DataSinkOperatorX<UnionSinkLocalState>::_name);
     }
 
+    MOCK_FUNCTION const RowDescriptor& row_descriptor() { return _row_descriptor; }
+
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -132,7 +140,7 @@ private:
         if (input_block->rows() > 0) {
             vectorized::MutableBlock mblock =
                     vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                               _row_descriptor);
+                                                                               row_descriptor());
             vectorized::Block res;
             RETURN_IF_ERROR(materialize_block(state, input_block, child_id, &res));
             RETURN_IF_ERROR(mblock.merge(res));

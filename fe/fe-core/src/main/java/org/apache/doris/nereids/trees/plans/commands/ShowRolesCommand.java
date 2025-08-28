@@ -67,13 +67,18 @@ public class ShowRolesCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }
 
         List<List<String>> infos = Env.getCurrentEnv().getAuth().getRoleInfo();
-        return new ShowResultSet(META_DATA, infos);
+        return new ShowResultSet(getMetaData(), infos);
     }
 
     @Override

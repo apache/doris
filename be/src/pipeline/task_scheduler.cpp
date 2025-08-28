@@ -70,40 +70,34 @@ Status TaskScheduler::start() {
     return Status::OK();
 }
 
-Status TaskScheduler::schedule_task(PipelineTask* task) {
+Status TaskScheduler::schedule_task(PipelineTaskSPtr task) {
     return _task_queue.push_back(task);
 }
 
 // after close_task, task maybe destructed.
-bool close_task(PipelineTask* task, Status exec_status) {
-    if (exec_status.ok() && task->is_pending_finish()) {
-        // Close phase is blocked by dependency.
-        return false;
-    }
+void close_task(PipelineTask* task, Status exec_status, PipelineFragmentContext* ctx) {
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
-    if (task->is_finalized()) {
-        return false;
-    }
     if (!exec_status.ok()) {
-        task->fragment_context()->cancel(exec_status);
+        ctx->cancel(exec_status);
         LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
-                                    print_id(task->query_context()->query_id()),
-                                    exec_status.to_string());
+                                    print_id(ctx->get_query_id()), exec_status.to_string());
     }
     Status status = task->close(exec_status);
     if (!status.ok()) {
-        task->fragment_context()->cancel(status);
+        ctx->cancel(status);
     }
-    task->finalize();
-    return true;
+    status = task->finalize();
+    if (!status.ok()) {
+        ctx->cancel(status);
+    }
 }
 
 void TaskScheduler::_do_work(int index) {
     while (!_need_to_stop) {
-        auto* task = _task_queue.take(index);
+        auto task = _task_queue.take(index);
         if (!task) {
             continue;
         }
@@ -115,58 +109,57 @@ void TaskScheduler::_do_work(int index) {
             static_cast<void>(_task_queue.push_back(task, index));
             continue;
         }
-        task->set_running(true);
-        bool eos = false;
+        if (task->is_finalized()) {
+            continue;
+        }
+        auto fragment_context = task->fragment_context().lock();
+        if (!fragment_context) {
+            // Fragment already finished
+            continue;
+        }
+        task->set_running(true).set_task_queue(&_task_queue).set_core_id(index);
+        bool done = false;
         auto status = Status::OK();
         Defer task_running_defer {[&]() {
             // If fragment is finished, fragment context will be de-constructed with all tasks in it.
-            if (eos || !status.ok()) {
-                // decrement_running_task may delete fragment context and will core in some defer
-                // code, because the defer code will access fragment context itself.
-                auto lock_for_context = task->fragment_context()->shared_from_this();
-                bool close = close_task(task, status);
+            if (done || !status.ok()) {
+                auto id = task->pipeline_id();
+                close_task(task.get(), status, fragment_context.get());
                 task->set_running(false);
-                if (close) {
-                    task->fragment_context()->decrement_running_task(task->pipeline_id());
-                }
+                fragment_context->decrement_running_task(id);
             } else {
                 task->set_running(false);
             }
         }};
-        task->set_task_queue(&_task_queue);
-        task->log_detail_if_need();
-
-        auto* fragment_ctx = task->fragment_context();
-        bool canceled = fragment_ctx->is_canceled();
+        bool canceled = fragment_context->is_canceled();
 
         // Close task if canceled
         if (canceled) {
-            status = fragment_ctx->get_query_ctx()->exec_status();
+            status = fragment_context->get_query_ctx()->exec_status();
             DCHECK(!status.ok());
             continue;
         }
-        task->set_core_id(index);
 
         // Main logics of execution
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(
                 //TODO: use a better enclose to abstracting these
                 if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
-                    TUniqueId query_id = task->query_context()->query_id();
+                    TUniqueId query_id = fragment_context->get_query_id();
                     std::string task_name = task->task_name();
 
                     std::thread::id tid = std::this_thread::get_id();
                     uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
                     uint64_t start_time = MonotonicMicros();
 
-                    status = task->execute(&eos);
+                    status = task->execute(&done);
 
                     uint64_t end_time = MonotonicMicros();
                     ExecEnv::GetInstance()->pipeline_tracer_context()->record(
                             {query_id, task_name, static_cast<uint32_t>(index), thread_id,
                              start_time, end_time});
-                } else { status = task->execute(&eos); },
+                } else { status = task->execute(&done); },
                 status);
-        fragment_ctx->trigger_report_if_necessary();
+        fragment_context->trigger_report_if_necessary();
     }
 }
 

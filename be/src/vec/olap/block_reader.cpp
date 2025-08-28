@@ -43,7 +43,6 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/olap/vcollect_iterator.h"
@@ -53,6 +52,7 @@ class ColumnPredicate;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BlockReader::~BlockReader() {
@@ -72,8 +72,9 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-bool BlockReader::_rowsets_mono_asc_disjoint(const ReaderParams& read_params) {
-    std::string cur_rs_last_key;
+bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params) {
+    std::string pre_rs_last_key;
+    bool pre_rs_key_bounds_truncated {false};
     const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
     for (const auto& rs_split : rs_splits) {
         if (rs_split.rs_reader->rowset()->num_rows() == 0) {
@@ -87,13 +88,17 @@ bool BlockReader::_rowsets_mono_asc_disjoint(const ReaderParams& read_params) {
         if (!has_first_key) {
             return true;
         }
-        if (rs_first_key <= cur_rs_last_key) {
+        bool cur_rs_key_bounds_truncated {
+                rs_split.rs_reader->rowset()->is_segments_key_bounds_truncated()};
+        if (!Slice::lhs_is_strictly_less_than_rhs(Slice {pre_rs_last_key},
+                                                  pre_rs_key_bounds_truncated, Slice {rs_first_key},
+                                                  cur_rs_key_bounds_truncated)) {
             return true;
         }
-        bool has_last_key = rs_split.rs_reader->rowset()->last_key(&cur_rs_last_key);
+        bool has_last_key = rs_split.rs_reader->rowset()->last_key(&pre_rs_last_key);
+        pre_rs_key_bounds_truncated = cur_rs_key_bounds_truncated;
         CHECK(has_last_key);
     }
-
     return false;
 }
 
@@ -110,7 +115,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     // check if rowsets are noneoverlapping
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
-        _is_rowsets_overlapping = _rowsets_mono_asc_disjoint(read_params);
+        _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
         _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                             read_params.read_orderby_key_reverse);
     }
@@ -132,12 +137,12 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
                 RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
             }
 
-            Status res = _vcollect_iter.add_child(rs_split);
-            if (!res.ok() && !res.is<END_OF_FILE>()) {
-                LOG(WARNING) << "failed to add child to iterator, err=" << res;
-                return res;
+            Status res1 = _vcollect_iter.add_child(rs_split);
+            if (!res1.ok() && !res1.is<END_OF_FILE>()) {
+                LOG(WARNING) << "failed to add child to iterator, err=" << res1;
+                return res1;
             }
-            if (res.ok()) {
+            if (res1.ok()) {
                 valid_rs_readers.push_back(rs_split.rs_reader);
             }
         }
@@ -201,7 +206,7 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status BlockReader::init(const ReaderParams& read_params) {
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    int32_t return_column_size = read_params.origin_return_columns->size();
+    auto return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
         auto cid = read_params.origin_return_columns->at(i);
@@ -511,7 +516,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      &_arena, _stored_has_null_tag[idx]);
+                                      _arena, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
@@ -533,5 +538,5 @@ bool BlockReader::_get_next_row_same() {
         return block->get_same_bit(_next_row.row_pos);
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

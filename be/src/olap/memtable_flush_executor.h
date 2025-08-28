@@ -40,6 +40,7 @@ class WorkloadGroup;
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
     std::atomic_uint64_t flush_time_ns = 0;
+    std::atomic_uint64_t flush_submit_count = 0;
     std::atomic_int64_t flush_running_count = 0;
     std::atomic_uint64_t flush_finish_count = 0;
     std::atomic_uint64_t flush_size_bytes = 0;
@@ -84,6 +85,7 @@ public:
 private:
     void _shutdown_flush_token() { _shutdown.store(true); }
     bool _is_shutdown() { return _shutdown.load(); }
+    void _wait_submit_task_finish();
     void _wait_running_task_finish();
 
 private:
@@ -112,7 +114,8 @@ private:
     ThreadPool* _thread_pool = nullptr;
 
     std::mutex _mutex;
-    std::condition_variable _cond;
+    std::condition_variable _submit_task_finish_cond;
+    std::condition_variable _running_task_finish_cond;
 
     std::weak_ptr<WorkloadGroup> _wg_wptr;
 };
@@ -157,6 +160,8 @@ public:
     void inc_flushing_task() { _flushing_task_count++; }
 
     void dec_flushing_task() { _flushing_task_count--; }
+
+    ThreadPool* flush_pool() { return _flush_pool.get(); }
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;

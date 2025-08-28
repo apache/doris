@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -62,7 +64,8 @@ public class PhysicalDeferMaterializeOlapScan extends PhysicalCatalogRelation im
             PhysicalProperties physicalProperties, Statistics statistics) {
         super(physicalOlapScan.getRelationId(), physicalOlapScan.getType(),
                 physicalOlapScan.getTable(), physicalOlapScan.getQualifier(),
-                groupExpression, logicalProperties, physicalProperties, statistics);
+                groupExpression, logicalProperties, physicalProperties, statistics,
+                ImmutableList.of());
         this.physicalOlapScan = physicalOlapScan;
         this.deferMaterializeSlotIds = deferMaterializeSlotIds;
         this.columnIdSlot = columnIdSlot;

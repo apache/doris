@@ -67,6 +67,7 @@ namespace {
 
 std::atomic<int64_t> last_print_proc_mem = 0;
 std::atomic<int32_t> refresh_cache_capacity_sleep_time_ms = 0;
+std::atomic<int32_t> memory_gc_sleep_time = 0;
 #ifdef USE_JEMALLOC
 std::atomic<int32_t> je_reset_dirty_decay_sleep_time_ms = 0;
 #endif
@@ -236,7 +237,7 @@ void refresh_cache_capacity() {
     if (doris::GlobalMemoryArbitrator::cache_adjust_capacity_notify.load(
                 std::memory_order_relaxed)) {
         // the last cache capacity adjustment has not been completed.
-        // if not return, last_cache_capacity_adjust_weighted may be modified, but notify is ignored.
+        // if not return, last_periodic_refreshed_cache_capacity_adjust_weighted may be modified, but notify is ignored.
         return;
     }
     if (refresh_cache_capacity_sleep_time_ms <= 0) {
@@ -251,8 +252,8 @@ void refresh_cache_capacity() {
                 AlgoUtil::descent_by_step(10, cache_capacity_reduce_mem_limit,
                                           doris::MemInfo::soft_mem_limit(), process_memory_usage);
         if (new_cache_capacity_adjust_weighted !=
-            doris::GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted) {
-            doris::GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted =
+            doris::GlobalMemoryArbitrator::last_periodic_refreshed_cache_capacity_adjust_weighted) {
+            doris::GlobalMemoryArbitrator::last_periodic_refreshed_cache_capacity_adjust_weighted =
                     new_cache_capacity_adjust_weighted;
             doris::GlobalMemoryArbitrator::notify_cache_adjust_capacity();
             refresh_cache_capacity_sleep_time_ms = config::memory_gc_sleep_time_ms;
@@ -299,6 +300,33 @@ void je_reset_dirty_decay() {
 #endif
 }
 
+void memory_gc() {
+    if (config::disable_memory_gc) {
+        return;
+    }
+    if (memory_gc_sleep_time <= 0) {
+        auto gc_func = [](const std::string& revoke_reason) {
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
+            if (doris::MemoryReclamation::revoke_process_memory(revoke_reason)) {
+                // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
+                doris::ProcessProfile::instance()
+                        ->memory_profile()
+                        ->enable_print_log_process_usage();
+            }
+        };
+
+        if (doris::GlobalMemoryArbitrator::sys_mem_available() <
+            doris::MemInfo::sys_mem_available_low_water_mark()) {
+            gc_func("sys available memory less than low water mark");
+        } else if (doris::GlobalMemoryArbitrator::process_memory_usage() >
+                   doris::MemInfo::mem_limit()) {
+            gc_func("process memory used exceed limit");
+        }
+        memory_gc_sleep_time = config::memory_gc_sleep_time_ms;
+    }
+    memory_gc_sleep_time -= config::memory_maintenance_sleep_time_ms;
+}
+
 void Daemon::memory_maintenance_thread() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::memory_maintenance_sleep_time_ms))) {
@@ -316,7 +344,7 @@ void Daemon::memory_maintenance_thread() {
         refresh_cache_capacity();
 
         // step 5. Cancel top memory task when process memory exceed hard limit.
-        // TODO replace memory_gc_thread.
+        memory_gc();
 
         // step 6. Refresh weighted memory ratio of workload groups.
         doris::ExecEnv::GetInstance()->workload_group_mgr()->do_sweep();
@@ -331,65 +359,6 @@ void Daemon::memory_maintenance_thread() {
 
         // step 9. Reset Jemalloc dirty page decay.
         je_reset_dirty_decay();
-    }
-}
-
-void Daemon::memory_gc_thread() {
-    int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
-    int32_t memory_minor_gc_sleep_time_ms = 0;
-    int32_t memory_full_gc_sleep_time_ms = 0;
-    int32_t memory_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
-    while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(interval_milliseconds))) {
-        if (config::disable_memory_gc) {
-            continue;
-        }
-        auto sys_mem_available = doris::GlobalMemoryArbitrator::sys_mem_available();
-        auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
-
-        // GC excess memory for resource groups that not enable overcommit
-        auto tg_free_mem = doris::MemoryReclamation::tg_disable_overcommit_group_gc();
-        sys_mem_available += tg_free_mem;
-        process_memory_usage -= tg_free_mem;
-
-        if (memory_full_gc_sleep_time_ms <= 0 &&
-            (sys_mem_available < doris::MemInfo::sys_mem_available_low_water_mark() ||
-             process_memory_usage >= doris::MemInfo::mem_limit())) {
-            // No longer full gc and minor gc during sleep.
-            std::string mem_info =
-                    doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str();
-            memory_full_gc_sleep_time_ms = memory_gc_sleep_time_ms;
-            memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
-            LOG(INFO) << fmt::format("[MemoryGC] start full GC, {}.", mem_info);
-            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
-            if (doris::MemoryReclamation::process_full_gc(std::move(mem_info))) {
-                // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
-                doris::ProcessProfile::instance()
-                        ->memory_profile()
-                        ->enable_print_log_process_usage();
-            }
-        } else if (memory_minor_gc_sleep_time_ms <= 0 &&
-                   (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() ||
-                    process_memory_usage >= doris::MemInfo::soft_mem_limit())) {
-            // No minor gc during sleep, but full gc is possible.
-            std::string mem_info =
-                    doris::GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str();
-            memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
-            LOG(INFO) << fmt::format("[MemoryGC] start minor GC, {}.", mem_info);
-            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
-            if (doris::MemoryReclamation::process_minor_gc(std::move(mem_info))) {
-                doris::ProcessProfile::instance()
-                        ->memory_profile()
-                        ->enable_print_log_process_usage();
-            }
-        } else {
-            if (memory_full_gc_sleep_time_ms > 0) {
-                memory_full_gc_sleep_time_ms -= interval_milliseconds;
-            }
-            if (memory_minor_gc_sleep_time_ms > 0) {
-                memory_minor_gc_sleep_time_ms -= interval_milliseconds;
-            }
-        }
     }
 }
 
@@ -547,8 +516,8 @@ void Daemon::cache_adjust_capacity_thread() {
                     l, std::chrono::milliseconds(100));
         }
         double adjust_weighted = std::min<double>(
-                GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted,
-                GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted);
+                GlobalMemoryArbitrator::last_periodic_refreshed_cache_capacity_adjust_weighted,
+                GlobalMemoryArbitrator::last_memory_exceeded_cache_capacity_adjust_weighted);
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
@@ -560,13 +529,21 @@ void Daemon::cache_adjust_capacity_thread() {
         if (config::disable_memory_gc) {
             continue;
         }
+        if (GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted ==
+            adjust_weighted) {
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] adjust cache capacity end, adjust_weighted {} has not been "
+                    "modified.",
+                    adjust_weighted);
+            continue;
+        }
         std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
         auto freed_mem = CacheManager::instance()->for_each_cache_refresh_capacity(adjust_weighted,
                                                                                    profile.get());
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
-                "[MemoryGC] refresh cache capacity end, free memory {}, details: {}",
+                "[MemoryGC] adjust cache capacity end, free memory {}, details: {}",
                 PrettyPrinter::print(freed_mem, TUnit::BYTES), ss.str());
         GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted = adjust_weighted;
     } while (true);
@@ -612,10 +589,6 @@ void Daemon::start() {
     CHECK(st.ok()) << st;
     st = Thread::create(
             "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
-            &_threads.emplace_back());
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "memory_gc_thread", [this]() { this->memory_gc_thread(); },
             &_threads.emplace_back());
     CHECK(st.ok()) << st;
     st = Thread::create(

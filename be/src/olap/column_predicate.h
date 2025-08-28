@@ -17,28 +17,21 @@
 
 #pragma once
 
+#include <memory>
 #include <roaring/roaring.hh>
 
 #include "common/exception.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/schema.h"
-#include "olap/selection_vector.h"
+#include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 using namespace doris::segment_v2;
 
 namespace doris {
-
-class Schema;
-
-struct PredicateParams {
-    std::vector<std::string> values;
-    bool marked_by_runtime_filter = false;
-};
 
 enum class PredicateType {
     UNKNOWN = 0,
@@ -68,10 +61,14 @@ ResultType get_zone_map_value(void* data_ptr) {
         res.from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
     } else if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
         static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        res.from_olap_date(*reinterpret_cast<uint24_t*>(data_ptr));
+        uint24_t date;
+        memcpy(&date, data_ptr, sizeof(uint24_t));
+        res.from_olap_date(date);
     } else if constexpr (primitive_type == PrimitiveType::TYPE_DATETIME) {
         static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
-        res.from_olap_datetime(*reinterpret_cast<uint64_t*>(data_ptr));
+        uint64_t datetime;
+        memcpy(&datetime, data_ptr, sizeof(uint64_t));
+        res.from_olap_datetime(datetime);
     } else {
         memcpy(reinterpret_cast<void*>(&res), data_ptr, sizeof(ResultType));
     }
@@ -164,7 +161,6 @@ class ColumnPredicate {
 public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
             : _column_id(column_id), _opposite(opposite) {
-        _predicate_params = std::make_shared<PredicateParams>();
         reset_judge_selectivity();
     }
 
@@ -178,7 +174,7 @@ public:
 
     //evaluate predicate on inverted
     virtual Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                            InvertedIndexIterator* iterator, uint32_t num_rows,
+                            IndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* bitmap) const {
         return Status::NotSupported(
                 "Not Implemented evaluate with inverted index, please check the predicate");
@@ -194,11 +190,10 @@ public:
         }
 
         uint16_t new_size = _evaluate_inner(column, sel, size);
-        _evaluated_rows += size;
-        _passed_rows += new_size;
         if (_can_ignore()) {
             do_judge_selectivity(size - new_size, size);
         }
+        update_filter_info(size - new_size, size);
         return new_size;
     }
     virtual void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -256,19 +251,34 @@ public:
 
     bool opposite() const { return _opposite; }
 
-    virtual std::string debug_string() const {
-        return _debug_string() + ", column_id=" + std::to_string(_column_id) +
-               ", opposite=" + (_opposite ? "true" : "false") +
-               ", can_ignore=" + (_can_ignore() ? "true" : "false");
+    std::string debug_string() const {
+        return _debug_string() +
+               fmt::format(", column_id={}, opposite={}, can_ignore={}, runtime_filter_id={}",
+                           _column_id, _opposite, _can_ignore(), _runtime_filter_id);
     }
 
-    virtual int get_filter_id() const { return -1; }
-    PredicateFilterInfo get_filtered_info() const {
-        return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
-                                    _evaluated_rows - 1 - _passed_rows};
+    int get_runtime_filter_id() const { return _runtime_filter_id; }
+
+    void attach_profile_counter(
+            int filter_id, std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
+            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter) {
+        _runtime_filter_id = filter_id;
+        DCHECK(predicate_filtered_rows_counter != nullptr);
+        DCHECK(predicate_input_rows_counter != nullptr);
+
+        if (predicate_filtered_rows_counter != nullptr) {
+            _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
+        }
+        if (predicate_input_rows_counter != nullptr) {
+            _predicate_input_rows_counter = predicate_input_rows_counter;
+        }
     }
 
-    std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
+    /// TODO: Currently we only record statistics for runtime filters, in the future we should record for all predicates
+    void update_filter_info(int64_t filter_rows, int64_t input_rows) const {
+        COUNTER_UPDATE(_predicate_input_rows_counter, input_rows);
+        COUNTER_UPDATE(_predicate_filtered_rows_counter, filter_rows);
+    }
 
     static std::string pred_type_string(PredicateType type) {
         switch (type) {
@@ -312,13 +322,7 @@ public:
 
 protected:
     virtual std::string _debug_string() const = 0;
-    virtual bool _can_ignore() const {
-        if (_predicate_params) {
-            // minmax filter will set marked_by_runtime_filter to true
-            return _predicate_params->marked_by_runtime_filter;
-        }
-        return false;
-    }
+    virtual bool _can_ignore() const { return _runtime_filter_id != -1; }
     virtual uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                                      uint16_t size) const {
         throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
@@ -346,9 +350,7 @@ protected:
     uint32_t _column_id;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
-    std::shared_ptr<PredicateParams> _predicate_params;
-    mutable uint64_t _evaluated_rows = 1;
-    mutable uint64_t _passed_rows = 0;
+    int _runtime_filter_id = -1;
     // VRuntimeFilterWrapper and ColumnPredicate share the same logic,
     // but it's challenging to unify them, so the code is duplicated.
     // _judge_counter, _judge_input_rows, _judge_filter_rows, and _always_true
@@ -361,6 +363,12 @@ protected:
     mutable uint64_t _judge_input_rows = 0;
     mutable uint64_t _judge_filter_rows = 0;
     mutable bool _always_true = false;
+
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_input_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 
 } //namespace doris

@@ -50,13 +50,18 @@ public class MultiSearchAllPositions extends ScalarFunction
         super("multi_search_all_positions", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MultiSearchAllPositions(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MultiSearchAllPositions withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MultiSearchAllPositions(children.get(0), children.get(1));
+        return new MultiSearchAllPositions(getFunctionParams(children));
     }
 
     @Override

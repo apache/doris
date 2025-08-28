@@ -84,7 +84,7 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
                 intersects = childRanges;
                 continue;
             }
-            intersects = intersection(childRanges, intersects);
+            intersects = ColumnRange.intersect(childRanges, intersects);
             if (intersects.isEmpty()) {
                 break;
             }
@@ -165,12 +165,9 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         Expression compareExpr = inPredicate.getCompareExpr();
         if (compareExpr instanceof SlotReference) {
             SlotReference slot = (SlotReference) compareExpr;
-            if (slotIds.contains((slot).getExprId().asInt())) {
+            if (slotIds.contains((slot).getExprId().asInt()) && inPredicate.optionsAreLiterals()) {
                 RangeSet<MultiColumnBound> union = TreeRangeSet.create();
                 for (Expression option : inPredicate.getOptions()) {
-                    if (!(option instanceof Literal)) {
-                        return null;
-                    }
                     Literal literal = (Literal) option;
                     union.addAll(
                             toRangeSet(slot, literal, BoundType.CLOSED, literal, BoundType.CLOSED)
@@ -257,13 +254,5 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
 
         Range<MultiColumnBound> range = Range.range(lowerBound, lowerBoundType, upperBound, upperBoundType);
         return ImmutableRangeSet.of(range);
-    }
-
-    public static <T extends Comparable<?>> RangeSet<T> intersection(RangeSet<T> rangeSet1, RangeSet<T> rangeSet2) {
-        RangeSet<T> result = TreeRangeSet.create();
-        for (Range<T> range : rangeSet1.asRanges()) {
-            result.addAll(rangeSet2.subRangeSet(range));
-        }
-        return result;
     }
 }

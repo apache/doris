@@ -20,13 +20,16 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "util/deletion_vector.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
-                           RuntimeProfile* profile, const TFileScanRangeParams& params)
-        : TableFormatReader(std::move(file_format_reader)), _profile(profile), _params(params) {
+                           RuntimeProfile* profile, RuntimeState* state,
+                           const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                           io::IOContext* io_ctx)
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx) {
     static const char* paimon_profile = "PaimonProfile";
     ADD_TIMER(_profile, paimon_profile);
     _paimon_profile.num_delete_rows =
@@ -35,15 +38,18 @@ PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
 }
 
-Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) {
-    const auto& table_desc = range.table_format_params.paimon_params;
+Status PaimonReader::init_row_filters() {
+    const auto& table_desc = _range.table_format_params.paimon_params;
     if (!table_desc.__isset.deletion_file) {
         return Status::OK();
     }
 
     // set push down agg type to NONE because we can not do count push down opt
     // if there are delete files.
-    _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
+    if (!_range.table_format_params.paimon_params.__isset.row_count) {
+        _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
+    }
+
     const auto& deletion_file = table_desc.deletion_file;
     io::FileSystemProperties properties = {
             .system_type = _params.file_type,
@@ -51,9 +57,9 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
             .hdfs_params = _params.hdfs_params,
             .broker_addresses {},
     };
-    if (range.__isset.file_type) {
+    if (_range.__isset.file_type) {
         // for compatibility
-        properties.system_type = range.file_type;
+        properties.system_type = _range.file_type;
     }
     if (_params.__isset.broker_addresses) {
         properties.broker_addresses.assign(_params.broker_addresses.begin(),
@@ -64,7 +70,7 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
             .path = deletion_file.path,
             .file_size = -1,
             .mtime = 0,
-            .fs_name = range.fs_name,
+            .fs_name = _range.fs_name,
     };
 
     // TODO: cache the file in local
@@ -78,7 +84,7 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
     {
         SCOPED_TIMER(_paimon_profile.delete_files_read_time);
         RETURN_IF_ERROR(
-                delete_file_reader->read_at(deletion_file.offset, result, &bytes_read, io_ctx));
+                delete_file_reader->read_at(deletion_file.offset, result, &bytes_read, _io_ctx));
     }
     if (bytes_read != deletion_file.length + 4) {
         return Status::IOError(
@@ -97,6 +103,11 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
         COUNTER_UPDATE(_paimon_profile.num_delete_rows, _delete_rows.size());
         set_delete_rows();
     }
+    return Status::OK();
+}
+
+Status PaimonReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
+    RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
     return Status::OK();
 }
 #include "common/compile_check_end.h"

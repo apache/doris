@@ -135,6 +135,9 @@ public class MetaService extends RestBaseController {
     public Object put(HttpServletRequest request, HttpServletResponse response) throws DdlException {
         checkFromValidFe(request);
 
+        String clientHost = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
+        String clientPort = request.getHeader(Env.CLIENT_NODE_PORT_KEY);
+
         String portStr = request.getParameter(PORT);
 
         // check port to avoid SSRF(Server-Side Request Forgery)
@@ -153,10 +156,16 @@ public class MetaService extends RestBaseController {
         }
 
         checkLongParam(versionStr);
-
+        // request.getRemoteHost() may return proxy address
         String machine = request.getRemoteHost();
-        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(machine, Integer.valueOf(portStr))
+
+        LOG.info("put image. clientHost: {}, clientPort: {}, machine: {}, portStr: {}",
+                clientHost, clientPort, machine, portStr);
+
+        clientHost = Strings.isNullOrEmpty(clientHost) ? machine : clientHost;
+        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(clientHost, Integer.valueOf(portStr))
                 + "/image?version=" + versionStr;
+
         String filename = Storage.IMAGE + "." + versionStr;
         File dir = new File(Env.getCurrentEnv().getImageDir());
         try {

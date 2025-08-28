@@ -32,6 +32,11 @@ public class MTMVSnapshotIdSnapshot implements MTMVSnapshotIf {
     }
 
     @Override
+    public long getSnapshotVersion() {
+        return snapshotId;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

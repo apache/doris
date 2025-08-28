@@ -31,11 +31,12 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -80,8 +81,8 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
     private LabelName label = null;
     private BrokerDesc brokerDesc = null;
     private DataDescription dataDescription = null;
-    private final Map<String, String> brokerProperties = new HashMap<>();
-    private final Map<String, String> properties = new HashMap<>();
+    private Map<String, String> brokerProperties = new HashMap<>();
+    private Map<String, String> properties = new HashMap<>();
 
     @Getter
     private String stage;
@@ -110,16 +111,44 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
         }
     }
 
+    /**
+     * Use for Nereids Planner.
+     */
+    public CopyStmt(TableName tableName, CopyFromParam copyFromParam,
+                    CopyIntoProperties copyProperties, Map<String, Map<String, String>> optHints, LabelName label,
+                    String stageId, StageType stageType, String stagePrefix, ObjectInfo objectInfo, String userName,
+                    Map<String, String> brokerProperties, Map<String, String> properties,
+                    DataDescription dataDescription, BrokerDesc brokerDesc, OriginStatement originStmt) {
+        this.tableName = tableName;
+        this.copyFromParam = copyFromParam;
+        this.stage = copyFromParam.getStageAndPattern().getStageName();
+        this.copyIntoProperties = copyProperties;
+        if (optHints != null) {
+            this.optHints = optHints.get(SET_VAR_KEY);
+        }
+
+        this.label = label;
+        this.brokerDesc = brokerDesc;
+        this.brokerProperties = brokerProperties;
+        this.properties = properties;
+
+        this.stageId = stageId;
+        this.stageType = stageType;
+        this.stagePrefix = stagePrefix;
+        this.objectInfo = objectInfo;
+        this.userName = userName;
+        this.dataDescription = dataDescription;
+        this.setOrigStmt(originStmt);
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         if (this.optHints != null && this.optHints.containsKey(SessionVariable.CLOUD_CLUSTER)) {
             ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(this.optHints.get(SessionVariable.CLOUD_CLUSTER));
         }
         // generate a label
-        String labelName = "copy_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
-        label = new LabelName(tableName.getDb(), labelName);
-        label.analyze(analyzer);
+        label.analyze();
         // analyze stage
         analyzeStageName();
         this.userName = ClusterNamespace.getNameFromFullName(
@@ -147,11 +176,11 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
                     getOrigStmt() != null ? getOrigStmt().originStmt : "", copyFromParam.getFileColumns(),
                     copyFromParam.getColumnMappingList(), copyFromParam.getFileFilterExpr());
         }
+        dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
         dataDescription = new DataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
                 copyFromParam.getFileColumns(), separator, fileFormatStr, null, false,
                 copyFromParam.getColumnMappingList(), copyFromParam.getFileFilterExpr(), null, MergeType.APPEND, null,
                 null, dataDescProperties);
-        dataDescription.setCompressType(StageUtil.parseCompressType(copyIntoProperties.getCompression()));
         if (!(copyFromParam.getColumnMappingList() == null
                 || copyFromParam.getColumnMappingList().isEmpty())) {
             dataDescription.setIgnoreCsvRedundantCol(true);

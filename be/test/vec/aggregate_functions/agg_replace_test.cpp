@@ -39,7 +39,6 @@
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
@@ -148,7 +147,7 @@ public:
         add_elements<DataType, nullable>(input_col, input_nums);
         const IColumn* column[1] = {input_col.get()};
         for (int i = 0; i < input_col->size(); i++) {
-            agg_function->add(place, column, i, &_agg_arena_pool);
+            agg_function->add(place, column, i, _agg_arena_pool);
         }
     }
 
@@ -162,15 +161,17 @@ public:
             for (int32_t j = 0; j < i; ++j) {
                 if constexpr (std::is_same_v<DataType, DataTypeString>) {
                     auto item = std::string("item") + std::to_string(j);
-                    array[j] = std::move(item);
+                    array[j] = Field::create_field<TYPE_STRING>(item);
                 } else if constexpr (IsDecimalNumber<FieldType>) {
                     auto item = FieldType(static_cast<uint64_t>(j));
-                    array[j] = std::move(DecimalField<FieldType>(item, 20));
+                    array[j] =
+                            Field::create_field<TYPE_DECIMALV2>(DecimalField<FieldType>(item, 20));
                 } else {
-                    array[j] = std::move(FieldType(static_cast<uint64_t>(j)));
+                    array[j] = Field::create_field<TYPE_DATETIMEV2>(
+                            FieldType(static_cast<uint64_t>(j)));
                 }
             }
-            input_col->insert(array);
+            input_col->insert(Field::create_field<TYPE_ARRAY>(array));
         }
 
         EXPECT_EQ(input_col->size(), input_nums + 1);
@@ -184,7 +185,7 @@ public:
         array_add_elements<DataType, nullable>(input_col, input_nums);
         const IColumn* column[1] = {input_col.get()};
         for (size_t i = 0; i < input_col->size(); ++i) {
-            agg_function->add(place, column, i, &_agg_arena_pool);
+            agg_function->add(place, column, i, _agg_arena_pool);
         }
     }
 
@@ -364,7 +365,7 @@ TEST_F(VAggReplaceTest, test_basic_data) {
     test_basic_data<DataTypeInt32, ColumnInt32, false>(11);
     test_basic_data<DataTypeInt64, ColumnInt64, false>(11);
     test_basic_data<DataTypeInt128, ColumnInt128, false>(11);
-    test_basic_data<DataTypeDecimal<Decimal128V2>, ColumnDecimal128V2, false>(11);
+    test_basic_data<DataTypeDecimalV2, ColumnDecimal128V2, false>(11);
     test_basic_data<DataTypeString, ColumnString, false>(11);
     test_basic_data<DataTypeInt128, ColumnInt128, false>(11);
     test_basic_data<DataTypeDate, ColumnDate, false>(11);
@@ -377,7 +378,7 @@ TEST_F(VAggReplaceTest, test_array_data) {
     test_array_data<DataTypeInt32, ColumnArray, false>(11);
     test_array_data<DataTypeInt64, ColumnArray, false>(11);
     test_array_data<DataTypeInt128, ColumnArray, false>(11);
-    test_array_data<DataTypeDecimal<Decimal128V2>, ColumnArray, false>(11);
+    test_array_data<DataTypeDecimalV2, ColumnArray, false>(11);
     test_array_data<DataTypeString, ColumnArray, false>(11);
     test_array_data<DataTypeInt128, ColumnArray, false>(11);
     test_array_data<DataTypeDate, ColumnArray, false>(11);
@@ -390,7 +391,7 @@ TEST_F(VAggReplaceTest, test_basic_replace_reader) {
     test_agg_replace<DataTypeInt32, false>("replace_reader", 10, 0);
     test_agg_replace<DataTypeInt64, false>("replace_reader", 10, 0);
     test_agg_replace<DataTypeInt128, false>("replace_reader", 10, 0);
-    test_agg_replace<DataTypeDecimal<Decimal128V2>, false>("replace_reader", 10, 0);
+    test_agg_replace<DataTypeDecimalV2, false>("replace_reader", 10, 0);
     test_agg_replace<DataTypeString, false>("replace_reader", 10, 0);
     test_agg_replace<DataTypeDate, false>("replace_reader", 10, 0);
     test_agg_replace<DataTypeDateTime, false>("replace_reader", 10, 0);
@@ -403,7 +404,7 @@ TEST_F(VAggReplaceTest, test_basic_replace_reader) {
     test_agg_replace<DataTypeInt32, true>("replace_reader", 10, 0);
     test_agg_replace<DataTypeInt64, true>("replace_reader", 10, 0);
     test_agg_replace<DataTypeInt128, true>("replace_reader", 10, 0);
-    test_agg_replace<DataTypeDecimal<Decimal128V2>, true>("replace_reader", 10, 0);
+    test_agg_replace<DataTypeDecimalV2, true>("replace_reader", 10, 0);
     test_agg_replace<DataTypeString, true>("replace_reader", 10, 0);
     test_agg_replace<DataTypeDate, true>("replace_reader", 10, 0);
     test_agg_replace<DataTypeDateTime, true>("replace_reader", 10, 0);
@@ -417,7 +418,7 @@ TEST_F(VAggReplaceTest, test_basic_replace_load) {
     test_agg_replace<DataTypeInt32, false>("replace_load", 10, 9);
     test_agg_replace<DataTypeInt64, false>("replace_load", 10, 9);
     test_agg_replace<DataTypeInt128, false>("replace_load", 10, 9);
-    test_agg_replace<DataTypeDecimal<Decimal128V2>, false>("replace_load", 10, 9);
+    test_agg_replace<DataTypeDecimalV2, false>("replace_load", 10, 9);
     test_agg_replace<DataTypeString, false>("replace_load", 10, 9);
     test_agg_replace<DataTypeDate, false>("replace_load", 10, 9);
     test_agg_replace<DataTypeDateTime, false>("replace_load", 10, 9);
@@ -429,7 +430,7 @@ TEST_F(VAggReplaceTest, test_basic_replace_load) {
     test_agg_replace<DataTypeInt32, true>("replace_load", 10, 9);
     test_agg_replace<DataTypeInt64, true>("replace_load", 10, 9);
     test_agg_replace<DataTypeInt128, true>("replace_load", 10, 9);
-    test_agg_replace<DataTypeDecimal<Decimal128V2>, true>("replace_load", 10, 9);
+    test_agg_replace<DataTypeDecimalV2, true>("replace_load", 10, 9);
     test_agg_replace<DataTypeString, true>("replace_load", 10, 9);
     test_agg_replace<DataTypeDate, true>("replace_load", 10, 9);
     test_agg_replace<DataTypeDateTime, true>("replace_load", 10, 9);
@@ -443,7 +444,7 @@ TEST_F(VAggReplaceTest, test_array_replace_reader) {
     test_agg_array_replace<DataTypeInt32, false>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeInt64, false>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeInt128, false>("replace_reader", 10, 0);
-    test_agg_array_replace<DataTypeDecimal<Decimal128V2>, false>("replace_reader", 10, 0);
+    test_agg_array_replace<DataTypeDecimalV2, false>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeString, false>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeDate, false>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeDateTime, false>("replace_reader", 10, 0);
@@ -453,7 +454,7 @@ TEST_F(VAggReplaceTest, test_array_replace_reader) {
     test_agg_array_replace<DataTypeInt32, true>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeInt64, true>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeInt128, true>("replace_reader", 10, 0);
-    test_agg_array_replace<DataTypeDecimal<Decimal128V2>, true>("replace_reader", 10, 0);
+    test_agg_array_replace<DataTypeDecimalV2, true>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeString, true>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeDate, true>("replace_reader", 10, 0);
     test_agg_array_replace<DataTypeDateTime, true>("replace_reader", 10, 0);
@@ -465,7 +466,7 @@ TEST_F(VAggReplaceTest, test_array_replace_load) {
     test_agg_array_replace<DataTypeInt32, false>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeInt64, false>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeInt128, false>("replace_load", 10, 10);
-    test_agg_array_replace<DataTypeDecimal<Decimal128V2>, false>("replace_load", 10, 10);
+    test_agg_array_replace<DataTypeDecimalV2, false>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeString, false>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeDate, false>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeDateTime, false>("replace_load", 10, 10);
@@ -475,7 +476,7 @@ TEST_F(VAggReplaceTest, test_array_replace_load) {
     test_agg_array_replace<DataTypeInt32, true>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeInt64, true>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeInt128, true>("replace_load", 10, 10);
-    test_agg_array_replace<DataTypeDecimal<Decimal128V2>, true>("replace_load", 10, 10);
+    test_agg_array_replace<DataTypeDecimalV2, true>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeString, true>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeDate, true>("replace_load", 10, 10);
     test_agg_array_replace<DataTypeDateTime, true>("replace_load", 10, 10);

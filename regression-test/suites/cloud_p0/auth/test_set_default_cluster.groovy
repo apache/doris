@@ -55,13 +55,13 @@ suite("test_default_cluster", "docker") {
         setAndCheckDefaultCluster validCluster
 
         // user1
-        connectInDocker(user = user1, password = 'Cloud123456') {
+        connectInDocker(user1, 'Cloud123456') {
             setAndCheckDefaultCluster validCluster
             def ret = sql """show grants"""
             log.info("ret = {}", ret)
         }
 
-        connectInDocker(user = user2, password = 'Cloud123456') {
+        connectInDocker(user2, 'Cloud123456') {
             //java.sql.SQLException: errCode = 2, detailMessage = set default compute group failed, user default_user2 has no permission to use compute group 'compute_cluster', please
             //grant use privilege first , ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP, you canuse SQL `GRANT USAGE_PRIV ON COMPUTE GROUP {compute_group_name} TO
             //{user}`
@@ -85,7 +85,7 @@ suite("test_default_cluster", "docker") {
         // admin clean
         sql """set property for $user2 'DEFAULT_CLOUD_CLUSTER' = '' """
 
-        connectInDocker(user = user2, password = 'Cloud123456') {
+        connectInDocker(user2, 'Cloud123456') {
             // user set himself
             setAndCheckDefaultCluster validCluster
             sql """set property 'DEFAULT_CLOUD_CLUSTER' = '' """

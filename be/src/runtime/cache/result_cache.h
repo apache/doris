@@ -21,7 +21,6 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "gutil/integral_types.h"
 #include "runtime/cache/result_node.h"
 #include "util/uid_util.h"
 
@@ -71,7 +70,7 @@ private:
  */
 class ResultCache {
 public:
-    ResultCache(int32 max_size, int32 elasticity_size) {
+    ResultCache(int32_t max_size, int32_t elasticity_size) {
         _max_size = static_cast<size_t>(max_size) * 1024 * 1024;
         _elasticity_size = static_cast<size_t>(elasticity_size) * 1024 * 1024;
         _cache_size = 0;
@@ -79,7 +78,11 @@ public:
         _partition_count = 0;
     }
 
-    virtual ~ResultCache() {}
+    virtual ~ResultCache() {
+        _node_list.clear();
+        _node_map.clear();
+    }
+
     void update(const PUpdateCacheRequest* request, PCacheResponse* response);
     void fetch(const PFetchCacheRequest* request, PFetchCacheResult* result);
     bool contains(const UniqueId& sql_key);

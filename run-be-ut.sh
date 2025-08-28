@@ -37,6 +37,7 @@ set +o posix
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+export ROOT
 export DORIS_HOME="${ROOT}"
 
 . "${DORIS_HOME}/env.sh"
@@ -49,6 +50,8 @@ Usage: $0 <options>
      --clean            clean and build ut
      --run              build and run all ut
      --run --filter=xx  build and run specified ut
+     --run --gen_out    generate expected check data for test
+     --run --gen_regression_case    generate regression test cases corrresponding to ut cases for ut cases that support it
      --coverage         coverage after run ut
      -j                 build parallel
      -h                 print this help message
@@ -69,7 +72,7 @@ Usage: $0 <options>
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l coverage,benchmark,run,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,clean,filter: -- "$@")"; then
     usage
 fi
 
@@ -80,6 +83,8 @@ RUN=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
 FILTER=""
+GEN_OUT=""
+GEN_REGRESSION_CASE=""
 if [[ "$#" != 1 ]]; then
     while true; do
         case "$1" in
@@ -93,6 +98,14 @@ if [[ "$#" != 1 ]]; then
             ;;
         --coverage)
             DENABLE_CLANG_COVERAGE='ON'
+            shift
+            ;;
+        --gen_out)
+            GEN_OUT='--gen_out'
+            shift
+            ;;
+        --gen_regression_case)
+            GEN_REGRESSION_CASE='--gen_regression_case'
             shift
             ;;
         -f | --filter)
@@ -151,8 +164,8 @@ update_submodule() {
     fi
 }
 
-update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 
 if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh
@@ -194,16 +207,12 @@ if [[ -z "${USE_LIBCPP}" ]]; then
     fi
 fi
 
-if [[ -z "${USE_MEM_TRACKER}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_MEM_TRACKER='ON'
-    else
-        USE_MEM_TRACKER='OFF'
-    fi
-fi
-
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
+fi
+
+if [[ -z "${USE_AVX2}" ]]; then
+    USE_AVX2='ON'
 fi
 
 if [[ -z "${USE_UNWIND}" ]]; then
@@ -233,11 +242,11 @@ cd "${CMAKE_BUILD_DIR}"
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
-    -DWITH_MYSQL=ON \
+    -DBUILD_FILE_CACHE_MICROBENCH_TOOL=OFF \
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
-    -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
     -DUSE_JEMALLOC=OFF \
+    -DUSE_AVX2="${USE_AVX2}" \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
@@ -440,7 +449,7 @@ fi
 export LIBHDFS_OPTS="${final_java_opt}"
 
 # set ORC_EXAMPLE_DIR for orc unit tests
-export ORC_EXAMPLE_DIR="${DORIS_HOME}/be/src/apache-orc/examples"
+export ORC_EXAMPLE_DIR="${DORIS_HOME}/contrib/apache-orc/examples"
 
 # set asan and ubsan env to generate core file
 export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"
@@ -457,7 +466,7 @@ profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
 file_name="${test##*/}"
 if [[ -f "${test}" ]]; then
     if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
-        LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
+        LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}" "${GEN_REGRESSION_CASE}"
         if [[ -d "${DORIS_TEST_BINARY_DIR}"/report ]]; then
             rm -rf "${DORIS_TEST_BINARY_DIR}"/report
         fi
@@ -471,7 +480,7 @@ if [[ -f "${test}" ]]; then
         echo "${cmd2}"
         eval "${cmd2}"
     else
-        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
+        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}" "${GEN_REGRESSION_CASE}"
     fi
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
 else

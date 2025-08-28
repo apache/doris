@@ -19,9 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
@@ -30,8 +31,6 @@ import org.apache.doris.thrift.TFloatLiteral;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -138,10 +137,16 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getStringValue();
+    }
+
+    @Override
     public String getStringValue() {
         // TODO: Here is weird use float to represent TIME type
         // rethink whether it is reasonable to use this way
-        if (type.equals(Type.TIME) || type.equals(Type.TIMEV2)) {
+        if (type.equals(Type.TIMEV2)) {
             return timeStrFromFloat(value);
         }
         NumberFormat nf = NumberFormat.getInstance();
@@ -155,43 +160,27 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
-        if (type == Type.TIME || type == Type.TIMEV2) {
+    public String getStringValueForQuery(FormatOptions options) {
+        if (type == Type.TIMEV2) {
             // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
             // for example '11:22:33' -> 11:22:33
             String timeStr = getStringValue();
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
-            if (Double.isInfinite(getValue())) {
+            if (Double.isInfinite(getValue()) || Double.isNaN(getValue())) {
                 return Double.toString(getValue());
             }
-            return BigDecimal.valueOf(getValue()).toPlainString();
+            return BigDecimal.valueOf(getValue()).stripTrailingZeros().toPlainString();
         }
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        String ret = getStringValue();
-        if (type == Type.TIME || type == Type.TIMEV2) {
-            // here already wrapped in ''
-            ret = ret.substring(1, ret.length() - 1);
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        String ret = this.getStringValueForQuery(options);
+        if (type == Type.TIMEV2) {
+            ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
         }
-        return options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
-    }
-
-    public static Type getDefaultTimeType(Type type) throws AnalysisException {
-        switch (type.getPrimitiveType()) {
-            case TIME:
-                if (Config.enable_date_conversion) {
-                    return Type.TIMEV2;
-                } else {
-                    return Type.TIME;
-                }
-            case TIMEV2:
-                return type;
-            default:
-                throw new AnalysisException("Invalid time type: " + type);
-        }
+        return ret;
     }
 
     @Override
@@ -246,17 +235,6 @@ public class FloatLiteral extends NumericLiteralExpr {
         value = -value;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = in.readDouble();
-    }
-
-    public static FloatLiteral read(DataInput in) throws IOException {
-        FloatLiteral literal = new FloatLiteral();
-        literal.readFields(in);
-        return literal;
-    }
-
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Double.hashCode(value);
@@ -276,15 +254,4 @@ public class FloatLiteral extends NumericLiteralExpr {
         return "'" + timeStr + String.format("%02d:%02d:%02d", hour, minute, second) + "'";
     }
 
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        if (type.getPrimitiveType() == PrimitiveType.FLOAT) {
-            value = data.getFloat();
-            return;
-        }
-        if (type.getPrimitiveType() == PrimitiveType.DOUBLE) {
-            value = data.getDouble();
-            return;
-        }
-    }
 }

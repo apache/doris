@@ -72,7 +72,6 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                 field.set(ret, field.get(job));
             }
         }
-        ret.initAnalyzer();
         return ret;
     }
 
@@ -137,7 +136,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                         Long rollupTabletId = tabletEntry.getKey();
                         Long baseTabletId = tabletEntry.getValue();
                         ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                .removeSchemaChangeJob(dbId, tableId, baseIndexId, rollupIndexId,
+                                .removeSchemaChangeJob(jobId, dbId, tableId, baseIndexId, rollupIndexId,
                                     partitionId, baseTabletId, rollupTabletId);
                     }
                     LOG.info("Cancel RollupJob. Remove SchemaChangeJob in ms."
@@ -230,10 +229,11 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.getTimeSeriesCompactionLevelThreshold(),
                                     tbl.disableAutoCompaction(),
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                    tbl.getEnableMowLightDelete(), null,
+                                    null,
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(), null,
-                                    tbl.storagePageSize());
+                                    tbl.storagePageSize(),
+                                    tbl.storageDictPageSize(), true);
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);

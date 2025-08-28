@@ -31,7 +31,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 namespace vectorized {
-class VFileScanner;
+class FileScanner;
 } // namespace vectorized
 } // namespace doris
 
@@ -49,13 +49,14 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
     Status _process_conjuncts(RuntimeState* state) override;
-    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
     std::string name_suffix() const override;
 
 private:
+    friend class vectorized::FileScanner;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source = nullptr;
     int _max_scanners;
     // A in memory cache to save some common components
@@ -77,7 +78,7 @@ public:
         _output_tuple_id = tnode.file_scan_node.tuple_id;
     }
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     bool is_file_scan_operator() const override { return true; }
 

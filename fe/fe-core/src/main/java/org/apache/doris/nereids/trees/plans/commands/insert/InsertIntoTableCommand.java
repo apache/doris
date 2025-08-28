@@ -31,6 +31,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -46,10 +47,12 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
@@ -96,28 +99,63 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private LogicalPlan originLogicalQuery;
     private Optional<LogicalPlan> logicalQuery;
     private Optional<String> labelName;
+    private Optional<String> branchName;
     /**
      * When source it's from job scheduler,it will be set.
      */
     private long jobId;
+
+    // default is empty. only for OlapInsertExecutor#finalizeSink will construct one for check allow auto partition
     private final Optional<InsertCommandContext> insertCtx;
     private final Optional<LogicalPlan> cte;
+    private final boolean needNormalizePlan;
+
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+            Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
+        this(logicalQuery, labelName, insertCtx, cte, true, Optional.empty());
+    }
 
     /**
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
+                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
+                                  boolean needNormalizePlan, Optional<String> branchName) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.originLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.logicalQuery = Optional.empty();
         this.insertCtx = insertCtx;
         this.cte = cte;
+        this.needNormalizePlan = needNormalizePlan;
+        this.branchName = branchName;
+    }
+
+    /**
+     * constructor for derived class
+     */
+    public InsertIntoTableCommand(InsertIntoTableCommand command, PlanType planType) {
+        super(planType);
+        this.originLogicalQuery = command.originLogicalQuery;
+        this.labelName = command.labelName;
+        this.logicalQuery = command.logicalQuery;
+        this.insertCtx = command.insertCtx;
+        this.cte = command.cte;
+        this.jobId = command.jobId;
+        this.needNormalizePlan = true;
+        this.branchName = command.branchName;
     }
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery.orElse(originLogicalQuery);
+    }
+
+    protected void setLogicalQuery(LogicalPlan logicalQuery) {
+        this.logicalQuery = Optional.of(logicalQuery);
+    }
+
+    protected void setOriginLogicalQuery(LogicalPlan logicalQuery) {
+        this.originLogicalQuery = logicalQuery;
     }
 
     public Optional<String> getLabelName() {
@@ -126,6 +164,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     public void setLabelName(Optional<String> labelName) {
         this.labelName = labelName;
+    }
+
+    public long getJobId() {
+        return jobId;
     }
 
     public void setJobId(long jobId) {
@@ -141,6 +183,12 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                                   LoadStatistic loadStatistic) throws Exception {
         // TODO: add coordinator statistic
         runInternal(ctx, executor);
+    }
+
+    // may be overridden
+    protected TableIf getTargetTableIf(
+            ConnectContext ctx, List<String> qualifiedTargetTableName) {
+        return RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv(), Optional.empty());
     }
 
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
@@ -162,7 +210,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         AbstractInsertExecutor insertExecutor;
         int retryTimes = 0;
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
-            TableIf targetTableIf = RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv());
+            TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
@@ -174,6 +222,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
             BuildInsertExecutorResult buildResult;
             try {
+                // use originLogicalQuery to build logicalQuery again.
                 buildResult = initPlanOnce(ctx, stmtExecutor, targetTableIf);
             } catch (Throwable e) {
                 Throwables.throwIfInstanceOf(e, RuntimeException.class);
@@ -185,7 +234,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             }
 
             // lock after plan and check does table's schema changed to ensure we lock table order by id.
-            TableIf newestTargetTableIf = RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv());
+            TableIf newestTargetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             newestTargetTableIf.readLock();
             try {
                 if (targetTableIf.getId() != newestTargetTableIf.getId()) {
@@ -238,10 +287,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             Optional<CascadesContext> analyzeContext = Optional.of(
                     CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
             );
-            // process inline table (default values, empty values)
-            this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
-                    originLogicalQuery, targetTableIf, analyzeContext, insertCtx
-            ));
+            if (!(this instanceof InsertIntoDictionaryCommand)) {
+                // process inline table (default values, empty values)
+                if (needNormalizePlan) {
+                    this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(originLogicalQuery,
+                            targetTableIf, analyzeContext, insertCtx));
+                } else {
+                    this.logicalQuery = Optional.of(originLogicalQuery);
+                }
+            }
             if (cte.isPresent()) {
                 this.logicalQuery = Optional.of((LogicalPlan) cte.get().withChildren(logicalQuery.get()));
             }
@@ -275,6 +329,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             // Transaction insert should reuse the label in the transaction.
             String label = this.labelName.orElse(
                     ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
+
+            // check branch
+            if (branchName.isPresent() && !(physicalSink instanceof PhysicalIcebergTableSink)) {
+                throw new AnalysisException("Only support insert data into iceberg table's branch");
+            }
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
@@ -336,12 +395,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             } else if (physicalSink instanceof PhysicalIcebergTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
+                IcebergInsertCommandContext icebergInsertCtx = insertCtx
+                        .map(insertCommandContext -> (IcebergInsertCommandContext) insertCommandContext)
+                        .orElseGet(IcebergInsertCommandContext::new);
+                branchName.ifPresent(notUsed -> icebergInsertCtx.setBranchName(branchName));
                 return ExecutorFactory.from(
                         planner,
                         dataSink,
                         physicalSink,
                         () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))),
+                                Optional.of(icebergInsertCtx),
                                 emptyInsert
                         )
                 );
@@ -368,9 +431,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         () -> new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
                                 Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert)
                 );
+            } else if (physicalSink instanceof PhysicalDictionarySink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                Dictionary dictionary = (Dictionary) targetTableIf;
+                // insertCtx is not useful for dictionary. so keep it empty is ok.
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new DictionaryInsertExecutor(ctx, dictionary, label, planner, insertCtx, emptyInsert));
             } else {
                 // TODO: support other table types
-                throw new AnalysisException("insert into command only support [olap, hive, iceberg, jdbc] table");
+                throw new AnalysisException(
+                        "insert into command only support [olap, dictionary, hive, iceberg, jdbc] table");
             }
         } catch (Throwable t) {
             Throwables.propagateIfInstanceOf(t, RuntimeException.class);
@@ -398,7 +468,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(
                 ctx.getStatementContext(), supportFastInsertIntoValues) {
             @Override
-            protected void doDistribute(boolean canUseNereidsDistributePlanner) {
+            protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
                 // when enter this method, the step 1 already executed
 
                 // step 2
@@ -406,15 +476,19 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         selectInsertExecutorFactory(this, ctx, stmtExecutor, targetTableIf)
                 );
                 // step 3
-                super.doDistribute(canUseNereidsDistributePlanner);
+                super.doDistribute(canUseNereidsDistributePlanner, explainLevel);
             }
         };
 
         // step 1, 2, 3
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("insert into plan for query_id: {} is: {}.", DebugUtil.printId(ctx.queryId()),
+                    planner.getPhysicalPlan().treeString());
+        }
         // step 4
-        return executorFactoryRef.get().build();
+        BuildInsertExecutorResult build = executorFactoryRef.get().build();
+        return build;
     }
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {

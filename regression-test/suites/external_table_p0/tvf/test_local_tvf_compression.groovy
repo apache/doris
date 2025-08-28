@@ -146,6 +146,17 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
         "compress_type" ="${compress_type}block");            
     """
 
+    // test fs.local.support
+    qt_fs_local_support """ 
+        select * from local(
+        "fs.local.support" = "true",
+        "file_path" = "${outFilePath}/${filename}.${compress_type}",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ",",
+        "compress_type" ="${compress_type}block") order by c1,c2,c3,c4,c5  limit 22 ;            
+    """   
+
     // test error case
     test {
         sql """

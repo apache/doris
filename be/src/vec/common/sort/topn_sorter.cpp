@@ -44,7 +44,7 @@ TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t 
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)),
+          _state(MergeSorterState::create_unique(row_desc, offset)),
           _row_desc(row_desc) {}
 
 Status TopNSorter::append_block(Block* block) {
@@ -53,7 +53,10 @@ Status TopNSorter::append_block(Block* block) {
     return Status::OK();
 }
 
-Status TopNSorter::prepare_for_read() {
+Status TopNSorter::prepare_for_read(bool is_spill) {
+    if (is_spill) {
+        return Status::InternalError("TopN sorter does not support spill");
+    }
     return _state->build_merge_tree(_sort_description);
 }
 

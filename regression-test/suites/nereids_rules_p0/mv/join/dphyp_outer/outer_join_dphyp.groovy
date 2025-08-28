@@ -21,6 +21,8 @@ suite("outer_join_dphyp") {
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_dphyp_optimizer = true"
+    sql "set disable_nereids_rules='ELIMINATE_CONST_JOIN_CONDITION,CONSTANT_PROPAGATION'"
+
     sql """
     drop table if exists orders
     """
@@ -124,7 +126,7 @@ suite("outer_join_dphyp") {
     sql """analyze table partsupp with sync;"""
 
     sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
-    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
     sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     // without filter

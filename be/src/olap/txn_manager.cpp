@@ -17,6 +17,7 @@
 
 #include "txn_manager.h"
 
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <thrift/protocol/TDebugProtocol.h>
@@ -38,6 +39,7 @@
 #include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -64,6 +66,8 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
+
+bvar::Adder<int64_t> g_tablet_txn_info_txn_partitions_count("tablet_txn_info_txn_partitions_count");
 
 TxnManager::TxnManager(StorageEngine& engine, int32_t txn_map_shard_size, int32_t txn_shard_size)
         : _engine(engine),
@@ -173,6 +177,9 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     // case 2: loading txn from meta env
     auto load_info = std::make_shared<TabletTxnInfo>(load_id, nullptr, ingest);
     load_info->prepare();
+    if (!txn_tablet_map.contains(key)) {
+        g_tablet_txn_info_txn_partitions_count << 1;
+    }
     txn_tablet_map[key][tablet_info] = std::move(load_info);
     _insert_txn_partition_map_unlocked(transaction_id, partition_id);
     VLOG_NOTICE << "add transaction to engine successfully."
@@ -193,9 +200,11 @@ Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
 
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                                TTransactionId transaction_id, const Version& version,
-                               TabletPublishStatistics* stats) {
+                               TabletPublishStatistics* stats,
+                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
-                       tablet->tablet_id(), tablet->tablet_uid(), version, stats);
+                       tablet->tablet_id(), tablet->tablet_uid(), version, stats,
+                       extend_tablet_txn_info);
 }
 
 void TxnManager::abort_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -450,7 +459,8 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                TTransactionId transaction_id, TTabletId tablet_id,
                                TabletUid tablet_uid, const Version& version,
-                               TabletPublishStatistics* stats) {
+                               TabletPublishStatistics* stats,
+                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info) {
     auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::OK();
@@ -476,6 +486,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 // found load for txn,tablet
                 // case 1: user commit rowset, then the load id must be equal
                 tablet_txn_info = txn_info_iter->second;
+                extend_tablet_txn_info = tablet_txn_info;
                 rowset = tablet_txn_info->rowset;
             }
         }
@@ -531,6 +542,17 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
         int64_t t2 = MonotonicMicros();
+        if (rowset->num_segments() > 1 &&
+            !tablet_txn_info->delete_bitmap->has_calculated_for_multi_segments(
+                    rowset->rowset_id())) {
+            // delete bitmap is empty, should re-calculate delete bitmaps between segments
+            std::vector<segment_v2::SegmentSharedPtr> segments;
+            RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
+            RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
+                    rowset->tablet_schema(), rowset->rowset_id(), segments,
+                    tablet_txn_info->delete_bitmap));
+        }
+
         RETURN_IF_ERROR(
                 Tablet::update_delete_bitmap(tablet, tablet_txn_info.get(), transaction_id));
         int64_t t3 = MonotonicMicros();
@@ -591,21 +613,39 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
     std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
     stats->lock_wait_time_us += MonotonicMicros() - t6;
+    _remove_txn_tablet_info_unlocked(partition_id, transaction_id, tablet_id, tablet_uid, txn_lock,
+                                     wrlock);
+    VLOG_NOTICE << "publish txn successfully."
+                << " partition_id: " << key.first << ", txn_id: " << key.second
+                << ", tablet_id: " << tablet_info.tablet_id << ", rowsetid: " << rowset->rowset_id()
+                << ", version: " << version.first << "," << version.second;
+    return status;
+}
+
+void TxnManager::_remove_txn_tablet_info_unlocked(TPartitionId partition_id,
+                                                  TTransactionId transaction_id,
+                                                  TTabletId tablet_id, TabletUid tablet_uid,
+                                                  std::lock_guard<std::shared_mutex>& txn_lock,
+                                                  std::lock_guard<std::shared_mutex>& wrlock) {
+    std::pair<int64_t, int64_t> key {partition_id, transaction_id};
+    TabletInfo tablet_info {tablet_id, tablet_uid};
     txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
     if (auto it = txn_tablet_map.find(key); it != txn_tablet_map.end()) {
         it->second.erase(tablet_info);
-        VLOG_NOTICE << "publish txn successfully."
-                    << " partition_id: " << key.first << ", txn_id: " << key.second
-                    << ", tablet_id: " << tablet_info.tablet_id
-                    << ", rowsetid: " << rowset->rowset_id() << ", version: " << version.first
-                    << "," << version.second;
         if (it->second.empty()) {
             txn_tablet_map.erase(it);
+            g_tablet_txn_info_txn_partitions_count << -1;
             _clear_txn_partition_map_unlocked(transaction_id, partition_id);
         }
     }
+}
 
-    return status;
+void TxnManager::remove_txn_tablet_info(TPartitionId partition_id, TTransactionId transaction_id,
+                                        TTabletId tablet_id, TabletUid tablet_uid) {
+    std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
+    std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
+    _remove_txn_tablet_info_unlocked(partition_id, transaction_id, tablet_id, tablet_uid, txn_lock,
+                                     wrlock);
 }
 
 // txn could be rollbacked if it does not have related rowset
@@ -644,6 +684,7 @@ Status TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId transa
               << ", tablet: " << tablet_info.to_string();
     if (tablet_txn_info_map.empty()) {
         txn_tablet_map.erase(it);
+        g_tablet_txn_info_txn_partitions_count << -1;
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
     return Status::OK();
@@ -662,6 +703,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
     if (it == txn_tablet_map.end()) {
         return Status::Error<TRANSACTION_NOT_EXIST>("key not founded from txn_tablet_map");
     }
+    Status st = Status::OK();
     auto load_itr = it->second.find(tablet_info);
     if (load_itr != it->second.end()) {
         // found load for txn,tablet
@@ -670,7 +712,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
         auto& rowset = load_info->rowset;
         if (rowset != nullptr && meta != nullptr) {
             if (!rowset->is_pending()) {
-                return Status::Error<TRANSACTION_ALREADY_COMMITTED>(
+                st = Status::Error<TRANSACTION_ALREADY_COMMITTED>(
                         "could not delete transaction from engine, just remove it from memory not "
                         "delete from disk, because related rowset already published. partition_id: "
                         "{}, transaction_id: {}, tablet: {}, rowset id: {}, version: {}, state: {}",
@@ -692,9 +734,10 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
     }
     if (it->second.empty()) {
         txn_tablet_map.erase(it);
+        g_tablet_txn_info_txn_partitions_count << -1;
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
-    return Status::OK();
+    return st;
 }
 
 void TxnManager::get_tablet_related_txns(TTabletId tablet_id, TabletUid tablet_uid,
@@ -752,6 +795,7 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
             if (it->second.empty()) {
                 _clear_txn_partition_map_unlocked(it->first.second, it->first.first);
                 it = txn_tablet_map.erase(it);
+                g_tablet_txn_info_txn_partitions_count << -1;
             } else {
                 ++it;
             }

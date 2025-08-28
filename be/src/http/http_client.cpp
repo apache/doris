@@ -17,12 +17,14 @@
 
 #include "http/http_client.h"
 
+#include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <unistd.h>
 
 #include <memory>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "http/http_headers.h"
@@ -31,7 +33,7 @@
 #include "util/stack_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class MultiFileSplitter {
 public:
     MultiFileSplitter(std::string local_dir, std::unordered_set<std::string> expected_files)
@@ -111,8 +113,7 @@ private:
         bool has_file_name = false;
         bool has_file_size = false;
         std::string_view header = buf.substr(0, pos);
-        std::vector<std::string> headers =
-                strings::Split(header, "\r\n", strings::SkipWhitespace());
+        std::vector<std::string> headers = absl::StrSplit(header, "\r\n", absl::SkipWhitespace());
         for (auto& s : headers) {
             size_t header_pos = s.find(':');
             if (header_pos == std::string::npos) {
@@ -188,15 +189,15 @@ private:
         _written_size += write_size;
         if (_written_size == _file_size) {
             // This file has been downloaded, switch to the next one.
-            switchToNextFile();
+            switch_to_next_file();
         }
 
-        return write_size;
+        return cast_set<int>(write_size);
     }
 
     Status finish_inner() {
         if (!_is_reading_header && _written_size == _file_size) {
-            switchToNextFile();
+            switch_to_next_file();
         }
 
         if (_fd >= 0) {
@@ -219,7 +220,7 @@ private:
         return Status::OK();
     }
 
-    void switchToNextFile() {
+    void switch_to_next_file() {
         DCHECK(_fd >= 0);
         DCHECK(_written_size == _file_size);
 
@@ -361,6 +362,7 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
 }
 
 void HttpClient::set_method(HttpMethod method) {
+    _method = method;
     switch (method) {
     case GET:
         curl_easy_setopt(_curl, CURLOPT_HTTPGET, 1L);
@@ -414,6 +416,9 @@ Status HttpClient::execute_delete_request(const std::string& payload, std::strin
 }
 
 Status HttpClient::execute(const std::function<bool(const void* data, size_t length)>& callback) {
+    if (VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url();
+    }
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
@@ -422,6 +427,10 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
                      << ", trace=" << get_stack_trace() << ", url=" << url;
         std::string errmsg = fmt::format("{}, url={}", _to_errmsg(code), url);
         return Status::HttpError(std::move(errmsg));
+    }
+    if (VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url()
+                   << " done";
     }
     return Status::OK();
 }
@@ -447,6 +456,13 @@ Status HttpClient::get_content_md5(std::string* md5) const {
 Status HttpClient::download(const std::string& local_path) {
     set_method(GET);
     set_speed_limit();
+
+    // remove the file if it exists, to avoid change the linked files unexpectedly
+    bool exist = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(local_path, &exist));
+    if (exist) {
+        remove(local_path.c_str());
+    }
 
     auto fp_closer = [](FILE* fp) { fclose(fp); };
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(local_path.c_str(), "w"), fp_closer);
@@ -513,6 +529,29 @@ const char* HttpClient::_get_url() const {
     return url;
 }
 
+// execute remote call action with retry
+Status HttpClient::execute(int retry_times, int sleep_time,
+                           const std::function<Status(HttpClient*)>& callback) {
+    Status status;
+    for (int i = 0; i < retry_times; ++i) {
+        status = callback(this);
+        if (status.ok()) {
+            auto http_status = get_http_status();
+            if (http_status == 200) {
+                return status;
+            } else {
+                std::string url = mask_token(_get_url());
+                auto error_msg = fmt::format("http status code is not 200, code={}, url={}",
+                                             http_status, url);
+                LOG(WARNING) << error_msg;
+                return Status::HttpError(error_msg);
+            }
+        }
+        sleep(sleep_time);
+    }
+    return status;
+}
+
 Status HttpClient::execute_with_retry(int retry_times, int sleep_time,
                                       const std::function<Status(HttpClient*)>& callback) {
     Status status;
@@ -569,7 +608,8 @@ Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url)
             std::string value = query.substr(equal_pos + 1, ampersand_pos - equal_pos - 1);
 
             auto encoded_value = std::unique_ptr<char, decltype(&curl_free)>(
-                    curl_easy_escape(_curl, value.c_str(), value.length()), &curl_free);
+                    curl_easy_escape(_curl, value.c_str(), cast_set<int>(value.length())),
+                    &curl_free);
             if (encoded_value) {
                 encoded_query += key + "=" + std::string(encoded_value.get());
             } else {
@@ -590,5 +630,5 @@ Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url)
     *escaped_url = url.substr(0, query_pos + 1) + encoded_query + fragment;
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

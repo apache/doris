@@ -18,7 +18,7 @@
 suite("test_backup_restore_storage_policy", "backup_restore") {
     String suiteName = "test_backup_restore_storage_policy"
     String dbName = "${suiteName}_db"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableName = "${suiteName}_table"
     def resource_name = "test_backup_restore_storage_policy_resource"

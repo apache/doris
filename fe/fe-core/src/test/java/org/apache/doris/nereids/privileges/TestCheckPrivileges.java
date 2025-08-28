@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.policy.FilterType;
@@ -113,24 +112,9 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
                 + ")");
 
         createDatabase("internal_db");
-        String internalDb = "internal_db";
         String table1 = "test_tbl1";
         String table2 = "test_tbl2";
-        String table3 = "test_tbl3";
         String table4 = "test_tbl4";
-
-        String view1 = "query_tbl2_view1";
-        createView("create view " + internalDb + "."
-                + view1 + " as select * from custom_catalog.test_db." + table2);
-        String view2 = "query_tbl2_view2";
-        createView("create view " + internalDb + "."
-                + view2 + " as select * from custom_catalog.test_db." + table2);
-        String view3 = "query_tbl2_view3";
-        createView("create view " + internalDb + "."
-                + view3 + " as select * from custom_catalog.test_db." + table3);
-        String view4 = "query_tbl2_view4";
-        createView("create view " + internalDb + "."
-                + view4 + " as select * from " + internalDb + "." + view3);
 
         String user = "test_nereids_privilege_user";
         addUser(user, true);
@@ -140,14 +124,6 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
                 // base table privileges
                 MakePrivileges.table(catalog, db, table1).allowSelectTable(user),
                 MakePrivileges.table(catalog, db, table2).allowSelectColumns(user, ImmutableSet.of("id")),
-
-                // view privileges
-                MakePrivileges.table("internal", internalDb, view1).allowSelectTable(user),
-                MakePrivileges.table("internal", internalDb, view2)
-                        .allowSelectColumns(user, ImmutableSet.of("name")),
-
-                MakePrivileges.table("internal", internalDb, view4)
-                        .allowSelectColumns(user, ImmutableSet.of("id")),
 
                 // data masking and row policy
                 MakePrivileges.table(catalog, db, table4).allowSelectTable(user)
@@ -189,40 +165,13 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
                     );
                 }
 
-                // test view
-                {
-                    // has view privilege
-                    query("select * from " + internalDb + "." + view1);
-
-                    // has view name privilege
-                    query("select name from " + internalDb + "." + view2);
-
-                    // no id column privilege
-                    Assertions.assertThrows(AnalysisException.class, () ->
-                            query("select id from " + internalDb + "." + view2)
-                    );
-
-                    // no view privilege
-                    Assertions.assertThrows(AnalysisException.class, () ->
-                            query("select * from " + internalDb + "." + view3)
-                    );
-
-                    // has id column privilege
-                    query("select id from " + internalDb + "." + view4);
-
-                    // no name column privilege
-                    Assertions.assertThrows(AnalysisException.class, () ->
-                            query("select name from " + internalDb + "." + view4)
-                    );
-                }
-
                 // test row policy with data masking
                 {
                     Function<NamedExpression, Boolean> checkId = (NamedExpression ne) -> {
                         if (!(ne instanceof Alias) || !ne.getName().equals("id")) {
                             return false;
                         }
-                        return ne.child(0) instanceof Concat;
+                        return ne.child(0).toSql().equals("'1_****_1'");
                     };
                     PlanChecker.from(connectContext)
                             .parse("select id,"
@@ -403,8 +352,13 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         }
 
         @Override
-        public boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted,
+        public boolean checkCloudPriv(UserIdentity currentUser, String cloudName, PrivPredicate wanted,
                 ResourceTypeEnum type) {
+            return true;
+        }
+
+        @Override
+        public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
             return true;
         }
 

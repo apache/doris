@@ -37,6 +37,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/types.cpp"
 #include "testutil/desc_tbl_builder.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/columns/column.h"
@@ -51,8 +52,10 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_ipv6.h"
@@ -60,7 +63,6 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/runtime/ipv4_value.h"
@@ -70,6 +72,19 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris::vectorized {
+
+class TestBlockSerializer final : public vectorized::MySQLResultBlockBuffer {
+public:
+    TestBlockSerializer(RuntimeState* state) : vectorized::MySQLResultBlockBuffer(state) {}
+    ~TestBlockSerializer() override = default;
+    std::shared_ptr<TFetchDataResult> get_block() {
+        std::lock_guard<std::mutex> l(_lock);
+        DCHECK_EQ(_result_batch_queue.size(), 1);
+        auto result = std::move(_result_batch_queue.front());
+        _result_batch_queue.pop_front();
+        return result;
+    }
+};
 
 void serialize_and_deserialize_mysql_test() {
     vectorized::Block block;
@@ -97,15 +112,15 @@ void serialize_and_deserialize_mysql_test() {
         nodes.resize(1);
         std::string col_name = std::get<0>(t);
         tslot.__set_colName(col_name);
-        TypeDescriptor type_desc(std::get<3>(t));
-        type_desc.precision = 0;
-        type_desc.scale = 0;
+        auto type_desc = DataTypeFactory::instance().create_data_type(
+                std::get<3>(t), false, TYPE_DECIMAL128I == std::get<3>(t) ? 27 : 0,
+                TYPE_DECIMAL128I == std::get<3>(t) ? 9 : 0);
         bool is_nullable(std::get<4>(t));
         switch (std::get<3>(t)) {
         case TYPE_BOOLEAN:
-            tslot.__set_slotType(type_desc.to_thrift());
+            tslot.__set_slotType(type_desc->to_thrift());
             {
-                auto vec = vectorized::ColumnVector<UInt8>::create();
+                auto vec = vectorized::ColumnVector<TYPE_BOOLEAN>::create();
                 auto& data = vec->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     data.push_back(i % 2);
@@ -117,15 +132,15 @@ void serialize_and_deserialize_mysql_test() {
             }
             break;
         case TYPE_INT:
-            tslot.__set_slotType(type_desc.to_thrift());
+            tslot.__set_slotType(type_desc->to_thrift());
             if (is_nullable) {
                 {
-                    auto column_vector_int32 = vectorized::ColumnVector<Int32>::create();
+                    auto column_vector_int32 = vectorized::ColumnVector<TYPE_INT>::create();
                     auto column_nullable_vector =
                             vectorized::make_nullable(std::move(column_vector_int32));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
                     for (int i = 0; i < row_num; i++) {
-                        mutable_nullable_vector->insert(int32(i));
+                        mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(int32_t(i)));
                     }
                     auto data_type = vectorized::make_nullable(
                             std::make_shared<vectorized::DataTypeInt32>());
@@ -134,7 +149,7 @@ void serialize_and_deserialize_mysql_test() {
                     block.insert(type_and_name);
                 }
             } else {
-                auto vec = vectorized::ColumnVector<Int32>::create();
+                auto vec = vectorized::ColumnVector<TYPE_INT>::create();
                 auto& data = vec->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     data.push_back(i);
@@ -145,28 +160,23 @@ void serialize_and_deserialize_mysql_test() {
                 block.insert(std::move(type_and_name));
             }
             break;
-        case TYPE_DECIMAL128I:
-            type_desc.precision = 27;
-            type_desc.scale = 9;
-            tslot.__set_slotType(type_desc.to_thrift());
-            {
-                vectorized::DataTypePtr decimal_data_type(
-                        doris::vectorized::create_decimal(27, 9, true));
-                auto decimal_column = decimal_data_type->create_column();
-                auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                                      decimal_column.get())
-                                     ->get_data();
-                for (int i = 0; i < row_num; ++i) {
-                    auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
-                    data.push_back(value);
-                }
-                vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                                decimal_data_type, col_name);
-                block.insert(type_and_name);
+        case TYPE_DECIMAL128I: {
+            vectorized::DataTypePtr decimal_data_type(
+                    doris::vectorized::create_decimal(27, 9, true));
+            type_desc = decimal_data_type;
+            tslot.__set_slotType(type_desc->to_thrift());
+            auto decimal_column = decimal_data_type->create_column();
+            auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
+            for (int i = 0; i < row_num; ++i) {
+                auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
+                data.push_back(value);
             }
-            break;
+            vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
+                                                            decimal_data_type, col_name);
+            block.insert(type_and_name);
+        } break;
         case TYPE_STRING:
-            tslot.__set_slotType(type_desc.to_thrift());
+            tslot.__set_slotType(type_desc->to_thrift());
             {
                 auto strcol = vectorized::ColumnString::create();
                 for (int i = 0; i < row_num; ++i) {
@@ -180,7 +190,7 @@ void serialize_and_deserialize_mysql_test() {
             }
             break;
         case TYPE_HLL:
-            tslot.__set_slotType(type_desc.to_thrift());
+            tslot.__set_slotType(type_desc->to_thrift());
             {
                 vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
                 auto hll_column = hll_data_type->create_column();
@@ -198,9 +208,9 @@ void serialize_and_deserialize_mysql_test() {
             }
             break;
         case TYPE_DATEV2:
-            tslot.__set_slotType(type_desc.to_thrift());
+            tslot.__set_slotType(type_desc->to_thrift());
             {
-                auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
+                auto column_vector_date_v2 = vectorized::ColumnVector<TYPE_DATEV2>::create();
                 auto& date_v2_data = column_vector_date_v2->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     DateV2Value<DateV2ValueType> value;
@@ -215,9 +225,9 @@ void serialize_and_deserialize_mysql_test() {
             }
             break;
         case TYPE_DATE: // int64
-            tslot.__set_slotType(type_desc.to_thrift());
+            tslot.__set_slotType(type_desc->to_thrift());
             {
-                auto column_vector_date = vectorized::ColumnVector<vectorized::Int64>::create();
+                auto column_vector_date = vectorized::ColumnVector<TYPE_DATE>::create();
                 auto& date_data = column_vector_date->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     VecDateTimeValue value;
@@ -231,9 +241,9 @@ void serialize_and_deserialize_mysql_test() {
             }
             break;
         case TYPE_DATETIME: // int64
-            tslot.__set_slotType(type_desc.to_thrift());
+            tslot.__set_slotType(type_desc->to_thrift());
             {
-                auto column_vector_datetime = vectorized::ColumnVector<vectorized::Int64>::create();
+                auto column_vector_datetime = vectorized::ColumnVector<TYPE_DATETIME>::create();
                 auto& datetime_data = column_vector_datetime->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     VecDateTimeValue value;
@@ -248,9 +258,9 @@ void serialize_and_deserialize_mysql_test() {
             }
             break;
         case TYPE_IPV4:
-            tslot.__set_slotType(type_desc.to_thrift());
+            tslot.__set_slotType(type_desc->to_thrift());
             {
-                auto column_vector_ipv4 = vectorized::ColumnVector<IPv4>::create();
+                auto column_vector_ipv4 = vectorized::ColumnVector<TYPE_IPV4>::create();
                 auto& ipv4_data = column_vector_ipv4->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     IPv4Value ipv4_value;
@@ -265,9 +275,9 @@ void serialize_and_deserialize_mysql_test() {
             }
             break;
         case TYPE_IPV6:
-            tslot.__set_slotType(type_desc.to_thrift());
+            tslot.__set_slotType(type_desc->to_thrift());
             {
-                auto column_vector_ipv6 = vectorized::ColumnVector<IPv6>::create();
+                auto column_vector_ipv6 = vectorized::ColumnVector<TYPE_IPV6>::create();
                 auto& ipv6_data = column_vector_ipv6->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     IPv6Value ipv6_value;
@@ -292,7 +302,8 @@ void serialize_and_deserialize_mysql_test() {
         slotRef.__set_tuple_id(tslot.slotIdx);
         nodes[0].__set_slot_ref(slotRef);
         nodes[0].__set_node_type(TExprNodeType::SLOT_REF);
-        nodes[0].__set_type(create_type_desc(std::get<3>(t), type_desc.precision, type_desc.scale));
+        nodes[0].__set_type(create_type_desc(std::get<3>(t), type_desc->get_precision(),
+                                             type_desc->get_scale()));
         TExpr texpr;
         texpr.__set_nodes(nodes);
         VExprContextSPtr ctx = nullptr;
@@ -315,7 +326,9 @@ void serialize_and_deserialize_mysql_test() {
     std::cout << "block structure: " << block.dump_structure() << std::endl;
 
     // mysql_writer init
-    vectorized::VMysqlResultWriter<false> mysql_writer(nullptr, _output_vexpr_ctxs, nullptr);
+    MockRuntimeState state;
+    auto serializer = std::make_shared<TestBlockSerializer>(&state);
+    vectorized::VMysqlResultWriter<false> mysql_writer(serializer, _output_vexpr_ctxs, nullptr);
 
     Status st = mysql_writer.write(&runtime_stat, block);
     EXPECT_TRUE(st.ok());

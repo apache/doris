@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <cstdint>
+
 #include "common/status.h"
 #include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
@@ -39,10 +41,8 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "SortSourceSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
-    _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillMergeSortTime", 1);
+    _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillMergeSortTime", 1);
     return Status::OK();
 }
 
@@ -122,7 +122,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                         state, tmp_stream, print_id(state->query_id()), "sort", _parent->node_id(),
                         _shared_state->spill_block_batch_row_count, state->spill_sort_batch_bytes(),
-                        profile());
+                        operator_profile());
                 RETURN_IF_ERROR(status);
 
                 _shared_state->sorted_streams.emplace_back(tmp_stream);
@@ -173,7 +173,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
     });
 
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile.get(),
+            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, operator_profile(),
                                                    _shared_state->shared_from_this(),
                                                    exception_catch_func));
 }
@@ -181,15 +181,21 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
 Status SpillSortLocalState::_create_intermediate_merger(
         int num_blocks, const vectorized::SortDescription& sort_description) {
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
+    int64_t limit = -1;
+    int64_t offset = 0;
+    if (num_blocks >= _shared_state->sorted_streams.size()) {
+        // final round use real limit and offset
+        limit = Base::_shared_state->limit;
+        offset = Base::_shared_state->offset;
+    }
+
     _merger = std::make_unique<vectorized::VSortedRunMerger>(
-            sort_description, _shared_state->spill_block_batch_row_count,
-            Base::_shared_state->in_mem_shared_state->sorter->limit(),
-            Base::_shared_state->in_mem_shared_state->sorter->offset(), profile());
+            sort_description, _runtime_state->batch_size(), limit, offset, custom_profile());
 
     _current_merging_streams.clear();
     for (int i = 0; i < num_blocks && !_shared_state->sorted_streams.empty(); ++i) {
         auto stream = _shared_state->sorted_streams.front();
-        stream->set_read_counters(profile());
+        stream->set_read_counters(operator_profile());
         _current_merging_streams.emplace_back(stream);
         child_block_suppliers.emplace_back(
                 std::bind(std::mem_fn(&vectorized::SpillStream::read_next_block_sync), stream.get(),
@@ -235,9 +241,9 @@ Status SpillSortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* stat
     return _sort_source_operator->init(tnode, state);
 }
 
-Status SpillSortSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::open(state));
-    return _sort_source_operator->open(state);
+Status SpillSortSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorXBase::prepare(state));
+    return _sort_source_operator->prepare(state);
 }
 
 Status SpillSortSourceOperatorX::close(RuntimeState* state) {

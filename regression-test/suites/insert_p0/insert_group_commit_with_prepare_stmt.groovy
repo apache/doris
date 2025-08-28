@@ -132,6 +132,11 @@ suite("insert_group_commit_with_prepare_stmt") {
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb, false)
     logger.info("url: " + url)
 
+    sql """ set global enable_prepared_stmt_audit_log = true """
+    onFinish {
+        sql """ set global enable_prepared_stmt_audit_log = false """
+    }
+
     def result1 = connect(user, password, url + "&sessionVariables=group_commit=async_mode") {
         try {
             // create table

@@ -26,6 +26,7 @@ import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -46,7 +47,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
 public class DBBinlog {
     private static final Logger LOG = LogManager.getLogger(BinlogManager.class);
@@ -232,36 +232,30 @@ public class DBBinlog {
     }
 
     // Get the dropped partitions of the db.
-    public List<Long> getDroppedPartitions() {
+    public List<Pair<Long, Long>> getDroppedPartitions() {
         lock.readLock().lock();
         try {
-            return droppedPartitions.stream()
-                    .map(v -> v.first)
-                    .collect(Collectors.toList());
+            return new ArrayList<>(droppedPartitions);
         } finally {
             lock.readLock().unlock();
         }
     }
 
     // Get the dropped tables of the db.
-    public List<Long> getDroppedTables() {
+    public List<Pair<Long, Long>> getDroppedTables() {
         lock.readLock().lock();
         try {
-            return droppedTables.stream()
-                    .map(v -> v.first)
-                    .collect(Collectors.toList());
+            return new ArrayList<>(droppedTables);
         } finally {
             lock.readLock().unlock();
         }
     }
 
     // Get the dropped indexes of the db.
-    public List<Long> getDroppedIndexes() {
+    public List<Pair<Long, Long>> getDroppedIndexes() {
         lock.readLock().lock();
         try {
-            return droppedIndexes.stream()
-                    .map(v -> v.first)
-                    .collect(Collectors.toList());
+            return new ArrayList<>(droppedIndexes);
         } finally {
             lock.readLock().unlock();
         }
@@ -459,6 +453,7 @@ public class DBBinlog {
         if (lastExpiredBinlog != null) {
             final long expiredCommitSeq = lastExpiredBinlog.getCommitSeq();
             dummy.setCommitSeq(expiredCommitSeq);
+            dummy.setTimestamp(lastExpiredBinlog.getTimestamp());
 
             // release expired timestamps by commit seq.
             Iterator<Pair<Long, Long>> timeIter = timestamps.iterator();
@@ -742,6 +737,9 @@ public class DBBinlog {
                 case RECOVER_INFO:
                     raw = RecoverInfo.fromJson(data);
                     break;
+                case REPLACE_PARTITIONS:
+                    raw = ReplacePartitionOperationLog.fromJson(data);
+                    break;
                 default:
                     break;
             }
@@ -802,6 +800,11 @@ public class DBBinlog {
                 droppedPartitions.removeIf(entry -> (entry.first == partitionId));
             } else if (tableId > 0) {
                 droppedTables.removeIf(entry -> (entry.first == tableId));
+            }
+        } else if ((binlogType == TBinlogType.REPLACE_PARTITIONS) && (raw instanceof ReplacePartitionOperationLog)) {
+            ReplacePartitionOperationLog replacePartitionOperationLog = (ReplacePartitionOperationLog) raw;
+            for (Long partitionId : replacePartitionOperationLog.getReplacedPartitionIds()) {
+                droppedPartitions.add(Pair.of(partitionId, commitSeq));
             }
         }
     }

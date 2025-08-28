@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
 #include "runtime/decimalv2_value.h"
 #include "util/types.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 union TypeConverter {
     uint64_t u64;
@@ -66,9 +66,9 @@ union DateTimeV2UInt64Union {
     ~DateTimeV2UInt64Union() {}
 };
 
-// similar to reinterpret_cast but won't break strict-aliasing rules
+// similar to reinterpret_cast but won't break strict-aliasing rules. you can treat it as std::bit_cast with type checking
 template <typename From, typename To>
-To binary_cast(From from) {
+constexpr PURE To binary_cast(const From& from) {
     constexpr bool from_u64_to_db = match_v<From, uint64_t, To, double>;
     constexpr bool from_i64_to_db = match_v<From, int64_t, To, double>;
     constexpr bool from_db_to_i64 = match_v<From, double, To, int64_t>;
@@ -94,51 +94,7 @@ To binary_cast(From from) {
                   from_decv2_to_i128 || from_decv2_to_i256 || from_ui32_to_date_v2 ||
                   from_date_v2_to_ui32 || from_ui64_to_datetime_v2 || from_datetime_v2_to_ui64);
 
-    if constexpr (from_u64_to_db) {
-        TypeConverter conv;
-        conv.u64 = from;
-        return conv.dbl;
-    } else if constexpr (from_i64_to_db) {
-        TypeConverter conv;
-        conv.i64 = from;
-        return conv.dbl;
-    } else if constexpr (from_db_to_i64) {
-        TypeConverter conv;
-        conv.dbl = from;
-        return conv.i64;
-    } else if constexpr (from_db_to_u64) {
-        TypeConverter conv;
-        conv.dbl = from;
-        return conv.u64;
-    } else if constexpr (from_i64_to_vec_dt) {
-        VecDateTimeInt64Union conv = {.i64 = from};
-        return conv.dt;
-    } else if constexpr (from_ui32_to_date_v2) {
-        DateV2UInt32Union conv = {.ui32 = from};
-        return conv.dt;
-    } else if constexpr (from_date_v2_to_ui32) {
-        DateV2UInt32Union conv = {.dt = from};
-        return conv.ui32;
-    } else if constexpr (from_ui64_to_datetime_v2) {
-        DateTimeV2UInt64Union conv = {.ui64 = from};
-        return conv.dt;
-    } else if constexpr (from_datetime_v2_to_ui64) {
-        DateTimeV2UInt64Union conv = {.dt = from};
-        return conv.ui64;
-    } else if constexpr (from_vec_dt_to_i64) {
-        VecDateTimeInt64Union conv = {.dt = from};
-        return conv.i64;
-    } else if constexpr (from_i128_to_decv2) {
-        DecimalInt128Union conv;
-        conv.i128 = from;
-        return conv.decimal;
-    } else if constexpr (from_decv2_to_i128) {
-        DecimalInt128Union conv;
-        conv.decimal = from;
-        return conv.i128;
-    } else {
-        throw Exception(Status::FatalError("__builtin_unreachable"));
-    }
+    return std::bit_cast<To>(from);
 }
 
 } // namespace doris

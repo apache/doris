@@ -17,11 +17,11 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.nereids.trees.plans.commands.ShowRoutineLoadCommand;
 
 import com.google.common.base.Preconditions;
 
@@ -64,7 +64,7 @@ public class RoutineLoadsNameProcDir implements ProcDirInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult baseProcResult = new BaseProcResult();
-        baseProcResult.setNames(ShowRoutineLoadStmt.getTitleNames());
+        baseProcResult.setNames(ShowRoutineLoadCommand.getTitleNames());
 
         // find all of job named routine load
         RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();

@@ -64,6 +64,13 @@ public:
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
 
+    // Authorization: xxxx
+    void set_authorization(const std::string& auth) {
+        std::string scratch_str = std::string(HttpHeaders::AUTHORIZATION) + ": " + auth;
+        _header_list = curl_slist_append(_header_list, scratch_str.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+    }
+
     // content_type such as "application/json"
     void set_content_type(const std::string content_type) {
         std::string scratch_str = "Content-Type: " + content_type;
@@ -84,10 +91,12 @@ public:
 
     void set_speed_limit();
 
-    // TODO(zc): support set header
-    // void set_header(const std::string& key, const std::string& value) {
-    // _cntl.http_request().SetHeader(key, value);
-    // }
+    // key: value
+    void set_header(const std::string& key, const std::string& value) {
+        std::string header = key + ": " + value;
+        _header_list = curl_slist_append(_header_list, header.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+    }
 
     std::string get_response_content_type() {
         char* ct = nullptr;
@@ -157,6 +166,10 @@ public:
     // execute remote call action
     Status execute(const std::function<bool(const void* data, size_t length)>& callback = {});
 
+    // execute remote call action with retry, like execute_with_retry but keep the http client instance
+    Status execute(int retry_times, int sleep_time,
+                   const std::function<Status(HttpClient*)>& callback);
+
     size_t on_response_data(const void* data, size_t length);
 
     // The file name of the variant column with the inverted index contains %
@@ -178,6 +191,7 @@ private:
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
     curl_slist* _header_list = nullptr;
+    HttpMethod _method = GET;
 };
 
 } // namespace doris

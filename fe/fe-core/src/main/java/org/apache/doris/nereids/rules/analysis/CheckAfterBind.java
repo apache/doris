@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -57,12 +56,9 @@ public class CheckAfterBind implements AnalysisRuleFactory {
         Set<Expression> havingConjuncts = having.getConjuncts();
         for (Expression predicate : havingConjuncts) {
             if (predicate instanceof InSubquery) {
-                if (((InSubquery) predicate).getListQuery().getDataType().isObjectType()) {
+                if (((InSubquery) predicate).getSubqueryOutput().getDataType().isObjectType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
-            }
-            if (ExpressionUtils.hasOnlyMetricType(predicate.getArguments())) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }
     }

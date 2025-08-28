@@ -41,7 +41,7 @@ b	2.2
 
 -- !test_open_csv_default_prop --
 1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer
-2	Jane,Smith				2020-05-20			""Project Manager""
+2	Jane,Smith				2020-05-20			"Project Manager"
 
 -- !test_open_csv_standard_prop --
 1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer
@@ -93,7 +93,7 @@ b	2.2
 
 -- !test_open_csv_default_prop --
 1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer
-2	Jane,Smith			FALSE	2020-05-20			""Project Manager""
+2	Jane,Smith			FALSE	2020-05-20			"Project Manager"
 
 -- !test_open_csv_standard_prop --
 1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer

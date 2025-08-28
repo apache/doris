@@ -17,20 +17,14 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TSortType;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
 
-public class DataSortInfo implements Writable {
+public class DataSortInfo {
     public static final String DATA_SORT_PROPERTY_PREFIX = "data_sort";
     public static final String DATA_SORT_TYPE = "data_sort.sort_type";
     public static final String DATA_SORT_COL_NUM = "data_sort.col_num";
@@ -74,17 +68,6 @@ public class DataSortInfo implements Writable {
 
     public void setColNum(int colNum) {
         this.colNum = colNum;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static DataSortInfo read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, DataSortInfo.class);
     }
 
     @Override

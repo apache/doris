@@ -46,9 +46,8 @@ suite("test_create_vault", "nonConcurrent") {
             CREATE STORAGE VAULT ${exceed64LengthStr}
             PROPERTIES (
                 "type"="S3",
-                "fs.defaultFS"="${getHmsHdfsFs()}",
-                "path_prefix" = "${exceed64LengthStr}",
-                "hadoop.username" = "${getHmsUser()}"
+                "fs.defaultFS"="hdfs://127.0.0.1:8090",
+                "path_prefix" = "${exceed64LengthStr}"
             );
            """
     }, "Incorrect vault name")
@@ -57,10 +56,7 @@ suite("test_create_vault", "nonConcurrent") {
         sql """
             CREATE STORAGE VAULT '@#¥%*&-+=null.'
             PROPERTIES (
-                "type"="S3",
-                "fs.defaultFS"="${getHmsHdfsFs()}",
-                "path_prefix" = "${exceed64LengthStr}",
-                "hadoop.username" = "${getHmsUser()}"
+                "type"="S3"
             );
            """
     }, "Incorrect vault name")
@@ -81,8 +77,7 @@ suite("test_create_vault", "nonConcurrent") {
             PROPERTIES (
                 "type"="S3",
                 "fs.defaultFS"="${getHmsHdfsFs()}",
-                "path_prefix" = "${s3VaultName}",
-                "hadoop.username" = "${getHmsUser()}"
+                "path_prefix" = "${s3VaultName}"
             );
            """
     }, "Missing [s3.endpoint] in properties")
@@ -94,8 +89,7 @@ suite("test_create_vault", "nonConcurrent") {
             PROPERTIES (
                 "type"="S3",
                 "fs.defaultFS"="${getHmsHdfsFs()}",
-                "path_prefix" = "${s3VaultName}",
-                "hadoop.username" = "${getHmsUser()}"
+                "path_prefix" = "${s3VaultName}"
             );
            """
     }, "Missing [s3.endpoint] in properties")
@@ -137,7 +131,56 @@ suite("test_create_vault", "nonConcurrent") {
                 "use_path_style" = "false"
             );
         """
-    }, "cannot be empty")
+    }, "Property s3.root.path cannot be empty")
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="S3",
+                "s3.endpoint"="${getS3Endpoint()}",
+                "s3.region" = "${getS3Region()}",
+                "s3.access_key" = "${getS3AK()}",
+                "s3.secret_key" = "${getS3SK()}",
+                "s3.bucket" = "${getS3BucketName()}",
+                "s3.external_endpoint" = "",
+                "provider" = "${getS3Provider()}",
+                "use_path_style" = "false"
+            );
+        """
+    }, "Missing property s3.root.path")
+
+    // missing property type
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "s3.endpoint"="${getS3Endpoint()}",
+                "s3.region" = "${getS3Region()}",
+                "s3.access_key" = "${getS3AK()}",
+                "s3.secret_key" = "${getS3SK()}",
+                "s3.bucket" = "${getS3BucketName()}",
+                "s3.external_endpoint" = "",
+                "provider" = "${getS3Provider()}",
+                "use_path_style" = "false"
+            );
+        """
+    }, "Missing property type")
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="",
+                "s3.endpoint"="${getS3Endpoint()}",
+                "s3.region" = "${getS3Region()}",
+                "s3.access_key" = "${getS3AK()}",
+                "s3.secret_key" = "${getS3SK()}",
+                "s3.bucket" = "${getS3BucketName()}",
+                "s3.external_endpoint" = "",
+                "provider" = "${getS3Provider()}",
+                "use_path_style" = "false"
+            );
+        """
+    }, "Property type cannot be empty")
 
     // test `if not exist` and dup name s3 vault
     sql """
@@ -215,6 +258,7 @@ suite("test_create_vault", "nonConcurrent") {
                 "type"="hdfs",
                 "s3.bucket"="${getHmsHdfsFs()}",
                 "path_prefix" = "${hdfsVaultName}",
+                "fs.defaultFS"="${getHmsHdfsFs()}",
                 "hadoop.username" = "${getHmsUser()}"
             );
             """
@@ -226,7 +270,8 @@ suite("test_create_vault", "nonConcurrent") {
             PROPERTIES (
                 "type"="hdfs",
                 "path_prefix" = "${hdfsVaultName}",
-                "hadoop.username" = "${getHmsUser()}"
+                "hadoop.username" = "${getHmsUser()}",
+                "s3_validity_check" = "false"
             );
             """
     }, "invalid fs_name")

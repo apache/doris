@@ -19,39 +19,25 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 
+#include <memory>
 #include <vector>
 
-#include "runtime/runtime_state.h"
 #include "udf/udf.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
-FunctionUtils::FunctionUtils() {
+FunctionUtils::FunctionUtils(const vectorized::DataTypePtr& return_type,
+                             const std::vector<vectorized::DataTypePtr>& arg_types,
+                             bool enable_strict_cast) {
     TQueryGlobals globals;
     globals.__set_now_string("2019-08-06 01:38:57");
     globals.__set_timestamp_ms(1565026737805);
     globals.__set_time_zone("Asia/Shanghai");
-    _state = RuntimeState::create_unique(globals).release();
-    doris::TypeDescriptor return_type;
-    std::vector<doris::TypeDescriptor> arg_types;
-    _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
-}
 
-FunctionUtils::FunctionUtils(const doris::TypeDescriptor& return_type,
-                             const std::vector<doris::TypeDescriptor>& arg_types,
-                             int varargs_buffer_size) {
-    TQueryGlobals globals;
-    globals.__set_now_string("2019-08-06 01:38:57");
-    globals.__set_timestamp_ms(1565026737805);
-    globals.__set_time_zone("Asia/Shanghai");
-    _state = RuntimeState::create_unique(globals).release();
-    _fn_ctx = FunctionContext::create_context(_state, return_type, arg_types);
-}
-
-FunctionUtils::~FunctionUtils() {
-    if (_state) {
-        delete _state;
-    }
+    _state = std::make_unique<MockRuntimeState>(globals);
+    _fn_ctx = FunctionContext::create_context(_state.get(), return_type, arg_types);
+    _fn_ctx->set_enable_strict_mode(enable_strict_cast);
 }
 
 } // namespace doris

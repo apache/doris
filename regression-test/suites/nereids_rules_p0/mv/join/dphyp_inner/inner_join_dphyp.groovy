@@ -20,6 +20,7 @@ suite("inner_join_dphyp") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_dphyp_optimizer = true"
+    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
 
     sql """
     drop table if exists orders

@@ -20,6 +20,7 @@ suite("outer_join") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set disable_nereids_rules='ELIMINATE_CONST_JOIN_CONDITION,CONSTANT_PROPAGATION'"
 
     sql """
     drop table if exists orders
@@ -285,11 +286,11 @@ suite("outer_join") {
 
     sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
     sql """alter table lineitem_same_col modify column l_comment set stats ('row_count'='5');"""
-    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
-    sql """alter table orders_same_col modify column o_comment set stats ('row_count'='18');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+    sql """alter table orders_same_col modify column O_COMMENT set stats ('row_count'='18');"""
     sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
     sql """alter table lineitem_null modify column l_comment set stats ('row_count'='5');"""
-    sql """alter table orders_null modify column o_comment set stats ('row_count'='5');"""
+    sql """alter table orders_null modify column O_COMMENT set stats ('row_count'='5');"""
 
 
     // without filter

@@ -18,6 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_mv_div") {
+
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+
     sql """set enable_nereids_planner=true"""
     sql """SET enable_fallback_to_original_planner=false"""
     sql """ DROP TABLE IF EXISTS d_table; """
@@ -38,16 +42,12 @@ suite ("test_dup_mv_div") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view kdiv as select k1,k2/1 from d_table;")
+    create_sync_mv (db, "d_table", "kdiv", "select k1 as x,k2/1 from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'4';"
 
     qt_select_star "select * from d_table order by k1;"
 
-    // TODO reopen it when we could fix it in right way
-    // explain {
-    //     sql("select k1,k2/1 from d_table order by k1;")
-    //     contains "(kdiv)"
-    // }
+    mv_rewrite_success("select k1,k2/1 from d_table order by k1;", "kdiv")
     qt_select_mv "select k1,k2/1 from d_table order by k1;"
 }

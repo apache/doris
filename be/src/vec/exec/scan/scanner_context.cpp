@@ -45,8 +45,8 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/exec/scan/scan_node.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/exec/scan/vscan_node.h"
 
 namespace doris::vectorized {
 
@@ -74,10 +74,8 @@ ScannerContext::ScannerContext(
     DCHECK(_state != nullptr);
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
-#ifndef BE_TEST
     _query_id = _state->get_query_ctx()->query_id();
     _resource_ctx = _state->get_query_ctx()->resource_ctx();
-#endif
     ctx_id = UniqueId::gen_uid().to_string();
     for (auto& scanner : _all_scanners) {
         _pending_scanners.push(scanner);
@@ -102,14 +100,9 @@ Status ScannerContext::init() {
                                      print_id(_state->query_id()));
     }
 
-    thread_token = _state->get_query_ctx()->get_token();
-
     if (_state->get_query_ctx()->get_scan_scheduler()) {
         _should_reset_thread_name = false;
     }
-
-    _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
-                                                    thread_token == nullptr ? "False" : "True");
 
     auto scanner = _all_scanners.front().lock();
     DCHECK(scanner != nullptr);
@@ -117,23 +110,19 @@ Status ScannerContext::init() {
     // TODO: Maybe need refactor.
     // A query could have remote scan task and local scan task at the same time.
     // So we need to compute the _scanner_scheduler in each scan operator instead of query context.
-    SimplifiedScanScheduler* simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
-    SimplifiedScanScheduler* remote_scan_task_scheduler =
-            _state->get_query_ctx()->get_remote_scan_scheduler();
     if (scanner->_scanner->get_storage_type() == TabletStorageType::STORAGE_TYPE_LOCAL) {
-        // scan_scheduler could be empty if query does not have a workload group.
-        if (simple_scan_scheduler) {
-            _scanner_scheduler = simple_scan_scheduler;
-        } else {
-            _scanner_scheduler = _scanner_scheduler_global->get_local_scan_thread_pool();
-        }
+        _scanner_scheduler = _state->get_query_ctx()->get_scan_scheduler();
     } else {
-        // remote_scan_task_scheduler could be empty if query does not have a workload group.
-        if (remote_scan_task_scheduler) {
-            _scanner_scheduler = remote_scan_task_scheduler;
-        } else {
-            _scanner_scheduler = _scanner_scheduler_global->get_remote_scan_thread_pool();
-        }
+        _scanner_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
+    }
+    if (auto* task_executor_scheduler =
+                dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
+        std::shared_ptr<TaskExecutor> task_executor = task_executor_scheduler->task_executor();
+        vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
+        _task_handle = DORIS_TRY(task_executor->create_task(
+                task_id, []() { return 0.0; },
+                config::task_executor_initial_max_concurrency_per_task,
+                std::chrono::milliseconds(100), std::nullopt));
     }
 #endif
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.
@@ -219,6 +208,24 @@ Status ScannerContext::init() {
     RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
 
     return Status::OK();
+}
+
+ScannerContext::~ScannerContext() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+    _tasks_queue.clear();
+    vectorized::BlockUPtr block;
+    while (_free_blocks.try_dequeue(block)) {
+        // do nothing
+    }
+    block.reset();
+    DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
+    if (_task_handle) {
+        if (auto* task_executor_scheduler =
+                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
+            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        }
+        _task_handle = nullptr;
+    }
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
@@ -377,7 +384,8 @@ Status ScannerContext::validate_block_schema(Block* block) {
         auto& data = block->get_by_position(index++);
         if (data.column->is_nullable() != data.type->is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
-                    "column(name: {}) nullable({}) does not match type nullable({}), slot(id: {}, "
+                    "column(name: {}) nullable({}) does not match type nullable({}), slot(id: "
+                    "{}, "
                     "name:{})",
                     data.name, data.column->is_nullable(), data.type->is_nullable(), slot->id(),
                     slot->col_name());
@@ -407,6 +415,13 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         }
     }
     _tasks_queue.clear();
+    if (_task_handle) {
+        if (auto* task_executor_scheduler =
+                    dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
+            static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
+        }
+        _task_handle = nullptr;
+    }
     // TODO yiguolei, call mark close to scanners
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
@@ -508,9 +523,9 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
 // This function must be called with:
 // 1. _transfer_lock held.
 // 2. SimplifiedScanScheduler::_lock held.
-Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
-                                           std::unique_lock<std::mutex>& transfer_lock,
-                                           std::unique_lock<std::shared_mutex>& scheduler_lock) {
+Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
+                                          std::unique_lock<std::mutex>& transfer_lock,
+                                          std::unique_lock<std::shared_mutex>& scheduler_lock) {
     if (current_scan_task &&
         (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos())) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scanner scheduler logical error.");
@@ -609,7 +624,8 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
     if (current_concurrency >= _max_scan_concurrency) {
         VLOG_DEBUG << fmt::format(
-                "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip pull",
+                "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip "
+                "pull",
                 ctx_id, current_concurrency, _max_scan_concurrency);
         return nullptr;
     }

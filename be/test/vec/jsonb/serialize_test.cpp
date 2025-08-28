@@ -59,22 +59,23 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
 void fill_block_with_array_int(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::ColumnArray::Offset64>::create();
-    auto data_column = vectorized::ColumnVector<int32_t>::create();
+    auto off_column = vectorized::ColumnOffset64::create();
+    auto data_column = vectorized::ColumnInt32::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
     std::vector<vectorized::ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
@@ -95,7 +96,7 @@ void fill_block_with_array_int(vectorized::Block& block) {
 }
 
 void fill_block_with_array_string(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::ColumnArray::Offset64>::create();
+    auto off_column = vectorized::ColumnOffset64::create();
     auto data_column = vectorized::ColumnString::create();
     // init column array with [["abc","de"],["fg"],[], [""]];
     std::vector<vectorized::ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
@@ -144,10 +145,9 @@ TEST(BlockSerializeTest, Array) {
     tslot1.__set_colName("k1");
     tslot1.nullIndicatorBit = -1;
     tslot1.nullIndicatorByte = 0;
-    TypeDescriptor type_desc(TYPE_ARRAY);
-    type_desc.children.push_back(TypeDescriptor(TYPE_INT));
-    type_desc.contains_nulls.push_back(true);
-    tslot1.__set_slotType(type_desc.to_thrift());
+    DataTypePtr type_desc = std::make_shared<vectorized::DataTypeArray>(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, true));
+    tslot1.__set_slotType(type_desc->to_thrift());
     tslot1.__set_col_unique_id(1);
     SlotDescriptor* slot = new SlotDescriptor(tslot1);
     read_desc.add_slot(slot);
@@ -157,10 +157,9 @@ TEST(BlockSerializeTest, Array) {
     tslot2.__set_colName("k2");
     tslot2.nullIndicatorBit = -1;
     tslot2.nullIndicatorByte = 0;
-    TypeDescriptor type_desc2(TYPE_ARRAY);
-    type_desc2.children.push_back(TypeDescriptor(TYPE_STRING));
-    type_desc2.contains_nulls.push_back(true);
-    tslot2.__set_slotType(type_desc2.to_thrift());
+    DataTypePtr type_desc2 = std::make_shared<vectorized::DataTypeArray>(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
+    tslot2.__set_slotType(type_desc2->to_thrift());
     tslot2.__set_col_unique_id(2);
     SlotDescriptor* slot2 = new SlotDescriptor(tslot2);
     read_desc.add_slot(slot2);
@@ -176,9 +175,9 @@ TEST(BlockSerializeTest, Array) {
     }
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
-    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
-                                       static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values, {});
+    THROW_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            create_data_type_serdes(read_desc.slots()), static_cast<ColumnString&>(*col.get()),
+            col_uid_to_idx, new_block, default_values, {}));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
@@ -196,29 +195,29 @@ TEST(BlockSerializeTest, Map) {
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
     DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
     Array k1, k2, v1, v2;
-    k1.push_back("null");
-    k1.push_back("doris");
-    k1.push_back("clever amory");
-    v1.push_back("ss");
-    v1.push_back(Null());
-    v1.push_back("NULL");
-    k2.push_back("hello amory");
-    k2.push_back("NULL");
-    k2.push_back("cute amory");
-    k2.push_back("doris");
-    v2.push_back("s");
-    v2.push_back("0");
-    v2.push_back("sf");
-    v2.push_back(Null());
+    k1.push_back(Field::create_field<TYPE_STRING>("null"));
+    k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+    k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+    v1.push_back(Field::create_field<TYPE_STRING>("ss"));
+    v1.push_back(Field());
+    v1.push_back(Field::create_field<TYPE_STRING>("NULL"));
+    k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+    k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+    k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+    k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+    v2.push_back(Field::create_field<TYPE_STRING>("s"));
+    v2.push_back(Field::create_field<TYPE_STRING>("0"));
+    v2.push_back(Field::create_field<TYPE_STRING>("sf"));
+    v2.push_back(Field());
     Map m1, m2;
-    m1.push_back(k1);
-    m1.push_back(v1);
-    m2.push_back(k2);
-    m2.push_back(v2);
+    m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+    m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+    m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+    m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
     MutableColumnPtr map_column = m->create_column();
     map_column->reserve(2);
-    map_column->insert(m1);
-    map_column->insert(m2);
+    map_column->insert(Field::create_field<TYPE_MAP>(m1));
+    map_column->insert(Field::create_field<TYPE_MAP>(m2));
     vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, "test_map");
     vectorized::Block block;
     block.insert(type_and_name);
@@ -236,13 +235,14 @@ TEST(BlockSerializeTest, Map) {
     tslot.__set_colName("m");
     tslot.nullIndicatorBit = -1;
     tslot.nullIndicatorByte = 0;
-    TypeDescriptor type_desc(TYPE_MAP);
-    type_desc.children.push_back(TypeDescriptor(TYPE_STRING));
-    type_desc.children.push_back(TypeDescriptor(TYPE_INT));
-    type_desc.contains_nulls.push_back(true);
-    type_desc.contains_nulls.push_back(true);
+    DataTypes sub_types;
+    sub_types.reserve(2);
+    sub_types.push_back(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
+    sub_types.push_back(vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, true));
+    DataTypePtr type_desc = std::make_shared<vectorized::DataTypeMap>(sub_types[0], sub_types[1]);
     tslot.__set_col_unique_id(1);
-    tslot.__set_slotType(type_desc.to_thrift());
+    tslot.__set_slotType(type_desc->to_thrift());
     SlotDescriptor* slot = new SlotDescriptor(tslot);
     read_desc.add_slot(slot);
 
@@ -258,9 +258,9 @@ TEST(BlockSerializeTest, Map) {
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     std::cout << "deserialize from jsonb" << std::endl;
-    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
-                                       static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values, {});
+    THROW_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            create_data_type_serdes(read_desc.slots()), static_cast<ColumnString&>(*col.get()),
+            col_uid_to_idx, new_block, default_values, {}));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
@@ -294,16 +294,16 @@ TEST(BlockSerializeTest, Struct) {
         DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
         DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
         Tuple t1, t2;
-        t1.push_back(Field(String("amory cute")));
-        t1.push_back(__int128_t(37));
-        t1.push_back(true);
-        t2.push_back("null");
-        t2.push_back(__int128_t(26));
-        t2.push_back(false);
+        t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
+        t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+        t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+        t2.push_back(Field::create_field<TYPE_STRING>("null"));
+        t2.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+        t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
         MutableColumnPtr struct_column = st->create_column();
         struct_column->reserve(2);
-        struct_column->insert(t1);
-        struct_column->insert(t2);
+        struct_column->insert(Field::create_field<TYPE_STRUCT>(t1));
+        struct_column->insert(Field::create_field<TYPE_STRUCT>(t2));
         vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st,
                                                         "test_struct");
         block.insert(type_and_name);
@@ -322,12 +322,22 @@ TEST(BlockSerializeTest, Struct) {
     tslot.__set_colName("struct");
     tslot.nullIndicatorBit = -1;
     tslot.nullIndicatorByte = 0;
-    TypeDescriptor type_desc(TYPE_STRUCT);
-    type_desc.add_sub_type(TYPE_STRING, "name", true);
-    type_desc.add_sub_type(TYPE_LARGEINT, "age", true);
-    type_desc.add_sub_type(TYPE_BOOLEAN, "is", true);
+    DataTypes sub_types;
+    Strings names;
+    sub_types.reserve(3);
+    names.reserve(3);
+    sub_types.push_back(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
+    names.push_back("name");
+    sub_types.push_back(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, true));
+    names.push_back("age");
+    sub_types.push_back(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_BOOLEAN, true));
+    names.push_back("is");
+    DataTypePtr type_desc = std::make_shared<DataTypeStruct>(sub_types, names);
     tslot.__set_col_unique_id(1);
-    tslot.__set_slotType(type_desc.to_thrift());
+    tslot.__set_slotType(type_desc->to_thrift());
     SlotDescriptor* slot = new SlotDescriptor(tslot);
     read_desc.add_slot(slot);
 
@@ -343,9 +353,9 @@ TEST(BlockSerializeTest, Struct) {
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     std::cout << "deserialize from jsonb" << std::endl;
-    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
-                                       static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values, {});
+    THROW_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            create_data_type_serdes(read_desc.slots()), static_cast<ColumnString&>(*col.get()),
+            col_uid_to_idx, new_block, default_values, {}));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
@@ -358,7 +368,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
             {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT},
             {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING},
             {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I},
-            {"v1", FieldType::OLAP_FIELD_TYPE_OBJECT, 7, TYPE_OBJECT},
+            {"v1", FieldType::OLAP_FIELD_TYPE_BITMAP, 7, TYPE_BITMAP},
             {"v2", FieldType::OLAP_FIELD_TYPE_HLL, 8, TYPE_HLL},
             {"k4", FieldType::OLAP_FIELD_TYPE_STRING, 4, TYPE_STRING},
             {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 5, TYPE_DECIMAL128I},
@@ -373,7 +383,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     // int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -398,9 +408,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                              decimal_column.get())
-                             ->get_data();
+        auto& data = ((vectorized::ColumnDecimal128V2*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
@@ -466,11 +474,12 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     // int with 1024 batch size
     {
-        auto column_vector_int32 = vectorized::ColumnVector<Int32>::create();
+        auto column_vector_int32 = vectorized::ColumnInt32::create();
         auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
         auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
         for (int i = 0; i < 1024; i++) {
-            mutable_nullable_vector->insert(vectorized::cast_to_nearest_field_type(i));
+            mutable_nullable_vector->insert(
+                    Field::create_field<TYPE_INT>(vectorized::cast_to_nearest_field_type(i)));
         }
         auto data_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt32>());
         vectorized::ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),
@@ -479,7 +488,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     // fill with datev2
     {
-        auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
+        auto column_vector_date_v2 = vectorized::ColumnDateV2::create();
         auto& date_v2_data = column_vector_date_v2->get_data();
         for (int i = 0; i < 1024; ++i) {
             DateV2Value<DateV2ValueType> value;
@@ -502,13 +511,13 @@ TEST(BlockSerializeTest, JsonbBlock) {
         TSlotDescriptor tslot;
         tslot.__set_colName(std::get<0>(t));
         if (std::get<3>(t) == TYPE_DECIMAL128I) {
-            TypeDescriptor type_desc(std::get<3>(t));
-            type_desc.precision = 27;
-            type_desc.scale = 9;
-            tslot.__set_slotType(type_desc.to_thrift());
+            auto type_desc = vectorized::DataTypeFactory::instance().create_data_type(
+                    std::get<3>(t), false, 27, 9);
+            tslot.__set_slotType(type_desc->to_thrift());
         } else {
-            TypeDescriptor type_desc(std::get<3>(t));
-            tslot.__set_slotType(type_desc.to_thrift());
+            auto type_desc =
+                    vectorized::DataTypeFactory::instance().create_data_type(std::get<3>(t), false);
+            tslot.__set_slotType(type_desc->to_thrift());
         }
         tslot.__set_col_unique_id(std::get<2>(t));
         SlotDescriptor* slot = new SlotDescriptor(tslot);
@@ -521,9 +530,10 @@ TEST(BlockSerializeTest, JsonbBlock) {
     for (int i = 0; i < read_desc.slots().size(); ++i) {
         col_uid_to_idx[read_desc.slots()[i]->col_unique_id()] = i;
     }
-    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(block.get_data_types()),
-                                       static_cast<const ColumnString&>(*col.get()), col_uid_to_idx,
-                                       new_block, default_values, {});
+    THROW_IF_ERROR(
+            JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(block.get_data_types()),
+                                               static_cast<const ColumnString&>(*col.get()),
+                                               col_uid_to_idx, new_block, default_values, {}));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());

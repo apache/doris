@@ -21,6 +21,7 @@
 #include "util/bit_util.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/function_string.h"
+#include "vec/utils/stringop_substring.h"
 
 namespace doris {
 
@@ -41,7 +42,7 @@ private:
 
 public:
     static std::unique_ptr<PartitionColumnTransform> create(
-            const doris::iceberg::PartitionField& field, const TypeDescriptor& source_type);
+            const doris::iceberg::PartitionField& field, const DataTypePtr& source_type);
 };
 
 class PartitionColumnTransformUtils {
@@ -107,24 +108,22 @@ public:
 
     virtual std::string name() const;
 
-    virtual const TypeDescriptor& get_result_type() const = 0;
+    virtual DataTypePtr get_result_type() const = 0;
 
     virtual ColumnWithTypeAndName apply(const Block& block, int column_pos) = 0;
 
-    virtual std::string to_human_string(const TypeDescriptor& type, const std::any& value) const;
+    virtual std::string to_human_string(const DataTypePtr type, const std::any& value) const;
 
-    virtual std::string get_partition_value(const TypeDescriptor& type,
-                                            const std::any& value) const;
+    virtual std::string get_partition_value(const DataTypePtr type, const std::any& value) const;
 };
 
 class IdentityPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    IdentityPartitionColumnTransform(const TypeDescriptor& source_type)
-            : _source_type(source_type) {}
+    IdentityPartitionColumnTransform(const DataTypePtr source_type) : _source_type(source_type) {}
 
     std::string name() const override { return "Identity"; }
 
-    const TypeDescriptor& get_result_type() const override { return _source_type; }
+    DataTypePtr get_result_type() const override { return _source_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
@@ -133,17 +132,17 @@ public:
     }
 
 private:
-    TypeDescriptor _source_type;
+    DataTypePtr _source_type;
 };
 
 class StringTruncatePartitionColumnTransform : public PartitionColumnTransform {
 public:
-    StringTruncatePartitionColumnTransform(const TypeDescriptor& source_type, int width)
+    StringTruncatePartitionColumnTransform(const DataTypePtr source_type, int width)
             : _source_type(source_type), _width(width) {}
 
     std::string name() const override { return "StringTruncate"; }
 
-    const TypeDescriptor& get_result_type() const override { return _source_type; }
+    DataTypePtr get_result_type() const override { return _source_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         static_cast<void>(_width);
@@ -166,10 +165,11 @@ public:
         // Create a temp_block to execute substring function.
         Block temp_block;
         temp_block.insert(column_with_type_and_name);
-        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field(1)), int_type,
-                           "const 1"});
-        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field(_width)),
-                           int_type, fmt::format("const {}", _width)});
+        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field<TYPE_INT>(1)),
+                           int_type, "const 1"});
+        temp_block.insert(
+                {int_type->create_column_const(temp_block.rows(), to_field<TYPE_INT>(_width)),
+                 int_type, fmt::format("const {}", _width)});
         temp_block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
         ColumnNumbers temp_arguments(3);
         temp_arguments[0] = 0; // str column
@@ -182,30 +182,28 @@ public:
         if (is_nullable) {
             auto res_column = ColumnNullable::create(
                     temp_block.get_by_position(result_column_id).column, null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
             auto res_column = temp_block.get_by_position(result_column_id).column;
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(res_column), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
 private:
-    TypeDescriptor _source_type;
+    DataTypePtr _source_type;
     int _width;
 };
 
 class IntegerTruncatePartitionColumnTransform : public PartitionColumnTransform {
 public:
-    IntegerTruncatePartitionColumnTransform(const TypeDescriptor& source_type, int width)
+    IntegerTruncatePartitionColumnTransform(const DataTypePtr source_type, int width)
             : _source_type(source_type), _width(width) {}
 
     std::string name() const override { return "IntegerTruncate"; }
 
-    const TypeDescriptor& get_result_type() const override { return _source_type; }
+    DataTypePtr get_result_type() const override { return _source_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -242,29 +240,27 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column,
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
 private:
-    TypeDescriptor _source_type;
+    DataTypePtr _source_type;
     int _width;
 };
 
 class BigintTruncatePartitionColumnTransform : public PartitionColumnTransform {
 public:
-    BigintTruncatePartitionColumnTransform(const TypeDescriptor& source_type, int width)
+    BigintTruncatePartitionColumnTransform(const DataTypePtr source_type, int width)
             : _source_type(source_type), _width(width) {}
 
     std::string name() const override { return "BigintTruncate"; }
 
-    const TypeDescriptor& get_result_type() const override { return _source_type; }
+    DataTypePtr get_result_type() const override { return _source_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -301,30 +297,29 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column,
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
 private:
-    TypeDescriptor _source_type;
+    DataTypePtr _source_type;
     int _width;
 };
 
-template <typename T>
+template <PrimitiveType PT>
 class DecimalTruncatePartitionColumnTransform : public PartitionColumnTransform {
 public:
-    DecimalTruncatePartitionColumnTransform(const TypeDescriptor& source_type, int width)
+    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
+    DecimalTruncatePartitionColumnTransform(const DataTypePtr source_type, int width)
             : _source_type(source_type), _width(width) {}
 
     std::string name() const override { return "DecimalTruncate"; }
 
-    const TypeDescriptor& get_result_type() const override { return _source_type; }
+    DataTypePtr get_result_type() const override { return _source_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
@@ -342,10 +337,10 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(column_ptr.get());
+        const auto* const decimal_col = check_and_get_column<ColumnDecimal<PT>>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
-        auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
+        auto col_res = ColumnDecimal<PT>::create(vec_src.size(), decimal_col->get_scale());
         auto& vec_res = col_res->get_data();
 
         const typename T::NativeType* __restrict p_in =
@@ -363,29 +358,28 @@ public:
 
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {res_column,
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
 private:
-    TypeDescriptor _source_type;
+    DataTypePtr _source_type;
     int _width;
 };
 
 class IntBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    IntBucketPartitionColumnTransform(const TypeDescriptor& source_type, int bucket_num)
-            : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
+    IntBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
+            : _bucket_num(bucket_num),
+              _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "IntBucket"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -425,30 +419,28 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
 private:
-    TypeDescriptor _source_type;
     int _bucket_num;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class BigintBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    BigintBucketPartitionColumnTransform(const TypeDescriptor& source_type, int bucket_num)
-            : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
+    BigintBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
+            : _bucket_num(bucket_num),
+              _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "BigintBucket"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -488,31 +480,30 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
 private:
-    TypeDescriptor _source_type;
     int _bucket_num;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
-template <typename T>
+template <PrimitiveType PT>
 class DecimalBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    DecimalBucketPartitionColumnTransform(const TypeDescriptor& source_type, int bucket_num)
-            : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
+    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
+    DecimalBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
+            : _bucket_num(bucket_num),
+              _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "DecimalBucket"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -530,7 +521,7 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto& in_data = assert_cast<const ColumnDecimal<T>*>(column_ptr.get())->get_data();
+        const auto& in_data = assert_cast<const ColumnDecimal<PT>*>(column_ptr.get())->get_data();
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
@@ -555,22 +546,19 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+    std::string to_human_string(const DataTypePtr type, const std::any& value) const override {
         return get_partition_value(type, value);
     }
 
-    std::string get_partition_value(const TypeDescriptor& type,
-                                    const std::any& value) const override {
+    std::string get_partition_value(const DataTypePtr type, const std::any& value) const override {
         if (value.has_value()) {
             return std::to_string(std::any_cast<Int32>(value));
         } else {
@@ -579,19 +567,19 @@ public:
     }
 
 private:
-    TypeDescriptor _source_type;
     int _bucket_num;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class DateBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    DateBucketPartitionColumnTransform(const TypeDescriptor& source_type, int bucket_num)
-            : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
+    DateBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
+            : _bucket_num(bucket_num),
+              _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "DateBucket"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -636,30 +624,28 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
 private:
-    TypeDescriptor _source_type;
     int _bucket_num;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class TimestampBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    TimestampBucketPartitionColumnTransform(const TypeDescriptor& source_type, int bucket_num)
-            : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
+    TimestampBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
+            : _bucket_num(bucket_num),
+              _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "TimestampBucket"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -708,39 +694,36 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+    std::string to_human_string(const DataTypePtr type, const std::any& value) const override {
         if (value.has_value()) {
             return std::to_string(std::any_cast<Int32>(value));
-            ;
         } else {
             return "null";
         }
     }
 
 private:
-    TypeDescriptor _source_type;
     int _bucket_num;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class StringBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    StringBucketPartitionColumnTransform(const TypeDescriptor& source_type, int bucket_num)
-            : _source_type(source_type), _bucket_num(bucket_num), _target_type(TYPE_INT) {}
+    StringBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
+            : _bucket_num(bucket_num),
+              _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "StringBucket"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -782,30 +765,27 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
 private:
-    TypeDescriptor _source_type;
     int _bucket_num;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class DateYearPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    DateYearPartitionColumnTransform(const TypeDescriptor& source_type)
-            : _source_type(source_type), _target_type(TYPE_INT) {}
+    DateYearPartitionColumnTransform(const DataTypePtr source_type)
+            : _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "DateYear"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -847,17 +827,15 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+    std::string to_human_string(const DataTypePtr type, const std::any& value) const override {
         if (value.has_value()) {
             return PartitionColumnTransformUtils::human_year(std::any_cast<Int32>(value));
         } else {
@@ -866,18 +844,17 @@ public:
     }
 
 private:
-    TypeDescriptor _source_type;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class TimestampYearPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    TimestampYearPartitionColumnTransform(const TypeDescriptor& source_type)
-            : _source_type(source_type), _target_type(TYPE_INT) {}
+    TimestampYearPartitionColumnTransform(const DataTypePtr source_type)
+            : _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "TimestampYear"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -919,17 +896,15 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+    std::string to_human_string(const DataTypePtr type, const std::any& value) const override {
         if (value.has_value()) {
             return PartitionColumnTransformUtils::human_year(std::any_cast<Int32>(value));
         } else {
@@ -938,18 +913,17 @@ public:
     }
 
 private:
-    TypeDescriptor _source_type;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class DateMonthPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    DateMonthPartitionColumnTransform(const TypeDescriptor& source_type)
-            : _source_type(source_type), _target_type(TYPE_INT) {}
+    DateMonthPartitionColumnTransform(const DataTypePtr source_type)
+            : _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "DateMonth"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -991,17 +965,15 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+    std::string to_human_string(const DataTypePtr type, const std::any& value) const override {
         if (value.has_value()) {
             return PartitionColumnTransformUtils::human_month(std::any_cast<Int32>(value));
         } else {
@@ -1010,18 +982,17 @@ public:
     }
 
 private:
-    TypeDescriptor _source_type;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class TimestampMonthPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    TimestampMonthPartitionColumnTransform(const TypeDescriptor& source_type)
-            : _source_type(source_type), _target_type(TYPE_INT) {}
+    TimestampMonthPartitionColumnTransform(const DataTypePtr source_type)
+            : _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "TimestampMonth"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -1063,17 +1034,15 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+    std::string to_human_string(const DataTypePtr type, const std::any& value) const override {
         if (value.has_value()) {
             return PartitionColumnTransformUtils::human_month(std::any_cast<Int32>(value));
         } else {
@@ -1082,18 +1051,17 @@ public:
     }
 
 private:
-    TypeDescriptor _source_type;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class DateDayPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    DateDayPartitionColumnTransform(const TypeDescriptor& source_type)
-            : _source_type(source_type), _target_type(TYPE_INT) {}
+    DateDayPartitionColumnTransform(const DataTypePtr source_type)
+            : _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "DateDay"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -1135,22 +1103,19 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+    std::string to_human_string(const DataTypePtr type, const std::any& value) const override {
         return get_partition_value(type, value);
     }
 
-    std::string get_partition_value(const TypeDescriptor& type,
-                                    const std::any& value) const override {
+    std::string get_partition_value(const DataTypePtr type, const std::any& value) const override {
         if (value.has_value()) {
             int day_value = std::any_cast<Int32>(value);
             return PartitionColumnTransformUtils::human_day(day_value);
@@ -1160,18 +1125,17 @@ public:
     }
 
 private:
-    TypeDescriptor _source_type;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class TimestampDayPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    TimestampDayPartitionColumnTransform(const TypeDescriptor& source_type)
-            : _source_type(source_type), _target_type(TYPE_INT) {}
+    TimestampDayPartitionColumnTransform(const DataTypePtr source_type)
+            : _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "TimestampDay"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -1213,22 +1177,19 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+    std::string to_human_string(const DataTypePtr type, const std::any& value) const override {
         return get_partition_value(type, value);
     }
 
-    std::string get_partition_value(const TypeDescriptor& type,
-                                    const std::any& value) const override {
+    std::string get_partition_value(const DataTypePtr type, const std::any& value) const override {
         if (value.has_value()) {
             return PartitionColumnTransformUtils::human_day(std::any_cast<Int32>(value));
         } else {
@@ -1237,18 +1198,17 @@ public:
     }
 
 private:
-    TypeDescriptor _source_type;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class TimestampHourPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    TimestampHourPartitionColumnTransform(const TypeDescriptor& source_type)
-            : _source_type(source_type), _target_type(TYPE_INT) {}
+    TimestampHourPartitionColumnTransform(const DataTypePtr source_type)
+            : _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
 
     std::string name() const override { return "TimestampHour"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
@@ -1290,17 +1250,15 @@ public:
         //4) create the partition column and return
         if (is_nullable) {
             auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-            return {std::move(res_column),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+            return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
-            return {std::move(col_res),
-                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+            return {std::move(col_res), remove_nullable(get_result_type()),
                     column_with_type_and_name.name};
         }
     }
 
-    std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
+    std::string to_human_string(const DataTypePtr type, const std::any& value) const override {
         if (value.has_value()) {
             return PartitionColumnTransformUtils::human_hour(std::any_cast<Int32>(value));
         } else {
@@ -1309,18 +1267,16 @@ public:
     }
 
 private:
-    TypeDescriptor _source_type;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 class VoidPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    VoidPartitionColumnTransform(const TypeDescriptor& source_type)
-            : _source_type(source_type), _target_type(source_type) {}
+    VoidPartitionColumnTransform(const DataTypePtr source_type) : _target_type(source_type) {}
 
     std::string name() const override { return "Void"; }
 
-    const TypeDescriptor& get_result_type() const override { return _target_type; }
+    DataTypePtr get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
@@ -1336,14 +1292,12 @@ public:
         }
         auto res_column = ColumnNullable::create(std::move(column_ptr),
                                                  ColumnUInt8::create(column_ptr->size(), 1));
-        return {std::move(res_column),
-                DataTypeFactory::instance().create_data_type(get_result_type(), true),
+        return {std::move(res_column), make_nullable(get_result_type()),
                 column_with_type_and_name.name};
     }
 
 private:
-    TypeDescriptor _source_type;
-    TypeDescriptor _target_type;
+    DataTypePtr _target_type;
 };
 
 } // namespace vectorized

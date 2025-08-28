@@ -146,8 +146,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalSubQueryAlias that = (LogicalSubQueryAlias) o;
-        return qualifier.equals(that.qualifier) && this.child().equals(that.child());
+        LogicalSubQueryAlias<?> that = (LogicalSubQueryAlias) o;
+        return qualifier.equals(that.qualifier);
     }
 
     @Override

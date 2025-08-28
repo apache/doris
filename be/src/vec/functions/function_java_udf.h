@@ -59,7 +59,6 @@ protected:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
 
 private:
     execute_call_back callback_function;
@@ -144,7 +143,9 @@ private:
                 return status;
             }
             env->CallNonvirtualVoidMethodA(executor, executor_cl, executor_close_id, nullptr);
+            RETURN_ERROR_IF_EXC(env);
             env->DeleteGlobalRef(executor);
+            RETURN_ERROR_IF_EXC(env);
             env->DeleteGlobalRef(executor_cl);
             RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
             is_closed = true;

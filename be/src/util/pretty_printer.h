@@ -186,7 +186,8 @@ public:
 
     /// Convenience method
     static std::string print_bytes(int64_t value) {
-        return PrettyPrinter::print(value, TUnit::BYTES);
+        return value >= 0 ? PrettyPrinter::print(value, TUnit::BYTES)
+                          : "-" + PrettyPrinter::print(std::abs(value), TUnit::BYTES);
     }
 
 private:

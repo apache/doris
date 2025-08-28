@@ -26,6 +26,7 @@ struct TCounter {
   2: required Metrics.TUnit type
   3: required i64 value 
   4: optional i64 level
+  5: optional string description
 }
 
 // A single runtime profile
@@ -54,7 +55,8 @@ struct TRuntimeProfileNode {
 
   9: required i64 timestamp
 
-  10: optional bool is_sink
+  // Deprecated.
+  10: optional bool deprecated_is_sink 
 }
 
 // A flattened tree of runtime profiles, obtained by an

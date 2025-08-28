@@ -40,8 +40,8 @@
 #include "util/pretty_printer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h" // variant column
 #include "vec/core/block.h"
@@ -93,7 +93,7 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
     std::vector<int> variant_column_pos;
     for (int i = 0; i < block.columns(); ++i) {
         const auto& entry = block.get_by_position(i);
-        if (vectorized::is_variant_type(remove_nullable(entry.type))) {
+        if (entry.type->get_primitive_type() == TYPE_VARIANT) {
             variant_column_pos.push_back(i);
         }
     }
@@ -111,12 +111,6 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
 
 Status SegmentFlusher::close() {
     return _seg_files.close();
-}
-
-bool SegmentFlusher::need_buffering() {
-    // buffering variants for schema change
-    return _context.write_type == DataWriteType::TYPE_SCHEMA_CHANGE &&
-           _context.tablet_schema->num_variant_columns() > 0;
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
@@ -141,10 +135,9 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     io::FileWriterPtr segment_file_writer;
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
-    InvertedIndexFileWriterPtr inverted_index_file_writer;
+    IndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index()) {
-        RETURN_IF_ERROR(
-                _context.file_writer_creator->create(segment_id, &inverted_index_file_writer));
+        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
     }
 
     segment_v2::SegmentWriterOptions writer_options;
@@ -159,10 +152,10 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
 
     writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, inverted_index_file_writer.get());
+            _context.data_dir, writer_options, index_file_writer.get());
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     if (_context.tablet_schema->has_inverted_index()) {
-        RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(inverted_index_file_writer)));
+        RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
     }
     auto s = writer->init();
     if (!s.ok()) {
@@ -179,10 +172,9 @@ Status SegmentFlusher::_create_segment_writer(
     io::FileWriterPtr segment_file_writer;
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
-    InvertedIndexFileWriterPtr inverted_index_file_writer;
+    IndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index()) {
-        RETURN_IF_ERROR(
-                _context.file_writer_creator->create(segment_id, &inverted_index_file_writer));
+        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
     }
 
     segment_v2::VerticalSegmentWriterOptions writer_options;
@@ -196,10 +188,10 @@ Status SegmentFlusher::_create_segment_writer(
 
     writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, inverted_index_file_writer.get());
+            _context.data_dir, writer_options, index_file_writer.get());
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     if (_context.tablet_schema->has_inverted_index()) {
-        RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(inverted_index_file_writer)));
+        RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
     }
     auto s = writer->init();
     if (!s.ok()) {
@@ -358,18 +350,6 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
-    if (_segment_flusher.need_buffering()) {
-        RETURN_IF_ERROR(_buffer_block.merge(*block));
-        if (_buffer_block.allocated_bytes() > config::write_buffer_size) {
-            LOG(INFO) << "directly flush a single block " << _buffer_block.rows() << " rows"
-                      << ", block size " << _buffer_block.bytes() << " block allocated_size "
-                      << _buffer_block.allocated_bytes();
-            vectorized::Block block = _buffer_block.to_block();
-            RETURN_IF_ERROR(flush_single_block(&block));
-            _buffer_block.clear();
-        }
-        return Status::OK();
-    }
 
     if (_flush_writer == nullptr) {
         RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
@@ -393,14 +373,6 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
 }
 
 Status SegmentCreator::flush() {
-    if (_buffer_block.rows() > 0) {
-        vectorized::Block block = _buffer_block.to_block();
-        LOG(INFO) << "directly flush a single block " << block.rows() << " rows"
-                  << ", block size " << block.bytes() << " block allocated_size "
-                  << block.allocated_bytes();
-        RETURN_IF_ERROR(flush_single_block(&block));
-        _buffer_block.clear();
-    }
     if (_flush_writer == nullptr) {
         return Status::OK();
     }

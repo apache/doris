@@ -60,8 +60,8 @@ public:
         return Status::OK();
     }
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
+    Status prepare(RuntimeState* state) override {
+        RETURN_IF_ERROR(Base::prepare(state));
         RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }

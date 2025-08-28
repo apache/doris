@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -183,7 +182,7 @@ public class SchemaTable extends Table {
                                     .column("COLUMN_KEY", ScalarType.createVarchar(3))
                                     .column("EXTRA", ScalarType.createVarchar(27))
                                     .column("PRIVILEGES", ScalarType.createVarchar(80))
-                                    .column("COLUMN_COMMENT", ScalarType.createVarchar(255))
+                                    .column("COLUMN_COMMENT", ScalarType.createVarchar(1024))
                                     .column("COLUMN_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("DECIMAL_DIGITS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("GENERATION_EXPRESSION", ScalarType.createVarchar(64))
@@ -297,7 +296,8 @@ public class SchemaTable extends Table {
                                     .column("EXTRA", ScalarType.createVarchar(256)).build()))
             .put("partitions",
                     new SchemaTable(SystemIdGenerator.getNextId(), "partitions", TableType.SCHEMA,
-                            builder().column("TABLE_CATALOG", ScalarType.createVarchar(64))
+                            builder().column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_CATALOG", ScalarType.createVarchar(64))
                                     .column("TABLE_SCHEMA", ScalarType.createVarchar(64))
                                     .column("TABLE_NAME", ScalarType.createVarchar(64))
                                     .column("PARTITION_NAME", ScalarType.createVarchar(64))
@@ -322,7 +322,23 @@ public class SchemaTable extends Table {
                                     .column("CHECKSUM", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("PARTITION_COMMENT", ScalarType.createStringType())
                                     .column("NODEGROUP", ScalarType.createVarchar(256))
-                                    .column("TABLESPACE_NAME", ScalarType.createVarchar(268)).build()))
+                                    .column("TABLESPACE_NAME", ScalarType.createVarchar(268))
+                                    .column("LOCAL_DATA_SIZE", ScalarType.createStringType())
+                                    .column("REMOTE_DATA_SIZE", ScalarType.createStringType())
+                                    .column("STATE", ScalarType.createStringType())
+                                    .column("REPLICA_ALLOCATION", ScalarType.createStringType())
+                                    .column("REPLICA_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("STORAGE_POLICY", ScalarType.createStringType())
+                                    .column("STORAGE_MEDIUM", ScalarType.createStringType())
+                                    .column("COOLDOWN_TIME_MS", ScalarType.createStringType())
+                                    .column("LAST_CONSISTENCY_CHECK_TIME", ScalarType.createStringType())
+                                    .column("BUCKET_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("COMMITTED_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("VISIBLE_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("PARTITION_KEY", ScalarType.createStringType())
+                                    .column("RANGE", ScalarType.createStringType())
+                                    .column("DISTRIBUTION", ScalarType.createStringType())
+                                    .build()))
             // Compatible with Datagrip
             .put("column_privileges",
                     new SchemaTable(SystemIdGenerator.getNextId(), "column_privileges", TableType.SCHEMA,
@@ -419,7 +435,7 @@ public class SchemaTable extends Table {
                             .column("DATA_TYPEDTD_IDENDS", ScalarType.createVarchar(64))
                             .build()))
             .put("metadata_name_ids", new SchemaTable(SystemIdGenerator.getNextId(),
-                        "metadata_name_ids", TableType.SCHEMA,
+                    "metadata_name_ids", TableType.SCHEMA,
                     builder().column("CATALOG_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("CATALOG_NAME", ScalarType.createVarchar(FN_REFLEN))
                             .column("DATABASE_ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -461,7 +477,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("QUERY_TYPE",  ScalarType.createVarchar(256))
+                                    .column("QUERY_TYPE", ScalarType.createVarchar(256))
                                     .column("SPILL_WRITE_BYTES_TO_LOCAL_STORAGE",
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SPILL_READ_BYTES_FROM_LOCAL_STORAGE",
@@ -494,27 +510,37 @@ public class SchemaTable extends Table {
                             .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MEMORY_LOW_WATERMARK", ScalarType.createVarchar(256))
                             .column("MEMORY_HIGH_WATERMARK", ScalarType.createVarchar(256))
-                            .column("TAG", ScalarType.createVarchar(256))
+                            .column("COMPUTE_GROUP", ScalarType.createVarchar(256))
                             .column("READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("REMOTE_READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
+            .put("backend_configuration",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_configuration", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CONFIG_NAME", ScalarType.createStringType())
+                                    .column("CONFIG_TYPE", ScalarType.createStringType())
+                                    .column("CONFIG_VALUE", ScalarType.createStringType())
+                                    .column("IS_MUTABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .build()))
             .put("processlist",
+                    // ATTN, the column name should be compatible with MySQL
+                    // See: https://dev.mysql.com/doc/refman/8.4/en/show-processlist.html
                     new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
-                            builder().column("CURRENT_CONNECTED", ScalarType.createVarchar(16))
-                                    .column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
-                                    .column("USER", ScalarType.createVarchar(32))
-                                    .column("HOST", ScalarType.createVarchar(261))
-                                    .column("LOGIN_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
-                                    .column("CATALOG", ScalarType.createVarchar(64))
-                                    .column("DB", ScalarType.createVarchar(64))
-                                    .column("COMMAND", ScalarType.createVarchar(16))
-                                    .column("TIME", ScalarType.createType(PrimitiveType.INT))
-                                    .column("STATE", ScalarType.createVarchar(64))
-                                    .column("QUERY_ID", ScalarType.createVarchar(256))
-                                    .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
-                                    .column("FE",
-                                            ScalarType.createVarchar(64))
-                                    .column("CLOUD_CLUSTER", ScalarType.createVarchar(64)).build(), true))
+                            builder().column("CurrentConnected", ScalarType.createVarchar(16))
+                                    .column("Id", ScalarType.createType(PrimitiveType.LARGEINT))
+                                    .column("User", ScalarType.createVarchar(32))
+                                    .column("Host", ScalarType.createVarchar(261))
+                                    .column("LoginTime", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("Catalog", ScalarType.createVarchar(64))
+                                    .column("Db", ScalarType.createVarchar(64))
+                                    .column("Command", ScalarType.createVarchar(16))
+                                    .column("Time", ScalarType.createType(PrimitiveType.INT))
+                                    .column("State", ScalarType.createVarchar(64))
+                                    .column("QueryId", ScalarType.createVarchar(256))
+                                    .column("TraceId", ScalarType.createVarchar(256))
+                                    .column("Info", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
+                                    .column("FE", ScalarType.createVarchar(64))
+                                    .column("CloudCluster", ScalarType.createVarchar(64)).build(), true))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -597,6 +623,77 @@ public class SchemaTable extends Table {
                                     .column("REFRESH_INTERVAL_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
+            .put("routine_load_jobs",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_jobs", TableType.SCHEMA,
+                            builder().column("JOB_ID", ScalarType.createStringType())
+                                    .column("JOB_NAME", ScalarType.createStringType())
+                                    .column("CREATE_TIME", ScalarType.createStringType())
+                                    .column("PAUSE_TIME", ScalarType.createStringType())
+                                    .column("END_TIME", ScalarType.createStringType())
+                                    .column("DB_NAME", ScalarType.createStringType())
+                                    .column("TABLE_NAME", ScalarType.createStringType())
+                                    .column("STATE", ScalarType.createStringType())
+                                    .column("CURRENT_TASK_NUM", ScalarType.createStringType())
+                                    .column("JOB_PROPERTIES", ScalarType.createStringType())
+                                    .column("DATA_SOURCE_PROPERTIES", ScalarType.createStringType())
+                                    .column("CUSTOM_PROPERTIES", ScalarType.createStringType())
+                                    .column("STATISTIC", ScalarType.createStringType())
+                                    .column("PROGRESS", ScalarType.createStringType())
+                                    .column("LAG", ScalarType.createStringType())
+                                    .column("REASON_OF_STATE_CHANGED", ScalarType.createStringType())
+                                    .column("ERROR_LOG_URLS", ScalarType.createStringType())
+                                    .column("USER_NAME", ScalarType.createStringType())
+                                    .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .build())
+            )
+            .put("backend_tablets", new SchemaTable(SystemIdGenerator.getNextId(), "backend_tablets", TableType.SCHEMA,
+                    builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("REPLICA_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_PATH", ScalarType.createStringType())
+                            .column("TABLET_LOCAL_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_REMOTE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("VERSION_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("SEGMENT_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("NUM_COLUMNS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("ROW_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("COMPACTION_SCORE", ScalarType.createType(PrimitiveType.INT))
+                            .column("COMPRESS_KIND", ScalarType.createStringType())
+                            .column("IS_USED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("IS_ALTER_FAILED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("CREATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("UPDATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("IS_OVERLAP", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .build())
+            )
+            .put("view_dependency",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "view_dependency", TableType.SCHEMA,
+                        builder().column("VIEW_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("VIEW_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("VIEW_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("VIEW_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("REF_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .build())
+            )
+            .put("encryption_keys",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "encryption_keys", TableType.SCHEMA,
+                        builder().column("ID", ScalarType.createStringType())
+                            .column("VERSION", ScalarType.createType(PrimitiveType.INT))
+                            .column("PARENT_ID", ScalarType.createStringType())
+                            .column("PARENT_VERSION", ScalarType.createType(PrimitiveType.INT))
+                            .column("TYPE", ScalarType.createStringType())
+                            .column("ALGORITHM", ScalarType.createStringType())
+                            .column("CIPHER", ScalarType.createStringType())
+                            .column("IV", ScalarType.createStringType())
+                            .column("CRC", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("CTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                            .column("MTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                            .build()))
             .build();
 
     private boolean fetchAllFe = false;
@@ -613,10 +710,6 @@ public class SchemaTable extends Table {
     @Override
     public void write(DataOutput out) throws IOException {
         throw new UnsupportedOperationException("Do not allow to write SchemaTable to image.");
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        throw new UnsupportedOperationException("Do not allow read SchemaTable from image.");
     }
 
     public static Builder builder() {

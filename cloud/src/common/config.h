@@ -35,9 +35,19 @@ CONF_Bool(use_mem_kv, "false");
 CONF_Int32(meta_server_register_interval_ms, "20000");
 CONF_Int32(meta_server_lease_ms, "60000");
 
+// for chaos testing
+CONF_mBool(enable_idempotent_request_injection, "false");
+// idempotent_request_replay_delay_ms = idempotent_request_replay_delay_base_ms + random(-idempotent_request_replay_delay_range_ms, idempotent_request_replay_delay_range_ms)
+CONF_mInt64(idempotent_request_replay_delay_base_ms, "10000");
+CONF_mInt64(idempotent_request_replay_delay_range_ms, "5000");
+// exclude some request that are meaningless to replay, comma separated list. e.g. GetTabletStatsRequest,GetVersionRequest
+CONF_mString(idempotent_request_replay_exclusion, "GetTabletStatsRequest,GetVersionRequest");
+
 CONF_Int64(fdb_txn_timeout_ms, "10000");
 CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
+
+CONF_String(bvar_max_dump_multi_dimension_metric_num, "5000");
 
 // logging
 CONF_String(log_dir, "./log/");
@@ -54,9 +64,16 @@ CONF_Int32(log_verbose_level, "5");
 // Only works when starting Cloud with --console.
 CONF_Bool(enable_file_logger, "true");
 
-// Custom conf path is default the same as conf path, and configs will be append to it.
-// Otherwise, will a new custom conf file will be created.
-CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
+// Custom conf path is default empty.
+// All mutable configs' modification needed to be persisted will be appended to conf path
+// specified when started.
+//
+// If it is set to equivalent value of conf path specified when started,
+// mutable configs' modification behavior will be the same as the description above.
+//
+// Otherwise, a new custom conf file will be created when mutable configs are modified
+// and persisted, with all modification written to it.
+CONF_String(custom_conf_path, "");
 
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
@@ -72,6 +89,8 @@ CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
+// The worker pool size for http api `statistics_recycle` worker pool
+CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
 // s3_producer_pool recycle_tablet_pool, delete single object in this pool
@@ -80,13 +99,14 @@ CONF_Int32(recycle_pool_parallelism, "40");
 CONF_Bool(enable_inverted_check, "false");
 // Currently only used for recycler test
 CONF_Bool(enable_delete_bitmap_inverted_check, "false");
-// checks if https://github.com/apache/doris/pull/40204 works as expected
-CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
-CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
+CONF_Bool(enable_delete_bitmap_storage_optimize_v2_check, "false");
+CONF_mInt64(delete_bitmap_storage_optimize_v2_check_skip_seconds, "300"); // 5min
 // interval for scanning instances to do checks and inspections
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
+// enable recycler metrics statistics
+CONF_Bool(enable_recycler_stats_metrics, "false");
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
@@ -96,6 +116,9 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 // force recycler to recycle all useless object.
 // **just for TEST**
 CONF_Bool(force_immediate_recycle, "false");
+
+CONF_mBool(enable_mow_job_key_check, "false");
+CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
@@ -212,6 +235,11 @@ CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 CONF_mBool(enable_distinguish_hdfs_path, "true");
 
+// If enabled, the txn status will be checked when preapre/commit rowset
+CONF_mBool(enable_load_txn_status_check, "true");
+
+CONF_mBool(enable_tablet_job_check, "true");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation,
@@ -228,11 +256,15 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
+CONF_Bool(force_azure_blob_global_endpoint, "false");
+
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+// retry configs of remove_delete_bitmap_update_lock txn_conflict
+CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
 
 // Max byte txn commit when updating delete bitmap, default is 7MB.
 // Because the size of one fdb transaction can't exceed 10MB, and
@@ -249,6 +281,9 @@ CONF_Int32(txn_lazy_commit_num_threads, "8");
 CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
+CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
+
+CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
@@ -257,4 +292,55 @@ CONF_Bool(enable_check_instance_id, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");
+
+// delete_bitmap_lock version config
+// here is some examples:
+// 1. If instance1,instance2 use v2, config should be
+// delete_bitmap_lock_v2_white_list = instance1;instance2
+// 2. If all instance use v2, config should be
+// delete_bitmap_lock_v2_white_list = *
+CONF_mString(delete_bitmap_lock_v2_white_list, "");
+// FOR DEBUGGING
+CONF_mBool(use_delete_bitmap_lock_random_version, "false");
+
+// Which vaults should be recycled. If empty, recycle all vaults.
+// Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
+CONF_Strings(recycler_storage_vault_white_list, "");
+
+// for test only
+CONF_mBool(enable_update_delete_bitmap_kv_check, "false");
+
+// for get_delete_bitmap_update_lock
+CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
+
+// aws sdk log level
+//    Off = 0,
+//    Fatal = 1,
+//    Error = 2,
+//    Warn = 3,
+//    Info = 4,
+//    Debug = 5,
+//    Trace = 6
+CONF_Int32(aws_log_level, "3");
+CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 && config <= 6; });
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+CONF_Int32(azure_log_level, "3");
+CONF_Validator(azure_log_level,
+               [](const int config) -> bool { return config >= 1 && config <= 4; });
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+CONF_mString(ca_cert_file_paths,
+             "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+             "/etc/ssl/ca-bundle.pem");
+
+CONF_Bool(enable_split_rowset_meta_pb, "false");
+CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
+CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
+
 } // namespace doris::cloud::config

@@ -33,6 +33,7 @@ import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
+import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
@@ -107,8 +108,48 @@ public class BinlogManager {
         }
     }
 
+    private boolean isAsyncMvBinlog(TBinlog binlog) {
+        if (!binlog.isSetTableIds()) {
+            return false;
+        }
+
+        // Filter the binlogs belong to async materialized view, since we don't support async mv right now.
+        for (long tableId : binlog.getTableIds()) {
+            if (binlogConfigCache.isAsyncMvTable(binlog.getDbId(), tableId)) {
+                LOG.debug("filter the async mv binlog, db {}, table {}, commit seq {}, ts {}, type {}, data {}",
+                        binlog.getDbId(), binlog.getTableIds(), binlog.getCommitSeq(), binlog.getTimestamp(),
+                        binlog.getType(), binlog.getData());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isTemporaryTable(TBinlog binlog) {
+        if (!binlog.isSetTableIds()) {
+            return false;
+        }
+
+        // Filter the binlogs belong to temporary table
+        for (long tableId : binlog.getTableIds()) {
+            if (binlogConfigCache.isTemporaryTable(binlog.getDbId(), tableId)) {
+                LOG.debug("filter the temporary table binlog, db {}, table {}, commit seq {}, ts {}, type {}, data {}",
+                        binlog.getDbId(), binlog.getTableIds(), binlog.getCommitSeq(), binlog.getTimestamp(),
+                        binlog.getType(), binlog.getData());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void addBinlog(TBinlog binlog, Object raw) {
         if (!Config.enable_feature_binlog) {
+            return;
+        }
+
+        if (isAsyncMvBinlog(binlog) || isTemporaryTable(binlog)) {
             return;
         }
 
@@ -413,6 +454,33 @@ public class BinlogManager {
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
+    public void addModifyDistributionNum(ModifyTableDefaultDistributionBucketNumOperationLog info, long commitSeq) {
+        if (info.getBucketNum() <= 0 || info.getType() == null) {
+            LOG.warn("skip modify distribution num binlog, because bucket num is invalid. info: {}", info);
+            return;
+        }
+
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = System.currentTimeMillis();
+        TBinlogType type = TBinlogType.MODIFY_DISTRIBUTION_BUCKET_NUM;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addModifyDistributionType(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = System.currentTimeMillis();
+        TBinlogType type = TBinlogType.MODIFY_DISTRIBUTION_TYPE;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
     public void addModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info, long commitSeq) {
         long dbId = info.getDbId();
         List<Long> tableIds = Lists.newArrayList();
@@ -541,7 +609,7 @@ public class BinlogManager {
     }
 
     // get the dropped partitions of the db.
-    public List<Long> getDroppedPartitions(long dbId) {
+    public List<Pair<Long, Long>> getDroppedPartitions(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
@@ -555,7 +623,7 @@ public class BinlogManager {
     }
 
     // get the dropped tables of the db.
-    public List<Long> getDroppedTables(long dbId) {
+    public List<Pair<Long, Long>> getDroppedTables(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
@@ -569,7 +637,7 @@ public class BinlogManager {
     }
 
     // get the dropped indexes of the db.
-    public List<Long> getDroppedIndexes(long dbId) {
+    public List<Pair<Long, Long>> getDroppedIndexes(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);

@@ -41,7 +41,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _scanner_param.common_param = p._common_scanner_param;
     // init schema scanner profile
     _scanner_param.profile = std::make_unique<RuntimeProfile>("SchemaScanner");
-    profile()->add_child(_scanner_param.profile.get(), true, nullptr);
+    custom_profile()->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // get src tuple desc
     const auto* schema_table =
@@ -54,7 +54,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    return _schema_scanner->init(&_scanner_param, state->obj_pool());
+    return _schema_scanner->init(state, &_scanner_param, state->obj_pool());
 }
 
 Status SchemaScanLocalState::open(RuntimeState* state) {
@@ -135,8 +135,8 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
+Status SchemaScanOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
 
     // get dest tuple desc
     _dest_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -155,13 +155,14 @@ Status SchemaScanOperatorX::open(RuntimeState* state) {
     }
 
     // new one scanner
-    _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
+    auto temp_schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
-    if (nullptr == _schema_scanner) {
+    if (nullptr == temp_schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(_schema_scanner->get_column_desc());
+    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(
+            temp_schema_scanner->get_column_desc());
 
     // if src columns size is zero, it's the dummy slots.
     if (columns_desc.empty()) {
@@ -182,11 +183,11 @@ Status SchemaScanOperatorX::open(RuntimeState* state) {
                                          _dest_tuple_desc->slots()[i]->col_name());
         }
 
-        if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type().type) {
-            return Status::InternalError("schema not match. input is {}({}) and output is {}({})",
-                                         columns_desc[j].name, type_to_string(columns_desc[j].type),
-                                         _dest_tuple_desc->slots()[i]->col_name(),
-                                         type_to_string(_dest_tuple_desc->slots()[i]->type().type));
+        if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type()->get_primitive_type()) {
+            return Status::InternalError(
+                    "schema not match. input is {}({}) and output is {}({})", columns_desc[j].name,
+                    type_to_string(columns_desc[j].type), _dest_tuple_desc->slots()[i]->col_name(),
+                    type_to_string(_dest_tuple_desc->slots()[i]->type()->get_primitive_type()));
         }
     }
 
@@ -216,16 +217,15 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         // src block columns desc is filled by schema_scanner->get_column_desc.
         vectorized::Block src_block;
         for (int i = 0; i < columns_desc.size(); ++i) {
-            TypeDescriptor descriptor(columns_desc[i].type);
-            auto data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+            auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    columns_desc[i].type, true);
             src_block.insert(vectorized::ColumnWithTypeAndName(data_type->create_column(),
                                                                data_type, columns_desc[i].name));
         }
         while (true) {
             RETURN_IF_CANCELLED(state);
 
-            if (local_state._data_dependency->is_blocked_by() != nullptr) {
+            if (local_state._data_dependency->is_blocked_by()) {
                 break;
             }
             // get all slots from schema table.

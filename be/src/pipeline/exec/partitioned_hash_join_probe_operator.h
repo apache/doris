@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/dependency.h"
@@ -36,7 +37,7 @@ namespace pipeline {
 
 class PartitionedHashJoinProbeOperatorX;
 
-class PartitionedHashJoinProbeLocalState final
+class PartitionedHashJoinProbeLocalState MOCK_REMOVE(final)
         : public PipelineXSpillLocalState<PartitionedHashJoinSharedState> {
 public:
     using Parent = PartitionedHashJoinProbeOperatorX;
@@ -58,14 +59,22 @@ public:
     Status finish_spilling(uint32_t partition_index);
 
     template <bool spilled>
-    void update_build_profile(RuntimeProfile* child_profile);
+    void update_build_custom_profile(RuntimeProfile* child_profile);
 
     template <bool spilled>
-    void update_probe_profile(RuntimeProfile* child_profile);
+    void update_probe_custom_profile(RuntimeProfile* child_profile);
+
+    template <bool spilled>
+    void update_build_common_profile(RuntimeProfile* child_profile);
+
+    template <bool spilled>
+    void update_probe_common_profile(RuntimeProfile* child_profile);
 
     std::string debug_string(int indentation_level = 0) const override;
 
-    void update_profile_from_inner();
+    MOCK_FUNCTION void update_profile_from_inner();
+
+    void init_counters();
 
     friend class PartitionedHashJoinProbeOperatorX;
 
@@ -89,8 +98,6 @@ private:
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
     bool _need_to_setup_internal_operators {true};
-
-    std::shared_ptr<Dependency> _spill_dependency;
 
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
@@ -118,7 +125,7 @@ public:
     PartitionedHashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                       const DescriptorTbl& descs, uint32_t partition_count);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
                                    bool* eos) override;
@@ -166,8 +173,6 @@ private:
 
     [[nodiscard]] Status _setup_internal_operators(PartitionedHashJoinProbeLocalState& local_state,
                                                    RuntimeState* state) const;
-    [[nodiscard]] Status _setup_internal_operator_for_non_spill(
-            PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state);
 
     bool _should_revoke_memory(RuntimeState* state) const;
 

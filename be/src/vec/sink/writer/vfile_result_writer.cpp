@@ -17,6 +17,7 @@
 
 #include "vfile_result_writer.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -38,11 +39,12 @@
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
 #include "pipeline/exec/result_sink_operator.h"
-#include "runtime/buffer_control_block.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/mysql_row_buffer.h"
@@ -57,8 +59,11 @@
 #include "vec/runtime/vcsv_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris::vectorized {
+
+static double nons_to_second = 1000000000.00;
 
 VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                      std::shared_ptr<pipeline::Dependency> dep,
@@ -68,14 +73,14 @@ VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContext
 VFileResultWriter::VFileResultWriter(
         const pipeline::ResultFileOptions* file_opts, const TStorageBackendType::type storage_type,
         const TUniqueId fragment_instance_id, const VExprContextSPtrs& output_vexpr_ctxs,
-        std::shared_ptr<BufferControlBlock> sinker, Block* output_block, bool output_object_data,
+        std::shared_ptr<ResultBlockBufferBase> sinker, Block* output_block, bool output_object_data,
         const RowDescriptor& output_row_descriptor, std::shared_ptr<pipeline::Dependency> dep,
         std::shared_ptr<pipeline::Dependency> fin_dep)
         : AsyncResultWriter(output_vexpr_ctxs, dep, fin_dep),
           _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
-          _sinker(sinker),
+          _sinker(std::dynamic_pointer_cast<vectorized::MySQLResultBlockBuffer>(sinker)),
           _output_block(output_block),
           _output_row_descriptor(output_row_descriptor) {
     _output_object_data = output_object_data;
@@ -130,8 +135,9 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetTransformer(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
-                _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
-                _file_opts->parquet_version, _output_object_data));
+                _output_object_data,
+                {_file_opts->parquet_commpression_type, _file_opts->parquet_version,
+                 _file_opts->parquert_disable_dictionary, _file_opts->enable_int96_timestamps}));
         break;
     case TFileFormatType::FORMAT_ORC:
         _vfile_writer.reset(new VOrcTransformer(
@@ -271,21 +277,34 @@ Status VFileResultWriter::_send_result() {
     _is_result_sent = true;
 
     // The final stat result include:
-    // FileNumber, TotalRows, FileSize and URL
-    // The type of these field should be consistent with types defined
-    // in OutFileClause.java of FE.
+    // | FileNumber      | Int     |
+    // | TotalRows       | Bigint  |
+    // | FileSize        | Bigint  |
+    // | URL             | Varchar |
+    // | WriteTimeSec    | Varchar |
+    // | WriteSpeedKB    | Varchar |
+    // The type of these field should be consistent with types defined in OutFileClause.java of FE.
     MysqlRowBuffer<> row_buffer;
-    row_buffer.push_int(_file_idx);                         // file number
-    row_buffer.push_bigint(_written_rows_counter->value()); // total rows
-    row_buffer.push_bigint(_written_data_bytes->value());   // file size
+    row_buffer.push_int(_file_idx);                         // FileNumber
+    row_buffer.push_bigint(_written_rows_counter->value()); // TotalRows
+    row_buffer.push_bigint(_written_data_bytes->value());   // FileSize
     std::string file_url;
     _get_file_url(&file_url);
     std::stringstream ss;
     ss << file_url << "*";
     file_url = ss.str();
-    row_buffer.push_string(file_url.c_str(), file_url.length()); // url
+    row_buffer.push_string(file_url.c_str(), file_url.length()); // URL
+    double write_time = _file_write_timer->value() / nons_to_second;
+    std::string formatted_write_time = fmt::format("{:.3f}", write_time);
+    row_buffer.push_string(formatted_write_time.c_str(),
+                           formatted_write_time.length()); // WriteTimeSec
 
-    std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
+    double write_speed = _get_write_speed(_written_data_bytes->value(), _file_write_timer->value());
+    std::string formatted_write_speed = fmt::format("{:.2f}", write_speed);
+    row_buffer.push_string(formatted_write_speed.c_str(),
+                           formatted_write_speed.length()); // WriteSpeedKB
+
+    auto result = std::make_shared<TFetchDataResult>();
     result->result_batch.rows.resize(1);
     result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
 
@@ -295,6 +314,8 @@ Status VFileResultWriter::_send_result() {
             std::make_pair("TotalRows", std::to_string(_written_rows_counter->value())));
     attach_infos.insert(std::make_pair("FileSize", std::to_string(_written_data_bytes->value())));
     attach_infos.insert(std::make_pair("URL", file_url));
+    attach_infos.insert(std::make_pair("WriteTimeSec", formatted_write_time));
+    attach_infos.insert(std::make_pair("WriteSpeedKB", formatted_write_speed));
 
     result->result_batch.__set_attached_infos(attach_infos);
     RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(_state, result),
@@ -309,32 +330,44 @@ Status VFileResultWriter::_fill_result_block() {
     _is_result_sent = true;
 
 #ifndef INSERT_TO_COLUMN
-#define INSERT_TO_COLUMN                                                            \
-    if (i == 0) {                                                                   \
-        column->insert_data(reinterpret_cast<const char*>(&_file_idx), 0);          \
-    } else if (i == 1) {                                                            \
-        int64_t written_rows = _written_rows_counter->value();                      \
-        column->insert_data(reinterpret_cast<const char*>(&written_rows), 0);       \
-    } else if (i == 2) {                                                            \
-        int64_t written_data_bytes = _written_data_bytes->value();                  \
-        column->insert_data(reinterpret_cast<const char*>(&written_data_bytes), 0); \
-    } else if (i == 3) {                                                            \
-        std::string file_url;                                                       \
-        static_cast<void>(_get_file_url(&file_url));                                \
-        column->insert_data(file_url.c_str(), file_url.size());                     \
-    }                                                                               \
+#define INSERT_TO_COLUMN                                                                    \
+    if (i == 0) {                                                                           \
+        column->insert_data(reinterpret_cast<const char*>(&_file_idx), 0);                  \
+    } else if (i == 1) {                                                                    \
+        int64_t written_rows = _written_rows_counter->value();                              \
+        column->insert_data(reinterpret_cast<const char*>(&written_rows), 0);               \
+    } else if (i == 2) {                                                                    \
+        int64_t written_data_bytes = _written_data_bytes->value();                          \
+        column->insert_data(reinterpret_cast<const char*>(&written_data_bytes), 0);         \
+    } else if (i == 3) {                                                                    \
+        std::string file_url;                                                               \
+        static_cast<void>(_get_file_url(&file_url));                                        \
+        column->insert_data(file_url.c_str(), file_url.size());                             \
+    } else if (i == 4) {                                                                    \
+        double write_time = _file_write_timer->value() / nons_to_second;                    \
+        std::string formatted_write_time = fmt::format("{:.3f}", write_time);               \
+        column->insert_data(formatted_write_time.c_str(), formatted_write_time.size());     \
+    } else if (i == 5) {                                                                    \
+        double write_speed =                                                                \
+                _get_write_speed(_written_data_bytes->value(), _file_write_timer->value()); \
+        std::string formatted_write_speed = fmt::format("{:.2f}", write_speed);             \
+        column->insert_data(formatted_write_speed.c_str(), formatted_write_speed.size());   \
+    }                                                                                       \
     _output_block->replace_by_position(i, std::move(column));
 #endif
 
     for (int i = 0; i < _output_block->columns(); i++) {
-        switch (_output_row_descriptor.tuple_descriptors()[0]->slots()[i]->type().type) {
+        switch (_output_row_descriptor.tuple_descriptors()[0]
+                        ->slots()[i]
+                        ->type()
+                        ->get_primitive_type()) {
         case TYPE_INT: {
-            auto column = ColumnVector<int32_t>::create();
+            auto column = ColumnInt32::create();
             INSERT_TO_COLUMN;
             break;
         }
         case TYPE_BIGINT: {
-            auto column = ColumnVector<int64_t>::create();
+            auto column = ColumnInt64::create();
             INSERT_TO_COLUMN;
             break;
         }
@@ -346,9 +379,11 @@ Status VFileResultWriter::_fill_result_block() {
             break;
         }
         default:
-            return Status::InternalError(
-                    "Invalid type to print: {}",
-                    _output_row_descriptor.tuple_descriptors()[0]->slots()[i]->type().type);
+            return Status::InternalError("Invalid type to print: {}",
+                                         _output_row_descriptor.tuple_descriptors()[0]
+                                                 ->slots()[i]
+                                                 ->type()
+                                                 ->get_primitive_type());
         }
     }
     return Status::OK();
@@ -385,6 +420,14 @@ Status VFileResultWriter::_delete_dir() {
     default:
         return Status::NotSupported("Unsupported storage type: {}", std::to_string(_storage_type));
     }
+}
+
+double VFileResultWriter::_get_write_speed(int64_t write_bytes, int64_t write_time) {
+    if (write_time <= 0) {
+        return 0;
+    }
+    // KB / s
+    return ((write_bytes * nons_to_second) / (write_time)) / 1024;
 }
 
 Status VFileResultWriter::close(Status exec_status) {

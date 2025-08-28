@@ -18,24 +18,12 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.ExportStmt;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FromClause;
-import org.apache.doris.analysis.LimitElement;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.SelectList;
-import org.apache.doris.analysis.SelectListItem;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -45,12 +33,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.StatementContext;
@@ -77,8 +63,6 @@ import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Splitter;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -91,7 +75,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -105,8 +88,6 @@ public class ExportJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
 
     private static final String BROKER_PROPERTY_PREFIXES = "broker.";
-
-    private static final int MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT = Config.maximum_tablets_of_outfile_in_export;
 
     public static final String CONSISTENT_NONE = "none";
     public static final String CONSISTENT_PARTITION = "partition";
@@ -135,10 +116,6 @@ public class ExportJob implements Writable {
     private ExportJobState state;
     @SerializedName("createTimeMs")
     private long createTimeMs;
-    // this is the origin stmt of ExportStmt, we use it to persist where expr of Export job,
-    // because we can not serialize the Expressions contained in job.
-    @SerializedName("origStmt")
-    private OriginStatement origStmt;
     @SerializedName("qualifiedUser")
     private String qualifiedUser;
     @SerializedName("userIdentity")
@@ -175,11 +152,12 @@ public class ExportJob implements Writable {
     private String dataConsistency;
     @SerializedName("compressType")
     private String compressType;
+    @SerializedName("whereStr")
+    private String whereStr;
 
     private TableRef tableRef;
 
-    private Expr whereExpr;
-
+    // when fe restart, job will be cancel, so whereExpression not need persist
     private Optional<Expression> whereExpression;
 
     private int parallelism;
@@ -189,10 +167,9 @@ public class ExportJob implements Writable {
     /**
      * Each parallel has an associated Outfile list
      * which are organized into a two-dimensional list.
-     * Therefore, we can access the selectStmtListPerParallel
      * to get the outfile logical plans list responsible for each parallel task.
      */
-    private List<List<StatementBase>> selectStmtListPerParallel = Lists.newArrayList();
+    private List<Optional<StatementBase>> selectStmtPerParallel = Lists.newArrayList();
 
     private List<String> exportColumns = Lists.newArrayList();
 
@@ -239,24 +216,12 @@ public class ExportJob implements Writable {
         return dataConsistency != null && dataConsistency.equals(CONSISTENT_PARTITION);
     }
 
-    public void generateOutfileStatement() throws UserException {
-        exportTable.readLock();
-        try {
-            generateQueryStmt();
-        } finally {
-            exportTable.readUnlock();
-        }
-        generateExportJobExecutor();
-    }
-
     /**
      * For an ExportJob:
      * The ExportJob is divided into multiple 'ExportTaskExecutor'
      * according to the 'parallelism' set by the user.
      * The tablets which will be exported by this ExportJob are divided into 'parallelism' copies,
      * and each ExportTaskExecutor is responsible for a list of tablets.
-     * The tablets responsible for an ExportTaskExecutor will be assigned to multiple OutfileStmt
-     * according to the 'TABLETS_NUM_PER_OUTFILE_IN_EXPORT'.
      *
      * @throws UserException
      */
@@ -282,14 +247,10 @@ public class ExportJob implements Writable {
 
             // debug LOG output
             if (LOG.isDebugEnabled()) {
-                for (int i = 0; i < selectStmtListPerParallel.size(); ++i) {
+                for (int i = 0; i < selectStmtPerParallel.size(); ++i) {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("ExportTaskExecutor {} is responsible for outfile:", i);
-                    }
-                    for (StatementBase outfile : selectStmtListPerParallel.get(i)) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("outfile sql: [{}]", outfile.toSql());
-                        }
+                        LOG.debug("outfile sql: [{}]", selectStmtPerParallel.get(i).get().toSql());
                     }
                 }
             }
@@ -312,21 +273,16 @@ public class ExportJob implements Writable {
         }
 
         // get all tablets
-        List<List<List<Long>>> tabletsListPerParallel = splitTablets();
+        List<List<Long>> tabletsListPerParallel = splitTablets();
 
         // Each Outfile clause responsible for MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT tablets
-        for (List<List<Long>> tabletsList : tabletsListPerParallel) {
-            List<StatementBase> logicalPlanAdapters = Lists.newArrayList();
-            for (List<Long> tabletIds : tabletsList) {
-                // generate LogicalPlan
-                LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, tabletIds,
-                        this.partitionNames, selectLists);
-                // generate  LogicalPlanAdapter
-                StatementBase statementBase = generateLogicalPlanAdapter(plan);
-
-                logicalPlanAdapters.add(statementBase);
-            }
-            selectStmtListPerParallel.add(logicalPlanAdapters);
+        for (List<Long> tabletsList : tabletsListPerParallel) {
+            // generate LogicalPlan
+            LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, tabletsList,
+                    this.partitionNames, selectLists);
+            // generate  LogicalPlanAdapter
+            StatementBase statementBase = generateLogicalPlanAdapter(plan);
+            selectStmtPerParallel.add(Optional.of(statementBase));
         }
     }
 
@@ -352,16 +308,13 @@ public class ExportJob implements Writable {
             });
         }
 
-        List<StatementBase> logicalPlanAdapters = Lists.newArrayList();
-
         // generate LogicalPlan
         LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, ImmutableList.of(),
                 ImmutableList.of(), selectLists);
         // generate  LogicalPlanAdapter
         StatementBase statementBase = generateLogicalPlanAdapter(plan);
 
-        logicalPlanAdapters.add(statementBase);
-        selectStmtListPerParallel.add(logicalPlanAdapters);
+        selectStmtPerParallel.add(Optional.of(statementBase));
     }
 
     private LogicalPlan generateOneLogicalPlan(List<String> qualifiedTableName, List<Long> tabletIds,
@@ -387,7 +340,6 @@ public class ExportJob implements Writable {
         StatementContext statementContext = new StatementContext();
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            connectContext.setStatementContext(statementContext);
             statementContext.setConnectContext(connectContext);
         }
 
@@ -402,109 +354,20 @@ public class ExportJob implements Writable {
 
     private void generateExportJobExecutor() {
         jobExecutorList = Lists.newArrayList();
-        for (List<StatementBase> selectStmts : selectStmtListPerParallel) {
-            ExportTaskExecutor executor = new ExportTaskExecutor(selectStmts, this);
+        for (Optional<StatementBase> selectStmt : selectStmtPerParallel) {
+            ExportTaskExecutor executor = new ExportTaskExecutor(selectStmt, this);
             jobExecutorList.add(executor);
         }
 
         // add empty task to make export job could be finished finally if jobExecutorList is empty
         // which means that export table without data
         if (jobExecutorList.isEmpty()) {
-            ExportTaskExecutor executor = new ExportTaskExecutor(Lists.newArrayList(), this);
+            ExportTaskExecutor executor = new ExportTaskExecutor(Optional.empty(), this);
             jobExecutorList.add(executor);
         }
     }
 
-    /**
-     * Generate outfile select stmt
-     * @throws UserException
-     */
-    private void generateQueryStmt() throws UserException {
-        SelectList list = new SelectList();
-        if (exportColumns.isEmpty()) {
-            list.addItem(SelectListItem.createStarItem(this.tableName));
-        } else {
-            for (Column column : exportTable.getBaseSchema()) {
-                String colName = column.getName();
-                if (exportColumns.contains(colName.toLowerCase())) {
-                    SlotRef slotRef = new SlotRef(this.tableName, colName);
-                    SelectListItem selectListItem = new SelectListItem(slotRef, null);
-                    list.addItem(selectListItem);
-                }
-            }
-        }
-
-        List<List<TableRef>> tableRefListPerParallel = getTableRefListPerParallel();
-        LOG.info("Export Job [{}] is split into {} Export Task Executor.", id, tableRefListPerParallel.size());
-
-        // debug LOG output
-        if (LOG.isDebugEnabled()) {
-            for (int i = 0; i < tableRefListPerParallel.size(); i++) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("ExportTaskExecutor {} is responsible for tablets:", i);
-                }
-                for (TableRef tableRef : tableRefListPerParallel.get(i)) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Tablet id: [{}]", tableRef.getSampleTabletIds());
-                    }
-                }
-            }
-        }
-
-        // generate 'select..outfile..' statement
-        for (List<TableRef> tableRefList : tableRefListPerParallel) {
-            List<StatementBase> selectStmtLists = Lists.newArrayList();
-            for (TableRef tableRef : tableRefList) {
-                List<TableRef> tmpTableRefList = Lists.newArrayList(tableRef);
-                FromClause fromClause = new FromClause(tmpTableRefList);
-                // generate outfile clause
-                OutFileClause outfile = new OutFileClause(this.exportPath, this.format, convertOutfileProperties());
-                SelectStmt selectStmt = new SelectStmt(list, fromClause, this.whereExpr, null,
-                        null, null, LimitElement.NO_LIMIT);
-                selectStmt.setOutFileClause(outfile);
-                selectStmt.setOrigStmt(new OriginStatement(selectStmt.toSql(), 0));
-                selectStmtLists.add(selectStmt);
-            }
-            selectStmtListPerParallel.add(selectStmtLists);
-        }
-
-        // debug LOG output
-        if (LOG.isDebugEnabled()) {
-            for (int i = 0; i < selectStmtListPerParallel.size(); ++i) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("ExportTaskExecutor {} is responsible for outfile:", i);
-                }
-                for (StatementBase outfile : selectStmtListPerParallel.get(i)) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("outfile sql: [{}]", outfile.toSql());
-                    }
-                }
-            }
-        }
-    }
-
-    private List<List<TableRef>> getTableRefListPerParallel() throws UserException {
-        List<List<List<Long>>> tabletsListPerParallel = splitTablets();
-
-        List<List<TableRef>> tableRefListPerParallel = Lists.newArrayList();
-        for (List<List<Long>> tabletsList : tabletsListPerParallel) {
-            List<TableRef> tableRefList = Lists.newArrayList();
-            for (List<Long> tablets : tabletsList) {
-                // Since export does not support the alias, here we pass the null value.
-                // we can not use this.tableRef.getAlias(),
-                // because the constructor of `Tableref` will convert this.tableRef.getAlias()
-                // into lower case when lower_case_table_names = 1
-                TableRef tblRef = new TableRef(this.tableRef.getName(), null,
-                        this.tableRef.getPartitionNames(), (ArrayList) tablets,
-                        this.tableRef.getTableSample(), this.tableRef.getCommonHints());
-                tableRefList.add(tblRef);
-            }
-            tableRefListPerParallel.add(tableRefList);
-        }
-        return tableRefListPerParallel;
-    }
-
-    private List<List<List<Long>>> splitTablets() throws UserException {
+    private List<List<Long>> splitTablets() throws UserException {
         // get tablets
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(this.tableName.getDb());
         OlapTable table = db.getOlapTableOrAnalysisException(this.tableName.getTbl());
@@ -561,7 +424,7 @@ public class ExportJob implements Writable {
                             + "set parallelism to partition num.", id, totalPartitions, this.parallelism);
             }
             int start = 0;
-            List<List<List<Long>>> tabletsListPerParallel = new ArrayList<>();
+            List<List<Long>> tabletsListPerParallel = new ArrayList<>();
             for (int i = 0; i < realParallelism; ++i) {
                 int partitionNum = numPerParallel;
                 if (numPerQueryRemainder > 0) {
@@ -569,8 +432,9 @@ public class ExportJob implements Writable {
                     --numPerQueryRemainder;
                 }
                 List<List<Long>> tablets = new ArrayList<>(tabletIdList.subList(start, start + partitionNum));
+                List<Long> flatTablets = tablets.stream().flatMap(List::stream).collect(Collectors.toList());
                 start += partitionNum;
-                tabletsListPerParallel.add(tablets);
+                tabletsListPerParallel.add(flatTablets);
             }
             return tabletsListPerParallel;
         }
@@ -584,7 +448,7 @@ public class ExportJob implements Writable {
         Integer tabletsNumPerParallel = tabletsAllNum / this.parallelism;
         Integer tabletsNumPerQueryRemainder = tabletsAllNum - tabletsNumPerParallel * this.parallelism;
 
-        List<List<List<Long>>> tabletsListPerParallel = Lists.newArrayList();
+        List<List<Long>> tabletsListPerParallel = Lists.newArrayList();
         Integer realParallelism = this.parallelism;
         if (tabletsAllNum < this.parallelism) {
             realParallelism = tabletsAllNum;
@@ -600,14 +464,8 @@ public class ExportJob implements Writable {
                 --tabletsNumPerQueryRemainder;
             }
             List<Long> tabletsList = new ArrayList<>(flatTabletIdList.subList(start, start + tabletsNum));
-            List<List<Long>> tablets = new ArrayList<>();
-            for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
-                int end = Math.min(i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT, tabletsList.size());
-                tablets.add(new ArrayList<>(tabletsList.subList(i, end)));
-            }
-
             start += tabletsNum;
-            tabletsListPerParallel.add(tablets);
+            tabletsListPerParallel.add(tabletsList);
         }
         return tabletsListPerParallel;
     }
@@ -638,7 +496,7 @@ public class ExportJob implements Writable {
             outfileProperties.put(BROKER_PROPERTY_PREFIXES + "name", brokerDesc.getName());
             brokerDesc.getProperties().forEach((k, v) -> outfileProperties.put(BROKER_PROPERTY_PREFIXES + k, v));
         } else {
-            for (Entry<String, String> kv : brokerDesc.getProperties().entrySet()) {
+            for (Entry<String, String> kv : brokerDesc.getBackendConfigProperties().entrySet()) {
                 outfileProperties.put(kv.getKey(), kv.getValue());
             }
         }
@@ -703,7 +561,7 @@ public class ExportJob implements Writable {
         finishTimeMs = System.currentTimeMillis();
         failMsg = new ExportFailMsg(type, msg);
         jobExecutorList.clear();
-        selectStmtListPerParallel.clear();
+        selectStmtPerParallel.clear();
         allOutfileInfo.clear();
         partitionToVersion.clear();
         if (FeConstants.runningUnitTest) {
@@ -756,7 +614,7 @@ public class ExportJob implements Writable {
         outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
         // Clear the jobExecutorList to release memory.
         jobExecutorList.clear();
-        selectStmtListPerParallel.clear();
+        selectStmtPerParallel.clear();
         allOutfileInfo.clear();
         partitionToVersion.clear();
         Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.FINISHED);
@@ -812,6 +670,14 @@ public class ExportJob implements Writable {
                 && (state == ExportJobState.CANCELLED || state == ExportJobState.FINISHED);
     }
 
+    public String getWhereStr() {
+        return whereStr;
+    }
+
+    public void setWhereStr(String whereStr) {
+        this.whereStr = whereStr;
+    }
+
     @Override
     public String toString() {
         return "ExportJob [jobId=" + id
@@ -830,11 +696,6 @@ public class ExportJob implements Writable {
     }
 
     public static ExportJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_120) {
-            ExportJob job = new ExportJob();
-            job.readFields(in);
-            return job;
-        }
         String json = Text.readString(in);
         ExportJob job = GsonUtils.GSON.fromJson(json, ExportJob.class);
         job.isReplayed = true;
@@ -845,83 +706,6 @@ public class ExportJob implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        isReplayed = true;
-        id = in.readLong();
-        dbId = in.readLong();
-        tableId = in.readLong();
-        exportPath = Text.readString(in);
-        columnSeparator = Text.readString(in);
-        lineDelimiter = Text.readString(in);
-
-        // properties
-        Map<String, String> properties = Maps.newHashMap();
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            String propertyKey = Text.readString(in);
-            String propertyValue = Text.readString(in);
-            properties.put(propertyKey, propertyValue);
-        }
-        // Because before 0.15, export does not contain label information.
-        // So for compatibility, a label will be added for historical jobs.
-        // This label must be guaranteed to be a certain value to prevent
-        // the label from being different each time.
-        properties.putIfAbsent(ExportStmt.LABEL, "export_" + id);
-        this.label = properties.get(ExportStmt.LABEL);
-        this.columns = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
-        if (!Strings.isNullOrEmpty(this.columns)) {
-            Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
-            this.exportColumns = split.splitToList(this.columns.toLowerCase());
-        }
-        boolean hasPartition = in.readBoolean();
-        if (hasPartition) {
-            partitionNames = Lists.newArrayList();
-            int partitionSize = in.readInt();
-            for (int i = 0; i < partitionSize; ++i) {
-                String partitionName = Text.readString(in);
-                partitionNames.add(partitionName);
-            }
-        }
-
-        state = ExportJobState.valueOf(Text.readString(in));
-        createTimeMs = in.readLong();
-        startTimeMs = in.readLong();
-        finishTimeMs = in.readLong();
-        progress = in.readInt();
-        failMsg.readFields(in);
-
-        if (in.readBoolean()) {
-            brokerDesc = BrokerDesc.read(in);
-        }
-
-        tableName = new TableName();
-        tableName.readFields(in);
-        origStmt = OriginStatement.read(in);
-
-        Map<String, String> tmpSessionVariables = Maps.newHashMap();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            tmpSessionVariables.put(key, value);
-        }
-
-        if (origStmt.originStmt.isEmpty()) {
-            return;
-        }
-        // parse the origin stmt to get where expr
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                Long.valueOf(tmpSessionVariables.get(SessionVariable.SQL_MODE))));
-        ExportStmt stmt = null;
-        try {
-            stmt = (ExportStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
-            this.whereExpr = stmt.getWhereExpr();
-        } catch (Exception e) {
-            throw new IOException("error happens when parsing export stmt: " + origStmt, e);
-        }
     }
 
     @Override

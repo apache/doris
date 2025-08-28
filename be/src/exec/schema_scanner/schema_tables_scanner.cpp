@@ -27,6 +27,7 @@
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/timezone_utils.h"
 #include "vec/common/string_ref.h"
@@ -278,7 +279,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 if (create_time <= 0) {
                     datas[i] = nullptr;
                 } else {
-                    srcs[i].from_unixtime(create_time, TimezoneUtils::default_time_zone);
+                    srcs[i].from_unixtime(create_time, _timezone_obj);
                     datas[i] = srcs.data() + i;
                 }
             } else {
@@ -297,7 +298,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 if (update_time <= 0) {
                     datas[i] = nullptr;
                 } else {
-                    srcs[i].from_unixtime(update_time, TimezoneUtils::default_time_zone);
+                    srcs[i].from_unixtime(update_time, _timezone_obj);
                     datas[i] = srcs.data() + i;
                 }
             } else {
@@ -316,7 +317,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 if (check_time <= 0) {
                     datas[i] = nullptr;
                 } else {
-                    srcs[i].from_unixtime(check_time, TimezoneUtils::default_time_zone);
+                    srcs[i].from_unixtime(check_time, _timezone_obj);
                     datas[i] = srcs.data() + i;
                 }
             } else {

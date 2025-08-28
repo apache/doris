@@ -19,7 +19,6 @@ package org.apache.doris.backup;
 
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
@@ -104,6 +103,9 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
         return repoIdMap.get(repoId);
     }
 
+    /**
+     * todo: why not support alter other file system like hdfs
+     */
     public Status alterRepo(Repository newRepo, boolean isReplay) {
         lock.lock();
         try {
@@ -159,14 +161,7 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
     }
 
     public static RepositoryMgr read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            RepositoryMgr mgr = new RepositoryMgr();
-            mgr.readFields(in);
-            return mgr;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), RepositoryMgr.class);
-        }
-
+        return GsonUtils.GSON.fromJson(Text.readString(in), RepositoryMgr.class);
     }
 
     @Override
@@ -177,15 +172,5 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
     @Override
     public void gsonPostProcess() {
         repoNameMap.forEach((n, repo) -> repoIdMap.put(repo.getId(), repo));
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Repository repo = Repository.read(in);
-            repoNameMap.put(repo.getName(), repo);
-            repoIdMap.put(repo.getId(), repo);
-        }
     }
 }

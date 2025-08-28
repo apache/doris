@@ -77,4 +77,57 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """SELECT JSON_CONTAINS('','1','\$.a')"""
     qt_sql """SELECT JSON_CONTAINS('""','1','\$.a')"""
     qt_sql """SELECT JSON_CONTAINS("",'1','\$.a')"""
+
+    qt_sql """select k6, json_extract_string(cast(k7 as json), "\$.a") as x10 from test_query_db.baseall group by k6, x10 order by 1,2; """
+    
+    qt_sql "SELECT json_extract_no_quotes('[1, 2, 3]', '\$.[1]');"
+    qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.name');"
+    qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.id', null);"
+    qt_sql "SELECT json_extract_no_quotes(null, '\$.id');"
+    qt_sql "SELECT json_extract_no_quotes('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k1', '\$.k2');"
+    qt_sql "SELECT json_extract_no_quotes('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k2.k21', '\$.k2.k22', '\$.k2.k22[1]');"
+
+    // invalid json path
+    qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\k')"""
+    qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\k')"""
+    qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\\\k')"""
+
+    sql "drop table if exists d_table;"
+    sql """
+        create table d_table (
+            k1 varchar(100) null,
+            k2 varchar(100) not null
+        )
+        duplicate key (k1)
+        distributed BY hash(k1) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql """insert into d_table values 
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}'),
+    (null,'{\"name\": \"John\", \"age\": 30, \"city\": \"New York\", \"hobbies\": [\"reading\", \"travelling\"]}');
+    """
+    qt_test """
+      SELECT k1,k2,JSON_CONTAINS(k1, '\$'),JSON_CONTAINS(k2, '\$') from d_table order by k1,k2;
+    """
+
+    qt_json_contains1 """
+      SELECT JSON_CONTAINS('{"age": 30, "name": "John", "hobbies": ["reading", "swimming"]}', '{"invalid": "format"}');
+    """
+    qt_json_contains2 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '{"age": 25}');
+    """
+    qt_json_contains3 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '{"age": "25"}');
+    """
+    qt_json_contains4 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '"music"', '\$.hobbies[1]');
+    """
+    qt_json_contains5 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '"music"', '\$.hobbies[0]');
+    """
+    qt_json_contains6 """
+      SELECT JSON_CONTAINS(NULL, '"music"', '{"age": 25}');
+    """
 }

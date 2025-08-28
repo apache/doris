@@ -18,12 +18,14 @@
 package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -70,6 +72,27 @@ public class JdbcMySQLClient extends JdbcClient {
         super(jdbcClientConfig);
         convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
         this.dbType = dbType;
+    }
+
+    @Override
+    public String getTableComment(String remoteDbName, String remoteTableName) {
+        ImmutableList.Builder<String> tableCommentBuilder = ImmutableList.builder();
+        String[] tableTypes = getTableTypes();
+        processTable(remoteDbName, remoteTableName, tableTypes, (rs) -> {
+            try {
+                while (rs.next()) {
+                    tableCommentBuilder.add(Strings.nullToEmpty(rs.getString("REMARKS")));
+                }
+            } catch (SQLException e) {
+                throw new JdbcClientException(
+                    "failed to get table's comment for remote database: `%s`, remote table: `%s`",
+                    e, remoteDbName, remoteTableName);
+            }
+        });
+
+        ImmutableList<String> tableComment = tableCommentBuilder.build();
+        Preconditions.checkArgument(tableComment.size() == 1, "Multiple tables `%s` are matched", remoteTableName);
+        return tableComment.get(0);
     }
 
     @Override
@@ -383,9 +406,7 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             case "CHAR":
             case "CHARACTER":
-                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.requiredColumnSize());
-                return charType;
+                return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "VARCHAR":
                 return ScalarType.createVarcharType(fieldSchema.requiredColumnSize());
             case "STRING":

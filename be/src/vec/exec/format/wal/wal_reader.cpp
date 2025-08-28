@@ -17,10 +17,11 @@
 
 #include "wal_reader.h"
 
+#include <absl/strings/str_split.h>
+
 #include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
-#include "gutil/strings/split.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
@@ -97,12 +98,12 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
-Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status WalReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
     std::string col_ids;
     RETURN_IF_ERROR(_wal_reader->read_header(_version, col_ids));
     std::vector<std::string> column_id_vector =
-            strings::Split(col_ids, ",", strings::SkipWhitespace());
+            absl::StrSplit(col_ids, ",", absl::SkipWhitespace());
     _column_id_count = column_id_vector.size();
     try {
         int64_t pos = 0;

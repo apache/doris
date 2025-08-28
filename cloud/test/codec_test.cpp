@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "meta-service/codec.h"
+#include "meta-store/codec.h"
 
 #include <gtest/gtest.h>
 

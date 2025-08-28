@@ -22,10 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
-import org.apache.doris.common.io.Text;
-
-import java.io.DataInput;
-import java.io.IOException;
 
 public class TablePrivEntry extends DbPrivEntry {
     private static final String ANY_TBL = "*";
@@ -109,19 +105,6 @@ public class TablePrivEntry extends DbPrivEntry {
     public String toString() {
         return String.format("table privilege.ctl: %s, db: %s, tbl: %s, priv: %s", origCtl, origDb, origTbl,
                 privSet.toString());
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        origTbl = Text.readString(in);
-        try {
-            tblPattern = PatternMatcher.createMysqlPattern(origTbl, CaseSensibility.TABLE.getCaseSensibility());
-        } catch (PatternMatcherException e) {
-            throw new IOException(e);
-        }
-        isAnyTbl = origTbl.equals(ANY_TBL);
     }
 
     @Override

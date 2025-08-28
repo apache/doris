@@ -62,6 +62,7 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     }
     schema_table_params.replay_to_other_fe = true;
     schema_table_params.__isset.replay_to_other_fe = true;
+    schema_table_params.__set_time_zone(_timezone_obj.name());
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::ACTIVE_QUERIES);
@@ -85,8 +86,8 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
 
     _active_query_block = vectorized::Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        TypeDescriptor descriptor(_s_tbls_columns[i].type);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                _s_tbls_columns[i].type, true);
         _active_query_block->insert(vectorized::ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }

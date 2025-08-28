@@ -21,14 +21,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
-import org.apache.doris.planner.StreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -65,8 +65,9 @@ public class InsertStreamTxnExecutor {
         TTxnParams txnConf = txnEntry.getTxnConf();
         OlapTable table = (OlapTable) txnEntry.getTable();
         // StreamLoadTask's id == request's load_id
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-        StreamLoadPlanner planner = new StreamLoadPlanner((Database) txnEntry.getDb(), table, streamLoadTask);
+        NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
+        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner((Database) txnEntry.getDb(), table,
+                streamLoadTask);
         boolean isMowTable = ((OlapTable) txnEntry.getTable()).getEnableUniqueKeyMergeOnWrite();
         TPipelineFragmentParamsList pipelineParamsList = new TPipelineFragmentParamsList();
         if (!table.tryReadLock(1, TimeUnit.MINUTES)) {

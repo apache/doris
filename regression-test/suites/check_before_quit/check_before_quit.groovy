@@ -243,6 +243,12 @@ suite("check_before_quit", "nonConcurrent,p0") {
     logger.info("show all databases: ${allDataBases}")
 
     def num = allDataBases.size()
+    def failureList = []
+
+    sql "set enable_decimal256 = true;"
+    sql """
+        ADMIN SET ALL FRONTENDS CONFIG ('enable_inverted_index_v1_for_variant' = 'true');
+    """
 
     for (int i = 0; i < num; i++) {
         def db = allDataBases[i][0]
@@ -250,51 +256,130 @@ suite("check_before_quit", "nonConcurrent,p0") {
             continue
         }
         List<List<Object>> allTables = sql "show tables from ${db}"
-        logger.info("show all tabkes: ${allTables}")
+        logger.info("show all tables: ${allTables}")
         for (int j = 0; j < allTables.size(); j++) {
             def tbl = allTables[j][0]
             def createTableSql = ""
-            def isNotLightSchemaChanged = false
             try {
-                createTableSql = sql "show create table ${db}.${tbl}"
-                logger.info("create table sql: ${createTableSql}")
+                // cloud mode not allowed to set light_schema_change = true
+                if (!isCloudMode()) {
+                    createTableSql = sql "show create table ${db}.${tbl}"
+                    if (createTableSql[0][1].contains("CREATE TABLE")) {
+                        try {
+                            sql " ALTER TABLE ${db}.${tbl} SET (\"light_schema_change\" = \"true\") "
+                        } catch (Exception alterEx) {
+                            logger.warn("Failed to alter table ${db}.${tbl} to set light_schema_change: ${alterEx.getMessage()}")
+                            failureList << [
+                                operation: "ALTER TABLE",
+                                target: "${tbl}", 
+                                error: alterEx.getMessage()
+                            ]
+                        }
+                    }
+                    createTableSql = sql "show create table ${db}.${tbl}"
+                }
             } catch (Exception e) {
                 if (e.getMessage().contains("not support async materialized view")) {
                     try {
-                        createTableSql = sql "show create materialized view ${tbl}"
+                        createTableSql = sql "show create materialized view ${db}.${tbl}"
                     } catch (Exception e2) {
                         if (e2.getMessage().contains("table not found")) {
                             continue
                         } else {
                             logger.info(e2.getMessage())
-                            throw e2
+                            failureList << [
+                                operation: "SHOW CREATE MATERIALIZED VIEW", 
+                                target: "${db}.${tbl}", 
+                                error: e2.getMessage()
+                            ]
+                            continue
                         }
                     }
                     logger.info("create materialized view sql: ${createTableSql}")
+                } else {
+                    logger.warn("Failed to show create table ${db}.${tbl}: ${e.getMessage()}")
+                    failureList << [
+                        operation: "SHOW CREATE TABLE",
+                        target: "${db}.${tbl}", 
+                        error: e.getMessage()
+                    ]
+                    continue
                 }
             }
 
-            if (!createTableSql[0][1].contains("\"light_schema_change\" = \"true\"")) {
-                isNotLightSchemaChanged = true
-            }
+            try {
+                if (createTableSql[0][1].contains("CREATE VIEW")) {
+                    sql "drop view if exists ${tbl}"
+                } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
+                    sql "drop materialized view if exists ${tbl}"
+                } else {
+                    sql "drop table if exists ${tbl}"
+                    // only re create table, because the table which view depends may be dropped,
+                    // so recreate view may fail
+                    try {
+                        if (createTableSql[0][1].contains("agg_state<")) {
+                            logger.info("Skipping table ${tbl} because it contains agg_state column type")
+                            continue
+                        }
 
-            if (createTableSql[0][1].contains("CREATE VIEW")) {
-                sql "drop view if exists ${tbl}"
-            } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
-                sql "drop materialized view if exists ${tbl}"
-            } else {
-                sql "drop table if exists ${tbl}"
-                // only re create table, because the table which view depends may be dropped,
-                // so recreate view may fail
-                sql(createTableSql[0][1])
-                def createTableSqlResult = sql "show create table ${tbl}"
-                logger.info("create table/view sql result info: ${createTableSqlResult}")
+                        sql(createTableSql[0][1])
+                        def createTableSqlResult = sql "show create table ${tbl}"
 
-                createTableSqlResult = createTableSqlResult[0][1].replaceAll(",?\\s*light_schema_change = true", "")
-                
-                assertEquals(createTableSqlResult, createTableSql[0][1])
+                        def eraseReplicationAllocationProperty = { String sql ->
+                            def result = sql.replaceAll(/(,\s*)?"replication_allocation"\s*=\s*"tag\.location\.default:\s*[^"]*"(,\s*|\s*\))/, '$2')
+                            result = result.replaceAll(/PROPERTIES\s*\(\s*,/, 'PROPERTIES (')
+                            result = result.replaceAll(/,(\s*,)+/, ',')
+                            return result.trim()
+                        }
+                        createTableSql = eraseReplicationAllocationProperty(createTableSql[0][1])
+                        createTableSqlResult = eraseReplicationAllocationProperty(createTableSqlResult[0][1])
+                        
+                        logger.info("target: ${createTableSqlResult}, origin: ${createTableSql}")
+
+                        if (createTableSqlResult.trim() != createTableSql.trim()) {
+                            failureList << [
+                                operation: "CREATE TABLE", 
+                                target: "${tbl}", 
+                                expected: createTableSql.trim(),
+                                actual: createTableSqlResult.trim()
+                            ]
+                        }
+                    } catch (Exception recreateEx) {
+                        logger.warn("Failed to recreate table ${tbl}: ${recreateEx.getMessage()}")
+                        failureList << [
+                            operation: "RECREATE TABLE", 
+                            target: "${tbl}", 
+                            sql: createTableSql,
+                            error: recreateEx.getMessage()
+                        ]
+                    }
+                }
+            } catch (Exception dropEx) {
+                logger.warn("Failed during drop operation for ${tbl}: ${dropEx.getMessage()}")
+                failureList << [
+                    operation: "DROP", 
+                    target: "${tbl}", 
+                    error: dropEx.getMessage()
+                ]
             }
         }
+    }
+
+    if (failureList.size() > 0) {
+        logger.error("Total failures: ${failureList.size()}")
+        failureList.eachWithIndex { failure, idx ->
+            logger.error("Failure #${idx + 1}:")
+            failure.each { key, value ->
+                if (key == "expected" || key == "actual" || key == "sql") {
+                    logger.error("  ${key}:\n${value}")
+                } else {
+                    logger.error("  ${key}: ${value}")
+                }
+            }
+        }
+        logger.error("Found ${failureList.size()} failures during database recreation checks")
+    } else {
+        clear = true
     }
 
     assertTrue(clear)

@@ -53,7 +53,7 @@ public class HelpStmt extends ShowStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(mask)) {
             throw new AnalysisException("Help empty info.");
         }

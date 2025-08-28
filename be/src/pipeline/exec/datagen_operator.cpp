@@ -19,10 +19,10 @@
 
 #include <memory>
 
-#include "exprs/runtime_filter.h"
 #include "pipeline/common/data_gen_functions/vdata_gen_function_inf.h"
 #include "pipeline/common/data_gen_functions/vnumbers_tvf.h"
 #include "pipeline/exec/operator.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -50,8 +50,8 @@ Status DataGenSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status DataGenSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<DataGenLocalState>::open(state));
+Status DataGenSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<DataGenLocalState>::prepare(state));
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -86,8 +86,8 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
-    _table_function_execution_timer = ADD_TIMER(profile(), "TableFunctionExecutionTime");
-    _filter_timer = ADD_TIMER(profile(), "FilterTime");
+    _table_function_execution_timer = ADD_TIMER(custom_profile(), "TableFunctionExecutionTime");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
     auto& p = _parent->cast<DataGenSourceOperatorX>();
     _table_func = std::make_shared<VNumbersTVF>(p._tuple_id, p._tuple_desc);
     _table_func->set_tuple_desc(p._tuple_desc);
@@ -95,10 +95,9 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
     for (const auto& filter_desc : p._runtime_filter_descs) {
-        std::shared_ptr<IRuntimeFilter> runtime_filter;
+        std::shared_ptr<RuntimeFilterConsumer> filter;
         RETURN_IF_ERROR(state->register_consumer_runtime_filter(filter_desc, p.is_serial_operator(),
-                                                                p.node_id(), &runtime_filter));
-        runtime_filter->init_profile(_runtime_profile.get());
+                                                                p.node_id(), &filter));
     }
     return Status::OK();
 }

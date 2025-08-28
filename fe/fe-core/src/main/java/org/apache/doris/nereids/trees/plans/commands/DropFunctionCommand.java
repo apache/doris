@@ -79,7 +79,10 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
                 dbName = ctx.getDatabase();
                 functionName.setDb(dbName);
             }
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+            if (db == null) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
             db.dropFunction(function, ifExists);
         }
         // BE will cache classload, when drop function, BE need clear cache

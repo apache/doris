@@ -66,7 +66,7 @@ suite('test_clean_stale_rs_file_cache', 'docker') {
         sql """
             insert into $table values (10, 1, 'v1'), (20, 2, 'v2'), (30, 3, 'v3')
         """
-        def cacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 2)
+        def cacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3)
         // version 4
         sql """
             insert into $table values (100, 1, 'v1'), (200, 2, 'v2'), (300, 3, 'v3')

@@ -19,10 +19,10 @@
 
 #include <re2/re2.h>
 
-#include "runtime/runtime_state.h"
 #include "transactional_hive_common.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/orc/vorc_reader.h"
+#include "vec/exec/format/table/table_format_reader.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -41,12 +41,7 @@ TransactionalHiveReader::TransactionalHiveReader(std::unique_ptr<GenericReader> 
                                                  RuntimeProfile* profile, RuntimeState* state,
                                                  const TFileScanRangeParams& params,
                                                  const TFileRangeDesc& range, io::IOContext* io_ctx)
-        : TableFormatReader(std::move(file_format_reader)),
-          _profile(profile),
-          _state(state),
-          _params(params),
-          _range(range),
-          _io_ctx(io_ctx) {
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx) {
     static const char* transactional_hive_profile = "TransactionalHiveProfile";
     ADD_TIMER(_profile, transactional_hive_profile);
     _transactional_orc_profile.num_delete_files =
@@ -59,7 +54,7 @@ TransactionalHiveReader::TransactionalHiveReader(std::unique_ptr<GenericReader> 
 
 Status TransactionalHiveReader::init_reader(
         const std::vector<std::string>& column_names,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -68,16 +63,61 @@ Status TransactionalHiveReader::init_reader(
     _col_names.insert(_col_names.end(), column_names.begin(), column_names.end());
     _col_names.insert(_col_names.end(), TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
                       TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end());
+
+    // https://issues.apache.org/jira/browse/HIVE-15190
+    const orc::Type* orc_type_ptr = nullptr;
+    RETURN_IF_ERROR(orc_reader->get_file_type(&orc_type_ptr));
+    const auto& orc_type = *orc_type_ptr;
+
+    for (auto idx = 0; idx < TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.size(); idx++) {
+        table_info_node_ptr->add_children(TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE[idx],
+                                          TransactionalHive::READ_ROW_COLUMN_NAMES[idx],
+                                          std::make_shared<ScalarNode>());
+    }
+
+    auto row_orc_type = orc_type.getSubtype(TransactionalHive::ROW_OFFSET);
+    // struct<operation:int,originalTransaction:bigint,bucket:int,rowId:bigint,currentTransaction:bigint,row:struct<id:int,name:string>>
+    std::vector<std::string> row_names;
+    std::map<std::string, uint64_t> row_names_map;
+    for (uint64_t idx = 0; idx < row_orc_type->getSubtypeCount(); idx++) {
+        const auto& file_column_name = row_orc_type->getFieldName(idx);
+        row_names.emplace_back(file_column_name);
+        row_names_map.emplace(file_column_name, idx);
+    }
+
+    // use name for match.
+    for (const auto& slot : tuple_descriptor->slots()) {
+        const auto& slot_name = slot->col_name();
+
+        if (std::count(TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
+                       TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end(), slot_name) > 0) {
+            return Status::InternalError("xxxx");
+        }
+
+        if (row_names_map.contains(slot_name)) {
+            std::shared_ptr<Node> child_node = nullptr;
+            RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(
+                    slot->type(), row_orc_type->getSubtype(row_names_map[slot_name]), child_node));
+            auto file_column_name = fmt::format(
+                    "{}.{}", TransactionalHive::ACID_COLUMN_NAMES[TransactionalHive::ROW_OFFSET],
+                    slot_name);
+            table_info_node_ptr->add_children(slot_name, file_column_name, child_node);
+
+        } else {
+            table_info_node_ptr->add_not_exist_children(slot_name);
+        }
+    }
+
     Status status = orc_reader->init_reader(
             &_col_names, colname_to_value_range, conjuncts, true, tuple_descriptor, row_descriptor,
-            not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+            not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts, table_info_node_ptr);
     return status;
 }
 
-Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status TransactionalHiveReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     for (const auto& i : TransactionalHive::READ_PARAMS) {
-        DataTypePtr data_type =
-                DataTypeFactory::instance().create_data_type(TypeDescriptor(i.type), false);
+        DataTypePtr data_type = get_data_type_with_default_argument(
+                DataTypeFactory::instance().create_data_type(i.type, false));
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, i.column_lower_case));
@@ -87,14 +127,7 @@ Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, 
     return res;
 }
 
-Status TransactionalHiveReader::get_columns(
-        std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-        std::unordered_set<std::string>* missing_cols) {
-    return _file_format_reader->get_columns(name_to_type, missing_cols);
-}
-
-Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
-                                                 io::IOContext* io_ctx) {
+Status TransactionalHiveReader::init_row_filters() {
     std::string data_file_path = _range.path;
     // the path in _range is remove the namenode prefix,
     // and the file_path in delete file is full path, so we should add it back.
@@ -128,7 +161,7 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
 
     SCOPED_TIMER(_transactional_orc_profile.delete_files_read_time);
     for (const auto& delete_delta :
-         range.table_format_params.transactional_hive_params.delete_deltas) {
+         _range.table_format_params.transactional_hive_params.delete_deltas) {
         const std::string file_name = file_path.filename().string();
 
         //need opt.
@@ -156,9 +189,19 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
         OrcReader delete_reader(_profile, _state, _params, delete_range, _MIN_BATCH_SIZE,
                                 _state->timezone(), _io_ctx, false);
 
-        RETURN_IF_ERROR(
-                delete_reader.init_reader(&TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE,
-                                          nullptr, {}, false, nullptr, nullptr, nullptr, nullptr));
+        auto acid_info_node = std::make_shared<StructNode>();
+        for (auto idx = 0; idx < TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE.size();
+             idx++) {
+            auto const& table_column_name =
+                    TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE[idx];
+            auto const& file_column_name = TransactionalHive::DELETE_ROW_COLUMN_NAMES[idx];
+            acid_info_node->add_children(table_column_name, file_column_name,
+                                         std::make_shared<ScalarNode>());
+        }
+
+        RETURN_IF_ERROR(delete_reader.init_reader(
+                &TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE, nullptr, {}, false, nullptr,
+                nullptr, nullptr, nullptr, acid_info_node));
 
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;

@@ -36,7 +36,6 @@ namespace doris {
 
 class ObjectPool;
 class RuntimeState;
-struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -64,7 +63,7 @@ private:
     class IcebergPartitionColumn {
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,
-                               const TypeDescriptor& source_type, int source_idx,
+                               const PrimitiveType& source_type, int source_idx,
                                std::unique_ptr<PartitionColumnTransform> partition_column_transform)
                 : _field(field),
                   _source_type(source_type),
@@ -74,7 +73,7 @@ private:
     public:
         const iceberg::PartitionField& field() const { return _field; }
 
-        const TypeDescriptor& source_type() const { return _source_type; }
+        const PrimitiveType& source_type() const { return _source_type; }
         int source_idx() const { return _source_idx; }
 
         const PartitionColumnTransform& partition_column_transform() const {
@@ -87,7 +86,7 @@ private:
 
     private:
         const iceberg::PartitionField& _field;
-        TypeDescriptor _source_type;
+        PrimitiveType _source_type;
         int _source_idx;
         std::unique_ptr<PartitionColumnTransform> _partition_column_transform;
     };
@@ -104,7 +103,7 @@ private:
 
     PartitionData _get_partition_data(vectorized::Block* block, int position);
 
-    std::any _get_iceberg_partition_value(const TypeDescriptor& type_desc,
+    std::any _get_iceberg_partition_value(const PrimitiveType& type_desc,
                                           const ColumnWithTypeAndName& partition_column,
                                           int position);
 

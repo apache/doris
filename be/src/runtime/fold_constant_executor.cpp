@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -50,7 +51,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -67,7 +67,7 @@ namespace doris {
 static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
         TYPE_BOOLEAN,  TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,      TYPE_BIGINT,
         TYPE_LARGEINT, TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,   TYPE_CHAR,
-        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_OBJECT,   TYPE_DATE,
+        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_BITMAP,   TYPE_DATE,
         TYPE_DATETIME, TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2};
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
@@ -81,7 +81,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     // init
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker);
+    signal::SignalTaskIdKeeper keeper(_query_id);
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
@@ -101,11 +102,11 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             RETURN_IF_ERROR(ctx->execute(&tmp_block, &result_column));
             DCHECK(result_column != -1);
             // covert to thrift type
-            const TypeDescriptor& res_type = ctx->root()->type();
-            TPrimitiveType::type t_type = doris::to_thrift(res_type.type);
+            const auto& res_type = ctx->root()->data_type();
+            TPrimitiveType::type t_type = doris::to_thrift(res_type->get_primitive_type());
             // collect result
             PExprResult expr_result;
-            string result;
+            std::string result;
             const auto& column_ptr = tmp_block.get_by_position(result_column).column;
             const auto& column_type = tmp_block.get_by_position(result_column).type;
             // 4 from fe: Config.be_exec_version maybe need remove after next version, now in 2.1
@@ -113,7 +114,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                 params.is_nereids) {
                 auto* p_type_desc = expr_result.mutable_type_desc();
                 auto* p_values = expr_result.mutable_result_content();
-                res_type.to_protobuf(p_type_desc);
+                res_type->to_protobuf(p_type_desc);
                 auto datatype_serde = column_type->get_serde();
                 RETURN_IF_ERROR(datatype_serde->write_column_to_pb(
                         *column_ptr->convert_to_full_column_if_const(), *p_values, 0, 1));
@@ -128,20 +129,25 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                 } else {
                     expr_result.set_success(true);
                     StringRef string_ref;
-                    auto type = ctx->root()->type().type;
+                    auto type = ctx->root()->data_type()->get_primitive_type();
                     //eg: strcut, array, map VARIANT... will not impl get_data_at, so could use column->to_string()
                     if (PRIMITIVE_TYPE_SET.contains(type)) {
                         string_ref = column_ptr->get_data_at(0);
                     }
                     RETURN_IF_ERROR(_get_result((void*)string_ref.data, string_ref.size,
-                                                ctx->root()->type(), column_ptr, column_type,
+                                                ctx->root()->data_type(), column_ptr, column_type,
                                                 result));
                 }
                 expr_result.set_content(std::move(result));
                 expr_result.mutable_type()->set_type(t_type);
-                expr_result.mutable_type()->set_scale(res_type.scale);
-                expr_result.mutable_type()->set_precision(res_type.precision);
-                expr_result.mutable_type()->set_len(res_type.len);
+                expr_result.mutable_type()->set_scale(res_type->get_scale());
+                expr_result.mutable_type()->set_precision(res_type->get_precision());
+                expr_result.mutable_type()->set_len(
+                        res_type->get_primitive_type() == PrimitiveType::TYPE_STRING
+                                ? assert_cast<const vectorized::DataTypeString*>(
+                                          vectorized::remove_nullable(res_type).get())
+                                          ->len()
+                                : -1);
                 pexpr_result_map.mutable_map()->insert({n.first, expr_result});
             }
         }
@@ -186,11 +192,12 @@ Status FoldConstantExecutor::_prepare_and_open(Context* ctx) {
     return ctx->open(_runtime_state.get());
 }
 
-Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescriptor& type,
+Status FoldConstantExecutor::_get_result(void* src, size_t size,
+                                         const vectorized::DataTypePtr& type,
                                          const vectorized::ColumnPtr column_ptr,
                                          const vectorized::DataTypePtr column_type,
                                          std::string& result) {
-    switch (type.type) {
+    switch (type->get_primitive_type()) {
     case TYPE_BOOLEAN: {
         bool val = *reinterpret_cast<const bool*>(src);
         result = val ? "true" : "false";
@@ -240,7 +247,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     case TYPE_VARCHAR:
     case TYPE_STRING:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_BITMAP: {
         result = std::string((char*)src, size);
         break;
     }
@@ -266,12 +273,12 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)src);
 
         char buf[64];
-        char* pos = value.to_string(buf, type.scale);
+        char* pos = value.to_string(buf, type->get_scale());
         result = std::string(buf, pos - buf - 1);
         break;
     }
     case TYPE_DECIMALV2: {
-        result = reinterpret_cast<DecimalV2Value*>(src)->to_string(type.scale);
+        result = reinterpret_cast<DecimalV2Value*>(src)->to_string(type->get_scale());
         break;
     }
     case TYPE_DECIMAL32:
@@ -301,7 +308,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     default:
         auto error_msg =
                 fmt::format("Type not implemented:{} need check it, and exec_query_id is: {}.",
-                            type.debug_string(), query_id_string());
+                            type->get_name(), query_id_string());
         return Status::InternalError(error_msg);
     }
     return Status::OK();

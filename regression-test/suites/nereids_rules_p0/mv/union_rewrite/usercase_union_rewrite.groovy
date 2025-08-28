@@ -76,8 +76,21 @@ suite ("usercase_union_rewrite") {
     insert into orders_user values 
     (1, 3, 'o', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
     (1, 3, 'o', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
+    (1, 3, 'o', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
+    (1, 3, 'o', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
+    (1, 3, 'o', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
+    (1, 3, 'o', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
     (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
     (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
+    (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
+    (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
+    (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
+    (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
+    (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
+    (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
+    (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
+    (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
+    (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
     (4, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-19'); 
@@ -93,7 +106,7 @@ suite ("usercase_union_rewrite") {
     sql """analyze table orders_user with sync;"""
     sql """analyze table lineitem_user with sync;"""
 
-    sql """alter table orders_user modify column o_comment set stats ('row_count'='7');"""
+    sql """alter table orders_user modify column o_comment set stats ('row_count'='21');"""
     sql """alter table lineitem_user modify column l_comment set stats ('row_count'='3');"""
 
     def create_mv_orders = { mv_name, mv_sql ->
@@ -160,14 +173,14 @@ suite ("usercase_union_rewrite") {
         o_orderdate
         """
 
-    mv_rewrite_success(query_stmt, mv_name, true,
+    mv_rewrite_success(query_stmt, mv_name,
             is_partition_statistics_ready(db, ["orders_user", mv_name]))
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 
     sql """insert into orders_user values (5, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-19');"""
     sleep(10 * 1000)
 
-    mv_rewrite_success(query_stmt, mv_name, true,
+    mv_rewrite_success(query_stmt, mv_name,
             is_partition_statistics_ready(db, ["orders_user", mv_name]))
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 }

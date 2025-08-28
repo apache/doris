@@ -34,22 +34,25 @@
 #include <utility>
 #include <vector>
 
-#include "gutil/strings/substitute.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/arrow/block_convertor.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_agg_state.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
-using strings::Substitute;
-
-Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result,
+Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
+                             std::shared_ptr<arrow::DataType>* result,
                              const std::string& timezone) {
-    switch (type.type) {
+    auto type = get_serialized_type(origin_type);
+    switch (type->get_primitive_type()) {
     case TYPE_NULL:
         *result = arrow::null();
         break;
@@ -95,52 +98,55 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = std::make_shared<arrow::Date32Type>();
         break;
     case TYPE_DATETIMEV2:
-        if (type.scale > 3) {
+        if (type->get_scale() > 3) {
             *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
-        } else if (type.scale > 0) {
+        } else if (type->get_scale() > 0) {
             *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI, timezone);
         } else {
             *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND, timezone);
         }
         break;
     case TYPE_DECIMALV2:
-        *result = std::make_shared<arrow::Decimal128Type>(27, 9);
-        break;
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
-        *result = std::make_shared<arrow::Decimal128Type>(type.precision, type.scale);
+        *result = std::make_shared<arrow::Decimal128Type>(type->get_precision(), type->get_scale());
         break;
     case TYPE_DECIMAL256:
-        *result = std::make_shared<arrow::Decimal256Type>(type.precision, type.scale);
+        *result = std::make_shared<arrow::Decimal256Type>(type->get_precision(), type->get_scale());
         break;
     case TYPE_BOOLEAN:
         *result = arrow::boolean();
         break;
     case TYPE_ARRAY: {
-        DCHECK_EQ(type.children.size(), 1);
+        const auto* type_arr = assert_cast<const vectorized::DataTypeArray*>(
+                vectorized::remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
-        static_cast<void>(convert_to_arrow_type(type.children[0], &item_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
     case TYPE_MAP: {
-        DCHECK_EQ(type.children.size(), 2);
+        const auto* type_map = assert_cast<const vectorized::DataTypeMap*>(
+                vectorized::remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        static_cast<void>(convert_to_arrow_type(type.children[0], &key_type, timezone));
-        static_cast<void>(convert_to_arrow_type(type.children[1], &val_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
     case TYPE_STRUCT: {
-        DCHECK_GT(type.children.size(), 0);
+        const auto* type_struct = assert_cast<const vectorized::DataTypeStruct*>(
+                vectorized::remove_nullable(type).get());
         std::vector<std::shared_ptr<arrow::Field>> fields;
-        for (size_t i = 0; i < type.children.size(); i++) {
+        for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            static_cast<void>(convert_to_arrow_type(type.children[i], &field_type, timezone));
-            fields.push_back(std::make_shared<arrow::Field>(type.field_names[i], field_type,
-                                                            type.contains_nulls[i]));
+            RETURN_IF_ERROR(
+                    convert_to_arrow_type(type_struct->get_element(i), &field_type, timezone));
+            fields.push_back(
+                    std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
+                                                   type_struct->get_element(i)->is_nullable()));
         }
         *result = std::make_shared<arrow::StructType>(fields);
         break;
@@ -150,14 +156,14 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         break;
     }
     case TYPE_QUANTILE_STATE:
-    case TYPE_OBJECT:
+    case TYPE_BITMAP:
     case TYPE_HLL: {
         *result = arrow::binary();
         break;
     }
     default:
         return Status::InvalidArgument("Unknown primitive type({}) convert to Arrow type",
-                                       type.type);
+                                       type->get_name());
     }
     return Status::OK();
 }
@@ -168,8 +174,7 @@ Status get_arrow_schema_from_block(const vectorized::Block& block,
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type->get_type_as_type_descriptor(),
-                                              &arrow_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type, &arrow_type, timezone));
         fields.push_back(std::make_shared<arrow::Field>(type_and_name.name, arrow_type,
                                                         type_and_name.type->is_nullable()));
     }
@@ -184,7 +189,7 @@ Status get_arrow_schema_from_expr_ctxs(const vectorized::VExprContextSPtrs& outp
     for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
         auto root_expr = output_vexpr_ctxs.at(i)->root();
-        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->data_type(), &arrow_type, timezone));
         auto field_name = root_expr->is_slot_ref() && !root_expr->expr_label().empty()
                                   ? root_expr->expr_label()
                                   : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);

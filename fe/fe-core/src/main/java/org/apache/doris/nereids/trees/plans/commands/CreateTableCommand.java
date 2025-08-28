@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TableName;
@@ -86,13 +85,11 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
-            CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
                         ctx.queryId(), createTableInfo.getTableName());
             }
-
-            Env.getCurrentEnv().createTable(createTableStmt);
+            Env.getCurrentEnv().createTable(this);
             return;
         }
         LogicalPlan query = ctasQuery.get();
@@ -109,6 +106,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         if (slots.size() != ctasCols.size()) {
             throw new AnalysisException("ctas column size is not equal to the query's");
         }
+        String autoRangePartitionName = getAutoRangePartitionNameOrNull();
         ImmutableList.Builder<ColumnDefinition> columnsOfQuery = ImmutableList.builder();
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
@@ -123,8 +121,8 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                         DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
                 if (s.isColumnFromTable()) {
-                    if ((!((SlotReference) s).getTable().isPresent()
-                            || !((SlotReference) s).getTable().get().isManagedTable())) {
+                    if ((!((SlotReference) s).getOriginalTable().isPresent()
+                            || !((SlotReference) s).getOriginalTable().get().isManagedTable())) {
                         if (createTableInfo.getPartitionTableInfo().inIdentifierPartitions(s.getName())
                                 || (createTableInfo.getDistribution() != null
                                 && createTableInfo.getDistribution().inDistributionColumns(s.getName()))) {
@@ -154,18 +152,23 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                     }
                 }
             }
-            // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.
-            columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, !s.isColumnFromTable() || s.nullable()));
+            if (autoRangePartitionName != null && autoRangePartitionName.equalsIgnoreCase(s.getName())) {
+                // for auto range partition column, it must be not nullable. so keep its origin.
+                columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, s.nullable()));
+            } else {
+                // if the column is an expression, we set it to nullable, otherwise according to the nullable of the
+                // slot.
+                columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, !s.isColumnFromTable() || s.nullable()));
+            }
         }
         List<String> qualifierTableName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
         createTableInfo.validateCreateTableAsSelect(qualifierTableName, columnsOfQuery.build(), ctx);
-        CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
                     ctx.queryId(), createTableInfo.getTableName());
         }
         try {
-            if (Env.getCurrentEnv().createTable(createTableStmt)) {
+            if (Env.getCurrentEnv().createTable(this)) {
                 return;
             }
         } catch (Exception e) {
@@ -176,8 +179,8 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
         try {
             if (!FeConstants.runningUnitTest) {
-                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(), Optional.empty()).run(
-                        ctx, executor);
+                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(),
+                        Optional.empty(), true, Optional.empty()).run(ctx, executor);
             }
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
@@ -197,6 +200,20 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             // TODO: refactor it with normal error process.
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
         }
+    }
+
+    private String getAutoRangePartitionNameOrNull() {
+        try {
+            if (createTableInfo.getPartitionTableInfo().isAutoPartition()
+                    && createTableInfo.getPartitionTableInfo().getPartitionType().equalsIgnoreCase("RANGE")) {
+                // should collect first before use them.
+                createTableInfo.getPartitionTableInfo().extractPartitionColumns();
+                return createTableInfo.getPartitionTableInfo().getIdentifierPartitionColumns().get(0);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return null;
     }
 
     public boolean isCtasCommand() {
@@ -223,7 +240,8 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
 
     @Override
     public boolean needAuditEncryption() {
-        return !createTableInfo.getEngineName().equalsIgnoreCase(CreateTableInfo.ENGINE_OLAP);
+        // ATTN: createTableInfo.getEngineName() may be null
+        return !CreateTableInfo.ENGINE_OLAP.equalsIgnoreCase(createTableInfo.getEngineName());
     }
 }
 

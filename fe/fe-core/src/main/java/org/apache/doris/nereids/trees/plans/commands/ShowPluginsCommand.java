@@ -59,6 +59,11 @@ public class ShowPluginsCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -67,7 +72,7 @@ public class ShowPluginsCommand extends ShowCommand {
         }
 
         List<List<String>> rows = Env.getCurrentPluginMgr().getPluginShowInfos();
-        return new ShowResultSet(META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override

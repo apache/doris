@@ -325,4 +325,44 @@ suite("aggregate") {
     qt_aggregate_limit_contain_null """
     select count(), cast(k12 as int) as t from baseall group by t limit 1;
 	"""
+
+    // Test case for percentile function with sales data
+    sql """ DROP TABLE IF EXISTS sales_data """
+    sql """
+        CREATE TABLE sales_data (
+            product_id INT,
+            sale_price DECIMAL(10, 2)
+        ) DUPLICATE KEY(`product_id`)
+        DISTRIBUTED BY HASH(`product_id`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
+    sql """
+        INSERT INTO sales_data VALUES
+        (1, 10.00),
+        (1, 15.00),
+        (1, 20.00),
+        (1, 25.00),
+        (1, 30.25),
+        (1, 35.00),
+        (1, 40.00),
+        (1, 45.00),
+        (1, 50.00),
+        (1, 100.00)
+    """
+
+    qt_aggregate35 """
+        SELECT 
+            percentile(sale_price, 0.05) as median_price_05,
+            percentile(sale_price, 0.5) as median_price,
+            percentile(sale_price, 0.75) as p75_price,
+            percentile(sale_price, 0.90) as p90_price,
+            percentile(sale_price, 0.95) as p95_price,
+            percentile(null, 0.99) as p99_null
+        FROM sales_data
+    """
+
+    sql """ DROP TABLE IF EXISTS sales_data """
 }

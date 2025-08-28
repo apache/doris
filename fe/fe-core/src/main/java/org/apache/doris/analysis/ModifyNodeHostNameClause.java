@@ -53,7 +53,7 @@ public class ModifyNodeHostNameClause extends AlterClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
         this.host = hostInfo.getHost();
         this.port = hostInfo.getPort();
@@ -64,8 +64,6 @@ public class ModifyNodeHostNameClause extends AlterClause {
                 // if no IP address for the host could be found, 'getByName'
                 // will throw UnknownHostException
                 InetAddress.getByName(newHost);
-            } else {
-                throw new AnalysisException("Invalid hostname: " + newHost);
             }
         } catch (UnknownHostException e) {
             throw new AnalysisException("Unknown hostname:  " + e.getMessage());

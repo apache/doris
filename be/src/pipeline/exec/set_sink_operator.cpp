@@ -27,6 +27,41 @@ namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
 template <bool is_intersect>
+Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    if (_terminated) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->terminate(state));
+    return Base::terminate(state);
+}
+
+template <bool is_intersect>
+Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
+
+    if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
+        try {
+            RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
+                    state, &_shared_state->build_block, _shared_state->get_hash_table_size()));
+        } catch (Exception& e) {
+            return Status::InternalError(
+                    "rf process meet error: {}, _terminated: {}, _finish_dependency: {}",
+                    e.to_string(), _terminated,
+                    _finish_dependency ? _finish_dependency->debug_string() : "null");
+        }
+    }
+
+    if (_runtime_filter_producer_helper) {
+        _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
+    }
+
+    return Base::close(state, exec_status);
+}
+
+template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
                                             bool eos) {
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
@@ -57,23 +92,14 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
         local_state._mutable_block.clear();
 
         if (eos) {
-            if constexpr (is_intersect) {
-                valid_element_in_hash_tbl = 0;
-            } else {
-                std::visit(
-                        [&](auto&& arg) {
-                            using HashTableCtxType = std::decay_t<decltype(arg)>;
-                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                valid_element_in_hash_tbl = arg.hash_table->size();
-                            }
-                        },
-                        local_state._shared_state->hash_table_variants->method_variant);
-            }
+            uint64_t hash_table_size = local_state._shared_state->get_hash_table_size();
+            valid_element_in_hash_tbl = is_intersect ? 0 : hash_table_size;
+
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
-            if (_child_quantity == 1) {
-                local_state._dependency->set_ready_to_read();
-            }
+            DCHECK_GT(_child_quantity, 1);
+            RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
+                    state, hash_table_size, local_state._finish_dependency));
         }
     }
     return Status::OK();
@@ -113,16 +139,18 @@ template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_extract_build_column(
         SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
         vectorized::ColumnRawPtrs& raw_ptrs, size_t& rows) {
-    std::vector<int> result_locs(_child_exprs.size(), -1);
+    // use local state child exprs
+    auto& child_expr = local_state._child_exprs;
+    std::vector<int> result_locs(child_expr.size(), -1);
     bool is_all_const = true;
 
-    for (size_t i = 0; i < _child_exprs.size(); ++i) {
-        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_locs[i]));
+    for (size_t i = 0; i < child_expr.size(); ++i) {
+        RETURN_IF_ERROR(child_expr[i]->execute(&block, &result_locs[i]));
         is_all_const &= is_column_const(*block.get_by_position(result_locs[i]).column);
     }
     rows = is_all_const ? 1 : rows;
 
-    for (size_t i = 0; i < _child_exprs.size(); ++i) {
+    for (size_t i = 0; i < child_expr.size(); ++i) {
         size_t result_col_id = result_locs[i];
 
         if (is_all_const) {
@@ -155,8 +183,8 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _merge_block_timer = ADD_TIMER(_profile, "MergeBlocksTime");
-    _build_timer = ADD_TIMER(_profile, "BuildTime");
+    _merge_block_timer = ADD_TIMER(custom_profile(), "MergeBlocksTime");
+    _build_timer = ADD_TIMER(custom_profile(), "BuildTime");
     auto& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     DCHECK(parent._cur_child_id == 0);
@@ -174,7 +202,9 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     _shared_state->build_not_ignore_null.resize(_child_exprs.size());
 
     RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
-
+    _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperSet>();
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _child_exprs,
+                                                          parent._runtime_filter_descs));
     return Status::OK();
 }
 
@@ -233,8 +263,8 @@ size_t SetSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state,
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
+Status SetSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
     return vectorized::VExpr::open(_child_exprs, state);
 }

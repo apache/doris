@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.EnvUtils;
@@ -27,8 +24,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -46,12 +46,9 @@ public class JdbcResourceTest {
 
     private Map<String, String> jdbcProperties;
 
-    private Analyzer analyzer;
-
     @Before
     public void setUp() {
         FeConstants.runningUnitTest = true;
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         jdbcProperties = Maps.newHashMap();
         jdbcProperties.put("type", "jdbc");
         jdbcProperties.put("user", "postgres");
@@ -77,11 +74,9 @@ public class JdbcResourceTest {
 
         jdbcProperties.remove("checksum");
 
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, "jdbc_resource_pg_14", jdbcProperties);
-
-        stmt.analyze(analyzer);
-
-        resourceMgr.createResource(stmt);
+        CreateResourceCommand createResourceCommand = new CreateResourceCommand(new CreateResourceInfo(true, false, "jdbc_resource_pg_14", ImmutableMap.copyOf(jdbcProperties)));
+        createResourceCommand.getInfo().validate();
+        resourceMgr.createResource(createResourceCommand);
 
         JdbcResource jdbcResource = (JdbcResource) resourceMgr.getResource("jdbc_resource_pg_14");
 

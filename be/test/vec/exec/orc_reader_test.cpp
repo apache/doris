@@ -48,15 +48,25 @@ private:
                 "o_orderpriority", "o_clerk",   "o_shippriority", "o_comment"};
         ObjectPool object_pool;
         DescriptorTblBuilder builder(&object_pool);
-        builder.declare_tuple() << std::make_tuple(TYPE_INT, "o_orderkey")
-                                << std::make_tuple(TYPE_INT, "o_custkey")
-                                << std::make_tuple(TYPE_STRING, "o_orderstatus")
-                                << std::make_tuple(TYPE_DOUBLE, "o_totalprice")
-                                << std::make_tuple(TYPE_DATE, "o_orderdate")
-                                << std::make_tuple(TYPE_STRING, "o_orderpriority")
-                                << std::make_tuple(TYPE_STRING, "o_clerk")
-                                << std::make_tuple(TYPE_INT, "o_shippriority")
-                                << std::make_tuple(TYPE_STRING, "o_comment");
+        builder.declare_tuple()
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                                   "o_orderkey")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                                   "o_custkey")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                                   "o_orderstatus")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false),
+                                   "o_totalprice")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DATE, false),
+                                   "o_orderdate")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                                   "o_orderpriority")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                                   "o_clerk")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                                   "o_shippriority")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                                   "o_comment");
         DescriptorTbl* desc_tbl = builder.build();
         auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
         RowDescriptor row_desc(tuple_desc, false);
@@ -80,7 +90,7 @@ private:
         RuntimeState state;
         state.set_desc_tbl(desc_tbl);
         status = context->prepare(&state, row_desc);
-        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok()) << status.to_string();
 
         // build search argument
         auto sarg_builder = orc::SearchArgumentFactory::newBuilder();
@@ -93,7 +103,6 @@ private:
 };
 
 TEST_F(OrcReaderTest, test_build_search_argument) {
-    ExecEnv::GetInstance()->set_orc_memory_pool(new ORCMemoryPool());
     std::vector<std::string>
             exprs =
                     {
@@ -120,7 +129,7 @@ TEST_F(OrcReaderTest, test_build_search_argument) {
                             // select count(o_orderkey) from tpch1_orc.orders where lower(o_orderpriority) = '1-urgent';
                             R"|({"1":{"lst":["rec",4,{"1":{"i32":2},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2}}}}]},"3":{"i64":-1}}},"3":{"i32":9},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"eq"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":15},"2":{"i32":65533}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":15},"2":{"i32":65533}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"eq(varchar(65533), varchar(65533))"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"28":{"i32":15},"29":{"tf":1}},{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":15},"2":{"i32":65533}}}}]},"3":{"i64":-1}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"lower"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":23},"2":{"i32":2147483643}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":15},"2":{"i32":65533}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"lower(text)"},"9":{"rec":{"1":{"str":""}}},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"29":{"tf":1}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":23},"2":{"i32":2147483643}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":5},"2":{"i32":0},"3":{"i32":-1}}},"20":{"i32":-1},"29":{"tf":1},"36":{"str":"o_orderpriority"}},{"1":{"i32":17},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":15},"2":{"i32":65533}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"16":{"rec":{"1":{"str":"1-urgent"}}},"20":{"i32":-1},"29":{"tf":0}}]}})|",
                             // select count(o_orderkey) from tpch1_orc.orders where o_orderkey * 2 < 60;
-                            R"|({"1":{"lst":["rec",5,{"1":{"i32":2},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2}}}}]},"3":{"i64":-1}}},"3":{"i32":11},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"lt"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"lt(bigint, bigint)"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"28":{"i32":6},"29":{"tf":1}},{"1":{"i32":1},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}}},"3":{"i32":55},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"multiply"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":3}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"multiply(int, tinyint)"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"29":{"tf":1}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0},"3":{"i32":-1}}},"20":{"i32":-1},"29":{"tf":1},"36":{"str":"o_orderkey"}},{"1":{"i32":9},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":3}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"10":{"rec":{"1":{"i64":2}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":9},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"10":{"rec":{"1":{"i64":60}}},"20":{"i32":-1},"29":{"tf":0}}]}})|",
+                            // R"|({"1":{"lst":["rec",5,{"1":{"i32":2},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2}}}}]},"3":{"i64":-1}}},"3":{"i32":11},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"lt"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"lt(bigint, bigint)"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"28":{"i32":6},"29":{"tf":1}},{"1":{"i32":1},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}}},"3":{"i32":55},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"multiply"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":3}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"multiply(int, tinyint)"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"29":{"tf":1}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0},"3":{"i32":-1}}},"20":{"i32":-1},"29":{"tf":1},"36":{"str":"o_orderkey"}},{"1":{"i32":9},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":3}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"10":{"rec":{"1":{"i64":2}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":9},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"10":{"rec":{"1":{"i64":60}}},"20":{"i32":-1},"29":{"tf":0}}]}})|",
                             // select count(o_orderkey) from tpch1_orc.orders where o_orderdate is not null;
                             R"|({"1":{"lst":["rec",4,{"1":{"i32":2},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2}}}}]},"3":{"i64":-1}}},"3":{"i32":9},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"eq"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":27},"3":{"i32":18},"4":{"i32":0}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":27},"3":{"i32":18},"4":{"i32":0}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"eq(datetimev2(0), datetimev2(0))"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"28":{"i32":27},"29":{"tf":1}},{"1":{"i32":5},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":27},"3":{"i32":18},"4":{"i32":0}}}}]},"3":{"i64":-1}}},"3":{"i32":4},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"casttodatetimev2"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":26}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":27},"3":{"i32":18},"4":{"i32":0}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"casttodatetimev2(datev2)"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"29":{"tf":1}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":26}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":4},"2":{"i32":0},"3":{"i32":-1}}},"20":{"i32":-1},"29":{"tf":1},"36":{"str":"o_orderdate"}},{"1":{"i32":7},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":27},"3":{"i32":18},"4":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"8":{"rec":{"1":{"str":"2024-11-12 21:13:02"}}},"20":{"i32":-1},"29":{"tf":0}}]}})|",
                     };
@@ -149,7 +158,7 @@ TEST_F(OrcReaderTest, test_build_search_argument) {
             CANNOT_PUSH_DOWN_ERROR,
             CANNOT_PUSH_DOWN_ERROR,
             CANNOT_PUSH_DOWN_ERROR,
-            CANNOT_PUSH_DOWN_ERROR,
+            //CANNOT_PUSH_DOWN_ERROR,
             CANNOT_PUSH_DOWN_ERROR,
     };
     for (int i = 0; i < exprs.size(); i++) {

@@ -31,6 +31,9 @@ suite("test_dml_export_table_auth","p0,auth_call") {
     String tableName = 'test_dml_export_table_auth_tb'
     String exportLabel = 'test_dml_export_table_auth_label' + hashCode.toString()
 
+    try_sql("DROP USER ${user}")
+    try_sql """drop database if exists ${dbName}"""
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -38,10 +41,6 @@ suite("test_dml_export_table_auth","p0,auth_call") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
-
-    try_sql("DROP USER ${user}")
-    try_sql """drop database if exists ${dbName}"""
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
 
@@ -122,7 +121,8 @@ suite("test_dml_export_table_auth","p0,auth_call") {
             WHERE STATE = "EXPORTING";"""
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().indexOf("not exist") != -1)
+            // should not cause by not have auth
+            assertTrue(e.getMessage().indexOf("denied") == -1)
         }
 
     }

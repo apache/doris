@@ -299,6 +299,28 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
         assert("${ex}".contains("3000"))
     }
 
+    sql """
+        drop table if exists percentile_input_no_nullable;
+    """
+    sql """
+        create table percentile_input_no_nullable(a int, b int not null) properties ("replication_num" = "1");
+    """
+    sql """
+        insert into percentile_input_no_nullable values (10, 100), (20,200), (30, 300), (40, 400);
+    """
+
+    try {
+        sql " select percentile(b, -1) from percentile_input_no_nullable;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("-1"))
+    }
+
+    try {
+        sql " select percentile(b, 3000) from percentile_input_no_nullable;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("3000"))
+    }
+
     sql "DROP TABLE IF EXISTS ${tableName_13}"
 
     
@@ -359,6 +381,7 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
     sql "INSERT INTO ${tableName_15} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
     qt_select29 "select id,stddev(level) from ${tableName_15} group by id order by id"
+    qt_select29 "select id,std(level) from ${tableName_15} group by id order by id"
     qt_select30 "select id,stddev_pop(level) from ${tableName_15} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_15}"

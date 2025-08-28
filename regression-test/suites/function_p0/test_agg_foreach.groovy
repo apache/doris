@@ -32,14 +32,14 @@ suite("test_agg_foreach") {
    // GROUP_BITMAP_XOR BITMAP_UNION HLL_UNION_AGG GROUPING GROUPING_ID BITMAP_AGG SEQUENCE-MATCH SEQUENCE-COUNT
 
 
-    sql """ set enable_nereids_planner=true;"""
-    sql """ set enable_fallback_to_original_planner=false;"""
+	sql """ set enable_nereids_planner=true;"""
+	sql """ set enable_fallback_to_original_planner=false;"""
    
-    sql """
-        drop table if exists foreach_table;
-    """
+	sql """
+	    drop table if exists foreach_table;
+	"""
 
-    sql """
+	sql """
        CREATE TABLE IF NOT EXISTS foreach_table (
               `id` INT(11) null COMMENT "",
               `a` array<INT> null  COMMENT "",
@@ -63,15 +63,15 @@ suite("test_agg_foreach") {
    """
 
    // this case also test combinator should be case-insensitive
-   qt_sql """
+   	qt_sql """
        select min_ForEach(a), min_by_foreach(a,a),max_foreach(a),max_by_foreach(a,a) , avg_foreach(a),avg_weighted_foreach(a,a) from foreach_table ;
    """
 
-   qt_sql """
+   	qt_sql """
    select  sum_foreach(a)  , stddev_foreach(a) ,stddev_samp_foreach(a)  , variance_foreach(a) , var_samp_foreach(a) from foreach_table ;
    """
 
-   qt_sql """
+   	qt_sql """
    select covar_foreach(a,a)  , covar_samp_foreach(a,a) , corr_foreach(a,a) from foreach_table ; 
    """
     qt_sql """
@@ -79,30 +79,34 @@ suite("test_agg_foreach") {
    """
 
 
-   qt_sql """
-   select count_foreach(a)  , count_by_enum_foreach(a)  , approx_count_distinct_foreach(a) from foreach_table;
-   """
+   	qt_sql """
+   	select count_foreach(a)  , count_by_enum_foreach(a)  , approx_count_distinct_foreach(a) from foreach_table;
+   	"""
 
-   qt_sql """
-   select histogram_foreach(a) from foreach_table;
-   """
+    qt_sql """select array_agg_foreach(a) from foreach_table;"""
+   	qt_sql """select array_agg_foreach(s) from foreach_table;"""
+
+   	test {
+    	sql """select array_agg_foreach(b) from foreach_table;"""
+    	exception "not support"
+   	}
+
+   	qt_sql """
+   	select histogram_foreach(a) from foreach_table;
+   	"""
    
-   try {
-        sql "select PERCENTILE_foreach(a,a)  from foreach_table;"
-   } catch (Exception ex) {
-        assert("${ex}".contains("Unsupport the func"))
-   }
-  
+	test {
+		sql """select PERCENTILE_foreach(a,a)  from foreach_table;"""
+		exception "Unsupport the func"
+	}
 
-   try {
-        sql "select PERCENTILE_ARRAY_foreach(a,b) from foreach_table where id = 1;"
-   } catch (Exception ex) {
-        assert("${ex}".contains("Unsupport the func"))
-   }
+	test {
+		sql """select PERCENTILE_ARRAY_foreach(a,b) from foreach_table where id = 1;"""
+		exception "Unsupport the func"
+	}
 
-   try {
-	sql "select PERCENTILE_APPROX_foreach(a,a) from foreach_table;"
-   } catch (Exception ex) {
-        assert("${ex}".contains("Unsupport the func"))
-   }
+	test {
+		sql """select PERCENTILE_APPROX_foreach(a,a) from foreach_table;"""
+		exception "Unsupport the func"
+	}
 }

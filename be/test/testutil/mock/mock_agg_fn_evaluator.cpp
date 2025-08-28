@@ -52,4 +52,23 @@ AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, VExprContextSPtrs
     return mock_agg_fn_evaluator;
 }
 
+AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
+                              const DataTypes& args_types, bool result_nullable,
+                              bool is_window_function) {
+    auto* mock_agg_fn_evaluator =
+            pool.add(new MockAggFnEvaluator(false, false, is_window_function)); // just falg;
+    mock_agg_fn_evaluator->_function = AggregateFunctionSimpleFactory::instance().get(
+            agg_fn_name, args_types, result_nullable, BeExecVersionManager::get_newest_version(),
+            {.enable_decimal256 = false,
+             .is_window_function = is_window_function,
+             .column_names = {}});
+    EXPECT_TRUE(mock_agg_fn_evaluator->_function != nullptr);
+    for (int i = 0; i < args_types.size(); i++) {
+        mock_agg_fn_evaluator->_input_exprs_ctxs.push_back(
+                MockSlotRef::create_mock_context(i, args_types[i]));
+    }
+    mock_agg_fn_evaluator->_data_type = mock_agg_fn_evaluator->_function->get_return_type();
+    return mock_agg_fn_evaluator;
+}
+
 } // namespace doris::vectorized

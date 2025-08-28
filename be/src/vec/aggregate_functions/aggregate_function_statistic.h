@@ -19,7 +19,6 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
-#include <type_traits>
 
 #include "common/exception.h"
 #include "common/status.h"
@@ -50,9 +49,9 @@ inline std::string to_string(STATISTICS_FUNCTION_KIND kind) {
     }
 }
 
-template <typename T, std::size_t _level>
+template <PrimitiveType T, std::size_t _level>
 struct StatFuncOneArg {
-    using Type = T;
+    static constexpr PrimitiveType Type = T;
     using Data = VarMoments<Float64, _level>;
     using DataType = Float64;
 };
@@ -63,8 +62,8 @@ class AggregateFunctionVarianceSimple
                   typename StatFunc::Data,
                   AggregateFunctionVarianceSimple<StatFunc, NullableInput>> {
 public:
-    using InputCol = ColumnVector<typename StatFunc::Type>;
-    using ResultCol = ColumnVector<Float64>;
+    using InputCol = ColumnVector<StatFunc::Type>;
+    using ResultCol = ColumnFloat64;
     using InputType = typename StatFunc::DataType;
 
     explicit AggregateFunctionVarianceSimple(STATISTICS_FUNCTION_KIND kind_,
@@ -83,7 +82,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         if constexpr (NullableInput) {
             const ColumnNullable& column_with_nullable =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
@@ -106,7 +105,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -115,7 +114,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

@@ -32,7 +32,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/types.h"
@@ -42,7 +41,7 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
@@ -59,9 +58,10 @@ public:
     void set_type_length(int32_t type_length) { _type_length = type_length; }
 
     // Set the data to be decoded
-    virtual void set_data(Slice* data) {
+    virtual Status set_data(Slice* data) {
         _data = data;
         _offset = 0;
+        return Status::OK();
     }
 
     // Write the decoded values batch to doris's column
@@ -95,13 +95,14 @@ public:
     ~BaseDictDecoder() override = default;
 
     // Set the data to be decoded
-    void set_data(Slice* data) override {
+    Status set_data(Slice* data) override {
         _data = data;
         _offset = 0;
         uint8_t bit_width = *data->data;
         _index_batch_decoder = std::make_unique<RleBatchDecoder<uint32_t>>(
                 reinterpret_cast<uint8_t*>(data->data) + 1, static_cast<int>(data->size) - 1,
                 bit_width);
+        return Status::OK();
     }
 
 protected:
@@ -145,7 +146,7 @@ protected:
 
     Status skip_values(size_t num_values) override {
         _indexes.resize(num_values);
-        _index_batch_decoder->GetBatch(_indexes.data(), num_values);
+        _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(num_values));
         return Status::OK();
     }
 
@@ -154,5 +155,6 @@ protected:
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder;
     std::vector<uint32_t> _indexes;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

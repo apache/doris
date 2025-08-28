@@ -37,6 +37,8 @@ namespace doris {
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
+bvar::LatencyRecorder g_cu_compaction_hold_delete_bitmap_lock_time_ms(
+        "cu_compaction_hold_delete_bitmap_lock_time_ms");
 
 CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
                                                      CloudTabletSPtr tablet)
@@ -46,10 +48,18 @@ CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
 CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
 Status CloudCumulativeCompaction::prepare_compact() {
+    DBUG_EXECUTE_IF("CloudCumulativeCompaction.prepare_compact.sleep", { sleep(5); })
+    Status st;
+    Defer defer_set_st([&] {
+        if (!st.ok()) {
+            cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
+        }
+    });
     if (_tablet->tablet_state() != TABLET_RUNNING &&
         (!config::enable_new_tablet_do_compaction ||
          static_cast<CloudTablet*>(_tablet.get())->alter_version() == -1)) {
-        return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        st = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        return st;
     }
 
     std::vector<std::shared_ptr<CloudCumulativeCompaction>> cumu_compactions;
@@ -60,9 +70,6 @@ Status CloudCumulativeCompaction::prepare_compact() {
                     std::max(_max_conflict_version, cumu->_input_rowsets.back()->end_version());
         }
     }
-
-    int tried = 0;
-PREPARE_TRY_AGAIN:
 
     bool need_sync_tablet = true;
     {
@@ -76,87 +83,22 @@ PREPARE_TRY_AGAIN:
         }
     }
     if (need_sync_tablet) {
-        RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
+        st = cloud_tablet()->sync_rowsets();
+        RETURN_IF_ERROR(st);
     }
 
     // pick rowsets to compact
-    auto st = pick_rowsets_to_compact();
+    st = pick_rowsets_to_compact();
     if (!st.ok()) {
-        if (tried == 0 && _last_delete_version.first != -1) {
+        if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             update_cumulative_point();
             if (!config::enable_sleep_between_delete_cumu_compaction) {
-                st = Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
-                        "_last_delete_version.first not equal to -1");
+                st = Status::Error<CUMULATIVE_MEET_DELETE_VERSION>(
+                        "cumulative compaction meet delete version");
             }
-        }
-        return st;
-    }
-
-    // prepare compaction job
-    cloud::TabletJobInfoPB job;
-    auto idx = job.mutable_idx();
-    idx->set_tablet_id(_tablet->tablet_id());
-    idx->set_table_id(_tablet->table_id());
-    idx->set_index_id(_tablet->index_id());
-    idx->set_partition_id(_tablet->partition_id());
-    auto compaction_job = job.add_compaction();
-    compaction_job->set_id(_uuid);
-    compaction_job->set_initiator(BackendOptions::get_localhost() + ':' +
-                                  std::to_string(config::heartbeat_service_port));
-    compaction_job->set_type(cloud::TabletCompactionJobPB::CUMULATIVE);
-    compaction_job->set_base_compaction_cnt(_base_compaction_cnt);
-    compaction_job->set_cumulative_compaction_cnt(_cumulative_compaction_cnt);
-    using namespace std::chrono;
-    int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-    _expiration = now + config::compaction_timeout_seconds;
-    compaction_job->set_expiration(_expiration);
-    compaction_job->set_lease(now + config::lease_compaction_interval_seconds * 4);
-
-    compaction_job->add_input_versions(_input_rowsets.front()->start_version());
-    compaction_job->add_input_versions(_input_rowsets.back()->end_version());
-    // Set input version range to let meta-service check version range conflict
-    compaction_job->set_check_input_versions_range(config::enable_parallel_cumu_compaction);
-    cloud::StartTabletJobResponse resp;
-    st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
-    if (!st.ok()) {
-        if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
-            // set last_sync_time to 0 to force sync tablet next time
-            cloud_tablet()->last_sync_time_s = 0;
-        } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
-            // tablet not found
-            cloud_tablet()->clear_cache();
-        } else if (resp.status().code() == cloud::JOB_TABLET_BUSY) {
-            if (config::enable_parallel_cumu_compaction && resp.version_in_compaction_size() > 0 &&
-                ++tried <= 2) {
-                _max_conflict_version = *std::max_element(resp.version_in_compaction().begin(),
-                                                          resp.version_in_compaction().end());
-                LOG_INFO("retry pick input rowsets")
-                        .tag("job_id", _uuid)
-                        .tag("max_conflict_version", _max_conflict_version)
-                        .tag("tried", tried)
-                        .tag("msg", resp.status().msg());
-                goto PREPARE_TRY_AGAIN;
-            } else {
-                LOG_WARNING("failed to prepare cumu compaction")
-                        .tag("job_id", _uuid)
-                        .tag("msg", resp.status().msg());
-                return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
-            }
-        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
-            (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
-            std::stringstream ss;
-            ss << "failed to prepare cumu compaction. Check compaction input versions "
-                  "failed in schema change. "
-                  "input_version_start="
-               << compaction_job->input_versions(0)
-               << " input_version_end=" << compaction_job->input_versions(1)
-               << " schema_change_alter_version=" << resp.alter_version();
-            std::string msg = ss.str();
-            LOG(WARNING) << msg;
-            return Status::InternalError(msg);
         }
         return st;
     }
@@ -184,6 +126,63 @@ PREPARE_TRY_AGAIN:
     return st;
 }
 
+Status CloudCumulativeCompaction::request_global_lock() {
+    // prepare compaction job
+    cloud::TabletJobInfoPB job;
+    auto idx = job.mutable_idx();
+    idx->set_tablet_id(_tablet->tablet_id());
+    idx->set_table_id(_tablet->table_id());
+    idx->set_index_id(_tablet->index_id());
+    idx->set_partition_id(_tablet->partition_id());
+    auto compaction_job = job.add_compaction();
+    compaction_job->set_id(_uuid);
+    compaction_job->set_initiator(BackendOptions::get_localhost() + ':' +
+                                  std::to_string(config::heartbeat_service_port));
+    compaction_job->set_type(cloud::TabletCompactionJobPB::CUMULATIVE);
+    compaction_job->set_base_compaction_cnt(_base_compaction_cnt);
+    compaction_job->set_cumulative_compaction_cnt(_cumulative_compaction_cnt);
+    using namespace std::chrono;
+    int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    _expiration = now + config::compaction_timeout_seconds;
+    compaction_job->set_expiration(_expiration);
+    compaction_job->set_lease(now + config::lease_compaction_interval_seconds * 4);
+
+    compaction_job->add_input_versions(_input_rowsets.front()->start_version());
+    compaction_job->add_input_versions(_input_rowsets.back()->end_version());
+    // Set input version range to let meta-service check version range conflict
+    compaction_job->set_check_input_versions_range(config::enable_parallel_cumu_compaction);
+    cloud::StartTabletJobResponse resp;
+    Status st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    if (!st.ok()) {
+        if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
+            // set last_sync_time to 0 to force sync tablet next time
+            cloud_tablet()->last_sync_time_s = 0;
+        } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
+            // tablet not found
+            cloud_tablet()->clear_cache();
+        } else if (resp.status().code() == cloud::JOB_TABLET_BUSY) {
+            LOG_WARNING("failed to prepare cumu compaction")
+                    .tag("job_id", _uuid)
+                    .tag("msg", resp.status().msg());
+            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                    "cumu no suitable versions: job tablet busy");
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
+            (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+            std::stringstream ss;
+            ss << "failed to prepare cumu compaction. Check compaction input versions "
+                  "failed in schema change. "
+                  "input_version_start="
+               << compaction_job->input_versions(0)
+               << " input_version_end=" << compaction_job->input_versions(1)
+               << " schema_change_alter_version=" << resp.alter_version();
+            std::string msg = ss.str();
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
+        }
+    }
+    return st;
+}
+
 Status CloudCumulativeCompaction::execute_compact() {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudCumulativeCompaction::execute_compact_impl",
                                       Status::OK(), this);
@@ -192,12 +191,21 @@ Status CloudCumulativeCompaction::execute_compact() {
 
     using namespace std::chrono;
     auto start = steady_clock::now();
-    auto res = CloudCompactionMixin::execute_compact();
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
+    Status st;
+    Defer defer_set_st([&] {
+        cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
+        if (!st.ok()) {
+            cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        } else {
+            cloud_tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+        }
+    });
+    st = CloudCompactionMixin::execute_compact();
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << st
                      << ", tablet=" << _tablet->tablet_id()
                      << ", output_version=" << _output_version;
-        return res;
+        return st;
     }
     LOG_INFO("finish CloudCumulativeCompaction, tablet_id={}, cost={}ms, range=[{}-{}]",
              _tablet->tablet_id(), duration_cast<milliseconds>(steady_clock::now() - start).count(),
@@ -217,7 +225,11 @@ Status CloudCumulativeCompaction::execute_compact() {
             .tag("tablet_max_version", _tablet->max_version_unlocked())
             .tag("cumulative_point", cloud_tablet()->cumulative_layer_point())
             .tag("num_rowsets", cloud_tablet()->fetch_add_approximate_num_rowsets(0))
-            .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0));
+            .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0))
+            .tag("local_read_time_us", _stats.cloud_local_read_time)
+            .tag("remote_read_time_us", _stats.cloud_remote_read_time)
+            .tag("local_read_bytes", _local_read_bytes_total)
+            .tag("remote_read_bytes", _remote_read_bytes_total);
 
     _state = CompactionState::SUCCESS;
 
@@ -226,7 +238,8 @@ Status CloudCumulativeCompaction::execute_compact() {
             _input_rowsets_total_size);
     cumu_output_size << _output_rowset->total_disk_size();
 
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status CloudCumulativeCompaction::modify_rowsets() {
@@ -280,12 +293,13 @@ Status CloudCumulativeCompaction::modify_rowsets() {
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     int64_t initiator = this->initiator();
+    int64_t get_delete_bitmap_lock_start_time = 0;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
                 _input_rowsets, _output_rowset, *_rowid_conversion, compaction_type(),
                 _stats.merged_rows, _stats.filtered_rows, initiator, output_rowset_delete_bitmap,
-                _allow_delete_in_cumu_compaction));
+                _allow_delete_in_cumu_compaction, get_delete_bitmap_lock_start_time));
         LOG_INFO("update delete bitmap in CloudCumulativeCompaction, tablet_id={}, range=[{}-{}]",
                  _tablet->tablet_id(), _input_rowsets.front()->start_version(),
                  _input_rowsets.back()->end_version())
@@ -308,6 +322,12 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     });
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        int64_t hold_delete_bitmap_lock_time_ms =
+                (MonotonicMicros() - get_delete_bitmap_lock_start_time) / 1000;
+        g_cu_compaction_hold_delete_bitmap_lock_time_ms << hold_delete_bitmap_lock_time_ms;
+    }
     if (resp.has_alter_version()) {
         (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
     }
@@ -372,52 +392,49 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                                                     stats.num_rows(), stats.data_size());
         }
     }
-    if (config::enable_delete_bitmap_merge_on_compaction &&
+    // agg delete bitmap for pre rowsets
+    if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap &&
         _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
-        RETURN_IF_ERROR(process_old_version_delete_bitmap());
-    }
-    return Status::OK();
-}
-
-Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
-    // agg previously rowset old version delete bitmap
-    std::vector<RowsetSharedPtr> pre_rowsets {};
-    for (const auto& it : cloud_tablet()->rowset_map()) {
-        if (it.first.second < _input_rowsets.front()->start_version()) {
-            pre_rowsets.emplace_back(it.second);
-        }
-    }
-    std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
-    if (!pre_rowsets.empty()) {
-        std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>
-                to_remove_vec;
-        DeleteBitmapPtr new_delete_bitmap = nullptr;
-        agg_and_remove_old_version_delete_bitmap(pre_rowsets, to_remove_vec, new_delete_bitmap);
-        if (!new_delete_bitmap->empty()) {
-            // store agg delete bitmap
-            DBUG_EXECUTE_IF("CloudCumulativeCompaction.modify_rowsets.update_delete_bitmap_failed",
-                            {
-                                return Status::InternalError(
-                                        "test fail to update delete bitmap for tablet_id {}",
-                                        cloud_tablet()->tablet_id());
-                            });
-            RETURN_IF_ERROR(_engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
-                    *cloud_tablet(), new_delete_bitmap.get()));
-
-            Version version(_input_rowsets.front()->start_version(),
-                            _input_rowsets.back()->end_version());
-            for (auto it = new_delete_bitmap->delete_bitmap.begin();
-                 it != new_delete_bitmap->delete_bitmap.end(); it++) {
-                _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
+        OlapStopWatch watch;
+        std::vector<RowsetSharedPtr> pre_rowsets {};
+        {
+            std::shared_lock rlock(_tablet->get_header_lock());
+            for (const auto& it2 : cloud_tablet()->rowset_map()) {
+                if (it2.first.second < _output_rowset->start_version()) {
+                    pre_rowsets.emplace_back(it2.second);
+                }
             }
-            _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
-                                                                        to_remove_vec);
-            DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets", {
-                static_cast<CloudTablet*>(_tablet.get())->delete_expired_stale_rowsets();
-            });
+        }
+        std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
+        auto pre_rowsets_delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
+        std::map<std::string, int64_t> pre_rowset_to_versions;
+        cloud_tablet()->agg_delete_bitmap_for_compaction(
+                _output_rowset->start_version(), _output_rowset->end_version(), pre_rowsets,
+                pre_rowsets_delete_bitmap, pre_rowset_to_versions);
+        // update delete bitmap to ms
+        DBUG_EXECUTE_IF(
+                "CumulativeCompaction.modify_rowsets.cloud_update_delete_bitmap_without_lock.block",
+                DBUG_BLOCK);
+        auto status = _engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
+                *cloud_tablet(), pre_rowsets_delete_bitmap.get(), pre_rowset_to_versions,
+                _output_rowset->start_version(), _output_rowset->end_version());
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to agg pre rowsets delete bitmap to ms. tablet_id="
+                         << _tablet->tablet_id() << ", pre rowset num=" << pre_rowsets.size()
+                         << ", output version=" << _output_rowset->version().to_string()
+                         << ", status=" << status.to_string();
+        } else {
+            LOG(INFO) << "agg pre rowsets delete bitmap to ms. tablet_id=" << _tablet->tablet_id()
+                      << ", pre rowset num=" << pre_rowsets.size()
+                      << ", output version=" << _output_rowset->version().to_string()
+                      << ", cost(us)=" << watch.get_elapse_time_us();
         }
     }
+    DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset", {
+        LOG(INFO) << "delete_expired_stale_rowsets for tablet=" << _tablet->tablet_id();
+        _engine.tablet_mgr().vacuum_stale_rowsets(CountDownLatch(1));
+    });
     return Status::OK();
 }
 
@@ -475,7 +492,8 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                 });
     }
     if (candidate_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "no suitable versions: candidate rowsets empty");
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
     if (auto st = check_version_continuity(candidate_rowsets); !st.ok()) {
@@ -503,12 +521,14 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                                  &_last_delete_version, &compaction_score);
 
     if (_input_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "no suitable versions: input rowsets empty");
     } else if (_input_rowsets.size() == 1 &&
                !_input_rowsets.front()->rowset_meta()->is_segments_overlapping()) {
         VLOG_DEBUG << "there is only one rowset and not overlapping. tablet_id="
                    << _tablet->tablet_id() << ", version=" << _input_rowsets.front()->version();
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "no suitable versions: only one rowset and not overlapping");
     }
     return Status::OK();
 }

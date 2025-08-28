@@ -20,9 +20,14 @@
 #include <ctype.h>
 #include <math.h>
 #include <re2/stringpiece.h>
+#include <unicode/schriter.h>
+#include <unicode/uchar.h>
+#include <unicode/unistr.h>
+#include <unicode/ustream.h>
 
 #include <bitset>
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 #include "common/cast_set.h"
@@ -46,9 +51,9 @@ struct NameStringASCII {
 
 struct StringASCII {
     using ReturnType = DataTypeInt32;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
@@ -92,9 +97,9 @@ struct NameStringLength {
 
 struct StringLengthImpl {
     using ReturnType = DataTypeInt32;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
@@ -114,9 +119,9 @@ struct NameCrc32 {
 
 struct Crc32Impl {
     using ReturnType = DataTypeInt64;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int64>;
+    using ReturnColumnType = ColumnInt64;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int64>& res) {
@@ -136,9 +141,9 @@ struct NameStringUtf8Length {
 
 struct StringUtf8LengthImpl {
     using ReturnType = DataTypeInt32;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
@@ -162,9 +167,7 @@ struct StartsWithOp {
     using ResultPaddedPODArray = PaddedPODArray<UInt8>;
 
     static void execute(const std::string_view& strl, const std::string_view& strr, uint8_t& res) {
-        re2::StringPiece str_sp(const_cast<char*>(strl.data()), strl.length());
-        re2::StringPiece prefix_sp(const_cast<char*>(strr.data()), strr.length());
-        res = str_sp.starts_with(prefix_sp);
+        res = strl.starts_with(strr);
     }
 };
 
@@ -177,9 +180,7 @@ struct EndsWithOp {
     using ResultPaddedPODArray = PaddedPODArray<UInt8>;
 
     static void execute(const std::string_view& strl, const std::string_view& strr, uint8_t& res) {
-        re2::StringPiece str_sp(const_cast<char*>(strl.data()), strl.length());
-        re2::StringPiece prefix_sp(const_cast<char*>(strr.data()), strr.length());
-        res = str_sp.ends_with(prefix_sp);
+        res = strl.ends_with(strr);
     }
 };
 
@@ -381,10 +382,10 @@ struct StringFunctionImpl {
     using ResultDataType = typename OP::ResultDataType;
     using ResultPaddedPODArray = typename OP::ResultPaddedPODArray;
 
-    static void vector_vector(const ColumnString::Chars& ldata,
-                              const ColumnString::Offsets& loffsets,
-                              const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+    static Status vector_vector(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets,
+                                const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         DCHECK_EQ(loffsets.size(), roffsets.size());
 
         auto size = loffsets.size();
@@ -401,10 +402,11 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
     }
-    static void vector_scalar(const ColumnString::Chars& ldata,
-                              const ColumnString::Offsets& loffsets, const StringRef& rdata,
-                              ResultPaddedPODArray& res) {
+    static Status vector_scalar(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
         auto size = loffsets.size();
         res.resize(size);
         std::string_view rview(rdata.data, rdata.size);
@@ -415,9 +417,10 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
     }
-    static void scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
-                              const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+    static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         auto size = roffsets.size();
         res.resize(size);
         std::string_view lview(ldata.data, ldata.size);
@@ -428,6 +431,7 @@ struct StringFunctionImpl {
 
             OP::execute(lview, rview, res[i]);
         }
+        return Status::OK();
     }
 };
 
@@ -448,19 +452,58 @@ struct TransferImpl {
             return Status::OK();
         }
 
+        const bool is_ascii = simd::VStringFunctions::is_ascii({data.data(), data.size()});
         res_offsets.resize(offset_size);
-        memcpy_small_allow_read_write_overflow15(
-                res_offsets.data(), offsets.data(),
-                offset_size * sizeof(ColumnString::Offsets::value_type));
+        if (is_ascii) {
+            memcpy_small_allow_read_write_overflow15(
+                    res_offsets.data(), offsets.data(),
+                    offset_size * sizeof(ColumnString::Offsets::value_type));
 
-        size_t data_length = data.size();
-        res_data.resize(data_length);
-        if constexpr (std::is_same_v<OpName, NameToUpper>) {
-            simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
-        } else if constexpr (std::is_same_v<OpName, NameToLower>) {
-            simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+            size_t data_length = data.size();
+            res_data.resize(data_length);
+            if constexpr (std::is_same_v<OpName, NameToUpper>) {
+                simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
+            } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+                simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+            }
+        } else {
+            execute_utf8(data, offsets, res_data, res_offsets);
         }
+
         return Status::OK();
+    }
+
+    static void execute_utf8(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                             ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        std::string result;
+        for (int64_t i = 0; i < offsets.size(); ++i) {
+            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            uint32_t size = offsets[i] - offsets[i - 1];
+
+            result.clear();
+            if constexpr (std::is_same_v<OpName, NameToUpper>) {
+                to_upper_utf8(begin, size, result);
+            } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+                to_lower_utf8(begin, size, result);
+            }
+            StringOP::push_value_string(result, i, res_data, res_offsets);
+        }
+    }
+
+    static void to_upper_utf8(const char* data, uint32_t size, std::string& result) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toUpper();
+        unicode_str.toUTF8String(result);
+    }
+
+    static void to_lower_utf8(const char* data, uint32_t size, std::string& result) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toLower();
+        unicode_str.toUTF8String(result);
     }
 };
 
@@ -472,8 +515,22 @@ struct NameToInitcap {
 struct InitcapImpl {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        size_t offset_size = offsets.size();
         res_offsets.resize(offsets.size());
+
+        const bool is_ascii = simd::VStringFunctions::is_ascii({data.data(), data.size()});
+        if (is_ascii) {
+            impl_vectors_ascii(data, offsets, res_data, res_offsets);
+        } else {
+            impl_vectors_utf8(data, offsets, res_data, res_offsets);
+        }
+        return Status::OK();
+    }
+
+    static void impl_vectors_ascii(const ColumnString::Chars& data,
+                                   const ColumnString::Offsets& offsets,
+                                   ColumnString::Chars& res_data,
+                                   ColumnString::Offsets& res_offsets) {
+        size_t offset_size = offsets.size();
         memcpy_small_allow_read_write_overflow15(
                 res_offsets.data(), offsets.data(),
                 offset_size * sizeof(ColumnString::Offsets::value_type));
@@ -507,7 +564,40 @@ struct InitcapImpl {
 
             start_index = end_index;
         }
-        return Status::OK();
+    }
+
+    static void impl_vectors_utf8(const ColumnString::Chars& data,
+                                  const ColumnString::Offsets& offsets,
+                                  ColumnString::Chars& res_data,
+                                  ColumnString::Offsets& res_offsets) {
+        std::string result;
+        for (int64_t i = 0; i < offsets.size(); ++i) {
+            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            uint32_t size = offsets[i] - offsets[i - 1];
+            result.clear();
+            to_initcap_utf8(begin, size, result);
+            StringOP::push_value_string(result, i, res_data, res_offsets);
+        }
+    }
+
+    static void to_initcap_utf8(const char* data, uint32_t size, std::string& result) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toLower();
+        icu::UnicodeString output_str;
+        bool need_capitalize = true;
+        icu::StringCharacterIterator iter(unicode_str);
+        for (UChar32 ch = iter.first32(); ch != icu::CharacterIterator::DONE; ch = iter.next32()) {
+            if (!u_isalnum(ch)) {
+                need_capitalize = true;
+            } else if (need_capitalize) {
+                ch = u_toupper(ch);
+                need_capitalize = false;
+            }
+            output_str.append(ch);
+        }
+        output_str.toUTF8String(result);
     }
 };
 
@@ -782,7 +872,7 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (!is_string_or_fixed_string(arguments[0])) {
+        if (!is_string_type(arguments[0]->get_primitive_type())) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "Illegal type {} of argument of function {}",
                                    arguments[0]->get_name(), get_name());
@@ -802,9 +892,19 @@ public:
     }
 };
 
-static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
-struct UnHexImpl {
+struct UnHexImplEmpty {
     static constexpr auto name = "unhex";
+};
+
+struct UnHexImplNull {
+    static constexpr auto name = "unhex_null";
+};
+
+static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
+
+template <typename Name>
+struct UnHexImpl {
+    static constexpr auto name = Name::name;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
 
@@ -880,6 +980,42 @@ struct UnHexImpl {
             }
 
             int outlen = hex_decode(source, srclen, dst);
+            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
+        }
+
+        return Status::OK();
+    }
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
+                         ColumnUInt8::Container* null_map_data) {
+        auto rows_count = offsets.size();
+        dst_offsets.resize(rows_count);
+
+        for (int i = 0; i < rows_count; ++i) {
+            const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
+
+            if (srclen == 0) {
+                StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
+                continue;
+            }
+
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
+            int cipher_len = srclen / 2;
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
+
+            int outlen = hex_decode(source, srclen, dst);
+            if (outlen == 0) {
+                StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
+                continue;
+            }
 
             StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
@@ -894,7 +1030,7 @@ struct NameStringSpace {
 
 struct StringSpace {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::Int32;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_INT;
     using Type = Int32;
     using ReturnColumnType = ColumnString;
 
@@ -902,13 +1038,15 @@ struct StringSpace {
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        // sample to get approximate best reserve size
-        if (input_size > 4) {
-            res_data.reserve(((data[0] + data[input_size >> 1] + data[input_size >> 2] +
-                               data[input_size - 1]) >>
-                              2) *
-                             input_size);
+        int64_t total_size = 0;
+        for (size_t i = 0; i < input_size; ++i) {
+            if (data[i] > 0) {
+                total_size += data[i];
+            }
         }
+        ColumnString::check_chars_length(total_size, input_size);
+        res_data.reserve(total_size);
+
         for (size_t i = 0; i < input_size; ++i) {
             if (data[i] > 0) [[likely]] {
                 res_data.resize_fill(res_data.size() + data[i], ' ');
@@ -1012,6 +1150,15 @@ struct StringAppendTrailingCharIfAbsent {
     using Offsets = ColumnString::Offsets;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
+
+    static bool str_end_with(const StringRef& str, const StringRef& end) {
+        if (str.size < end.size) {
+            return false;
+        }
+        // The end_with method of StringRef needs to ensure that the size of end is less than or equal to the size of str.
+        return str.end_with(end);
+    }
+
     static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
                               const Chars& rdata, const Offsets& roffsets, Chars& res_data,
                               Offsets& res_offsets, NullMap& null_map_data) {
@@ -1023,36 +1170,39 @@ struct StringAppendTrailingCharIfAbsent {
         for (size_t i = 0; i < input_rows_count; ++i) {
             buffer.clear();
 
-            int l_size = loffsets[i] - loffsets[i - 1];
-            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            StringRef lstr = StringRef(reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]),
+                                       loffsets[i] - loffsets[i - 1]);
+            StringRef rstr = StringRef(reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]),
+                                       roffsets[i] - roffsets[i - 1]);
+            // The iterate_utf8_with_limit_length function iterates over a maximum of two UTF-8 characters.
+            auto [byte_len, char_len] = simd::VStringFunctions::iterate_utf8_with_limit_length(
+                    rstr.begin(), rstr.end(), 2);
 
-            int r_size = roffsets[i] - roffsets[i - 1];
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-
-            if (r_size != 1) {
+            if (char_len != 1) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
                 continue;
             }
-            if (l_raw[l_size - 1] == r_raw[0]) {
-                StringOP::push_value_string(std::string_view(l_raw, l_size), i, res_data,
-                                            res_offsets);
+            if (str_end_with(lstr, rstr)) {
+                StringOP::push_value_string(lstr, i, res_data, res_offsets);
                 continue;
             }
 
-            buffer.append(l_raw, l_raw + l_size);
-            buffer.append(r_raw, r_raw + 1);
+            buffer.append(lstr.begin(), lstr.end());
+            buffer.append(rstr.begin(), rstr.end());
             StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
                                         res_offsets);
         }
     }
     static void vector_scalar(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
-                              const StringRef& rdata, Chars& res_data, Offsets& res_offsets,
+                              const StringRef& rstr, Chars& res_data, Offsets& res_offsets,
                               NullMap& null_map_data) {
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
         fmt::memory_buffer buffer;
-
-        if (rdata.size != 1) {
+        // The iterate_utf8_with_limit_length function iterates over a maximum of two UTF-8 characters.
+        auto [byte_len, char_len] =
+                simd::VStringFunctions::iterate_utf8_with_limit_length(rstr.begin(), rstr.end(), 2);
+        if (char_len != 1) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
             }
@@ -1061,23 +1211,21 @@ struct StringAppendTrailingCharIfAbsent {
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             buffer.clear();
+            StringRef lstr = StringRef(reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]),
+                                       loffsets[i] - loffsets[i - 1]);
 
-            int l_size = loffsets[i] - loffsets[i - 1];
-            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-
-            if (l_raw[l_size - 1] == rdata.data[0]) {
-                StringOP::push_value_string(std::string_view(l_raw, l_size), i, res_data,
-                                            res_offsets);
+            if (str_end_with(lstr, rstr)) {
+                StringOP::push_value_string(lstr, i, res_data, res_offsets);
                 continue;
             }
 
-            buffer.append(l_raw, l_raw + l_size);
-            buffer.append(rdata.begin(), rdata.end());
+            buffer.append(lstr.begin(), lstr.end());
+            buffer.append(rstr.begin(), rstr.end());
             StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
                                         res_offsets);
         }
     }
-    static void scalar_vector(FunctionContext* context, const StringRef& ldata, const Chars& rdata,
+    static void scalar_vector(FunctionContext* context, const StringRef& lstr, const Chars& rdata,
                               const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
                               NullMap& null_map_data) {
         size_t input_rows_count = roffsets.size();
@@ -1087,20 +1235,23 @@ struct StringAppendTrailingCharIfAbsent {
         for (size_t i = 0; i < input_rows_count; ++i) {
             buffer.clear();
 
-            int r_size = roffsets[i] - roffsets[i - 1];
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            StringRef rstr = StringRef(reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]),
+                                       roffsets[i] - roffsets[i - 1]);
+            // The iterate_utf8_with_limit_length function iterates over a maximum of two UTF-8 characters.
+            auto [byte_len, char_len] = simd::VStringFunctions::iterate_utf8_with_limit_length(
+                    rstr.begin(), rstr.end(), 2);
 
-            if (r_size != 1) {
+            if (char_len != 1) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
                 continue;
             }
-            if (ldata.size == 0 || ldata.back() == r_raw[0]) {
-                StringOP::push_value_string(ldata.to_string_view(), i, res_data, res_offsets);
+            if (str_end_with(lstr, rstr)) {
+                StringOP::push_value_string(lstr, i, res_data, res_offsets);
                 continue;
             }
 
-            buffer.append(ldata.begin(), ldata.end());
-            buffer.append(r_raw, r_raw + 1);
+            buffer.append(lstr.begin(), lstr.end());
+            buffer.append(rstr.begin(), rstr.end());
             StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
                                         res_offsets);
         }
@@ -1151,8 +1302,9 @@ using FunctionToUpper = FunctionStringToString<TransferImpl<NameToUpper>, NameTo
 
 using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
 
-using FunctionUnHex = FunctionStringEncode<UnHexImpl>;
-using FunctionToBase64 = FunctionStringEncode<ToBase64Impl>;
+using FunctionUnHex = FunctionStringEncode<UnHexImpl<UnHexImplEmpty>, false>;
+using FunctionUnHexNullable = FunctionStringEncode<UnHexImpl<UnHexImplNull>, true>;
+using FunctionToBase64 = FunctionStringEncode<ToBase64Impl, false>;
 using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
@@ -1177,6 +1329,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAutoPartitionName>();
     factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
+    factory.register_function<FunctionUnHexNullable>();
     factory.register_function<FunctionToLower>();
     factory.register_function<FunctionToUpper>();
     factory.register_function<FunctionToInitcap>();
@@ -1221,7 +1374,20 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
-    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMALV2>>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMAL32>>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMAL64>>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMAL128I>>>();
+    factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMAL256>>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDoubleImpl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundInt64Impl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundInt128Impl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMALV2>>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL32>>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL64>>>();
+    factory.register_function<
+            FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL128I>>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL256>>>();
     factory.register_function<FunctionStringDigestOneArg<SM3Sum>>();
     factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
     factory.register_function<FunctionStringDigestSHA1>();
@@ -1237,6 +1403,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
     factory.register_function<FunctionNgramSearch>();
+    factory.register_function<FunctionXPathString>();
+    factory.register_function<FunctionCrc32Internal>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

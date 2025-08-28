@@ -20,18 +20,12 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
-import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -46,11 +40,8 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Sorting.
@@ -71,15 +62,19 @@ public class SortNode extends PlanNode {
     // exchange node, and the sort node is used for the ORDER BY .
     private boolean mergeByexchange = false;
 
+    private boolean useLocalMerge = false;
+
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
     private boolean isColocate = false;
     private DataPartition inputPartition;
     TSortAlgorithm algorithm;
+    private long fullSortMaxBufferedBytes = -1;
 
     private boolean isUnusedExprRemoved = false;
 
-    private ArrayList<Boolean> nullabilityChangedFlags = Lists.newArrayList();
+    // topn filter target: ScanNode id + slot desc
+    private List<Pair<Integer, Integer>> topnFilterTargets;
 
     /**
      * Constructor.
@@ -127,22 +122,14 @@ public class SortNode extends PlanNode {
                 }
             }
         }
+
+        if (connectContext != null && connectContext.getSessionVariable().fullSortMaxBufferedBytes > 0) {
+            fullSortMaxBufferedBytes = connectContext.getSessionVariable().fullSortMaxBufferedBytes;
+        }
     }
 
     public void setIsAnalyticSort(boolean v) {
         isAnalyticSort = v;
-    }
-
-    public boolean isAnalyticSort() {
-        return isAnalyticSort;
-    }
-
-    public DataPartition getInputPartition() {
-        return inputPartition;
-    }
-
-    public void setInputPartition(DataPartition inputPartition) {
-        this.inputPartition = inputPartition;
     }
 
     public SortInfo getSortInfo() {
@@ -151,18 +138,21 @@ public class SortNode extends PlanNode {
 
     public void setMergeByExchange() {
         this.mergeByexchange = true;
-    }
-
-    public boolean getUseTopnOpt() {
-        return useTopnOpt;
+        // mergeByexchange = true means that the sort data will be merged once at the
+        // exchange node
+        // If enable_local_merge = true at the same time, it can be merged once before
+        // the exchange node
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().getEnableLocalMergeSort()
+                && this.mergeByexchange) {
+            this.useLocalMerge = true;
+        } else {
+            this.useLocalMerge = false;
+        }
     }
 
     public void setUseTopnOpt(boolean useTopnOpt) {
         this.useTopnOpt = useTopnOpt;
-    }
-
-    public boolean getUseTwoPhaseReadOpt() {
-        return this.useTwoPhaseReadOpt;
     }
 
     public void setUseTwoPhaseReadOpt(boolean useTwoPhaseReadOpt) {
@@ -202,7 +192,7 @@ public class SortNode extends PlanNode {
         output.append("\n");
 
         if (useTopnOpt) {
-            output.append(detailPrefix + "TOPN OPT\n");
+            output.append(detailPrefix + "TOPN filter targets: ").append(topnFilterTargets).append("\n");
         }
         if (useTwoPhaseReadOpt) {
             output.append(detailPrefix + "OPT TWO PHASE\n");
@@ -217,95 +207,14 @@ public class SortNode extends PlanNode {
             output.append("full sort\n");
         }
 
+        if (useLocalMerge) {
+            output.append(detailPrefix + "local merge sort\n");
+        }
+        if (mergeByexchange) {
+            output.append(detailPrefix + "merge by exchange\n");
+        }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
-    }
-
-    @Override
-    protected void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            return;
-        }
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Sort: cardinality=" + cardinality);
-        }
-    }
-
-    @Override
-    protected void computeOldCardinality() {
-        cardinality = getChild(0).cardinality;
-        if (hasLimit()) {
-            if (cardinality == -1) {
-                cardinality = limit;
-            } else {
-                cardinality = Math.min(cardinality, limit);
-            }
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
-        }
-    }
-
-    public void init(Analyzer analyzer) throws UserException {
-        // Compute the memory layout for the generated tuple.
-        computeStats(analyzer);
-        // createDefaultSmap(analyzer);
-        // // populate resolvedTupleExprs and outputSmap_
-        // List<SlotDescriptor> sortTupleSlots = info.getSortTupleDescriptor().getSlots();
-        // List<Expr> slotExprs = info.getSortTupleSlotExprs_();
-        // Preconditions.checkState(sortTupleSlots.size() == slotExprs.size());
-
-        // populate resolvedTupleExprs_ and outputSmap_
-        List<SlotDescriptor> sortTupleSlots = info.getSortTupleDescriptor().getSlots();
-        List<Expr> slotExprs = info.getSortTupleSlotExprs();
-        Preconditions.checkState(sortTupleSlots.size() == slotExprs.size());
-
-        resolvedTupleExprs = Lists.newArrayList();
-        outputSmap = new ExprSubstitutionMap();
-
-        for (int i = 0; i < slotExprs.size(); ++i) {
-            resolvedTupleExprs.add(slotExprs.get(i));
-            outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
-            nullabilityChangedFlags.add(slotExprs.get(i).isNullable());
-        }
-
-        ExprSubstitutionMap childSmap = getCombinedChildSmap();
-        resolvedTupleExprs = Expr.substituteList(resolvedTupleExprs, childSmap, analyzer, false);
-
-        for (int i = 0; i < resolvedTupleExprs.size(); ++i) {
-            nullabilityChangedFlags.set(i, nullabilityChangedFlags.get(i) ^ resolvedTupleExprs.get(i).isNullable());
-        }
-
-        // Remap the ordering exprs to the tuple materialized by this sort node. The mapping
-        // is a composition of the childSmap and the outputSmap_ because the child node may
-        // have also remapped its input (e.g., as in a series of (sort->analytic)* nodes).
-        // Parent nodes have to do the same so set the composition as the outputSmap_.
-        outputSmap = ExprSubstitutionMap.compose(childSmap, outputSmap, analyzer);
-        info.substituteOrderingExprs(outputSmap, analyzer);
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("sort id " + tupleIds.get(0).toString() + " smap: "
-                    + outputSmap.debugString());
-            LOG.debug("sort input exprs: " + Expr.debugString(resolvedTupleExprs));
-        }
-    }
-
-    @Override
-    public void getMaterializedIds(Analyzer analyzer, List<SlotId> ids) {
-        super.getMaterializedIds(analyzer, ids);
-        Expr.getIds(info.getOrderingExprs(), null, ids);
-    }
-
-    @Override
-    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
-        // need call materializeRequiredSlots again to make sure required slots is materialized by children
-        // requiredSlotIdSet parameter means nothing for sort node, just call materializeRequiredSlots is enough
-        info.materializeRequiredSlots(analyzer, outputSmap);
     }
 
     private void removeUnusedExprs() {
@@ -315,7 +224,6 @@ public class SortNode extends PlanNode {
                 for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
                     if (!slotDescriptorList.get(i).isMaterialized()) {
                         resolvedTupleExprs.remove(i);
-                        nullabilityChangedFlags.remove(i);
                     }
                 }
             }
@@ -332,9 +240,6 @@ public class SortNode extends PlanNode {
         removeUnusedExprs();
         if (resolvedTupleExprs != null) {
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
-            // FIXME this is a bottom line solution for wrong nullability of resolvedTupleExprs
-            // remove the following line after nereids online
-            sortInfo.setSlotExprsNullabilityChangedFlags(nullabilityChangedFlags);
         }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
@@ -342,11 +247,14 @@ public class SortNode extends PlanNode {
         msg.sort_node.setOffset(offset);
         msg.sort_node.setUseTopnOpt(useTopnOpt);
         msg.sort_node.setMergeByExchange(this.mergeByexchange);
+        msg.sort_node.setUseLocalMerge(this.useLocalMerge);
         msg.sort_node.setIsAnalyticSort(isAnalyticSort);
         msg.sort_node.setIsColocate(isColocate);
 
-
         msg.sort_node.setAlgorithm(algorithm);
+        if (fullSortMaxBufferedBytes > 0) {
+            msg.sort_node.setFullSortMaxBufferedBytes(fullSortMaxBufferedBytes);
+        }
     }
 
     @Override
@@ -358,15 +266,6 @@ public class SortNode extends PlanNode {
         return MoreObjects.toStringHelper(this).add("ordering_exprs",
                 Expr.debugString(info.getOrderingExprs())).add("is_asc",
                 "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
-    }
-
-    @Override
-    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
-        removeUnusedExprs();
-        List<Expr> materializedTupleExprs = new ArrayList<>(resolvedTupleExprs);
-        List<SlotId> result = Lists.newArrayList();
-        Expr.getIds(materializedTupleExprs, null, result);
-        return new HashSet<>(result);
     }
 
     // If it's analytic sort or not merged by a followed exchange node, it must output the global ordered data.
@@ -393,5 +292,10 @@ public class SortNode extends PlanNode {
     public void setOffset(long offset) {
         super.setOffset(offset);
         updateSortAlgorithm();
+    }
+
+    public void setTopnFilterTargets(
+            List<Pair<Integer, Integer>> topnFilterTargets) {
+        this.topnFilterTargets = topnFilterTargets;
     }
 }

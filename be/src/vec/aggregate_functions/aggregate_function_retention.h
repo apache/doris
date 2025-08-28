@@ -24,17 +24,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
-#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
@@ -89,7 +86,7 @@ struct RetentionState {
 
         u_serialized_events >>= 1;
         for (int64_t i = MAX_EVENTS - 1; i >= 0; i--) {
-            events[i] = (uint8)(1 & u_serialized_events);
+            events[i] = (uint8_t)(1 & u_serialized_events);
             u_serialized_events >>= 1;
         }
     }
@@ -126,11 +123,10 @@ public:
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
     void add(AggregateDataPtr __restrict place, const IColumn** columns, const ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         for (int i = 0; i < get_argument_types().size(); i++) {
-            auto event =
-                    assert_cast<const ColumnVector<UInt8>*, TypeCheckOnRelease::DISABLE>(columns[i])
-                            ->get_data()[row_num];
+            auto event = assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(columns[i])
+                                 ->get_data()[row_num];
             if (event) {
                 this->data(place).set(i);
             }
@@ -138,7 +134,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -147,7 +143,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

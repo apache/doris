@@ -29,7 +29,7 @@ suite("inner_join_range_number_increment_create") {
     sql """CREATE TABLE `orders_inner_3` (
       `o_orderkey` BIGINT not NULL,
       `o_custkey` INT NULL,
-      `o_orderstatus` VARCHAR(1) NULL,
+      `o_orderstatus` VARCHAR(9) NULL,
       `o_totalprice` DECIMAL(15, 2)  NULL,
       `o_orderpriority` VARCHAR(15) NULL,
       `o_clerk` VARCHAR(15) NULL,

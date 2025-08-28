@@ -36,7 +36,7 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -111,16 +111,59 @@ private:
 
 namespace pipeline {
 struct TransmitInfo {
-    vectorized::Channel* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
-    Status exec_status;
 };
 
 struct BroadcastTransmitInfo {
-    vectorized::Channel* channel = nullptr;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
     bool eos;
+};
+
+struct RpcInstanceStatistics {
+    int64_t rpc_count = 0;
+    int64_t max_time = 0;
+    int64_t min_time = INT64_MAX;
+    int64_t sum_time = 0;
+};
+
+// Consolidated structure for RPC instance data
+struct RpcInstance {
+    // Constructor initializes the instance with the given ID
+    RpcInstance(InstanceLoId id) : id(id) {}
+
+    // Unique identifier for this RPC instance
+    InstanceLoId id;
+
+    // Mutex for thread-safe access to this instance's data
+    std::unique_ptr<std::mutex> mutex;
+
+    // Sequence number for RPC packets, incremented for each packet sent
+    int64_t seq = 0;
+
+    // Queue for regular data transmission requests
+    std::unordered_map<vectorized::Channel*, std::queue<TransmitInfo, std::list<TransmitInfo>>>
+            package_queue;
+
+    // Queue for broadcast data transmission requests
+    std::unordered_map<vectorized::Channel*,
+                       std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
+            broadcast_package_queue;
+
+    // RPC request parameters for data transmission
+    std::shared_ptr<PTransmitDataParams> request;
+
+    // Flag indicating if the RPC channel is currently idle (no active RPC)
+    bool rpc_channel_is_idle = true;
+
+    // Flag indicating if the RPC channel has been turned off (no more RPCs will be sent)
+    bool rpc_channel_is_turn_off = false;
+
+    // Statistics for monitoring RPC performance (latency, counts, etc.)
+    RpcInstanceStatistics stats;
+
+    // Count of active exchange sinks using this RPC instance
+    int64_t running_sink_count = 0;
 };
 
 template <typename Response>
@@ -130,20 +173,19 @@ class ExchangeSendCallback : public ::doris::DummyBrpcCallback<Response> {
 public:
     ExchangeSendCallback() = default;
 
-    void init(InstanceLoId id, bool eos) {
-        _id = id;
+    void init(pipeline::RpcInstance* ins, bool eos) {
+        _ins = ins;
         _eos = eos;
     }
 
     ~ExchangeSendCallback() override = default;
     ExchangeSendCallback(const ExchangeSendCallback& other) = delete;
     ExchangeSendCallback& operator=(const ExchangeSendCallback& other) = delete;
-    void addFailedHandler(
-            const std::function<void(const InstanceLoId&, const std::string&)>& fail_fn) {
+    void addFailedHandler(const std::function<void(RpcInstance*, const std::string&)>& fail_fn) {
         _fail_fn = fail_fn;
     }
-    void addSuccessHandler(const std::function<void(const InstanceLoId&, const bool&,
-                                                    const Response&, const int64_t&)>& suc_fn) {
+    void addSuccessHandler(const std::function<void(RpcInstance*, const bool&, const Response&,
+                                                    const int64_t&)>& suc_fn) {
         _suc_fn = suc_fn;
     }
 
@@ -157,9 +199,9 @@ public:
                         ::doris::DummyBrpcCallback<Response>::cntl_->ErrorText(),
                         BackendOptions::get_localhost(),
                         ::doris::DummyBrpcCallback<Response>::cntl_->latency_us());
-                _fail_fn(_id, err);
+                _fail_fn(_ins, err);
             } else {
-                _suc_fn(_id, _eos, *(::doris::DummyBrpcCallback<Response>::response_),
+                _suc_fn(_ins, _eos, *(::doris::DummyBrpcCallback<Response>::response_),
                         start_rpc_time);
             }
         } catch (const std::exception& exp) {
@@ -172,9 +214,9 @@ public:
     int64_t start_rpc_time;
 
 private:
-    std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
-    std::function<void(const InstanceLoId&, const bool&, const Response&, const int64_t&)> _suc_fn;
-    InstanceLoId _id;
+    std::function<void(RpcInstance*, const std::string&)> _fail_fn;
+    std::function<void(RpcInstance*, const bool&, const Response&, const int64_t&)> _suc_fn;
+    RpcInstance* _ins;
     bool _eos;
 };
 
@@ -216,7 +258,7 @@ private:
 */
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
-void transmit_blockv2(PBackendService_Stub& stub,
+void transmit_blockv2(PBackendService_Stub* stub,
                       std::unique_ptr<AutoReleaseClosure<PTransmitDataParams,
                                                          ExchangeSendCallback<PTransmitDataResult>>>
                               closure);
@@ -227,25 +269,24 @@ public:
                        RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
 #ifdef BE_TEST
     ExchangeSinkBuffer(RuntimeState* state, int64_t sinknum)
-            : HasTaskExecutionCtx(state), _exchange_sink_num(sinknum) {};
+            : HasTaskExecutionCtx(state), _state(state), _exchange_sink_num(sinknum) {};
 #endif
 
     ~ExchangeSinkBuffer() override = default;
 
     void construct_request(TUniqueId);
 
-    Status add_block(TransmitInfo&& request);
-    Status add_block(BroadcastTransmitInfo&& request);
+    Status add_block(vectorized::Channel* channel, TransmitInfo&& request);
+    Status add_block(vectorized::Channel* channel, BroadcastTransmitInfo&& request);
     void close();
-    void update_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
+    void update_rpc_time(RpcInstance& ins, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
     void set_dependency(InstanceLoId sender_ins_id, std::shared_ptr<Dependency> queue_dependency,
                         ExchangeSinkLocalState* local_state) {
-        DCHECK(_queue_deps.contains(sender_ins_id));
-        DCHECK(_parents.contains(sender_ins_id));
-        _queue_deps[sender_ins_id] = queue_dependency;
-        _parents[sender_ins_id] = local_state;
+        std::lock_guard l(_m);
+        _queue_deps.push_back(queue_dependency);
+        _parents.push_back(local_state);
     }
 
     void set_low_memory_mode() { _queue_capacity = 8; }
@@ -257,38 +298,9 @@ private:
 #endif
     friend class ExchangeSinkLocalState;
 
-    phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
-            _instance_to_package_queue_mutex;
-    // store data in non-broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
-            _instance_to_package_queue;
+    // Single map to store all RPC instance data
+    phmap::flat_hash_map<InstanceLoId, std::unique_ptr<RpcInstance>> _rpc_instances;
     std::atomic<size_t> _queue_capacity;
-    // store data in broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId,
-                         std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
-            _instance_to_broadcast_package_queue;
-    using PackageSeq = int64_t;
-    // must init zero
-    // TODO: make all flat_hash_map to a STRUT
-    phmap::flat_hash_map<InstanceLoId, PackageSeq> _instance_to_seq;
-    phmap::flat_hash_map<InstanceLoId, std::shared_ptr<PTransmitDataParams>> _instance_to_request;
-    // One channel is corresponding to a downstream instance.
-    phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_idle;
-
-    // There could be multiple situations that cause an rpc_channel to be turned off,
-    // such as receiving the eof, manual cancellation by the user, or all sinks reaching eos.
-    // Therefore, it is necessary to prevent an rpc_channel from being turned off multiple times.
-    phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_turn_off;
-    struct RpcInstanceStatistics {
-        RpcInstanceStatistics(InstanceLoId id) : inst_lo_id(id) {}
-        InstanceLoId inst_lo_id;
-        int64_t rpc_count = 0;
-        int64_t max_time = 0;
-        int64_t min_time = INT64_MAX;
-        int64_t sum_time = 0;
-    };
-    std::vector<std::shared_ptr<RpcInstanceStatistics>> _instance_to_rpc_stats_vec;
-    phmap::flat_hash_map<InstanceLoId, RpcInstanceStatistics*> _instance_to_rpc_stats;
 
     // It is set to true only when an RPC fails. Currently, we do not have an error retry mechanism.
     // If an RPC error occurs, the query will be canceled.
@@ -298,22 +310,23 @@ private:
 
     PlanNodeId _node_id;
     std::atomic<int64_t> _rpc_count = 0;
+    // The state may be from PipelineFragmentContext if it is shared among multi instances.
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
-    Status _send_rpc(InstanceLoId);
+    Status _send_rpc(RpcInstance& ins);
 
 #ifndef BE_TEST
-    inline void _ended(InstanceLoId id);
+    inline void _ended(RpcInstance& ins);
     inline void _failed(InstanceLoId id, const std::string& err);
-    inline void _set_receiver_eof(InstanceLoId id);
-    inline void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
+    inline void _set_receiver_eof(RpcInstance& ins);
+    inline void _turn_off_channel(RpcInstance& ins, std::unique_lock<std::mutex>& with_lock);
 
 #else
-    virtual void _ended(InstanceLoId id);
+    virtual void _ended(RpcInstance& ins);
     virtual void _failed(InstanceLoId id, const std::string& err);
-    virtual void _set_receiver_eof(InstanceLoId id);
-    virtual void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
+    virtual void _set_receiver_eof(RpcInstance& ins);
+    virtual void _turn_off_channel(RpcInstance& ins, std::unique_lock<std::mutex>& with_lock);
 #endif
 
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
@@ -323,14 +336,15 @@ private:
     // Any modification to instance_to_package_queue requires a corresponding modification to _total_queue_size.
     std::atomic<int> _total_queue_size = 0;
 
-    // _running_sink_count is used to track how many sinks have not finished yet.
-    // It is only decremented when eos is reached.
-    phmap::flat_hash_map<InstanceLoId, int64_t> _running_sink_count;
+    // protected the `_queue_deps` and `_parents`
+    std::mutex _m;
     // _queue_deps is used for memory control.
-    phmap::flat_hash_map<InstanceLoId, std::shared_ptr<Dependency>> _queue_deps;
+    std::vector<std::shared_ptr<Dependency>> _queue_deps;
     // The ExchangeSinkLocalState in _parents is only used in _turn_off_channel.
-    phmap::flat_hash_map<InstanceLoId, ExchangeSinkLocalState*> _parents;
+    std::vector<ExchangeSinkLocalState*> _parents;
     const int64_t _exchange_sink_num;
+    bool _send_multi_blocks = false;
+    int _send_multi_blocks_byte_size = 256 * 1024;
 };
 
 } // namespace pipeline

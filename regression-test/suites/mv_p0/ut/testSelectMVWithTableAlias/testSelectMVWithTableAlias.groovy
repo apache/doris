@@ -29,16 +29,17 @@ suite ("testSelectMVWithTableAlias") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
-    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
-
+    sql """insert into user_tags values("2020-01-01",1,"a",1);"""
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
+    sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view user_tags_mv as select user_id, count(tag_id) from user_tags group by user_id;")
+    createMV("create materialized view user_tags_mv as select user_id as a1, count(tag_id) from user_tags group by user_id;")
 
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
 
     sql "analyze table user_tags with sync;"
+    sql """alter table user_tags modify column time_col set stats ('row_count'='5');"""
 
     mv_rewrite_all_fail("select * from user_tags order by time_col;", ["user_tags_mv"])
         

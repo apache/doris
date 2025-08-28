@@ -17,15 +17,21 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker;
 
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import java.util.List;
 import java.util.Map;
 
 /** DistributedPlanWorkerManager */
 public interface DistributedPlanWorkerManager {
     DistributedPlanWorker getWorker(long backendId);
 
+    DistributedPlanWorker getWorker(Backend backend);
+
     DistributedPlanWorker randomAvailableWorker();
 
     long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID);
+
+    List<Backend> getAllBackends(boolean needAlive);
 }

@@ -17,10 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -28,11 +25,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class EqualSetTest extends TestWithFeService {
-    Slot slot1 = new SlotReference("1", IntegerType.INSTANCE, false);
-    Slot slot2 = new SlotReference("2", IntegerType.INSTANCE, false);
-    Slot slot3 = new SlotReference("1", IntegerType.INSTANCE, false);
-    Slot slot4 = new SlotReference("1", IntegerType.INSTANCE, false);
-
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -71,7 +63,7 @@ class EqualSetTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isNullSafeEqual(plan.getOutput().get(0), plan.getOutput().get(1)));
         plan = PlanChecker.from(connectContext)
-                .analyze("select id, id2 from agg where id2 = id limit 1 order by id")
+                .analyze("(select id, id2 from agg where id2 = id limit 1) order by id")
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isNullSafeEqual(plan.getOutput().get(0), plan.getOutput().get(1)));

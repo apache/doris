@@ -100,9 +100,9 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         ImmutableList<String> columns = analyzedPlan.getOutput().stream()
                 .map(s -> {
                     Preconditions.checkArgument(s instanceof SlotReference
-                                    && ((SlotReference) s).getColumn().isPresent(),
+                                    && ((SlotReference) s).getOriginalColumn().isPresent(),
                             "Constraint contains a invalid slot ", s);
-                    return ((SlotReference) s).getColumn().get().getName();
+                    return ((SlotReference) s).getOriginalColumn().get().getName();
                 }).collect(ImmutableList.toImmutableList());
         return Pair.of(columns, catalogRelation.getTable());
     }

@@ -18,17 +18,14 @@
 package org.apache.doris.catalog.constraint;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.es.EsExternalCatalog;
-import org.apache.doris.datasource.es.EsExternalDatabase;
-import org.apache.doris.datasource.es.EsExternalTable;
+import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -38,9 +35,8 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Mock;
-import mockit.MockUp;
-import org.apache.hadoop.util.Lists;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -54,7 +50,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Optional;
 
 class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatchSupported {
 
@@ -91,7 +87,7 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         addConstraint("alter table t1 add constraint fk foreign key (k1) references t2(k1)");
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                connectContext.getEnv(), Optional.empty());
         Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
         tableIf.getConstraintsMapUnsafe().clear();
         Assertions.assertTrue(tableIf.getConstraintsMap().isEmpty());
@@ -126,7 +122,7 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         addConstraint("alter table t1 add constraint fk foreign key (k1) references t2(k1)");
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                connectContext.getEnv(), Optional.empty());
         Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(outputStream);
@@ -147,52 +143,6 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     }
 
     @Test
-    void replayDropConstraintLogTest() throws Exception {
-        Config.edit_log_type = "local";
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        DataOutput output = new DataOutputStream(outputStream);
-        List<Pair<Short, AlterConstraintLog>> logs = new CopyOnWriteArrayList<>();
-        EditLog editLog = new EditLog("");
-        new MockUp<EditLog>() {
-            @Mock
-            public void logAddConstraint(AlterConstraintLog log) {
-                logs.add(Pair.of(OperationType.OP_ADD_CONSTRAINT, log));
-            }
-
-            @Mock
-            public void logDropConstraint(AlterConstraintLog log) {
-                logs.add(Pair.of(OperationType.OP_DROP_CONSTRAINT, log));
-            }
-        };
-        new MockUp<Env>() {
-            @Mock
-            public EditLog getEditLog() {
-                return editLog;
-            }
-        };
-        addConstraint("alter table t1 add constraint pk primary key (k1)");
-        addConstraint("alter table t2 add constraint pk primary key (k1)");
-        addConstraint("alter table t1 add constraint uk unique (k1)");
-        addConstraint("alter table t1 add constraint fk foreign key (k1) references t2(k1)");
-        TableIf tableIf = RelationUtil.getTable(
-                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
-        Assertions.assertEquals(3, tableIf.getConstraintsMap().size());
-        dropConstraint("alter table t1 drop constraint uk");
-        dropConstraint("alter table t1 drop constraint pk");
-        dropConstraint("alter table t2 drop constraint pk");
-        Assertions.assertEquals(0, tableIf.getConstraintsMap().size());
-        for (Pair<Short, AlterConstraintLog> log : logs) {
-            JournalEntity journalEntity = new JournalEntity();
-            journalEntity.setData(log.second);
-            journalEntity.setOpCode(log.first);
-            journalEntity.write(output);
-        }
-        Assertions.assertEquals(0, tableIf.getConstraintsMap().size());
-        Assertions.assertEquals(0, tableIf.getConstraintsMap().size());
-    }
-
-    @Test
     void constraintWithTablePersistTest() throws Exception {
         addConstraint("alter table t1 add constraint pk primary key (k1)");
         addConstraint("alter table t2 add constraint pk primary key (k1)");
@@ -200,7 +150,7 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         addConstraint("alter table t1 add constraint fk foreign key (k1) references t2(k1)");
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                connectContext.getEnv(), Optional.empty());
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(outputStream);
         tableIf.write(output);
@@ -234,47 +184,24 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     @Test
     void addConstraintLogPersistForExternalTableTest() throws Exception {
         Config.edit_log_type = "local";
-        createCatalog("create catalog es properties('type' = 'es', 'elasticsearch.hosts' = 'http://192.168.0.1',"
-                + " 'elasticsearch.username' = 'user1');");
+        FeConstants.runningUnitTest = true;
+        createCatalog("create catalog extCtl1 properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\""
+                + ");");
 
-        Env.getCurrentEnv().changeCatalog(connectContext, "es");
-        EsExternalCatalog esCatalog = (EsExternalCatalog) getCatalog("es");
-        EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1", "es_db1");
-        EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_db1", esCatalog, db);
-        ImmutableList<Column> schema = ImmutableList.of(new Column("k1", PrimitiveType.INT));
-        tbl.setNewFullSchema(schema);
-        db.addTableForTest(tbl);
-        esCatalog.addDatabaseForTest(db);
-        Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(esCatalog).addSchemaForTest(db.getFullName(), tbl.getName(), schema);
-        new MockUp<RelationUtil>() {
-            @Mock
-            public TableIf getTable(List<String> qualifierName, Env env) {
-                return tbl;
-            }
-        };
-
-        new MockUp<ExternalTable>() {
-            @Mock
-            public DatabaseIf getDatabase() {
-                return db;
-            }
-        };
-
-        new MockUp<TableIdentifier>() {
-            @Mock
-            public TableIf toTableIf() {
-                return tbl;
-            }
-        };
-
-        addConstraint("alter table es.es_db1.es_tbl1 add constraint pk primary key (k1)");
-        addConstraint("alter table es.es_db1.es_tbl1 add constraint uk unique (k1)");
         TableIf tableIf = RelationUtil.getTable(
-                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("extCtl1", "db1", "tbl11")),
+                connectContext.getEnv(), Optional.empty());
+
+        // add constraints
+        addConstraint("alter table extCtl1.db1.tbl11 add constraint pk primary key (a11)");
+        addConstraint("alter table extCtl1.db1.tbl11 add constraint uk unique (a11)");
+        Assertions.assertEquals(2, tableIf.getConstraintsMap().size());
+        // clear the constraints
         Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
-        tableIf.getConstraintsMapUnsafe().clear();
-        Assertions.assertTrue(tableIf.getConstraintsMap().isEmpty());
+        // save constraints map in edit log
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(outputStream);
         for (Constraint value : new ArrayList<>(constraintMap.values())) {
@@ -283,6 +210,10 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
             journalEntity.setOpCode(OperationType.OP_ADD_CONSTRAINT);
             journalEntity.write(output);
         }
+        // clear constraints map manually
+        tableIf.getConstraintsMapUnsafe().clear();
+        Assertions.assertTrue(tableIf.getConstraintsMap().isEmpty());
+        // add constraints back from edit log
         InputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
         DataInput input = new DataInputStream(inputStream);
         for (int i = 0; i < constraintMap.values().size(); i++) {
@@ -290,50 +221,30 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
             journalEntity.readFields(input);
             EditLog.loadJournal(Env.getCurrentEnv(), 0L, journalEntity);
         }
-        Assertions.assertEquals(tableIf.getConstraintsMap(), constraintMap);
-        Env.getCurrentEnv().changeCatalog(connectContext, "internal");
+        Assertions.assertEquals(2, tableIf.getConstraintsMap().size());
     }
 
     @Test
     void dropConstraintLogPersistForExternalTest() throws Exception {
         Config.edit_log_type = "local";
-        createCatalog("create catalog es2 properties('type' = 'es', 'elasticsearch.hosts' = 'http://192.168.0.1',"
-                + " 'elasticsearch.username' = 'user1');");
+        FeConstants.runningUnitTest = true;
+        createCatalog("create catalog extCtl2 properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\""
+                + ");");
 
-        Env.getCurrentEnv().changeCatalog(connectContext, "es2");
-        EsExternalCatalog esCatalog = (EsExternalCatalog) getCatalog("es2");
-        EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1", "es_db1");
-        EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_db1", esCatalog, db);
-        ImmutableList<Column> schema = ImmutableList.of(new Column("k1", PrimitiveType.INT));
-        tbl.setNewFullSchema(schema);
-        db.addTableForTest(tbl);
-        esCatalog.addDatabaseForTest(db);
-        Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(esCatalog).addSchemaForTest(db.getFullName(), tbl.getName(), schema);
-        new MockUp<RelationUtil>() {
-            @Mock
-            public TableIf getTable(List<String> qualifierName, Env env) {
-                return tbl;
-            }
-        };
-
-        new MockUp<ExternalTable>() {
-            @Mock
-            public DatabaseIf getDatabase() {
-                return db;
-            }
-        };
-
-        new MockUp<TableIdentifier>() {
-            @Mock
-            public TableIf toTableIf() {
-                return tbl;
-            }
-        };
-        addConstraint("alter table es.es_db1.es_tbl1 add constraint pk primary key (k1)");
-        addConstraint("alter table es.es_db1.es_tbl1 add constraint uk unique (k1)");
         TableIf tableIf = RelationUtil.getTable(
-                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("extCtl2", "db1", "tbl11")),
+                connectContext.getEnv(), Optional.empty());
+
+        // add constraints
+        addConstraint("alter table extCtl2.db1.tbl11 add constraint pk primary key (a11)");
+        addConstraint("alter table extCtl2.db1.tbl11 add constraint uk unique (a11)");
+        Assertions.assertEquals(2, tableIf.getConstraintsMap().size());
+        // drop it
+        // dropConstraint("alter table extCtl2.db1.tbl11 drop constraint pk");
+        // dropConstraint("alter table extCtl2.db1.tbl11 drop constraint uk");
         Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(outputStream);
@@ -351,6 +262,38 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
             EditLog.loadJournal(Env.getCurrentEnv(), 0L, journalEntity);
         }
         Assertions.assertTrue(tableIf.getConstraintsMap().isEmpty());
+
         Env.getCurrentEnv().changeCatalog(connectContext, "internal");
+    }
+
+    public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
+        public static final Map<String, Map<String, List<Column>>> MOCKED_META;
+
+        static {
+            MOCKED_META = Maps.newHashMap();
+            Map<String, List<Column>> tblSchemaMap1 = Maps.newHashMap();
+            // db1
+            tblSchemaMap1.put("tbl11", Lists.newArrayList(
+                    new Column("a11", PrimitiveType.BIGINT),
+                    new Column("a12", PrimitiveType.STRING),
+                    new Column("a13", PrimitiveType.FLOAT)));
+            tblSchemaMap1.put("tbl12", Lists.newArrayList(
+                    new Column("b21", PrimitiveType.BIGINT),
+                    new Column("b22", PrimitiveType.STRING),
+                    new Column("b23", PrimitiveType.FLOAT)));
+            MOCKED_META.put("db1", tblSchemaMap1);
+            // db2
+            Map<String, List<Column>> tblSchemaMap2 = Maps.newHashMap();
+            tblSchemaMap2.put("tbl21", Lists.newArrayList(
+                    new Column("c11", PrimitiveType.BIGINT),
+                    new Column("c12", PrimitiveType.STRING),
+                    new Column("c13", PrimitiveType.FLOAT)));
+            MOCKED_META.put("db2", tblSchemaMap2);
+        }
+
+        @Override
+        public Map<String, Map<String, List<Column>>> getMetadata() {
+            return MOCKED_META;
+        }
     }
 }

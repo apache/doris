@@ -118,4 +118,18 @@ suite("test_json_search") {
     qt_one_case2 """ SELECT id, $jsonValue, 'All', p, JSON_SEARCH($jsonValue, 'One', p) FROM ${testTable} ORDER BY id; """
 
     sql "drop table ${testTable}"
+
+    qt_search1 """
+        select JSON_SEARCH('{ "onepotato": "foot", "one potato": "food" , "one \\\\"potato": "fool" }','all', 'food');
+    """
+
+    qt_search2 """
+        select JSON_SEARCH('{ "onepotato": "foot", "one potato": "food" , "one \\\\"potato": "fool" }','all', 'fool');
+    """
+
+    qt_search3 """
+        select JSON_EXTRACT('{ "onepotato": "foot", "one potato": "food" , "one \\\\"potato": "fool" }',
+            JSON_UNQUOTE(JSON_SEARCH('{ "onepotato": "foot", "one potato": "food" , "one \\\\"potato": "fool" }','all', 'fool'))
+        );
+    """
 }

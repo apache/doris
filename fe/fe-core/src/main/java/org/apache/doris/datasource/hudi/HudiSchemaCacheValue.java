@@ -20,14 +20,20 @@ package org.apache.doris.datasource.hudi;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.hive.HMSSchemaCacheValue;
 
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.util.InternalSchemaCache;
+import org.apache.hudi.internal.schema.InternalSchema;
+
 import java.util.List;
 
 public class HudiSchemaCacheValue extends HMSSchemaCacheValue {
 
     private List<String> colTypes;
+    boolean enableSchemaEvolution;
 
-    public HudiSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
+    public HudiSchemaCacheValue(List<Column> schema, List<Column> partitionColumns, boolean enableSchemaEvolution) {
         super(schema, partitionColumns);
+        this.enableSchemaEvolution = enableSchemaEvolution;
     }
 
     public List<String> getColTypes() {
@@ -37,4 +43,13 @@ public class HudiSchemaCacheValue extends HMSSchemaCacheValue {
     public void setColTypes(List<String> colTypes) {
         this.colTypes = colTypes;
     }
+
+    public InternalSchema getCommitInstantInternalSchema(HoodieTableMetaClient metaClient, Long commitInstantTime) {
+        return InternalSchemaCache.searchSchemaAndCache(commitInstantTime, metaClient);
+    }
+
+    public boolean isEnableSchemaEvolution() {
+        return enableSchemaEvolution;
+    }
+
 }

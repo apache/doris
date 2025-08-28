@@ -63,7 +63,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
@@ -86,7 +85,14 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     private static final Logger LOG = LogManager.getLogger(UpdateMvByPartitionCommand.class);
 
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
-        super(logicalQuery, Optional.empty(), Optional.empty());
+        super(logicalQuery, Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    @Override
+    public boolean isForceDropPartition() {
+        // After refreshing the data in MTMV, it will be synchronized with the base table
+        // and there is no need to put it in the recycle bin
+        return true;
     }
 
     /**
@@ -235,10 +241,14 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             }
             List<String> tableQualifier = RelationUtil.getQualifierName(ConnectContext.get(),
                     unboundRelation.getNameParts());
-            TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv());
+            TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv(), Optional.empty());
             if (predicates.getPredicates().containsKey(table)) {
-                return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
-                        unboundRelation);
+                return new LogicalFilter<>(
+                        ExpressionUtils.extractConjunctionToSet(
+                                ExpressionUtils.or(predicates.getPredicates().get(table))
+                        ),
+                        unboundRelation
+                );
             }
             return unboundRelation;
         }
@@ -280,7 +290,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             if (predicates.getPredicates() != null) {
                 if (predicates.getPredicates().containsKey(table)) {
                     return new LogicalFilter<>(
-                            ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
+                            ExpressionUtils.extractConjunctionToSet(
+                                    ExpressionUtils.or(predicates.getPredicates().get(table))
+                            ),
                             catalogRelation);
                 }
             }
@@ -324,10 +336,12 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         predicates.setNeedAddFilter(false);
                     }
                     if (!partitionHasDataItems.isEmpty()) {
-                        Set<Expression> partitionExpressions =
-                                constructPredicates(partitionHasDataItems, partitionSlot);
-                        return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(partitionExpressions)),
-                                catalogRelation);
+                        return new LogicalFilter<>(
+                                ExpressionUtils.extractConjunctionToSet(
+                                        ExpressionUtils.or(constructPredicates(partitionHasDataItems, partitionSlot))
+                                ),
+                                catalogRelation
+                        );
                     }
                 }
             }

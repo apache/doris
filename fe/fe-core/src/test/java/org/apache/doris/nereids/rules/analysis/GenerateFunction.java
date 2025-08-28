@@ -183,6 +183,8 @@ public class GenerateFunction {
             .put("any", "any_value")
             .put("char_length", "character_length")
             .put("stddev_pop", "stddev")
+            .put("std", "stddev")
+            .put("percentile_cont", "percentile")
             .put("var_pop", "variance")
             .put("variance_pop", "variance")
             .put("var_samp", "variance_samp")

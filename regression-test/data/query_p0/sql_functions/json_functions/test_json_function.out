@@ -155,3 +155,59 @@ true
 -- !sql --
 \N
 
+-- !sql --
+\N	\N
+false	\N
+true	\N
+
+-- !sql --
+2
+
+-- !sql --
+"doris"
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+["v1",{"k21":6.6,"k22":[1,2,3]}]
+
+-- !sql --
+[6.6,[1,2,3],2]
+
+-- !sql --
+123
+
+-- !sql --
+123
+
+-- !sql --
+123
+
+-- !test --
+\N	{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	\N	\N
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 4}}	\N	\N
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 5}}	\N	\N
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 6}}	\N	\N
+
+-- !json_contains1 --
+false
+
+-- !json_contains2 --
+true
+
+-- !json_contains3 --
+false
+
+-- !json_contains4 --
+true
+
+-- !json_contains5 --
+false
+
+-- !json_contains6 --
+\N
+

@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -94,7 +93,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
 
     private Plan correlatedToJoin(LogicalApply<?, ?> apply) {
         Optional<Expression> correlationFilter = apply.getCorrelationFilter();
-        if (((Exists) apply.getSubqueryExpr()).isNot()) {
+        if (apply.isNot()) {
             return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     correlationFilter.map(ExpressionUtils::extractConjunction).orElse(ExpressionUtils.EMPTY_CONDITION),
                     new DistributeHint(DistributeType.NONE),
@@ -110,7 +109,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
     }
 
     private Plan unCorrelatedToJoin(LogicalApply<?, ?> unapply) {
-        if (((Exists) unapply.getSubqueryExpr()).isNot()) {
+        if (unapply.isNot()) {
             return unCorrelatedNotExist(unapply);
         } else {
             return unCorrelatedExist(unapply);

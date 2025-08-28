@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -46,11 +47,6 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -99,7 +95,6 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -152,6 +147,26 @@ public class TypeCoercionUtils {
     );
 
     private static final Logger LOG = LogManager.getLogger(TypeCoercionUtils.class);
+
+    /**
+     * ensure the result's data type equals to the originExpr's dataType,
+     * ATTN: this method usually used in fold constant rule
+     */
+    public static Expression ensureSameResultType(
+            Expression originExpr, Expression result, ExpressionRewriteContext context) {
+        DataType originDataType = originExpr.getDataType();
+        DataType newDataType = result.getDataType();
+        if (originDataType.equals(newDataType)) {
+            return result;
+        }
+        // backend can direct use all string like type without cast
+        if (originDataType.isStringLikeType() && newDataType.isStringLikeType()) {
+            return result;
+        }
+        return FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE.visitCast(
+                new Cast(result, originDataType), context
+        );
+    }
 
     /**
      * Return Optional.empty() if we cannot do implicit cast.
@@ -301,6 +316,10 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, DateTimeV2Type.class);
     }
 
+    public static boolean hasTimeV2Type(DataType dataType) {
+        return hasSpecifiedType(dataType, TimeV2Type.class);
+    }
+
     private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
         if (dataType instanceof ArrayType) {
             return hasSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType);
@@ -333,12 +352,14 @@ public class TypeCoercionUtils {
         return replaceSpecifiedType(dataType, DecimalV3Type.class, DecimalV3Type.WILDCARD);
     }
 
-    public static DataType replaceDateTimeV2WithTarget(DataType dataType, DateTimeV2Type target) {
-        return replaceSpecifiedType(dataType, DateTimeV2Type.class, target);
-    }
-
     public static DataType replaceDateTimeV2WithMax(DataType dataType) {
         return replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.MAX);
+    }
+
+    public static DataType replaceTimesWithTargetPrecision(DataType dataType, int targetScale) {
+        return replaceSpecifiedType(
+                replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.of(targetScale)), TimeV2Type.class,
+                TimeV2Type.of(targetScale));
     }
 
     /**
@@ -380,7 +401,7 @@ public class TypeCoercionUtils {
         if (type.isDateLikeType()) {
             return BigIntType.INSTANCE;
         }
-        if (type.isStringLikeType() || type.isHllType() || type.isTimeType() || type.isTimeV2Type()) {
+        if (type.isStringLikeType() || type.isHllType() || type.isTimeType()) {
             return DoubleType.INSTANCE;
         }
         throw new AnalysisException("Cannot cast from " + type + " to numeric type.");
@@ -430,7 +451,7 @@ public class TypeCoercionUtils {
     public static Expression castIfNotSameType(Expression input, DataType targetType) {
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
-        } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)
+        } else if (input.getDataType().equals(targetType)
                 || (input.getDataType().isStringLikeType()) && targetType.isStringLikeType()) {
             return input;
         } else {
@@ -453,16 +474,12 @@ public class TypeCoercionUtils {
     public static Expression castIfNotSameTypeStrict(Expression input, DataType targetType) {
         if (input.isNullLiteral()) {
             return new NullLiteral(targetType);
-        } else if (input.getDataType().equals(targetType) || isSubqueryAndDataTypeIsBitmap(input)) {
+        } else if (input.getDataType().equals(targetType)) {
             return input;
         } else {
             checkCanCastTo(input.getDataType(), targetType);
             return unSafeCast(input, targetType);
         }
-    }
-
-    private static boolean isSubqueryAndDataTypeIsBitmap(Expression input) {
-        return input instanceof SubqueryExpr && input.getDataType().isBitmapType();
     }
 
     private static boolean canCastTo(DataType input, DataType target) {
@@ -602,7 +619,7 @@ public class TypeCoercionUtils {
             } else if (dataType.isDateTimeType() && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, false).orElse(null);
             } else if (dataType.isDateV2Type() && DateTimeChecker.isValidDateTime(value)) {
-                Result<DateLiteral, ? extends Exception> parseResult = DateV2Literal.parseDateLiteral(value);
+                Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value);
                 if (parseResult.isOk()) {
                     ret = parseResult.get();
                 } else {
@@ -661,17 +678,6 @@ public class TypeCoercionUtils {
         // check
         boundFunction.checkLegalityBeforeTypeCoercion();
 
-        // TODO: if we have other functions need to add argument after bind and before coercion,
-        //  we need to use a new framework to do this.
-        // this moved from translate phase to here, because we need to add the type info before cast all args to string
-        if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
-            boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
-        }
-        if (boundFunction instanceof JsonInsert
-                || boundFunction instanceof JsonReplace
-                || boundFunction instanceof JsonSet) {
-            boundFunction = TypeCoercionUtils.fillJsonValueModifyTypeArgument(boundFunction);
-        }
         if (boundFunction instanceof CreateMap) {
             return processCreateMap((CreateMap) boundFunction);
         }
@@ -777,9 +783,7 @@ public class TypeCoercionUtils {
             }
         }
 
-        Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
-        Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
-        return divide.withChildren(newLeft, newRight);
+        return castChildren(divide, left, right, commonType);
     }
 
     private static Expression castChildren(Expression parent, Expression left, Expression right, DataType commonType) {
@@ -906,7 +910,7 @@ public class TypeCoercionUtils {
         }
 
         // add, subtract and multiply do not need to cast children for fixed point type
-        return binaryArithmetic.withChildren(castIfNotSameType(left, t1), castIfNotSameType(right, t2));
+        return castChildren(binaryArithmetic, left, right, commonType.promotion());
     }
 
     /**
@@ -975,7 +979,7 @@ public class TypeCoercionUtils {
                 throw new AnalysisException("data type " + left.getDataType()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
-            return comparisonPredicate.withChildren(left, right);
+            return comparisonPredicate;
         }
 
         // process string literal with numeric
@@ -1124,6 +1128,7 @@ public class TypeCoercionUtils {
 
     /**
      * check should downgrade from commonTypeClazz to targetTypeClazz.
+     *
      * @param commonTypeClazz before downgrade type
      * @param targetTypeClazz try to downgrade to type
      * @param commonType original common type
@@ -1131,7 +1136,6 @@ public class TypeCoercionUtils {
      * @param commonTypePredicate constraint for original type
      * @param otherPredicate constraint for other expressions aka literals
      * @param others literals
-     *
      * @return true for should downgrade
      */
     private static boolean shouldDowngrade(
@@ -1223,8 +1227,8 @@ public class TypeCoercionUtils {
     }
 
     private static boolean maybeCastToVarchar(DataType t) {
-        return t.isVarcharType() || t.isCharType() || t.isTimeType() || t.isTimeV2Type() || t.isJsonType()
-                || t.isHllType() || t.isBitmapType() || t.isQuantileStateType() || t.isAggStateType();
+        return t.isVarcharType() || t.isCharType() || t.isTimeType() || t.isJsonType() || t.isHllType()
+                || t.isBitmapType() || t.isQuantileStateType() || t.isAggStateType();
     }
 
     public static Optional<DataType> findWiderCommonTypeForComparison(List<DataType> dataTypes) {
@@ -1311,10 +1315,10 @@ public class TypeCoercionUtils {
     /**
      * get common type for comparison.
      * in legacy planner, comparison predicate convert int vs string to double.
-     *   however, in predicate and between predicate convert int vs string to string
-     *   but after between rewritten to comparison predicate,
-     *   int vs string been convert to double again
-     *   so, in Nereids, only in predicate set this flag to true.
+     * however, in predicate and between predicate convert int vs string to string
+     * but after between rewritten to comparison predicate,
+     * int vs string been convert to double again
+     * so, in Nereids, only in predicate set this flag to true.
      */
     private static Optional<DataType> findCommonPrimitiveTypeForComparison(
             DataType leftType, DataType rightType, boolean intStringToString) {
@@ -1671,13 +1675,10 @@ public class TypeCoercionUtils {
         }
 
         // time-like vs all other type
-        if (t1.isTimeLikeType() && t2.isTimeLikeType()) {
-            if (t1.isTimeType() && t2.isTimeType()) {
-                return Optional.of(TimeType.INSTANCE);
-            }
+        if (t1.isTimeType() && t2.isTimeType()) {
             return Optional.of(TimeV2Type.INSTANCE);
         }
-        if (t1.isTimeLikeType() || t2.isTimeLikeType()) {
+        if (t1.isTimeType() || t2.isTimeType()) {
             if (t1.isNumericType() || t2.isNumericType() || t1.isBooleanType() || t2.isBooleanType()) {
                 return Optional.of(DoubleType.INSTANCE);
             }
@@ -1696,78 +1697,6 @@ public class TypeCoercionUtils {
         }
 
         return Optional.empty();
-    }
-
-    /**
-     * add json type info as the last argument of the function.
-     *
-     * @param function function need to add json type info
-     * @param checkKey check key not null
-     * @return function already processed
-     */
-    public static BoundFunction fillJsonTypeArgument(BoundFunction function, boolean checkKey) {
-        List<Expression> arguments = function.getArguments();
-        try {
-            List<Expression> newArguments = Lists.newArrayList();
-            StringBuilder jsonTypeStr = new StringBuilder();
-            for (int i = 0; i < arguments.size(); i++) {
-                Expression argument = arguments.get(i);
-                Type type = argument.getDataType().toCatalogDataType();
-                int jsonType = FunctionCallExpr.computeJsonDataType(type);
-                jsonTypeStr.append(jsonType);
-
-                if (type.isNull()) {
-                    if ((i & 1) == 0 && checkKey) {
-                        throw new AnalysisException(function.getName() + " key can't be NULL: " + function.toSql());
-                    }
-                    // Not to return NULL directly, so save string, but flag is '0'
-                    newArguments.add(new StringLiteral("NULL"));
-                } else {
-                    newArguments.add(argument);
-                }
-            }
-            if (arguments.isEmpty()) {
-                newArguments.add(new StringLiteral(""));
-            } else {
-                // add json type string to the last
-                newArguments.add(new StringLiteral(jsonTypeStr.toString()));
-            }
-            return (BoundFunction) function.withChildren(newArguments);
-        } catch (Throwable t) {
-            throw new AnalysisException(t.getMessage());
-        }
-    }
-
-    /**
-     * add json type info as the last argument of the function.
-     * used for json_insert, json_replace, json_set.
-     *
-     * @param function function need to add json type info
-     * @return function already processed
-     */
-    public static BoundFunction fillJsonValueModifyTypeArgument(BoundFunction function) {
-        List<Expression> arguments = function.getArguments();
-        List<Expression> newArguments = Lists.newArrayListWithCapacity(arguments.size() + 1);
-        StringBuilder jsonTypeStr = new StringBuilder();
-        for (int i = 0; i < arguments.size(); i++) {
-            Expression argument = arguments.get(i);
-            Type type = argument.getDataType().toCatalogDataType();
-            int jsonType = FunctionCallExpr.computeJsonDataType(type);
-            jsonTypeStr.append(jsonType);
-
-            if (i > 0 && (i & 1) == 0 && type.isNull()) {
-                newArguments.add(new StringLiteral("NULL"));
-            } else {
-                newArguments.add(argument);
-            }
-        }
-        if (arguments.isEmpty()) {
-            newArguments.add(new StringLiteral(""));
-        } else {
-            // add json type string to the last
-            newArguments.add(new StringLiteral(jsonTypeStr.toString()));
-        }
-        return (BoundFunction) function.withChildren(newArguments);
     }
 
     private static Expression processDecimalV3BinaryArithmetic(BinaryArithmetic binaryArithmetic,

@@ -266,6 +266,16 @@ public abstract class AbstractPhysicalJoin<
     }
 
     @Override
+    public String getFingerprint() {
+        List<Object> args = Lists.newArrayList(
+                "type", joinType,
+                "hashCondition", hashJoinConjuncts,
+                "otherCondition", otherJoinConjuncts,
+                "markCondition", markJoinConjuncts);
+        return Utils.toSqlString("JOIN", args.toArray());
+    }
+
+    @Override
     public String toString() {
         List<Object> args = Lists.newArrayList(
                 "stats", statistics,
@@ -286,8 +296,12 @@ public abstract class AbstractPhysicalJoin<
             args.add(hint.getExplainString());
         }
         if (!runtimeFilters.isEmpty()) {
-            args.add("runtimeFilters");
+            args.add("RFs");
             args.add(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.toList()));
+        }
+        if (!runtimeFiltersV2.isEmpty()) {
+            args.add("RFV2");
+            args.add(runtimeFiltersV2);
         }
         return Utils.toSqlString(this.getClass().getSimpleName() + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 args.toArray());

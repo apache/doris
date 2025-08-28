@@ -44,12 +44,15 @@ VDataStreamMgr::~VDataStreamMgr() {
     // Has to call close here, because receiver will check if the receiver is closed.
     // It will core during graceful stop.
     auto receivers = std::vector<std::shared_ptr<VDataStreamRecvr>>();
-    auto receiver_iterator = _receiver_map.begin();
-    while (receiver_iterator != _receiver_map.end()) {
-        // Could not call close directly, because during close method, it will remove itself
-        // from the map, and modify the map, it will core.
-        receivers.push_back(receiver_iterator->second);
-        receiver_iterator++;
+    {
+        std::shared_lock l(_lock);
+        auto receiver_iterator = _receiver_map.begin();
+        while (receiver_iterator != _receiver_map.end()) {
+            // Could not call close directly, because during close method, it will remove itself
+            // from the map, and modify the map, it will core.
+            receivers.push_back(receiver_iterator->second);
+            receiver_iterator++;
+        }
     }
     for (auto iter = receivers.begin(); iter != receivers.end(); ++iter) {
         (*iter)->close();
@@ -143,6 +146,32 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     }
 
     bool eos = request->eos();
+    if (!request->blocks().empty()) {
+        for (int i = 0; i < request->blocks_size(); i++) {
+            std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
+            pblock_ptr->Swap(const_cast<PBlock*>(&request->blocks(i)));
+            auto pass_done = [&]() -> ::google::protobuf::Closure** {
+                // If it is eos, no callback is needed, done can be nullptr
+                if (eos) {
+                    return nullptr;
+                }
+                // If it is the last block, a callback is needed, pass done
+                if (i == request->blocks_size() - 1) {
+                    return done;
+                } else {
+                    // If it is not the last block, the blocks in the request currently belong to the same queue,
+                    // and the callback is handled by the done of the last block
+                    return nullptr;
+                }
+            };
+            RETURN_IF_ERROR(recvr->add_block(
+                    std::move(pblock_ptr), request->sender_id(), request->be_number(),
+                    request->packet_seq() - request->blocks_size() + i, pass_done(),
+                    wait_for_worker, cpu_time_stop_watch.elapsed_time()));
+        }
+    }
+
+    // old logic, for compatibility
     if (request->has_block()) {
         std::unique_ptr<PBlock> pblock_ptr {
                 const_cast<PTransmitDataParams*>(request)->release_block()};
@@ -188,11 +217,8 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
         targert_recvr->cancel_stream(Status::OK());
         return Status::OK();
     } else {
-        std::stringstream err;
-        err << "unknown row receiver id: fragment_instance_id=" << print_id(fragment_instance_id)
-            << " node_id=" << node_id;
-        LOG(ERROR) << err.str();
-        return Status::InternalError(err.str());
+        return Status::InternalError("unknown row receiver id: fragment_instance_id={}, node_id={}",
+                                     print_id(fragment_instance_id), node_id);
     }
 }
 

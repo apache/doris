@@ -61,7 +61,7 @@ struct MockExchangeSinkOperatorX : public ExchangeSinkOperatorX {
 
     void _init_sink_buffer() override {
         std::vector<InstanceLoId> ins_ids {fragment_instance_id.lo};
-        _sink_buffer = _create_buffer(ins_ids);
+        _sink_buffer = _create_buffer(_state, ins_ids);
     }
 };
 
@@ -77,7 +77,7 @@ auto create_exchange_sink(std::vector<ChannelInfo> channel_info) {
 
     std::shared_ptr<MockExchangeSinkOperatorX> op =
             std::make_shared<MockExchangeSinkOperatorX>(*ctx);
-    EXPECT_TRUE(op->open(&ctx->state));
+    EXPECT_TRUE(op->prepare(&ctx->state));
 
     auto local_state = std::make_unique<MockExchangeLocalState>(op.get(), &ctx->state);
 
@@ -92,7 +92,7 @@ auto create_exchange_sink(std::vector<ChannelInfo> channel_info) {
                              .parent_profile = &ctx->profile,
                              .sender_id = 0,
                              .shared_state = nullptr,
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = TDataSink {}};
     EXPECT_TRUE(local_state->init(&ctx->state, info).ok());
     ctx->state.emplace_sink_local_state(0, std::move(local_state));

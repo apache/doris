@@ -49,8 +49,9 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
 
         LoadStatisticForTag loadStatisticForTag = Env.getCurrentEnv()
                 .getTabletScheduler().getStatisticMap().get(tag);
-
-        loadStatisticForTag.getStatistic(medium).forEach(result::addRow);
+        if (loadStatisticForTag != null) {
+            loadStatisticForTag.getStatistic(medium).forEach(result::addRow);
+        }
         return result;
     }
 

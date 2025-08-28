@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -37,7 +38,7 @@ import java.util.Map;
 /**
  * Common interface for logical/physical project.
  */
-public interface Project {
+public interface Project extends ProjectMergeable {
     List<NamedExpression> getProjects();
 
     /**
@@ -64,8 +65,9 @@ public interface Project {
      * @return project list for merged project
      */
     default List<NamedExpression> mergeProjections(Project childProject) {
-        List<NamedExpression> projects = new ArrayList<>();
-        projects.addAll(PlanUtils.mergeProjections(childProject.getProjects(), getProjects()));
+        List<NamedExpression> projects = new ArrayList<>(
+                PlanUtils.mergeProjections(childProject.getProjects(), getProjects())
+        );
         for (NamedExpression expression : childProject.getProjects()) {
             // keep NoneMovableFunction for later use
             if (expression.containsType(NoneMovableFunction.class)) {
@@ -73,6 +75,22 @@ public interface Project {
             }
         }
         return projects;
+    }
+
+    /** check can merge two projects */
+    default boolean canMergeChildProjections(Project childProject) {
+        return childProject.canMergeParentProjections(getProjects());
+    }
+
+    /** check can merge two projects */
+    default boolean canMergeParentProjections(List<NamedExpression> parentProject) {
+        List<NamedExpression> bottomProjects = getProjects();
+        if (ExpressionUtils.containsWindowExpression(parentProject)
+                && ExpressionUtils.containsWindowExpression(bottomProjects)) {
+            return false;
+        }
+
+        return PlanUtils.canReplaceWithProjections(bottomProjects, parentProject);
     }
 
     /**

@@ -107,9 +107,11 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         if (ctx.propertyClause() != null) {
             List<DorisParser.PropertyClauseContext> propertyClauseContexts = ctx.propertyClause();
             for (DorisParser.PropertyClauseContext propertyClauseContext : propertyClauseContexts) {
-                encryptProperty(visitPropertyClause(propertyClauseContext),
-                        propertyClauseContext.fileProperties.start.getStartIndex(),
-                        propertyClauseContext.fileProperties.stop.getStopIndex());
+                if (propertyClauseContext != null) {
+                    encryptProperty(visitPropertyClause(propertyClauseContext),
+                            propertyClauseContext.fileProperties.start.getStartIndex(),
+                            propertyClauseContext.fileProperties.stop.getStopIndex());
+                }
             }
         }
         return super.visitCreateTable(ctx);
@@ -119,8 +121,10 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     @Override
     public LogicalPlan visitTableValuedFunction(DorisParser.TableValuedFunctionContext ctx) {
         DorisParser.PropertyItemListContext properties = ctx.properties;
-        encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
-                properties.stop.getStopIndex());
+        if (properties != null) {
+            encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
+                    properties.stop.getStopIndex());
+        }
         return super.visitTableValuedFunction(ctx);
     }
 

@@ -18,9 +18,7 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.DataProperty;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -113,14 +111,8 @@ public class ModifyPartitionInfo implements Writable {
     }
 
     public static ModifyPartitionInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-            ModifyPartitionInfo info = new ModifyPartitionInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, ModifyPartitionInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ModifyPartitionInfo.class);
     }
 
     @Override
@@ -140,27 +132,5 @@ public class ModifyPartitionInfo implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partitionId = in.readLong();
-
-        boolean hasDataProperty = in.readBoolean();
-        if (hasDataProperty) {
-            dataProperty = DataProperty.read(in);
-        } else {
-            dataProperty = null;
-        }
-
-        replicationNum = in.readShort();
-        if (replicationNum > 0) {
-            replicaAlloc = new ReplicaAllocation(replicationNum);
-        } else {
-            replicaAlloc = ReplicaAllocation.NOT_SET;
-        }
-        isInMemory = in.readBoolean();
     }
 }

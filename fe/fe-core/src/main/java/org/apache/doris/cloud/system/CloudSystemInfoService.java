@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
@@ -56,6 +57,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -235,7 +237,6 @@ public class CloudSystemInfoService extends SystemInfoService {
             if (be == null) {
                 be = new ArrayList<>();
                 clusterIdToBackend.put(clusterId, be);
-                MetricRepo.registerCloudMetrics(clusterId, clusterName);
             }
             Set<String> existed = be.stream().map(i -> i.getHost() + ":" + i.getHeartbeatPort())
                     .collect(Collectors.toSet());
@@ -250,6 +251,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             sortBackends.add(b);
             Collections.sort(sortBackends, Comparator.comparing(Backend::getId));
             clusterIdToBackend.put(clusterId, sortBackends);
+            MetricRepo.registerCloudMetrics(clusterId, clusterName);
             LOG.info("update (add) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
                     clusterName, clusterId, sortBackends.size(), sortBackends);
         }
@@ -370,7 +372,12 @@ public class CloudSystemInfoService extends SystemInfoService {
     @Override
     public void addBackends(List<HostInfo> hostInfos, Map<String, String> tagMap) throws UserException {
         // issue rpc to meta to add this node, then fe master would add this node to its backends
-
+        if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
+            throw new DdlException("unable to add backends due to empty cloud_instance_id");
+        }
+        if (hostInfos.isEmpty()) {
+            return;
+        }
         String clusterName = tagMap.getOrDefault(Tag.COMPUTE_GROUP_NAME, Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME);
         if (clusterName.isEmpty()) {
             throw new UserException("ComputeGroup'name can not be empty");
@@ -382,7 +389,48 @@ public class CloudSystemInfoService extends SystemInfoService {
                 : String.valueOf(Config.cluster_id);
 
         String cloudUniqueId = "1:" + instanceId + ":" + RandomIdentifierGenerator.generateRandomIdentifier(8);
-        alterBackendCluster(hostInfos, computeGroupId, cloudUniqueId, Cloud.AlterClusterRequest.Operation.ADD_NODE);
+
+        String publicEndpoint = tagMap.getOrDefault(Tag.PUBLIC_ENDPOINT, "");
+        String privateEndpoint = tagMap.getOrDefault(Tag.PRIVATE_ENDPOINT, "");
+
+        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+                .setClusterId(computeGroupId)
+                .setType(Cloud.ClusterPB.Type.COMPUTE)
+                .build();
+
+        for (HostInfo hostInfo : hostInfos) {
+            Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
+                    .setCloudUniqueId(cloudUniqueId)
+                    .setIp(hostInfo.getHost())
+                    .setHost(hostInfo.getHost())
+                    .setHeartbeatPort(hostInfo.getPort())
+                    .setCtime(System.currentTimeMillis() / 1000)
+                    .setPublicEndpoint(publicEndpoint)
+                    .setPrivateEndpoint(privateEndpoint)
+                    .build();
+            clusterPB = clusterPB.toBuilder().addNodes(nodeInfoPB).build();
+            LOG.info("adding backend node: host={}, port={}, publicEndpoint={}, privateEndpoint={}",
+                    hostInfo.getHost(), hostInfo.getPort(), publicEndpoint, privateEndpoint);
+        }
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(Cloud.AlterClusterRequest.Operation.ADD_NODE)
+                .setCluster(clusterPB)
+                .build();
+
+        Cloud.AlterClusterResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("add backends, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("add backends not ok, response: {}", response);
+                throw new DdlException("failed to add backends errorCode: " + response.getStatus().getCode()
+                        + " msg: " + response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            throw new DdlException("failed to add backends", e);
+        }
     }
 
     // final entry of dropping backend
@@ -434,7 +482,17 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
+    public void modifyBackends(ModifyBackendOp op) throws UserException {
+        throw new UserException("Modifying backends is not supported in cloud mode");
+    }
+
+    @Override
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
+        throw new UserException("Modifying backend hostname is not supported in cloud mode");
+    }
+
+    @Override
+    public void modifyBackendHostName(String srcHost, int srcPort, String destHost) throws UserException {
         throw new UserException("Modifying backend hostname is not supported in cloud mode");
     }
 
@@ -528,7 +586,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Map<Long, Backend> idToBackend = Maps.newHashMap();
         try {
-            String cluster = ctx.getCurrentCloudCluster();
+            String cluster = ctx.getCloudCluster();
             if (Strings.isNullOrEmpty(cluster)) {
                 throw new AnalysisException("cluster name is empty");
             }
@@ -728,8 +786,8 @@ public class CloudSystemInfoService extends SystemInfoService {
         String clusterNameMeta = cpb.getClusterName();
         Cloud.ClusterStatus clusterStatus = cpb.hasClusterStatus()
                 ? cpb.getClusterStatus() : Cloud.ClusterStatus.NORMAL;
-        String publicEndpoint = cpb.getPublicEndpoint();
-        String privateEndpoint = cpb.getPrivateEndpoint();
+        String clusterPublicEndpoint = cpb.getPublicEndpoint();
+        String clusterPrivateEndpoint = cpb.getPrivateEndpoint();
         // Prepare backends
         List<Backend> backends = new ArrayList<>();
         for (Cloud.NodeInfoPB node : cpb.getNodesList()) {
@@ -738,14 +796,24 @@ public class CloudSystemInfoService extends SystemInfoService {
             newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterNameMeta);
             newTagMap.put(Tag.CLOUD_CLUSTER_ID, clusterId);
             newTagMap.put(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(clusterStatus));
-            newTagMap.put(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, publicEndpoint);
-            newTagMap.put(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, privateEndpoint);
+            // Prioritize node-level endpoint configuration, use cluster-level endpoint if
+            // node endpoint is empty
+            String nodePublicEndpoint = node.hasPublicEndpoint() && !node.getPublicEndpoint().isEmpty()
+                    ? node.getPublicEndpoint()
+                    : clusterPublicEndpoint;
+            String nodePrivateEndpoint = node.hasPrivateEndpoint() && !node.getPrivateEndpoint().isEmpty()
+                    ? node.getPrivateEndpoint()
+                    : clusterPrivateEndpoint;
+
+            newTagMap.put(Tag.PUBLIC_ENDPOINT, nodePublicEndpoint);
+            newTagMap.put(Tag.PRIVATE_ENDPOINT, nodePrivateEndpoint);
             newTagMap.put(Tag.CLOUD_UNIQUE_ID, node.getCloudUniqueId());
             Backend b = new Backend(Env.getCurrentEnv().getNextId(), node.getIp(), node.getHeartbeatPort());
             b.setTagMap(newTagMap);
             backends.add(b);
-            LOG.info("new backend to add, clusterName={} clusterId={} backend={}",
-                    clusterNameMeta, clusterId, b.toString());
+            LOG.info(
+                    "new backend to add, clusterName={} clusterId={} backend={}, publicEndpoint={}, privateEndpoint={}",
+                    clusterNameMeta, clusterId, b.toString(), nodePublicEndpoint, nodePrivateEndpoint);
         }
 
         updateCloudBackends(backends, new ArrayList<>());
@@ -1024,9 +1092,11 @@ public class CloudSystemInfoService extends SystemInfoService {
         LOG.debug("auto start wait cluster {} status {}", clusterName, clusterStatus);
         if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
             // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
-            // root ? see StatisticsUtil.buildConnectContext
-            if (ConnectContext.get() != null && ConnectContext.get().getUserIdentity().isRootUser()) {
-                LOG.warn("auto start daemon thread run in root, not resume cluster {}-{}", clusterName, clusterStatus);
+            // FeConstants.INTERNAL_DB_NAME ? see StatisticsUtil.buildConnectContext
+            List<String> ignoreDbNameList = Arrays.asList(Config.auto_start_ignore_resume_db_names);
+            if (ConnectContext.get() != null && ignoreDbNameList.contains(ConnectContext.get().getDatabase())) {
+                LOG.warn("auto start daemon thread db {}, not resume cluster {}-{}",
+                        ConnectContext.get().getDatabase(), clusterName, clusterStatus);
                 return null;
             }
             Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();

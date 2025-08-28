@@ -19,22 +19,18 @@
 
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
-#include <ostream>
 #include <string>
 
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "olap/olap_common.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 class JsonbOutStream;
@@ -50,14 +46,30 @@ class Arena;
 //  DataTypeDateTime => T:Int64
 //  IPv4 => T:UInt32
 //  IPv6 => T:uint128_t
-template <typename T>
+template <PrimitiveType T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
-    static_assert(IsNumber<T>);
+    static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
+                  T == TYPE_TIME || T == TYPE_TIMEV2);
 
 public:
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
 
     DataTypeNumberSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+
+    std::string get_name() const override { return type_to_string(T); }
+
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
+
+    Status from_string_batch(const ColumnString& str, ColumnNullable& column,
+                             const FormatOptions& options) const override;
+
+    Status from_string_strict_mode_batch(
+            const ColumnString& str, IColumn& column, const FormatOptions& options,
+            const NullMap::value_type* null_map = nullptr) const override;
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -74,22 +86,31 @@ public:
                                               uint64_t* num_deserialized,
                                               const FormatOptions& options) const override;
 
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnString& to_column) const override;
+
+    Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
+                                         CastParameters& castParms) const override;
+
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
@@ -100,12 +121,10 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end,
-                               std::vector<StringRef>& buffer_list) const override;
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
+
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
     template <bool is_binary_format>
@@ -114,58 +133,62 @@ private:
                                   const FormatOptions& options) const;
 };
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto old_column_size = column.size();
-    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16>) {
+    if constexpr (T == TYPE_BOOLEAN) {
         column.resize(old_column_size + arg.uint32_value_size());
         auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
-            data[old_column_size + i] = cast_set<T, uint32_t, false>(arg.uint32_value(i));
+            data[old_column_size + i] =
+                    cast_set<typename PrimitiveTypeTraits<T>::ColumnItemType, uint32_t, false>(
+                            arg.uint32_value(i));
         }
-    } else if constexpr (std::is_same_v<T, UInt32>) {
+    } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
         column.resize(old_column_size + arg.uint32_value_size());
         auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
             data[old_column_size + i] = arg.uint32_value(i);
         }
-    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16>) {
+    } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT) {
         column.resize(old_column_size + arg.int32_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
-            data[old_column_size + i] = cast_set<T, int32_t, false>(arg.int32_value(i));
+            data[old_column_size + i] =
+                    cast_set<typename PrimitiveTypeTraits<T>::ColumnItemType, int32_t, false>(
+                            arg.int32_value(i));
         }
-    } else if constexpr (std::is_same_v<T, Int32>) {
+    } else if constexpr (T == TYPE_INT) {
         column.resize(old_column_size + arg.int32_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] = arg.int32_value(i);
         }
-    } else if constexpr (std::is_same_v<T, UInt64>) {
+    } else if constexpr (T == TYPE_DATETIMEV2) {
         column.resize(old_column_size + arg.uint64_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
             data[old_column_size + i] = arg.uint64_value(i);
         }
-    } else if constexpr (std::is_same_v<T, Int64>) {
+    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME) {
         column.resize(old_column_size + arg.int64_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int64_value_size(); ++i) {
             data[old_column_size + i] = arg.int64_value(i);
         }
-    } else if constexpr (std::is_same_v<T, float>) {
+    } else if constexpr (T == TYPE_FLOAT) {
         column.resize(old_column_size + arg.float_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.float_value_size(); ++i) {
             data[old_column_size + i] = arg.float_value(i);
         }
-    } else if constexpr (std::is_same_v<T, double>) {
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2 || T == TYPE_TIME) {
         column.resize(old_column_size + arg.double_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.double_value_size(); ++i) {
             data[old_column_size + i] = arg.double_value(i);
         }
-    } else if constexpr (std::is_same_v<T, Int128>) {
+    } else if constexpr (T == TYPE_LARGEINT) {
         column.resize(old_column_size + arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
@@ -177,13 +200,13 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
     return Status::OK();
 }
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
                                                   int64_t start, int64_t end) const {
     auto row_count = cast_set<int>(end - start);
     auto* ptype = result.mutable_type();
-    const auto* col = check_and_get_column<ColumnVector<T>>(column);
-    if constexpr (std::is_same_v<T, Int128>) {
+    const auto* col = check_and_get_column<ColumnType>(column);
+    if constexpr (T == TYPE_LARGEINT) {
         ptype->set_id(PGenericType::INT128);
         result.mutable_bytes_value()->Reserve(row_count);
         for (size_t row_num = start; row_num < end; ++row_num) {
@@ -193,52 +216,47 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         return Status::OK();
     }
     auto& data = col->get_data();
-    if constexpr (std::is_same_v<T, UInt8>) {
+    if constexpr (T == TYPE_BOOLEAN) {
         ptype->set_id(PGenericType::UINT8);
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, UInt16>) {
-        ptype->set_id(PGenericType::UINT16);
-        auto* values = result.mutable_uint32_value();
-        values->Reserve(row_count);
-        values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, UInt32>) {
+    } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
         ptype->set_id(PGenericType::UINT32);
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, UInt64>) {
+    } else if constexpr (T == TYPE_DATETIMEV2) {
         ptype->set_id(PGenericType::UINT64);
         auto* values = result.mutable_uint64_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, Int8>) {
+    } else if constexpr (T == TYPE_TINYINT) {
         ptype->set_id(PGenericType::INT8);
         auto* values = result.mutable_int32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, Int16>) {
+    } else if constexpr (T == TYPE_SMALLINT) {
         ptype->set_id(PGenericType::INT16);
         auto* values = result.mutable_int32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, Int32>) {
+    } else if constexpr (T == TYPE_INT) {
         ptype->set_id(PGenericType::INT32);
         auto* values = result.mutable_int32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, Int64>) {
+    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME) {
         ptype->set_id(PGenericType::INT64);
         auto* values = result.mutable_int64_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, float>) {
+    } else if constexpr (T == TYPE_FLOAT) {
         ptype->set_id(PGenericType::FLOAT);
         auto* values = result.mutable_float_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (std::is_same_v<T, double>) {
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2 || T == TYPE_TIME) {
         ptype->set_id(PGenericType::DOUBLE);
         auto* values = result.mutable_double_value();
         values->Reserve(row_count);
@@ -249,126 +267,6 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
     return Status::OK();
 }
 
-template <typename T>
-void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
-                                                      const JsonbValue* arg) const {
-    auto& col = reinterpret_cast<ColumnType&>(column);
-    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
-        col.insert_value(static_cast<const JsonbInt8Val*>(arg)->val());
-    } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
-        col.insert_value(static_cast<const JsonbInt16Val*>(arg)->val());
-    } else if constexpr (std::is_same_v<T, Int32> || std::is_same_v<T, UInt32>) {
-        col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
-    } else if constexpr (std::is_same_v<T, Int64> || std::is_same_v<T, UInt64>) {
-        col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
-    } else if constexpr (std::is_same_v<T, Int128>) {
-        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
-    } else if constexpr (std::is_same_v<T, float>) {
-        col.insert_value(static_cast<const JsonbFloatVal*>(arg)->val());
-    } else if constexpr (std::is_same_v<T, double>) {
-        col.insert_value(static_cast<const JsonbDoubleVal*>(arg)->val());
-    } else {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "read_one_cell_from_jsonb with type '{}'", arg->typeName());
-    }
-}
-template <typename T>
-void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
-                                                     JsonbWriterT<JsonbOutStream>& result,
-                                                     Arena* mem_pool, int32_t col_id,
-                                                     int64_t row_num) const {
-    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
-    StringRef data_ref = column.get_data_at(row_num);
-    // TODO: Casting unsigned integers to signed integers may result in loss of data precision.
-    // However, as Doris currently does not support unsigned integers, only the boolean type uses
-    // uint8_t for representation, making the cast acceptable. In the future, we should add support for
-    // both unsigned integers in Doris types and the JSONB types.
-    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
-        int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
-        result.writeInt8(val);
-    } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
-        int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data);
-        result.writeInt16(val);
-    } else if constexpr (std::is_same_v<T, Int32> || std::is_same_v<T, UInt32>) {
-        int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
-        result.writeInt32(val);
-    } else if constexpr (std::is_same_v<T, Int64> || std::is_same_v<T, UInt64>) {
-        int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
-        result.writeInt64(val);
-    } else if constexpr (std::is_same_v<T, Int128>) {
-        __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
-        result.writeInt128(val);
-    } else if constexpr (std::is_same_v<T, float>) {
-        float val = *reinterpret_cast<const float*>(data_ref.data);
-        result.writeFloat(val);
-    } else if constexpr (std::is_same_v<T, double>) {
-        double val = *reinterpret_cast<const double*>(data_ref.data);
-        result.writeDouble(val);
-    } else {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_one_cell_to_jsonb with type " + column.get_name());
-    }
-}
-
-template <typename T>
-Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
-                                                      rapidjson::Value& result,
-                                                      rapidjson::Document::AllocatorType& allocator,
-                                                      Arena& mem_pool, int64_t row_num) const {
-    const auto& data = reinterpret_cast<const ColumnType&>(column).get_data();
-    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> || std::is_same_v<T, Int32>) {
-        result.SetInt(data[row_num]);
-    } else if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16> ||
-                         std::is_same_v<T, UInt32>) {
-        result.SetUint(data[row_num]);
-    } else if constexpr (std::is_same_v<T, Int64>) {
-        result.SetInt64(data[row_num]);
-    } else if constexpr (std::is_same_v<T, UInt64>) {
-        result.SetUint64(data[row_num]);
-    } else if constexpr (std::is_same_v<T, float>) {
-        result.SetFloat(data[row_num]);
-    } else if constexpr (std::is_same_v<T, double>) {
-        result.SetDouble(data[row_num]);
-    } else {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "unknown column type {} for writing to jsonb " + column.get_name());
-        __builtin_unreachable();
-    }
-    return Status::OK();
-}
-
-template <typename T>
-Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
-                                                       const rapidjson::Value& value) const {
-    auto& col = reinterpret_cast<ColumnType&>(column);
-    switch (value.GetType()) {
-    case rapidjson::Type::kNumberType:
-        if (value.IsUint()) {
-            col.insert_value((T)value.GetUint());
-        } else if (value.IsInt()) {
-            col.insert_value((T)value.GetInt());
-        } else if (value.IsUint64()) {
-            col.insert_value((T)value.GetUint64());
-        } else if (value.IsInt64()) {
-            col.insert_value((T)value.GetInt64());
-        } else if (value.IsFloat() || value.IsDouble()) {
-            col.insert_value(T(value.GetDouble()));
-        } else {
-            CHECK(false) << "Improssible";
-        }
-        break;
-    case rapidjson::Type::kFalseType:
-        col.insert_value((T)0);
-        break;
-    case rapidjson::Type::kTrueType:
-        col.insert_value((T)1);
-        break;
-    default:
-        col.insert_default();
-        break;
-    }
-    return Status::OK();
-}
 #include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

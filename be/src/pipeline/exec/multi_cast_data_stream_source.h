@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/common/runtime_filter_consumer.h"
+#include "runtime_filter/runtime_filter_consumer_helper.h"
 
 namespace doris {
 class RuntimeState;
@@ -38,8 +38,7 @@ class MultiCastDataStreamer;
 class MultiCastDataStreamerSourceOperatorX;
 
 class MultiCastDataStreamSourceLocalState final
-        : public PipelineXSpillLocalState<MultiCastSharedState>,
-          public RuntimeFilterConsumer {
+        : public PipelineXSpillLocalState<MultiCastSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSourceLocalState);
     using Base = PipelineXSpillLocalState<MultiCastSharedState>;
@@ -51,7 +50,7 @@ public:
     Status close(RuntimeState* state) override;
     friend class MultiCastDataStreamerSourceOperatorX;
 
-    std::vector<Dependency*> filter_dependencies() override {
+    std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
             return {};
         }
@@ -68,22 +67,24 @@ public:
 private:
     friend class MultiCastDataStreamerSourceOperatorX;
     vectorized::VExprContextSPtrs _output_expr_contexts;
-    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
+    std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _get_data_timer = nullptr;
     RuntimeProfile::Counter* _materialize_data_timer = nullptr;
+
+    RuntimeFilterConsumerHelper _helper;
 };
 
 class MultiCastDataStreamerSourceOperatorX final
         : public OperatorX<MultiCastDataStreamSourceLocalState> {
 public:
     using Base = OperatorX<MultiCastDataStreamSourceLocalState>;
-    MultiCastDataStreamerSourceOperatorX(const int consumer_id, ObjectPool* pool,
+    MultiCastDataStreamerSourceOperatorX(const int node_id, const int consumer_id, ObjectPool* pool,
                                          const TDataStreamSink& sink,
                                          const RowDescriptor& row_descriptor, int operator_id)
-            : Base(pool, -1, operator_id),
+            : Base(pool, /*node_id=*/node_id, operator_id),
               _consumer_id(consumer_id),
               _t_data_stream_sink(sink),
               _multi_cast_output_row_descriptor(row_descriptor) {
@@ -91,10 +92,9 @@ public:
     };
     ~MultiCastDataStreamerSourceOperatorX() override = default;
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
+    Status prepare(RuntimeState* state) override {
+        RETURN_IF_ERROR(Base::prepare(state));
         // init profile for runtime filter
-        // RuntimeFilterConsumer::_init_profile(local_state._shared_state->_multi_cast_data_streamer->profile());
         if (_t_data_stream_sink.__isset.output_exprs) {
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.output_exprs,
                                                                  _output_expr_contexts));

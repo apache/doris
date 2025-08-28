@@ -274,15 +274,15 @@ public class UnequalPredicateInfer {
             if (!checkSlot.isColumnFromTable()) {
                 return false;
             }
-            Column column = checkSlot.getColumn().get();
+            Column column = checkSlot.getOriginalColumn().get();
             if (column.isKey()) {
                 return true;
             }
-            if (!checkSlot.getTable().isPresent()) {
+            if (!checkSlot.getOriginalTable().isPresent()) {
                 return false;
             }
-            TableIf tableIf = checkSlot.getTable().get();
-            if (tableIf.isPartitionedTable() && tableIf.isPartitionColumn(column.getName())) {
+            TableIf tableIf = checkSlot.getOriginalTable().get();
+            if (tableIf.isPartitionedTable() && tableIf.isPartitionColumn(column)) {
                 return true;
             }
             /* Indexes are seldom used and are not supported temporarily

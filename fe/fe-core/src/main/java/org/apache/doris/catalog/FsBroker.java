@@ -116,12 +116,6 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
         Text.writeString(out, json);
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        host = Text.readString(in);
-        port = in.readInt();
-    }
-
     @Override
     public String toString() {
         return NetUtils.getHostPortInAccessibleFormat(host, port);

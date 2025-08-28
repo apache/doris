@@ -21,6 +21,7 @@
 
 #include <cstddef>
 
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -105,12 +106,12 @@ public:
     }
 
     Field operator[](size_t n) const override {
-        return Field(
+        return Field::create_field<TYPE_STRING>(
                 String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
     void get(size_t n, Field& res) const override {
-        res = Field(
+        res = Field::create_field<TYPE_STRING>(
                 String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
@@ -119,6 +120,7 @@ public:
     }
 
     void insert(const Field& x) override {
+        DCHECK_EQ(vectorized::get<const String&>(x).length(), _item_size);
         insert_data(vectorized::get<const String&>(x).data(), _item_size);
     }
 
@@ -171,13 +173,11 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
         char* pos = arena.alloc_continue(_item_size, begin);
-        memcpy(pos, &_data[n * _item_size], _item_size);
-        return {pos, _item_size};
+        return {pos, serialize_impl(pos, n)};
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        insert_data(pos, _item_size);
-        return pos + _item_size;
+        return pos + deserialize_impl(pos);
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
@@ -215,7 +215,7 @@ public:
         return pos;
     }
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         if (limit == 0) {
             limit = size();
         } else {
@@ -229,29 +229,6 @@ public:
                                                      _data.data() + perm[i] * _item_size,
                                                      _item_size);
         }
-        return res;
-    }
-
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
-        size_t size = _item_count;
-        column_match_offsets_size(size, offsets.size());
-        auto res = doris::vectorized::ColumnFixedLengthObject::create(_item_size);
-        if (0 == size) {
-            return res;
-        }
-        res->resize(offsets.back());
-        typename Self::Container& res_data = res->get_data();
-
-        IColumn::Offset prev_offset = 0;
-        for (size_t i = 0; i < size; ++i) {
-            size_t size_to_replicate = offsets[i] - prev_offset;
-            for (size_t j = 0; j < size_to_replicate; ++j) {
-                memcpy(&res_data[(prev_offset + j) * _item_size], &_data[i * _item_size],
-                       _item_size);
-            }
-            prev_offset = offsets[i];
-        }
-
         return res;
     }
 
@@ -307,6 +284,17 @@ public:
             memcpy(dst, strings[i].data, strings[i].size);
         }
     }
+
+    size_t deserialize_impl(const char* pos) override {
+        insert_data(pos, _item_size);
+        return _item_size;
+    }
+    size_t serialize_impl(char* pos, const size_t row) const override {
+        memcpy(pos, &_data[row * _item_size], _item_size);
+        return _item_size;
+    }
+
+    size_t serialize_size_at(size_t row) const override { return sizeof(_item_size); }
 
 protected:
     size_t _item_size;

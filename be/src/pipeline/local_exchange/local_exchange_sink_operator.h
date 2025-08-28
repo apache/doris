@@ -30,7 +30,6 @@ class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
-class LocalMergeSortExchanger;
 class LocalExchangeSinkOperatorX;
 class LocalExchangeSinkLocalState final : public PipelineXSinkLocalState<LocalExchangeSharedState> {
 public:
@@ -54,7 +53,6 @@ private:
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
-    friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
     template <typename BlockType>
     friend class Exchanger;
@@ -113,7 +111,7 @@ public:
     Status init(ExchangeType type, const int num_buckets, const bool use_global_hash_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 

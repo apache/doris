@@ -33,28 +33,42 @@ suite ("testAggQuqeryOnAggMV6") {
         """
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view emps_mv as select deptno, commission, sum(salary) from emps group by deptno, commission;")
+    createMV("create materialized view emps_mv as select deptno as a1, commission as a2, sum(salary) from emps group by deptno, commission;")
 
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
     sql """analyze table emps with sync;"""
-    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
+    sql """alter table emps modify column time_col set stats ('row_count'='18');"""
 
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps where deptno>=0 group by deptno) a where sum_salary>10;",
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps where deptno>=4 group by deptno) a where sum_salary>10;",
             "emps_mv")
     qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from emps where deptno>=20 group by deptno) a where sum_salary>10 order by 1;"
 
     sql """set enable_stats=true;"""
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
-    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps where deptno>=0 group by deptno) a where sum_salary>10;",
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps where deptno>=4 group by deptno) a where sum_salary>10;",
             "emps_mv")
 }

@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -26,14 +28,10 @@ import org.apache.doris.thrift.TIPv4Literal;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.util.regex.Pattern;
-
 public class IPv4Literal extends LiteralExpr {
 
     public static final long IPV4_MIN = 0L;             // 0.0.0.0
     public static final long IPV4_MAX = (2L << 31) - 1; // 255.255.255.255
-    private static final Pattern IPV4_STD_REGEX =
-            Pattern.compile("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
 
     @SerializedName("v")
     private long value;
@@ -99,14 +97,6 @@ public class IPv4Literal extends LiteralExpr {
         return sb.toString();
     }
 
-    private void checkValueValid(String ipv4) throws AnalysisException {
-        if (ipv4.length() > 15) {
-            throw new AnalysisException("The length of IPv4 must not exceed 15. type: " + Type.IPV4);
-        } else if (!IPV4_STD_REGEX.matcher(ipv4).matches()) {
-            throw new AnalysisException("Invalid IPv4 format: " + ipv4 + ". type: " + Type.IPV4);
-        }
-    }
-
 
     @Override
     public Expr clone() {
@@ -115,6 +105,12 @@ public class IPv4Literal extends LiteralExpr {
 
     @Override
     protected String toSqlImpl() {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return "\"" + getStringValue() + "\"";
     }
 
@@ -140,7 +136,7 @@ public class IPv4Literal extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 }

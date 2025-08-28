@@ -38,7 +38,6 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 public class TopicPublisherThread extends MasterDaemon {
@@ -143,14 +142,13 @@ public class TopicPublisherThread extends MasterDaemon {
                     Map<TTopicInfoType, List<TopicInfo>> topicMap = copiedRequest.getTopicMap();
                     List<TopicInfo> topicInfoList = topicMap.get(TTopicInfoType.WORKLOAD_GROUP);
                     if (topicInfoList != null) {
-                        Set<String> beTagSet = be.getBeWorkloadGroupTagSet();
+                        String beComputeGroup = be.getComputeGroup();
                         Iterator<TopicInfo> topicIter = topicInfoList.iterator();
                         while (topicIter.hasNext()) {
                             TopicInfo topicInfo = topicIter.next();
                             if (topicInfo.isSetWorkloadGroupInfo()) {
                                 TWorkloadGroupInfo tWgInfo = topicInfo.getWorkloadGroupInfo();
-                                if (tWgInfo.isSetTag() && !Backend.isMatchWorkloadGroupTag(
-                                        tWgInfo.getTag(), beTagSet)) {
+                                if (tWgInfo.isSetTag() && !tWgInfo.getTag().equals(beComputeGroup)) {
                                     // currently TopicInfo could not contain both policy and workload group,
                                     // so we can remove TopicInfo directly.
                                     topicIter.remove();

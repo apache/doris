@@ -42,25 +42,25 @@ public class IndexesProcNodeTest {
     public void testFetchResult() throws AnalysisException {
         List<Index> indexes = new ArrayList<>();
         Index indexBitmap = new Index(1, "bitmap_index", Lists.newArrayList("col_1"),
-                IndexType.BITMAP, null, "bitmap index on col_1", Lists.newArrayList(1));
+                IndexType.BITMAP, null, "bitmap index on col_1");
         Map<String, String> invertedProperties = new HashMap<>();
         invertedProperties.put("parser", "unicode");
         Index indexInverted = new Index(2, "inverted_index", Lists.newArrayList("col_2"),
-                        IndexType.INVERTED, invertedProperties, "inverted index on col_2", Lists.newArrayList(2));
+                        IndexType.INVERTED, invertedProperties, "inverted index on col_2");
         Index indexBf = new Index(3, "bloomfilter_index", Lists.newArrayList("col_3"),
-                IndexType.BLOOMFILTER, null, "bloomfilter index on col_3", Lists.newArrayList(3));
+                IndexType.BLOOMFILTER, null, "bloomfilter index on col_3");
         Map<String, String> ngramProperties = new HashMap<>();
         ngramProperties.put("gram_size", "3");
         ngramProperties.put("bf_size", "256");
         Index indexNgramBf = new Index(4, "ngram_bf_index", Lists.newArrayList("col_4"),
-                        IndexType.NGRAM_BF, ngramProperties, "ngram_bf index on col_4", Lists.newArrayList(4));
+                        IndexType.NGRAM_BF, ngramProperties, "ngram_bf index on col_4");
         indexes.add(indexBitmap);
         indexes.add(indexInverted);
         indexes.add(indexBf);
         indexes.add(indexNgramBf);
 
-        OlapTable table = new OlapTable(1, "tbl_test_indexes_proc", Lists.newArrayList(new Column()), KeysType.DUP_KEYS, new PartitionInfo(),
-                new HashDistributionInfo(), new TableIndexes(indexes));
+        OlapTable table = new OlapTable(1, "tbl_test_indexes_proc", false, Lists.newArrayList(new Column()),
+                KeysType.DUP_KEYS, new PartitionInfo(), new HashDistributionInfo(), new TableIndexes(indexes));
 
         IndexesProcNode indexesProcNode = new IndexesProcNode(table);
         ProcResult procResult = indexesProcNode.fetchResult();
@@ -80,7 +80,7 @@ public class IndexesProcNodeTest {
         Assert.assertEquals(procResult.getRows().get(1).get(5), "col_2");
         Assert.assertEquals(procResult.getRows().get(1).get(11), "INVERTED");
         Assert.assertEquals(procResult.getRows().get(1).get(12), "inverted index on col_2");
-        Assert.assertEquals(procResult.getRows().get(1).get(13), "(\"parser\" = \"unicode\", \"lower_case\" = \"true\", \"support_phrase\" = \"true\")");
+        Assert.assertEquals(procResult.getRows().get(1).get(13), "(\"lower_case\" = \"true\", \"parser\" = \"unicode\", \"support_phrase\" = \"true\")");
 
         Assert.assertEquals(procResult.getRows().get(2).get(0), "tbl_test_indexes_proc");
         Assert.assertEquals(procResult.getRows().get(2).get(1), "3");

@@ -80,7 +80,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
      * translate catalog alias function to nereids alias function
      */
     public static void translateToNereidsFunction(String dbName, AliasFunction function) {
-        String functionSql = function.getOriginFunction().toSql();
+        String functionSql = function.getOriginFunction().toSqlWithoutTbl();
         Expression parsedFunction = new NereidsParser().parseExpression(functionSql);
 
         AliasUdf aliasUdf = new AliasUdf(

@@ -88,13 +88,29 @@ suite("correlated_scalar_subquery") {
 
     qt_select_project1 """select c1, sum((select c1 from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 and correlated_scalar_t2.c2 > 7)) from correlated_scalar_t1 group by c1 order by c1;"""
     qt_select_project2 """select c1, sum((select any_value(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 and correlated_scalar_t2.c2 > 7)) from correlated_scalar_t1 group by c1 order by c1;"""
-
+    qt_select_project3 """WITH base AS 
+                                (SELECT c1
+                                FROM correlated_scalar_t1
+                                WHERE c1 IN 
+                                    (SELECT DISTINCT c2
+                                    FROM correlated_scalar_t2 ) )
+                            SELECT 
+                                (SELECT c1 + (0)
+                                FROM correlated_scalar_t1 t1
+                                WHERE t1.c1 = base.c1 and t1.c2 > 4) AS final_value
+                            FROM base order by 1; 
+                            """
     qt_select_join1 """select correlated_scalar_t1.* from correlated_scalar_t1 join correlated_scalar_t2 on correlated_scalar_t1.c1 = correlated_scalar_t2.c2 and correlated_scalar_t1.c2 > (select c1 from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 and correlated_scalar_t2.c2 > 7);"""
     qt_select_join2 """select correlated_scalar_t1.* from correlated_scalar_t1 join correlated_scalar_t2 on correlated_scalar_t1.c1 = correlated_scalar_t2.c2 and correlated_scalar_t1.c2 > (select any_value(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 and correlated_scalar_t2.c2 > 7);"""
 
     qt_select_having1 """select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select correlated_scalar_t2.c1 from correlated_scalar_t2  where correlated_scalar_t2.c2 < 4 having correlated_scalar_t1.c1 = correlated_scalar_t2.c1);"""  
     qt_select_having2 """select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select any_value(correlated_scalar_t2.c1) from correlated_scalar_t2  where correlated_scalar_t2.c2 < 4 having correlated_scalar_t1.c1 = any_value(correlated_scalar_t2.c1));"""
 
+    explain {
+        sql("""select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select c1 from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 limit 1);""")
+        notContains("assert_true");
+    }
+    
     test {
         sql """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select c1 from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1);
@@ -176,7 +192,7 @@ suite("correlated_scalar_subquery") {
         sql """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select correlated_scalar_t2.c1 from correlated_scalar_t2 join correlated_scalar_t3 on correlated_scalar_t1.c1 = correlated_scalar_t3.c2 );
         """
-        exception "access outer query's column in join is not supported"
+        exception "Unsupported correlated subquery with correlated slot in join conjuncts"
     }
 
     test {
@@ -220,4 +236,16 @@ suite("correlated_scalar_subquery") {
         """
         exception "access outer query's column before two agg nodes is not supported"
     }
+
+    test {
+        sql """
+              select * from correlated_scalar_t1 where correlated_scalar_t1.c1 = (select c2 from correlated_scalar_t2 where correlated_scalar_t1.c1 in (select c1 from correlated_scalar_t3));
+        """
+        exception "access outer query column"
+    }
+
+    qt_select_agg_project1 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select if(count(c1) = 0, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
+    qt_select_agg_project2 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 = (select if(sum(c1) is null, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
+    qt_select_2_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) - min(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
+    qt_select_3_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select if(sum(c1) is null, count(c1), max(c2)) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
 }

@@ -35,7 +35,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"

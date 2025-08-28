@@ -30,7 +30,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -77,15 +76,14 @@ public:
 
         if (left_only_null && right_only_null) {
             // TODO: return ColumnConst after function.cpp::default_implementation_for_constant_arguments supports it.
-            auto result_column = ColumnVector<UInt8>::create(input_rows_count, 1);
+            auto result_column = ColumnUInt8::create(input_rows_count, 1);
             block.get_by_position(result).column = std::move(result_column);
             return Status::OK();
         } else if (left_only_null) {
             auto right_type_nullable = col_right.type->is_nullable();
             if (!right_type_nullable) {
                 // right_column is not nullable, so result is all false.
-                block.get_by_position(result).column =
-                        ColumnVector<UInt8>::create(input_rows_count, 0);
+                block.get_by_position(result).column = ColumnUInt8::create(input_rows_count, 0);
             } else {
                 // right_column is nullable
                 const ColumnNullable* nullable_right_col = nullptr;
@@ -112,7 +110,7 @@ public:
             if (!left_type_nullable) {
                 // right column is all but left column is not nullable, so result is all false.
                 block.get_by_position(result).column =
-                        ColumnVector<UInt8>::create(input_rows_count, (UInt8)0);
+                        ColumnUInt8::create(input_rows_count, (UInt8)0);
             } else {
                 const ColumnNullable* nullable_left_col = nullptr;
                 if (left_const) {
@@ -195,7 +193,7 @@ public:
 
             if (left_nullable) {
                 auto res_column = std::move(*temporary_block.get_by_position(2).column).mutate();
-                auto& res_map = assert_cast<ColumnVector<UInt8>*>(res_column.get())->get_data();
+                auto& res_map = assert_cast<ColumnUInt8*>(res_column.get())->get_data();
                 const auto& left_null_map = left_column->get_null_map_data();
                 const auto& right_null_map = right_column->get_null_map_data();
 
@@ -237,8 +235,7 @@ public:
                     std::move(*temporary_block.get_by_position(2).column).mutate().get());
             auto& null_map = res_nullable_column->get_null_map_data();
             auto& res_nested_col =
-                    assert_cast<ColumnVector<UInt8>&>(res_nullable_column->get_nested_column())
-                            .get_data();
+                    assert_cast<ColumnUInt8&>(res_nullable_column->get_nested_column()).get_data();
 
             // Input of eq_for_null:
             // Left: [1, 1, 1, 1](ColumnConst(ColumnInt32))

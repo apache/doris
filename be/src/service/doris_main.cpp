@@ -338,6 +338,8 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    SCOPED_INIT_THREAD_CONTEXT();
+
     using doris::Status;
     using std::string;
 
@@ -523,8 +525,6 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
-
     // init exec env
     auto* exec_env(doris::ExecEnv::GetInstance());
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
@@ -593,12 +593,12 @@ int main(int argc, char** argv) {
     std::shared_ptr<doris::flight::FlightSqlServer> flight_server =
             std::move(doris::flight::FlightSqlServer::create()).ValueOrDie();
     status = flight_server->init(doris::config::arrow_flight_sql_port);
+    stop_work_if_error(
+            status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
 
     // 6. start daemon thread to do clean or gc jobs
     doris::Daemon daemon;
     daemon.start();
-    stop_work_if_error(
-            status, "Arrow Flight Service did not start correctly, exiting, " + status.to_string());
 
     exec_env->storage_engine().notify_listeners();
 
@@ -633,7 +633,6 @@ int main(int argc, char** argv) {
     service.reset();
     LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
-    doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
     LOG(INFO) << "Doris main exited.";
     return 0;
 }

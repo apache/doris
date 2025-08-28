@@ -59,6 +59,9 @@ public:
     int64_t _average_size = 0;
 };
 
+// those function cacluate need partition info, so can't be used in streaming mode
+static const std::set<std::string> PARTITION_FUNCTION_SET {"ntile", "cume_dist", "percent_rank"};
+
 class AnalyticSinkLocalState : public PipelineXSinkLocalState<AnalyticSharedState> {
     ENABLE_FACTORY_CREATOR(AnalyticSinkLocalState);
 
@@ -74,20 +77,25 @@ private:
     friend class AnalyticSinkOperatorX;
     Status _execute_impl();
     // over(partition by k1 order by k2 range|rows unbounded preceding and unbounded following)
-    bool _get_next_for_partition(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_partition(int64_t current_block_rows, int64_t current_block_base_pos);
     // over(partition by k1 order by k2 range between unbounded preceding and current row)
-    bool _get_next_for_unbounded_range(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_unbounded_range(int64_t current_block_rows, int64_t current_block_base_pos);
     // over(partition by k1 order by k2 range between M preceding and N following)
-    bool _get_next_for_range_between(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_range_between(int64_t current_block_rows, int64_t current_block_base_pos);
     // over(partition by k1 order by k2 rows between unbounded preceding and current row)
-    bool _get_next_for_unbounded_rows(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_unbounded_rows(int64_t current_block_rows, int64_t current_block_base_pos);
     // over(partition by k1 order by k2 rows between M preceding and N following)
-    bool _get_next_for_sliding_rows(int64_t batch_rows, int64_t current_block_base_pos);
+    bool _get_next_for_sliding_rows(int64_t current_block_rows, int64_t current_block_base_pos);
 
     void _init_result_columns();
+    template <bool incremental = false>
     void _execute_for_function(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                int64_t frame_end);
-    void _insert_result_info(int64_t real_deal_with_width);
+    void _insert_result_info(int64_t start, int64_t end);
+    int64_t current_pos_in_block() {
+        return _current_row_position + _have_removed_rows -
+               _input_block_first_row_positions[_output_block_index];
+    }
     void _output_current_block(vectorized::Block* block);
     void _reset_state_for_next_partition();
     void _refresh_buffer_and_dependency_state(vectorized::Block* block);
@@ -125,10 +133,11 @@ private:
     size_t _agg_functions_size = 0;
     bool _agg_functions_created = false;
     vectorized::AggregateDataPtr _fn_place_ptr = nullptr;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
+    vectorized::Arena _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
     std::vector<size_t> _offsets_of_aggregate_states;
     std::vector<bool> _result_column_nullable_flags;
+    std::vector<bool> _result_column_could_resize;
 
     using vectorized_get_next = bool (AnalyticSinkLocalState::*)(int64_t, int64_t);
     struct executor {
@@ -136,7 +145,11 @@ private:
     };
     executor _executor;
 
-    bool _current_window_empty = false;
+    std::vector<uint8_t> _use_null_result;
+    std::vector<uint8_t> _could_use_previous_result;
+    bool _streaming_mode = false;
+    bool _support_incremental_calculate = true;
+    bool _need_more_data = false;
     int64_t _current_row_position = 0;
     int64_t _output_block_index = 0;
     std::vector<vectorized::MutableColumnPtr> _result_window_columns;
@@ -169,6 +182,15 @@ class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalSt
 public:
     AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                           const DescriptorTbl& descs, bool require_bucket_distribution);
+
+#ifdef BE_TEST
+    AnalyticSinkOperatorX(ObjectPool* pool)
+            : _pool(pool),
+              _buffered_tuple_id(0),
+              _is_colocate(false),
+              _require_bucket_distribution(false) {}
+#endif
+
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<AnalyticSinkLocalState>::_name);
@@ -176,7 +198,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {

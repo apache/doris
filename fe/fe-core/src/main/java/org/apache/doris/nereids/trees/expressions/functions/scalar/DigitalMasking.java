@@ -48,13 +48,18 @@ public class DigitalMasking extends ScalarFunction
         super("digital_masking", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DigitalMasking(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DigitalMasking withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new DigitalMasking(children.get(0));
+        return new DigitalMasking(getFunctionParams(children));
     }
 
     @Override

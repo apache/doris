@@ -22,6 +22,7 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
+#include <gen_cpp/runtime_profile.pb.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -41,7 +42,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "util/binary_cast.hpp"
-#include "util/container_util.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 
@@ -99,6 +99,86 @@ class RuntimeProfile {
 public:
     static std::unique_ptr<RuntimeProfile> from_thrift(const TRuntimeProfileTree& node);
 
+    static std::unique_ptr<RuntimeProfile> from_proto(const PRuntimeProfileTree& tree);
+
+    static PProfileUnit unit_to_proto(const TUnit::type& type) {
+        switch (type) {
+        case TUnit::UNIT: {
+            return PProfileUnit::UNIT;
+        }
+        case TUnit::UNIT_PER_SECOND: {
+            return PProfileUnit::UNIT_PER_SECOND;
+        }
+        case TUnit::CPU_TICKS: {
+            return PProfileUnit::CPU_TICKS;
+        }
+        case TUnit::BYTES: {
+            return PProfileUnit::BYTES;
+        }
+        case TUnit::BYTES_PER_SECOND: {
+            return PProfileUnit::BYTES_PER_SECOND;
+        }
+        case TUnit::TIME_NS: {
+            return PProfileUnit::TIME_NS;
+        }
+        case TUnit::DOUBLE_VALUE: {
+            return PProfileUnit::DOUBLE_VALUE;
+        }
+        case TUnit::NONE: {
+            return PProfileUnit::NONE;
+        }
+        case TUnit::TIME_MS: {
+            return PProfileUnit::TIME_MS;
+        }
+        case TUnit::TIME_S: {
+            return PProfileUnit::TIME_S;
+        }
+        default: {
+            DCHECK(false);
+            return PProfileUnit::NONE;
+        }
+        }
+    }
+
+    static TUnit::type unit_to_thrift(const PProfileUnit& unit) {
+        switch (unit) {
+        case PProfileUnit::UNIT: {
+            return TUnit::UNIT;
+        }
+        case PProfileUnit::UNIT_PER_SECOND: {
+            return TUnit::UNIT_PER_SECOND;
+        }
+        case PProfileUnit::CPU_TICKS: {
+            return TUnit::CPU_TICKS;
+        }
+        case PProfileUnit::BYTES: {
+            return TUnit::BYTES;
+        }
+        case PProfileUnit::BYTES_PER_SECOND: {
+            return TUnit::BYTES_PER_SECOND;
+        }
+        case PProfileUnit::TIME_NS: {
+            return TUnit::TIME_NS;
+        }
+        case PProfileUnit::DOUBLE_VALUE: {
+            return TUnit::DOUBLE_VALUE;
+        }
+        case PProfileUnit::NONE: {
+            return TUnit::NONE;
+        }
+        case PProfileUnit::TIME_MS: {
+            return TUnit::TIME_MS;
+        }
+        case PProfileUnit::TIME_S: {
+            return TUnit::TIME_S;
+        }
+        default: {
+            DCHECK(false);
+            return TUnit::NONE;
+        }
+        }
+    }
+
     // The root counter name for all top level counters.
     static const std::string ROOT_COUNTER;
     class Counter {
@@ -132,6 +212,15 @@ public:
             counter.value = this->value();
             counter.type = this->type();
             counter.__set_level(this->_level);
+            return counter;
+        }
+
+        virtual PProfileCounter to_proto(const std::string& name) const {
+            PProfileCounter counter;
+            counter.set_name(name);
+            counter.set_value(this->value());
+            counter.set_type(unit_to_proto(this->type()));
+            counter.set_level(this->value());
             return counter;
         }
 
@@ -192,6 +281,15 @@ public:
             return counter;
         }
 
+        PProfileCounter to_proto(const std::string& name) const override {
+            PProfileCounter counter;
+            counter.set_name(name);
+            counter.set_value(current_value());
+            counter.set_type(unit_to_proto(this->type()));
+            counter.set_level(this->value());
+            return counter;
+        }
+
         TCounter to_thrift_peak(std::string name) {
             TCounter counter;
             counter.name = std::move(name);
@@ -199,6 +297,10 @@ public:
             counter.type = type();
             counter.__set_level(level());
             return counter;
+        }
+
+        PProfileCounter to_proto_peak(const std::string& name) const {
+            return Counter::to_proto(name);
         }
 
         virtual void pretty_print(std::ostream* s, const std::string& prefix,
@@ -278,6 +380,48 @@ public:
         DerivedCounterFunction _counter_fn;
     };
 
+    using ConditionCounterFunction = std::function<bool(int64_t, int64_t)>;
+
+    // ConditionCounter is a specialized counter that only updates its value when a specific condition is met.
+    // It uses a condition function (condition_func) to determine when the counter's value should be updated.
+    // This type of counter is particularly useful for tracking maximum values, minimum values, or other metrics
+    // that should only be updated when they meet certain criteria.
+    // For example, it can be used to record the maximum value of a specific metric during query execution,
+    // or to update the counter only when a new value exceeds some threshold.
+    class ConditionCounter : public Counter {
+    public:
+        ConditionCounter(TUnit::type type, const ConditionCounterFunction& condition_func,
+                         int64_t level = 2, int64_t condition = 0, int64_t value = 0)
+                : Counter(type, value, level),
+                  _condition(condition),
+                  _value(value),
+                  _condition_func(condition_func) {}
+
+        Counter* clone() const override {
+            std::lock_guard<std::mutex> l(_mutex);
+            return new ConditionCounter(type(), _condition_func, _condition, value(), level());
+        }
+
+        int64_t value() const override {
+            std::lock_guard<std::mutex> l(_mutex);
+            return _value;
+        }
+
+        void conditional_update(int64_t c, int64_t v) {
+            std::lock_guard<std::mutex> l(_mutex);
+            if (_condition_func(_condition, c)) {
+                _value = v;
+                _condition = c;
+            }
+        }
+
+    private:
+        mutable std::mutex _mutex;
+        int64_t _condition;
+        int64_t _value;
+        ConditionCounterFunction _condition_func;
+    };
+
     // NonZeroCounter will not be converted to Thrift if the value is 0.
     class NonZeroCounter : public Counter {
     public:
@@ -295,6 +439,46 @@ public:
         const std::string _parent_name;
     };
 
+    class DescriptionEntry : public Counter {
+    public:
+        DescriptionEntry(const std::string& name, const std::string& description)
+                : Counter(TUnit::NONE, 0, 2), _description(description), _name(name) {}
+
+        virtual Counter* clone() const override {
+            return new DescriptionEntry(_name, _description);
+        }
+
+        void set(int64_t value) override {
+            // Do nothing
+        }
+        void set(double value) override {
+            // Do nothing
+        }
+        void update(int64_t delta) override {
+            // Do nothing
+        }
+
+        TCounter to_thrift(const std::string& name) const override {
+            TCounter counter;
+            counter.name = name;
+            counter.__set_level(2);
+            counter.__set_description(_description);
+            return counter;
+        }
+
+        PProfileCounter to_proto(const std::string& name) const override {
+            PProfileCounter counter;
+            counter.set_name(name);
+            counter.set_level(2);
+            counter.set_description(_description);
+            return counter;
+        }
+
+    private:
+        const std::string _description;
+        const std::string _name;
+    };
+
     // Create a runtime profile object with 'name'.
     RuntimeProfile(const std::string& name, bool is_averaged_profile = false);
 
@@ -306,8 +490,6 @@ public:
     // If location is non-null, child will be inserted after location.  Location must
     // already be added to the profile.
     void add_child(RuntimeProfile* child, bool indent, RuntimeProfile* location = nullptr);
-
-    void insert_child_head(RuntimeProfile* child, bool indent);
 
     void add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc);
 
@@ -328,6 +510,9 @@ public:
     // Info strings matched up by key and are updated or added, depending on whether
     // the key has already been registered.
     void update(const TRuntimeProfileTree& thrift_profile);
+
+    //Similar to `void update(const TRuntimeProfileTree& thrift_profile)`
+    void update(const PRuntimeProfileTree& proto_profile);
 
     // Add a counter with 'name'/'type'.  Returns a counter object that the caller can
     // update.  The counter is owned by the RuntimeProfile object.
@@ -350,6 +535,9 @@ public:
             const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
             int64_t level = 2);
 
+    // Add a description entry under target counter.
+    void add_description(const std::string& name, const std::string& description,
+                         std::string parent_counter_name);
     // Add a derived counter with 'name'/'type'. The counter is owned by the
     // RuntimeProfile object.
     // If parent_counter_name is a non-empty string, the counter is added as a child of
@@ -358,6 +546,11 @@ public:
     DerivedCounter* add_derived_counter(const std::string& name, TUnit::type type,
                                         const DerivedCounterFunction& counter_fn,
                                         const std::string& parent_counter_name);
+
+    ConditionCounter* add_conditition_counter(const std::string& name, TUnit::type type,
+                                              const ConditionCounterFunction& counter_fn,
+                                              const std::string& parent_counter_name,
+                                              int64_t level = 2);
 
     // Gets the counter object with 'name'.  Returns nullptr if there is no counter with
     // that name.
@@ -396,8 +589,15 @@ public:
     void to_thrift(TRuntimeProfileTree* tree, int64_t profile_level = 2);
     void to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64_t profile_level = 2);
 
+    // Similar to `to_thrift`.
+    void to_proto(PRuntimeProfileTree* tree, int64_t profile_level = 2);
+    void to_proto(google::protobuf::RepeatedPtrField<PRuntimeProfileNode>* nodes,
+                  int64_t profile_level = 2);
+
     // Divides all counters by n
     void divide(int n);
+
+    RuntimeProfile* get_child(std::string name);
 
     void get_children(std::vector<RuntimeProfile*>* children);
 
@@ -421,15 +621,6 @@ public:
     }
 
     bool is_set_metadata() const { return _is_set_metadata; }
-
-    void set_is_sink(bool is_sink) {
-        _is_set_sink = true;
-        _is_sink = is_sink;
-    }
-
-    bool is_sink() const { return _is_sink; }
-
-    bool is_set_sink() const { return _is_set_sink; }
 
     time_t timestamp() const { return _timestamp; }
     void set_timestamp(time_t ss) { _timestamp = ss; }
@@ -522,6 +713,9 @@ private:
     // update a subtree of profiles from nodes, rooted at *idx.
     // On return, *idx points to the node immediately following this subtree.
     void update(const std::vector<TRuntimeProfileNode>& nodes, int* idx);
+
+    // Similar to `void update(const std::vector<TRuntimeProfileNode>& nodes, int* idx)`
+    void update(const google::protobuf::RepeatedPtrField<PRuntimeProfileNode>& nodes, int* idx);
 
     // Helper function to compute compute the fraction of the total time spent in
     // this profile and its children.

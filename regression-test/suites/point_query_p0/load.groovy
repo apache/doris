@@ -126,25 +126,38 @@ suite("test_load_and_schema_change_row_store", "p0") {
     sql "INSERT INTO tbl_scalar_types_dup_1 SELECT * from tbl_scalar_types_dup"
     sql """alter table tbl_scalar_types_dup_1 set ("bloom_filter_columns" = "c_largeint")"""    
     wait_job_done.call("tbl_scalar_types_dup_1")
+
+    sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_largeint")"""    
+    wait_job_done.call("tbl_scalar_types_dup_1")
+
+    def show_result = sql "SHOW CREATE TABLE tbl_scalar_types_dup_1"
+    assertTrue(show_result[0][1].contains("k1,c_largeint"))
+
     sql """alter table tbl_scalar_types_dup_1 set ("store_row_column" = "true")"""    
     wait_job_done.call("tbl_scalar_types_dup_1")
+    show_result = sql "SHOW CREATE TABLE tbl_scalar_types_dup_1"
+    assertTrue(show_result[0][1].contains("store_row_column"))
     qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_1"
+
     sql """
          ALTER table tbl_scalar_types_dup_1 ADD COLUMN new_column1 INT default "123";
     """
     sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ * from tbl_scalar_types_dup_1 where k1 = -2147303679"
     sql """insert into tbl_scalar_types_dup_1(new_column1) values (9999999)"""
     qt_sql """select length(__DORIS_ROW_STORE_COL__) from tbl_scalar_types_dup_1 where new_column1 = 9999999"""
-
     explain {
         sql("select /*+ SET_VAR(enable_nereids_planner=true)*/ * from tbl_scalar_types_dup_1 where k1 = -2147303679")
         contains "SHORT-CIRCUIT"
     } 
+
     sql """alter table tbl_scalar_types_dup_1 set ("row_store_columns" = "k1,c_datetimev2")"""    
     wait_job_done.call("tbl_scalar_types_dup_1")
     qt_sql "select sum(length(__DORIS_ROW_STORE_COL__)) from tbl_scalar_types_dup_1"
-    sql "set enable_short_circuit_query_access_column_store = false"
+    show_result = sql "SHOW CREATE TABLE tbl_scalar_types_dup_1"
+    assertTrue(show_result[0][1].contains("k1,c_datetimev2"))
+
     test {
+        sql "set enable_short_circuit_query_access_column_store = false"
         sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ * from tbl_scalar_types_dup_1 where k1 = -2147303679"
         exception("Not support column store")
     }
@@ -160,8 +173,8 @@ suite("test_load_and_schema_change_row_store", "p0") {
         sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ k1,c_datetimev2 from tbl_scalar_types_dup_1 where k1 = -2147303679"
         exception("Not support column store")
     }
-    qt_sql "select /*+ SET_VAR(enable_nereids_planner=true,enable_short_circuit_query_access_column_store=false)*/ k1, c_decimalv3 from tbl_scalar_types_dup_1 where k1 = -2147303679"
     sql "set enable_short_circuit_query_access_column_store = true"
+    qt_sql "select /*+ SET_VAR(enable_nereids_planner=true)*/ k1, c_decimalv3 from tbl_scalar_types_dup_1 where k1 = -2147303679"
 
 
     sql "DROP TABLE IF EXISTS tbl_scalar_types_uk_not_mow"
@@ -195,4 +208,43 @@ suite("test_load_and_schema_change_row_store", "p0") {
         sql """alter table tbl_scalar_types_agg set ("store_row_column" = "true")"""    
         exception("`store_row_column` only support duplicate model or mow model")
     }
+
+    sql "DROP TABLE IF EXISTS test_sclar_types_mow"
+    sql """
+        CREATE TABLE IF NOT EXISTS test_sclar_types_mow (
+            `k1` bigint(11) NULL,
+            `c_string` text NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "enable_mow_light_delete" = "false");
+        """
+    sql "insert into test_sclar_types_mow(k1,c_string) values (1,'123'), (2,'456')"
+    sql """alter table test_sclar_types_mow set ("store_row_column" = "true")"""     
+    wait_job_done.call("test_sclar_types_mow")
+    show_result = sql "SHOW CREATE TABLE test_sclar_types_mow"
+    assertTrue(show_result[0][1].contains("store_row_column"))
+    qt_sql "select * from test_sclar_types_mow where k1 = 1"
+
+    sql """alter table test_sclar_types_mow set ("row_store_columns" = "c_string")"""     
+    wait_job_done.call("test_sclar_types_mow")
+    show_result = sql "SHOW CREATE TABLE test_sclar_types_mow"
+    assertTrue(show_result[0][1].contains("c_string"))
+    qt_sql "select c_string from test_sclar_types_mow where k1 = 1"
+    // alter again
+    test {
+        sql """alter table test_sclar_types_mow set ("row_store_columns" = "c_string")"""     
+        exception("Nothing is changed")
+    }
+
+    sql """alter table test_sclar_types_mow set ("store_row_column" = "true")"""     
+    wait_job_done.call("test_sclar_types_mow")
+    sql "select * from test_sclar_types_mow where k1 = 1"
+
+    // test delete with partial row store columns
+    sql """alter table test_sclar_types_mow set ("row_store_columns" = "k1,c_string")"""     
+    wait_job_done.call("test_sclar_types_mow")
+    sql "delete from test_sclar_types_mow where k1 = 1"
+    qt_sql "select * from test_sclar_types_mow where k1 = 1"
 }

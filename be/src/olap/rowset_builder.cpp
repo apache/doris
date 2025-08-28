@@ -31,7 +31,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/calc_delete_bitmap_executor.h"
@@ -52,9 +51,9 @@
 #include "olap/txn_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
@@ -62,6 +61,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BaseRowsetBuilder::BaseRowsetBuilder(const WriteRequest& req, RuntimeProfile* profile)
@@ -151,9 +151,10 @@ Status RowsetBuilder::check_tablet_version_count() {
     bool injection = false;
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { injection = true; });
+    int32_t max_version_config = _tablet->max_version_config();
     if (injection) {
         // do not return if injection
-    } else if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
+    } else if (!_tablet->exceed_version_limit(max_version_config - 100) ||
                GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
@@ -164,29 +165,22 @@ Status RowsetBuilder::check_tablet_version_count() {
         LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id() << " : "
                      << st;
     }
-    int version_count = tablet()->version_count();
+    auto version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { version_count = INT_MAX; });
-    if (version_count > config::max_tablet_version_num) {
+    if (version_count > max_version_config) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
                 "tablet: {}. Please reduce the frequency of loading data or adjust the "
-                "max_tablet_version_num in be.conf to a larger value.",
-                version_count, config::max_tablet_version_num, _tablet->tablet_id());
+                "max_tablet_version_num or time_series_max_tablet_version_num in be.conf to a "
+                "larger value.",
+                version_count, max_version_config, _tablet->tablet_id());
     }
     return Status::OK();
 }
 
 Status RowsetBuilder::prepare_txn() {
-    std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::defer_lock);
-    if (!base_migration_lock.try_lock_for(
-                std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
-        return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
-                                              config::migration_lock_timeout_ms);
-    }
-    std::lock_guard<std::mutex> push_lock(tablet()->get_push_lock());
-    return _engine.txn_manager()->prepare_txn(_req.partition_id, *tablet(), _req.txn_id,
-                                              _req.load_id);
+    return tablet()->prepare_txn(_req.partition_id, _req.txn_id, _req.load_id, false);
 }
 
 Status RowsetBuilder::init() {
@@ -201,7 +195,7 @@ Status RowsetBuilder::init() {
         RETURN_IF_ERROR(check_tablet_version_count());
     }
 
-    int version_count = tablet()->version_count() + tablet()->stale_version_count();
+    auto version_count = tablet()->version_count() + tablet()->stale_version_count();
     if (tablet()->avg_rs_meta_serialize_size() * version_count >
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
@@ -258,7 +252,7 @@ Status BaseRowsetBuilder::build_rowset() {
 }
 
 Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
-    if (!_tablet->enable_unique_key_merge_on_write()) {
+    if (!_tablet->enable_unique_key_merge_on_write() || _rowset->num_segments() == 0) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -279,16 +273,13 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
-        RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(), segments,
-                                                                     _delete_bitmap));
-    }
-
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                     "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-        return Status::OK();
+        if (config::enable_calc_delete_bitmap_between_segments_concurrently) {
+            RETURN_IF_ERROR(_calc_delete_bitmap_token->submit(
+                    _tablet, _tablet_schema, _rowset->rowset_id(), segments, _delete_bitmap));
+        } else {
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(
+                    _tablet_schema, _rowset->rowset_id(), segments, _delete_bitmap));
+        }
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -299,13 +290,13 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         // we print it's summarize logs here before commit.
         LOG(INFO) << fmt::format(
                 "{} calc delete bitmap summary before commit: tablet({}), txn_id({}), "
-                "rowset_ids({}), cur max_version({}), bitmap num({}), num rows updated({}), num "
-                "rows new added({}), num rows deleted({}), total rows({})",
+                "rowset_ids({}), cur max_version({}), bitmap num({}), bitmap_cardinality({}), num "
+                "rows updated({}), num rows new added({}), num rows deleted({}), total rows({})",
                 _partial_update_info->partial_update_mode_str(), tablet()->tablet_id(), _req.txn_id,
                 _rowset_ids.size(), rowset_writer()->context().mow_context->max_version,
-                _delete_bitmap->delete_bitmap.size(), rowset_writer()->num_rows_updated(),
-                rowset_writer()->num_rows_new_added(), rowset_writer()->num_rows_deleted(),
-                rowset_writer()->num_rows());
+                _delete_bitmap->get_delete_bitmap_count(), _delete_bitmap->cardinality(),
+                rowset_writer()->num_rows_updated(), rowset_writer()->num_rows_new_added(),
+                rowset_writer()->num_rows_deleted(), rowset_writer()->num_rows());
         return Status::OK();
     }
 
@@ -409,8 +400,9 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
     if (!indexes.empty() && !indexes[i]->columns.empty() &&
         indexes[i]->columns[0]->unique_id() >= 0) {
         _tablet_schema->shawdow_copy_without_columns(ori_tablet_schema);
-        _tablet_schema->build_current_tablet_schema(index_id, table_schema_param->version(),
-                                                    indexes[i], ori_tablet_schema);
+        _tablet_schema->build_current_tablet_schema(
+                index_id, cast_set<int32_t>(table_schema_param->version()), indexes[i],
+                ori_tablet_schema);
     } else {
         _tablet_schema->copy_from(ori_tablet_schema);
     }
@@ -440,6 +432,7 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
     RETURN_IF_ERROR(_partial_update_info->init(
             tablet()->tablet_id(), _req.txn_id, *_tablet_schema,
             table_schema_param->unique_key_update_mode(),
+            table_schema_param->partial_update_new_key_policy(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
@@ -447,5 +440,5 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
             table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

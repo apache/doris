@@ -25,10 +25,7 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
@@ -39,8 +36,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -71,6 +66,7 @@ public class PartitionInfo {
     @SerializedName("IdToDataProperty")
     protected Map<Long, DataProperty> idToDataProperty;
     // partition id -> storage policy
+    @SerializedName("IdToStoragePolicy")
     protected Map<Long, String> idToStoragePolicy;
     // partition id -> replication allocation
     @SerializedName("IdToReplicaAllocation")
@@ -438,49 +434,6 @@ public class PartitionInfo {
             }
             idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
             idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.getOrDefault(entry.getValue(), ""));
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        type = PartitionType.valueOf(Text.readString(in));
-
-        int counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            long partitionId = in.readLong();
-            boolean isDefaultHddDataProperty = in.readBoolean();
-            if (isDefaultHddDataProperty) {
-                idToDataProperty.put(partitionId, new DataProperty(DataProperty.DEFAULT_HDD_DATA_PROPERTY));
-            } else {
-                idToDataProperty.put(partitionId, DataProperty.read(in));
-            }
-
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-                short replicationNum = in.readShort();
-                ReplicaAllocation replicaAlloc = new ReplicaAllocation(replicationNum);
-                idToReplicaAllocation.put(partitionId, replicaAlloc);
-            } else {
-                ReplicaAllocation replicaAlloc = ReplicaAllocation.read(in);
-                idToReplicaAllocation.put(partitionId, replicaAlloc);
-            }
-
-            idToInMemory.put(partitionId, in.readBoolean());
-            if (Config.isCloudMode()) {
-                // HACK: the origin implementation of the cloud mode has code likes:
-                //
-                //     idToPersistent.put(partitionId, in.readBoolean());
-                //
-                // keep the compatibility here.
-                in.readBoolean();
-            }
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {
-            int size = in.readInt();
-            for (int i = 0; i < size; ++i) {
-                Expr e = Expr.readIn(in);
-                this.partitionExprs.add(e);
-            }
-            this.isAutoCreatePartitions = in.readBoolean();
         }
     }
 

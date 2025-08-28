@@ -222,18 +222,6 @@ Copyright 2007 Google Inc.
 
 --------------------------------------------------------------------------------
 
-be/src/gutil/arm_instruction_set_select.h : Apache 2.0 License
-
-Copyright 2011 Google Inc.
-
---------------------------------------------------------------------------------
-
-be/src/gutil/stl_util.h : Apache 2.0 License
-
-Copyright 2007 Google Inc.
-
---------------------------------------------------------------------------------
-
 be/src/gutil/utf/*: licensed under the following terms:
 
   UTF-8 Library
@@ -732,5 +720,13 @@ be/tools/FlameGraph/*.pl: COMMON DEVELOPMENT AND DISTRIBUTION LICENSE Version 1.
 Unless otherwise noted, all files in this distribution are released
 under the Common Development and Distribution License (CDDL).
 Exceptions are noted within the associated source files.
+
+----------------------------------------------------------------------------------
+
+org.openjdk.jmc.flightrecorder:  UPL 1.0 or BSD-style license
+
+The Mission Control source code is made available under the Universal Permissive License (UPL),
+Version 1.0 or a BSD-style license, alternatively. The full open source license text is available
+at license/LICENSE.txt in the JMC project.
 
 ----------------------------------------------------------------------------------

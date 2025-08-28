@@ -23,7 +23,10 @@ import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.Field;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,6 +62,26 @@ public class ArrowBatchReader {
                     int dayOffset = ((org.apache.arrow.vector.DateDayVector) vector).get(rowIndex);
                     LocalDate date = LocalDate.ofEpochDay(dayOffset);
                     System.out.print(date.format(formatter));
+                } else if (vector instanceof org.apache.arrow.vector.TimeStampSecTZVector) {
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                    long epochSec = ((org.apache.arrow.vector.TimeStampSecTZVector) vector).get(rowIndex);
+                    Instant instant = Instant.ofEpochSecond(epochSec);
+                    LocalDateTime localDateTime = LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
+                    System.out.print(localDateTime.format(formatter));
+                } else if (vector instanceof org.apache.arrow.vector.TimeStampMilliTZVector) {
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+                    long epochMillis = ((org.apache.arrow.vector.TimeStampMilliTZVector) vector).get(rowIndex);
+                    LocalDateTime localDateTime
+                            = org.apache.arrow.vector.util.DateUtility.getLocalDateTimeFromEpochMilli(epochMillis,
+                            "UTC");
+                    System.out.print(localDateTime.format(formatter));
+                } else if (vector instanceof org.apache.arrow.vector.TimeStampMicroTZVector) {
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
+                    long epochMicros = ((org.apache.arrow.vector.TimeStampMicroTZVector) vector).get(rowIndex);
+                    LocalDateTime localDateTime
+                            = org.apache.arrow.vector.util.DateUtility.getLocalDateTimeFromEpochMicro(epochMicros,
+                            "UTC");
+                    System.out.print(localDateTime.format(formatter));
                 } else if (vector instanceof org.apache.arrow.vector.BitVector) {
                     System.out.print(((org.apache.arrow.vector.BitVector) vector).get(rowIndex) == 1);
                 } else {

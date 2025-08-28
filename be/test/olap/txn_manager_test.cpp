@@ -326,9 +326,13 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
     ASSERT_TRUE(st.ok()) << st;
     Version new_version(10, 11);
     TabletPublishStatistics stats;
-    st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id, tablet_id,
-                                              _tablet_uid, new_version, &stats);
-    ASSERT_TRUE(st.ok()) << st;
+    {
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+        st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, new_version, &stats,
+                                                  extend_tablet_txn_info_lifetime);
+        ASSERT_TRUE(st.ok()) << st;
+    }
 
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
     st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
@@ -345,8 +349,10 @@ TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10, 11);
     auto not_exist_txn = transaction_id + 1000;
     TabletPublishStatistics stats;
+    std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
     auto st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, not_exist_txn,
-                                                   tablet_id, _tablet_uid, new_version, &stats);
+                                                   tablet_id, _tablet_uid, new_version, &stats,
+                                                   extend_tablet_txn_info_lifetime);
     ASSERT_FALSE(st.ok()) << st;
 }
 
@@ -419,6 +425,50 @@ TEST_F(TxnManagerTest, DeleteCommittedTxnForIngestingBinlog) {
                                             rowset_meta2);
     ASSERT_FALSE(st.ok()) << st;
     EXPECT_FALSE(k_engine->pending_local_rowsets().contains(_rowset_ingested->rowset_id()));
+}
+
+TEST_F(TxnManagerTest, DeleteCommittedTxnCleanupOnError) {
+    // first commit a transaction
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+
+    // verify transaction exists before deletion
+    std::vector<TPartitionId> partition_ids;
+    k_engine->txn_manager()->get_partition_ids(transaction_id, &partition_ids);
+    ASSERT_EQ(1, partition_ids.size());
+    ASSERT_EQ(partition_id, partition_ids[0]);
+
+    // also verify using get_tablet_related_txns
+    int64_t found_partition_id;
+    std::set<int64_t> found_txn_ids;
+    k_engine->txn_manager()->get_tablet_related_txns(tablet_id, _tablet_uid, &found_partition_id,
+                                                     &found_txn_ids);
+    ASSERT_EQ(1, found_txn_ids.size());
+    ASSERT_EQ(transaction_id, *found_txn_ids.begin());
+
+    // make rowset visible
+    Version version(0, 1);
+    _rowset->make_visible(version);
+
+    // now try to delete the transaction
+    // this should return TRANSACTION_ALREADY_COMMITTED but still clean up the transaction state
+    st = k_engine->txn_manager()->delete_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid);
+    ASSERT_TRUE(st.is<ErrorCode::TRANSACTION_ALREADY_COMMITTED>()) << st;
+
+    // verify transaction is removed from txn map
+    partition_ids.clear();
+    k_engine->txn_manager()->get_partition_ids(transaction_id, &partition_ids);
+    ASSERT_TRUE(partition_ids.empty()) << "Transaction should be removed from txn map";
+
+    // verify by checking if we can get tablet related txns
+    found_txn_ids.clear();
+    k_engine->txn_manager()->get_tablet_related_txns(tablet_id, _tablet_uid, &found_partition_id,
+                                                     &found_txn_ids);
+    ASSERT_TRUE(found_txn_ids.empty()) << "Transaction should not be found in tablet related txns";
 }
 
 } // namespace doris

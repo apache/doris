@@ -17,6 +17,18 @@
 
 suite("test_workload_sched_policy") {
 
+    def forComputeGroupStr = ""
+    def currentCgName = ""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        currentCgName = "${validCluster}.";
+        forComputeGroupStr = " for  $validCluster "
+    }
+
     sql "drop workload policy if exists test_cancel_policy;"
     sql "drop workload policy if exists set_action_policy;"
     sql "drop workload policy if exists fe_policy;"
@@ -146,10 +158,10 @@ suite("test_workload_sched_policy") {
     sql """drop user if exists test_workload_sched_user"""
     sql """create user test_workload_sched_user identified by '12345'"""
     sql """grant ADMIN_PRIV on *.*.* to test_workload_sched_user"""
-    sql "drop workload group if exists test_set_session_wg;"
-    sql "drop workload group if exists test_set_session_wg2;"
-    sql "create workload group test_set_session_wg properties('cpu_share'='1024');"
-    sql "create workload group test_set_session_wg2 properties('cpu_share'='1024');"
+    sql "drop workload group if exists test_set_session_wg $forComputeGroupStr;"
+    sql "drop workload group if exists test_set_session_wg2 $forComputeGroupStr;"
+    sql "create workload group test_set_session_wg $forComputeGroupStr properties('cpu_share'='1024');"
+    sql "create workload group test_set_session_wg2 $forComputeGroupStr properties('cpu_share'='1024');"
 
     sql "drop workload policy if exists test_set_var_policy;"
     sql "drop workload policy if exists test_set_var_policy2;"
@@ -183,8 +195,8 @@ suite("test_workload_sched_policy") {
     }
     assertEquals("workload_group", result3[0][0])
     assertEquals("test_set_session_wg", result3[0][1])
-    sql "drop workload group if exists test_set_session_wg;"
-    sql "drop workload group if exists test_set_session_wg2;"
+    sql "drop workload group if exists test_set_session_wg $forComputeGroupStr;"
+    sql "drop workload group if exists test_set_session_wg2 $forComputeGroupStr;"
 
     sql "drop workload policy if exists test_set_var_policy;"
     sql "drop workload policy if exists test_set_var_policy2;"
@@ -193,32 +205,32 @@ suite("test_workload_sched_policy") {
     sql "drop workload policy if exists test_cancel_query_policy"
     sql "drop workload policy if exists test_cancel_query_policy2"
     sql "drop workload policy if exists test_set_session"
-    sql "drop workload group if exists policy_group;"
+    sql "drop workload group if exists policy_group $forComputeGroupStr;"
     sql "CREATE USER 'test_policy_user'@'%' IDENTIFIED BY '12345';"
     sql """grant SELECT_PRIV on *.*.* to test_policy_user;"""
-    sql "create workload group if not exists policy_group properties ('cpu_share'='1024');"
-    sql "create workload group if not exists policy_group2 properties ('cpu_share'='1024');"
+    sql "create workload group if not exists policy_group $forComputeGroupStr properties ('cpu_share'='1024');"
+    sql "create workload group if not exists policy_group2 $forComputeGroupStr properties ('cpu_share'='1024');"
     sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group' TO 'test_policy_user'@'%';"
     sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group2' TO 'test_policy_user'@'%';"
-    sql "create workload policy test_cancel_query_policy conditions(query_time > 1000) actions(cancel_query) properties('workload_group'='policy_group')"
-    sql "create workload policy test_cancel_query_policy2 conditions(query_time > 0, be_scan_rows>1) actions(cancel_query) properties('workload_group'='policy_group')"
+    sql "create workload policy test_cancel_query_policy conditions(query_time > 1000) actions(cancel_query) properties('workload_group'='${currentCgName}policy_group')"
+    sql "create workload policy test_cancel_query_policy2 conditions(query_time > 0, be_scan_rows>1) actions(cancel_query) properties('workload_group'='${currentCgName}policy_group')"
     sql "create workload policy test_set_session conditions(username='test_policy_user') actions(set_session_variable 'parallel_pipeline_task_num=1')"
 
     test {
-        sql "drop workload group policy_group;"
+        sql "drop workload group policy_group $forComputeGroupStr;"
         exception "because it has related policy"
     }
 
     test {
-        sql "alter workload policy test_cancel_query_policy properties('workload_group'='invalid_gorup');"
-        exception "unknown workload group"
+        sql "alter workload policy test_cancel_query_policy properties('workload_group'='${currentCgName}invalid_gorup');"
+        exception "Can not find workload group"
     }
 
     // test alter policy property
     sql "drop user if exists test_alter_policy_user"
     sql "CREATE USER 'test_alter_policy_user'@'%' IDENTIFIED BY '12345';"
     sql "drop workload policy if exists test_alter_policy;"
-    sql "create workload policy test_alter_policy conditions(username='test_alter_policy_user') actions(set_session_variable 'parallel_pipeline_task_num=0') properties('workload_group'='normal');"
+    sql "create workload policy test_alter_policy conditions(username='test_alter_policy_user') actions(set_session_variable 'parallel_pipeline_task_num=0') properties('workload_group'='${currentCgName}normal');"
     qt_select_alter_1 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_policy where name='test_alter_policy'"
 
     sql "alter workload policy test_alter_policy properties('workload_group'='');"
@@ -230,7 +242,7 @@ suite("test_workload_sched_policy") {
     sql "alter workload policy test_alter_policy properties('priority'='9');"
     qt_select_alter_4 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_policy where name='test_alter_policy'"
 
-    sql "alter workload policy test_alter_policy properties('workload_group'='normal');"
+    sql "alter workload policy test_alter_policy properties('workload_group'='${currentCgName}normal');"
     qt_select_alter_5 "select name,condition,action,PRIORITY,ENABLED,VERSION,WORKLOAD_GROUP from information_schema.workload_policy where name='test_alter_policy'"
 
     sql "drop user test_alter_policy_user"

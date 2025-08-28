@@ -125,12 +125,12 @@ inline void format_ipv4(const unsigned char* src, char*& dst, uint8_t mask_tail_
  */
 template <typename T, typename EOFfunction>
     requires(std::is_same<typename std::remove_cv<T>::type, char>::value)
-inline bool parse_ipv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t first_octet = -1) {
+inline bool parse_ipv4(T*& src, EOFfunction eof, unsigned char* dst, int32_t first_octet = -1) {
     if (src == nullptr || first_octet > IPV4_MAX_OCTET_VALUE) {
         return false;
     }
 
-    int64_t result = 0;
+    UInt32 result = 0;
     int offset = (IPV4_BINARY_LENGTH - 1) * IPV4_OCTET_BITS;
     if (first_octet >= 0) {
         result |= first_octet << offset;
@@ -142,7 +142,7 @@ inline bool parse_ipv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t fir
             return false;
         }
 
-        int64_t value = 0;
+        UInt32 value = 0;
         size_t len = 0;
         while (is_numeric_ascii(*src) && len <= 3) {
             value = value * DECIMAL_BASE + (*src - '0');
@@ -303,9 +303,9 @@ inline void format_ipv6(unsigned char* src, char*& dst, uint8_t zeroed_tail_byte
             uint8_t ipv4_buffer[IPV4_BINARY_LENGTH] = {0};
             memcpy(ipv4_buffer, src + 12, IPV4_BINARY_LENGTH);
             // Due to historical reasons format_ipv4() takes ipv4 in BE format, but inside ipv6 we store it in LE-format.
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-            std::reverse(std::begin(ipv4_buffer), std::end(ipv4_buffer));
-#endif
+            if constexpr (std::endian::native == std::endian::little) {
+                std::reverse(std::begin(ipv4_buffer), std::end(ipv4_buffer));
+            }
             format_ipv4(ipv4_buffer, dst,
                         std::min(zeroed_tail_bytes_count, static_cast<uint8_t>(IPV4_BINARY_LENGTH)),
                         "0");
@@ -379,6 +379,10 @@ inline bool parse_ipv6(T*& src, EOFfunction eof, unsigned char* dst, int32_t fir
                     return clear_dst();
                 zptr = iter;
                 ++src;
+                if (!eof() && *src == ':') {
+                    /// more than one all-zeroes block is not allowed
+                    return clear_dst();
+                }
                 continue;
             }
             if (groups == 0) /// leading colon is not allowed
@@ -446,6 +450,11 @@ inline bool parse_ipv6(T*& src, EOFfunction eof, unsigned char* dst, int32_t fir
 
     /// process all-zeroes block
     if (zptr != nullptr) {
+        if (groups == 8) {
+            /// all-zeroes block at least should be one
+            /// 2001:0db8:86a3::08d3:1319:8a2e:0370:7344 not valid
+            return clear_dst();
+        }
         size_t msize = iter - zptr;
         std::memmove(dst + IPV6_BINARY_LENGTH - msize, zptr, msize);
         std::memset(zptr, '\0', IPV6_BINARY_LENGTH - (iter - dst));

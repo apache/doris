@@ -1102,8 +1102,6 @@ suite("nereids_agg_fn") {
 	sql '''
 		select histogram(kbool, 10) from fn_test'''
 	sql '''
-		select histogram(kbool, 10, 10) from fn_test'''
-	sql '''
 		select count(id), histogram(kbool) from fn_test group by id order by id'''
 	sql '''
 		select count(distinct id), histogram(kbool) from fn_test'''
@@ -2515,6 +2513,20 @@ suite("nereids_agg_fn") {
 	qt_sql_sum_LargeInt_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), sum(klint) from fn_test'''
 
+	// sum on string like
+	explain {
+		sql("select sum(kstr) from fn_test;")
+		contains "partial_sum(cast(kstr as DOUBLE"
+	}
+	explain {
+		sql("select sum(kvchrs3) from fn_test;")
+		contains "partial_sum(cast(kvchrs3 as DOUBLE"
+	}
+	explain {
+		sql("select sum(kchrs3) from fn_test;")
+		contains "partial_sum(cast(kchrs3 as DOUBLE"
+	}
+
 	qt_sql_sum0_Boolean '''
 		select sum0(kbool) from fn_test'''
 	qt_sql_sum0_Boolean_gb '''
@@ -2699,6 +2711,20 @@ suite("nereids_agg_fn") {
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id, kint), sum0(klint) from fn_test group by kbool order by kbool'''
 	qt_sql_sum0_LargeInt_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), sum0(klint) from fn_test'''
+
+	// sum on string like
+	explain {
+		sql("select sum0(kstr) from fn_test;")
+		contains "partial_sum0(cast(kstr as DOUBLE"
+	}
+	explain {
+		sql("select sum0(kvchrs3) from fn_test;")
+		contains "partial_sum0(cast(kvchrs3 as DOUBLE"
+	}
+	explain {
+		sql("select sum0(kchrs3) from fn_test;")
+		contains "partial_sum0(cast(kchrs3 as DOUBLE"
+	}
 
 	qt_sql_topn_Varchar_Integer_gb '''
 		select topn(kvchrs1, 3) from fn_test group by kbool order by kbool'''

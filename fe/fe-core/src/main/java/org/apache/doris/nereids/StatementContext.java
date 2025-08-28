@@ -18,7 +18,11 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -29,6 +33,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
@@ -61,6 +67,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -74,6 +81,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +114,7 @@ public class StatementContext implements Closeable {
     private ConnectContext connectContext;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
+    private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
@@ -138,6 +147,9 @@ public class StatementContext implements Closeable {
 
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
+
+    private final Map<CTEId, Statistics> cteIdToProducerStats = new HashMap<>();
+
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
@@ -157,6 +169,7 @@ public class StatementContext implements Closeable {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
+    private boolean hintForcePreAggOn = false;
 
     // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
@@ -166,15 +179,23 @@ public class StatementContext implements Closeable {
     private final Stack<CloseableResource> plannerResources = new Stack<>();
 
     // placeholder params for prepared statement
-    private List<Placeholder> placeholders;
+    private List<Placeholder> placeholders = new ArrayList<>();
 
     // all tables in query
     private boolean needLockTables = true;
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
-    // tables maybe used by mtmv rewritten in this query
+    // tables maybe used by mtmv rewritten in this query,
+    // this contains mvs which use table in tables and the tables in mvs
+    // such as
+    // mv1 use t1, t2.
+    // mv2 use mv1, t3, t4.
+    // mv3 use t3, t4, t5
+    // if query is: select * from t2 join t5
+    // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
+    private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
@@ -203,7 +224,7 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
-    private final List<PlannerHook> plannerHooks = new ArrayList<>();
+    private final Set<PlannerHook> plannerHooks = new HashSet<>();
 
     private String disableJoinReorderReason;
 
@@ -212,6 +233,23 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     private boolean privChecked;
+
+    // if greater than 0 means the duration has used
+    private long materializedViewRewriteDuration = 0L;
+
+    // Record used table and it's used partitions
+    private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
+            HashMultimap.create();
+
+    // Record mtmv and valid partitions map because this is time-consuming behavior
+    private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
+
+    /// for dictionary sink.
+    private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
+    private long dictionaryUsedSrcVersion; // base table data version used in this refreshing.
+    private boolean partialLoadDictionary = false; // really used partial load.
+
+    private boolean prepareStage = false;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -233,10 +271,10 @@ public class StatementContext implements Closeable {
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null
-                && connectContext.queryId() != null
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
             this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity(), connectContext.queryId());
+                    connectContext.getCurrentUserIdentity());
             if (originStatement != null) {
                 this.sqlCacheContext.setOriginSql(originStatement.originStmt);
             }
@@ -247,6 +285,14 @@ public class StatementContext implements Closeable {
 
     public void setNeedLockTables(boolean needLockTables) {
         this.needLockTables = needLockTables;
+    }
+
+    public void setHintForcePreAggOn(boolean preAggOn) {
+        this.hintForcePreAggOn = preAggOn;
+    }
+
+    public boolean isHintForcePreAggOn() {
+        return hintForcePreAggOn;
     }
 
     /**
@@ -280,6 +326,10 @@ public class StatementContext implements Closeable {
         return mtmvRelatedTables;
     }
 
+    public Set<MTMV> getCandidateMTMVs() {
+        return candidateMTMVs;
+    }
+
     public Map<List<String>, TableIf> getTables() {
         return tables;
     }
@@ -294,7 +344,8 @@ public class StatementContext implements Closeable {
     }
 
     /** get table by table name, try to get from information from dumpfile first */
-    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom) {
+    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom,
+            Optional<UnboundRelation> unboundRelation) {
         Map<List<String>, TableIf> tables;
         switch (tableFrom) {
             case QUERY:
@@ -309,7 +360,8 @@ public class StatementContext implements Closeable {
             default:
                 throw new AnalysisException("Unknown table from " + tableFrom);
         }
-        return tables.computeIfAbsent(tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv()));
+        return tables.computeIfAbsent(
+                tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv(), unboundRelation));
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -341,6 +393,18 @@ public class StatementContext implements Closeable {
 
     public Stopwatch getStopwatch() {
         return stopwatch;
+    }
+
+    public Stopwatch getMaterializedViewStopwatch() {
+        return materializedViewStopwatch;
+    }
+
+    public long getMaterializedViewRewriteDuration() {
+        return materializedViewRewriteDuration;
+    }
+
+    public void addMaterializedViewRewriteDuration(long millisecond) {
+        materializedViewRewriteDuration += millisecond;
     }
 
     public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
@@ -389,6 +453,10 @@ public class StatementContext implements Closeable {
 
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
+    }
+
+    public IdGenerator<ExprId> getExprIdGenerator() {
+        return exprIdGenerator;
     }
 
     public CTEId getNextCTEId() {
@@ -646,7 +714,7 @@ public class StatementContext implements Closeable {
         return formatOptions;
     }
 
-    public List<PlannerHook> getPlannerHooks() {
+    public Set<PlannerHook> getPlannerHooks() {
         return plannerHooks;
     }
 
@@ -657,13 +725,13 @@ public class StatementContext implements Closeable {
     /**
      * Load snapshot information of mvcc
      */
-    public void loadSnapshots() {
+    public void loadSnapshots(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
         for (TableIf tableIf : tables.values()) {
             if (tableIf instanceof MvccTable) {
                 MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
                 // may be set by MTMV, we can not load again
                 if (!snapshots.containsKey(mvccTableInfo)) {
-                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot());
+                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot(tableSnapshot, scanParams));
                 }
             }
         }
@@ -772,5 +840,53 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public List<Backend> getUsedBackendsDistributing() {
+        return usedBackendsDistributing;
+    }
+
+    public void setUsedBackendsDistributing(List<Backend> usedBackends) {
+        this.usedBackendsDistributing = usedBackends;
+    }
+
+    public long getDictionaryUsedSrcVersion() {
+        return dictionaryUsedSrcVersion;
+    }
+
+    public void setDictionaryUsedSrcVersion(long dictionaryUsedSrcVersion) {
+        this.dictionaryUsedSrcVersion = dictionaryUsedSrcVersion;
+    }
+
+    public boolean isPartialLoadDictionary() {
+        return partialLoadDictionary;
+    }
+
+    public void setPartialLoadDictionary(boolean partialLoadDictionary) {
+        this.partialLoadDictionary = partialLoadDictionary;
+    }
+
+    public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {
+        return tableUsedPartitionNameMap;
+    }
+
+    public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
+        return mvCanRewritePartitionsMap;
+    }
+
+    public void setPrepareStage(boolean isPrepare) {
+        this.prepareStage = isPrepare;
+    }
+
+    public boolean isPrepareStage() {
+        return prepareStage;
+    }
+
+    public Statistics getProducerStatsByCteId(CTEId id) {
+        return cteIdToProducerStats.get(id);
+    }
+
+    public void setProducerStats(CTEId id, Statistics stats) {
+        cteIdToProducerStats.put(id, stats);
     }
 }

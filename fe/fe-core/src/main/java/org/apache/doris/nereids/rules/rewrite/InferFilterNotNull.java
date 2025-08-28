@@ -27,7 +27,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Streams;
+import com.google.common.collect.ImmutableSet.Builder;
 
 import java.util.Set;
 
@@ -44,15 +44,20 @@ public class InferFilterNotNull extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter()
-            .when(filter -> filter.getConjuncts().stream()
-                    .filter(Not.class::isInstance)
-                    .map(Not.class::cast)
-                    .noneMatch(Not::isGeneratedIsNotNull))
+            .when(filter -> {
+                for (Expression conjunct : filter.getConjuncts()) {
+                    if (conjunct.containsType(Not.class)
+                            && conjunct.anyMatch(n -> n instanceof Not && ((Not) n).isGeneratedIsNotNull())) {
+                        return false;
+                    }
+                }
+                return true;
+            })
             .thenApply(ctx -> {
                 LogicalFilter<Plan> filter = ctx.root;
                 Set<Expression> predicates = filter.getConjuncts();
                 Set<Expression> isNotNulls = ExpressionUtils.inferNotNull(predicates, ctx.cascadesContext);
-                ImmutableSet.Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
+                Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
                 for (Expression isNotNull : isNotNulls) {
                     if (!predicates.contains(isNotNull)) {
                         needGenerateNotNullsBuilder.add(((Not) isNotNull).withGeneratedIsNotNull(true));
@@ -62,9 +67,12 @@ public class InferFilterNotNull extends OneRewriteRuleFactory {
                 if (needGenerateNotNulls.isEmpty()) {
                     return null;
                 }
-                Set<Expression> conjuncts = Streams.concat(predicates.stream(), needGenerateNotNulls.stream())
-                        .collect(ImmutableSet.toImmutableSet());
-                return PlanUtils.filter(conjuncts, filter.child()).get();
+
+                Builder<Expression> conjuncts = ImmutableSet.builderWithExpectedSize(
+                        predicates.size() + needGenerateNotNulls.size());
+                conjuncts.addAll(predicates);
+                conjuncts.addAll(needGenerateNotNulls);
+                return PlanUtils.filter(conjuncts.build(), filter.child()).get();
             }).toRule(RuleType.INFER_FILTER_NOT_NULL);
     }
 }

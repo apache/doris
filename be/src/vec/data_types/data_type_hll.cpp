@@ -40,6 +40,14 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_versi
         const auto* hll_column = &column;
         size_t real_need_copy_num = 0;
         buf = serialize_const_flag_and_row_num(&hll_column, buf, &real_need_copy_num);
+        // In the code below, if the real_need_copy_num is 0, an empty vector will be created. A vector with size 0 may return nullptr from data()
+        // https://en.cppreference.com/w/cpp/container/vector/data
+        // `If size() is ​0​, data() may or may not return a null pointer.`
+        // This would trigger a ubsan error: `null pointer passed as argument 2, which is declared to never be null`
+        // Other data types don't have this issue because they use Doris internal pod array that guarantees data won't be nullptr.
+        if (real_need_copy_num == 0) {
+            return buf;
+        }
 
         const auto& data_column = assert_cast<const ColumnHLL&>(*hll_column);
         std::vector<size_t> hll_size_array(real_need_copy_num);
@@ -92,12 +100,15 @@ const char* DataTypeHLL::deserialize(const char* buf, MutableColumnPtr* column,
 
         auto& data_column = assert_cast<ColumnHLL&>(*origin_column);
         auto& data = data_column.get_data();
-
+        data.resize(real_have_saved_num);
+        if (real_have_saved_num == 0) {
+            // If real_have_saved_num is 0, we don't need to deserialize any data.
+            return buf;
+        }
         std::vector<size_t> hll_size_array(real_have_saved_num);
         memcpy(hll_size_array.data(), buf, sizeof(size_t) * real_have_saved_num);
         buf += sizeof(size_t) * real_have_saved_num;
 
-        data.resize(real_have_saved_num);
         for (int i = 0; i < real_have_saved_num; ++i) {
             data[i].deserialize(Slice(buf, hll_size_array[i]));
             buf += hll_size_array[i];
@@ -164,17 +175,21 @@ MutableColumnPtr DataTypeHLL::create_column() const {
     return ColumnHLL::create();
 }
 
+Status DataTypeHLL::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnHLL>(column);
+}
+
 void DataTypeHLL::serialize_as_stream(const HyperLogLog& cvalue, BufferWritable& buf) {
     auto& value = const_cast<HyperLogLog&>(cvalue);
     std::string memory_buffer(value.max_serialized_size(), '0');
     size_t actual_size = value.serialize((uint8_t*)memory_buffer.data());
     memory_buffer.resize(actual_size);
-    write_string_binary(memory_buffer, buf);
+    buf.write_binary(memory_buffer);
 }
 
 void DataTypeHLL::deserialize_as_stream(HyperLogLog& value, BufferReadable& buf) {
     std::string str;
-    read_string_binary(str, buf);
+    buf.read_binary(str);
     value.deserialize(Slice(str));
 }
 

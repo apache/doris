@@ -24,6 +24,7 @@
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "runtime/runtime_state.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "udf/udf.h"
 #include "vec/sink/writer/vhive_utils.h"
 
@@ -77,7 +78,7 @@ void pop_block(int64_t id, PopState state) {
     }
     }
 }
-void transmit_blockv2(PBackendService_Stub& stub,
+void transmit_blockv2(PBackendService_Stub* stub,
                       std::unique_ptr<AutoReleaseClosure<PTransmitDataParams,
                                                          ExchangeSendCallback<PTransmitDataResult>>>
                               closure) {
@@ -101,7 +102,7 @@ class MockContext : public TaskExecutionContext {};
 std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
 
 auto create_runtime_state() {
-    auto state = RuntimeState::create_shared();
+    auto state = std::make_shared<MockRuntimeState>();
 
     state->set_task_execution_context(_mock_context);
     return state;
@@ -138,11 +139,8 @@ struct SinkWithChannel {
     std::map<int64_t, std::shared_ptr<Channel>> channels;
     Status add_block(int64_t id, bool eos) {
         auto channel = channels[id];
-        TransmitInfo transmitInfo {.channel = channel.get(),
-                                   .block = std::make_unique<PBlock>(),
-                                   .eos = eos,
-                                   .exec_status = Status::OK()};
-        return buffer->add_block(std::move(transmitInfo));
+        TransmitInfo transmitInfo {.block = std::make_unique<PBlock>(), .eos = eos};
+        return buffer->add_block(channel.get(), std::move(transmitInfo));
     }
 };
 

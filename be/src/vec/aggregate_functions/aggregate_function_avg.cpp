@@ -20,6 +20,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_avg.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/core/field.h"
@@ -27,22 +28,24 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 struct Avg {
-    using FieldType = typename AvgNearestFieldTypeTrait<T>::Type;
-    using Function = AggregateFunctionAvg<T, AggregateFunctionAvgData<FieldType>>;
+    using FieldType = typename PrimitiveTypeTraits<T>::AvgNearestFieldType;
+    using Function = AggregateFunctionAvg<
+            T, AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType>>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFuncAvg = typename Avg<T>::Function;
 
-template <typename T>
+template <PrimitiveType T>
 struct AvgDecimal256 {
-    using FieldType = typename AvgNearestFieldTypeTrait256<T>::Type;
-    using Function = AggregateFunctionAvg<T, AggregateFunctionAvgData<FieldType>>;
+    using FieldType = typename PrimitiveTypeTraits<T>::AvgNearestFieldType256;
+    using Function = AggregateFunctionAvg<
+            T, AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType256>>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFuncAvgDecimal256 = typename AvgDecimal256<T>::Function;
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
@@ -50,11 +53,17 @@ void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
                                            const bool result_is_nullable,
                                            const AggregateFunctionAttr& attr) {
         if (attr.enable_decimal256) {
-            return creator_with_type::creator<AggregateFuncAvgDecimal256>(name, types,
+            return creator_with_type_list<
+                    TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_DOUBLE,
+                    TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMALV2,
+                    TYPE_DECIMAL256>::creator<AggregateFuncAvgDecimal256>(name, types,
                                                                           result_is_nullable, attr);
         } else {
-            return creator_with_type::creator<AggregateFuncAvg>(name, types, result_is_nullable,
-                                                                attr);
+            return creator_with_type_list<
+                    TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_DOUBLE,
+                    TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+                    TYPE_DECIMALV2>::creator<AggregateFuncAvg>(name, types, result_is_nullable,
+                                                               attr);
         }
     };
     factory.register_function_both("avg", creator);

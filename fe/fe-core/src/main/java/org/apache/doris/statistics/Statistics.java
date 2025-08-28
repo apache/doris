@@ -47,6 +47,7 @@ public class Statistics {
     private double deltaRowCount = 0.0;
 
     private long actualRowCount = -1L;
+    private boolean isFromHbo = false;
 
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
@@ -54,23 +55,25 @@ public class Statistics {
         this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
         this.tupleSize = another.tupleSize;
         this.deltaRowCount = another.getDeltaRowCount();
+        this.isFromHbo = another.isFromHbo;
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
-            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount) {
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
         this.deltaRowCount = deltaRowCount;
+        this.isFromHbo = isFromHbo;
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, 1, expressionToColumnStats, 0);
+        this(rowCount, 1, expressionToColumnStats, 0, false);
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
             Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0);
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0, false);
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -86,19 +89,27 @@ public class Statistics {
     }
 
     public Statistics withRowCount(double rowCount) {
-        return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
+        return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
+                0, isFromHbo);
     }
 
     public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, 0, isFromHbo);
     }
 
     /**
      * Update by count.
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
-        Statistics statistics = new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+        Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
+                expressionToColumnStats, 0, isFromHbo);
         statistics.normalizeColumnStatistics();
+        return statistics;
+    }
+
+    public Statistics withRowCountAndHboFlag(double rowCount) {
+        Statistics statistics = withRowCountAndEnforceValid(rowCount);
+        statistics.setFromHbo(true);
         return statistics;
     }
 
@@ -123,7 +134,10 @@ public class Statistics {
                     || isNumNullsDecreaseByProportion && columnStatistic.numNulls != 0)) {
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
                 double ndv = Math.min(columnStatistic.ndv, rowCount);
-                double numNulls = Math.min(columnStatistic.numNulls * factor, rowCount - ndv);
+                double numNulls = columnStatistic.numNulls;
+                if (numNulls > 0) {
+                    numNulls = Math.max(1, Math.min(columnStatistic.numNulls * factor, rowCount - ndv));
+                }
                 columnStatisticBuilder.setNumNulls(numNulls);
                 columnStatisticBuilder.setNdv(ndv);
                 columnStatistic = columnStatisticBuilder.build();
@@ -146,7 +160,8 @@ public class Statistics {
             return this;
         }
         double newCount = rowCount * notNullSel + numNull;
-        return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
+        return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
+                0, isFromHbo);
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
@@ -155,9 +170,14 @@ public class Statistics {
     }
 
     public boolean isInputSlotsUnknown(Set<Slot> inputs) {
-        return inputs.stream()
-                .allMatch(s -> expressionToColumnStats.containsKey(s)
-                        && expressionToColumnStats.get(s).isUnKnown);
+        boolean unknown = true;
+        for (Slot input : inputs) {
+            if (!(expressionToColumnStats.containsKey(input)
+                    && expressionToColumnStats.get(input).isUnKnown)) {
+                unknown = false;
+            }
+        }
+        return unknown;
     }
 
     public double computeTupleSize(List<Slot> slots) {
@@ -166,7 +186,11 @@ public class Statistics {
             for (Slot slot : slots) {
                 ColumnStatistic s = expressionToColumnStats.get(slot);
                 if (s != null) {
-                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, s.avgSizeByte));
+                    double avgSize = s.avgSizeByte;
+                    if (!Double.isFinite(avgSize)) {
+                        avgSize = 1;
+                    }
+                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, avgSize));
                 }
             }
             tupleSize = Math.max(1, tempSize);
@@ -188,7 +212,7 @@ public class Statistics {
         boolean allUnknown = true;
         for (Slot slot : slots) {
             if (slot instanceof SlotReference) {
-                Optional<Column> colOpt = ((SlotReference) slot).getColumn();
+                Optional<Column> colOpt = ((SlotReference) slot).getOriginalColumn();
                 if (colOpt.isPresent() && colOpt.get().isVisible()) {
                     ColumnStatistic colStats = expressionToColumnStats.get(slot);
                     if (colStats != null && !colStats.isUnKnown) {
@@ -210,6 +234,9 @@ public class Statistics {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
+        if (isFromHbo) {
+            builder.append("(hbo)");
+        }
         if (Double.isNaN(rowCount)) {
             builder.append("NaN");
         } else if (Double.POSITIVE_INFINITY == rowCount) {
@@ -292,5 +319,24 @@ public class Statistics {
 
     public void setActualRowCount(long actualRowCount) {
         this.actualRowCount = actualRowCount;
+    }
+
+    public void setFromHbo(boolean isFromHbo) {
+        this.isFromHbo = isFromHbo;
+    }
+
+    public boolean isFromHbo() {
+        return this.isFromHbo;
+    }
+
+    public StatisticsBuilder cleanHotValues() {
+        StatisticsBuilder builder = new StatisticsBuilder(this);
+        for (Map.Entry<Expression, ColumnStatistic> entry : columnStatistics().entrySet()) {
+            if (entry.getValue().getHotValues() != null) {
+                builder.putColumnStatistics(entry.getKey(),
+                        new ColumnStatisticBuilder(entry.getValue()).setHotValues(null).build());
+            }
+        }
+        return builder;
     }
 }

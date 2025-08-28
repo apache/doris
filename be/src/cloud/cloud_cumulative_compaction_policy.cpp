@@ -67,8 +67,13 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                             input_rowsets->push_back(rowset);
                         }
                     }
+                    LOG_INFO(
+                            "[CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_"
+                            "input_rowsets] tablet_id={}, start={}, end={}, "
+                            "input_rowsets->size()={}",
+                            target_tablet_id, start_version, end_version, input_rowsets->size());
+                    return input_rowsets->size();
                 }
-                return input_rowsets->size();
             })
 
     size_t promotion_size = cloud_promotion_size(tablet);
@@ -225,10 +230,9 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::new_cumulative_point(
                                              config::compaction_promotion_version_count;
     // if rowsets have delete version, move to the last directly.
     // if rowsets have no delete version, check output_rowset total disk size satisfies promotion size.
-    return output_rowset->start_version() == last_cumulative_point &&
-                           (last_delete_version.first != -1 ||
-                            output_rowset->total_disk_size() >= cloud_promotion_size(tablet) ||
-                            satisfy_promotion_version)
+    return (last_delete_version.first != -1 ||
+            output_rowset->total_disk_size() >= cloud_promotion_size(tablet) ||
+            satisfy_promotion_version)
                    ? output_rowset->end_version() + 1
                    : last_cumulative_point;
 }

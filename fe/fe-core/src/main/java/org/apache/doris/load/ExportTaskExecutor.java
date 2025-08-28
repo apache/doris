@@ -55,7 +55,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ExportTaskExecutor implements TransientTaskExecutor {
     private static final Logger LOG = LogManager.getLogger(ExportTaskExecutor.class);
 
-    List<StatementBase> selectStmtLists;
+    Optional<StatementBase> selectStmt;
 
     ExportJob exportJob;
 
@@ -67,9 +67,9 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
 
     private AtomicBoolean isFinished;
 
-    ExportTaskExecutor(List<StatementBase> selectStmtLists, ExportJob exportJob) {
+    ExportTaskExecutor(Optional<StatementBase> selectStmt, ExportJob exportJob) {
         this.taskId = UUID.randomUUID().getMostSignificantBits();
-        this.selectStmtLists = selectStmtLists;
+        this.selectStmt = selectStmt;
         this.exportJob = exportJob;
         this.isCanceled = new AtomicBoolean(false);
         this.isFinished = new AtomicBoolean(false);
@@ -90,16 +90,14 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         LOG.debug("[Export Task] taskId: {} updating state to EXPORTING", taskId);
         exportJob.updateExportJobState(ExportJobState.EXPORTING, taskId, null, null, null);
         List<OutfileInfo> outfileInfoList = Lists.newArrayList();
-        for (int idx = 0; idx < selectStmtLists.size(); ++idx) {
-            LOG.debug("[Export Task] taskId: {} processing statement {}/{}",
-                    taskId, idx + 1, selectStmtLists.size());
+        if (selectStmt.isPresent()) {
             if (isCanceled.get()) {
-                LOG.debug("[Export Task] taskId: {} canceled during execution at statement {}", taskId, idx + 1);
+                LOG.debug("[Export Task] taskId: {} canceled during execution", taskId);
                 throw new JobException("Export executor has been canceled, task id: {}", taskId);
             }
             // check the version of tablets, skip if the consistency is in partition level.
             if (exportJob.getExportTable().isManagedTable() && !exportJob.isPartitionConsistency()) {
-                LOG.debug("[Export Task] taskId: {} checking tablet versions for statement {}", taskId, idx + 1);
+                LOG.debug("[Export Task] taskId: {} checking tablet versions", taskId);
                 try {
                     Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(
                             exportJob.getTableName().getDb());
@@ -110,7 +108,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                     LOG.debug("[Export Lock] taskId: {}, table: {} acquired readLock", taskId, table.getName());
                     try {
                         List<Long> tabletIds;
-                        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
+                        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmt.get();
                         Optional<UnboundRelation> unboundRelation = findUnboundRelation(
                                 logicalPlanAdapter.getLogicalPlan());
                         tabletIds = unboundRelation.get().getTabletIds();
@@ -151,8 +149,8 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
             }
 
             try (AutoCloseConnectContext r = buildConnectContext()) {
-                LOG.debug("[Export Task] taskId: {} executing statement {}", taskId, idx + 1);
-                stmtExecutor = new StmtExecutor(r.connectContext, selectStmtLists.get(idx));
+                LOG.debug("[Export Task] taskId: {} executing", taskId);
+                stmtExecutor = new StmtExecutor(r.connectContext, selectStmt.get());
                 stmtExecutor.execute();
                 if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
                     LOG.debug("[Export Task] taskId: {} failed with MySQL error: {}", taskId,
@@ -161,16 +159,11 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                             ExportFailMsg.CancelType.RUN_FAIL, r.connectContext.getState().getErrorMessage());
                     return;
                 }
-                LOG.debug("[Export Task] taskId: {} statement {} executed successfully", taskId, idx + 1);
-                OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
-                LOG.debug("[Export Task] taskId: {} got outfile info for statement {}:"
-                                + "fileNumber={}, totalRows={}, fileSize={}",
-                        taskId, idx + 1, outfileInfo.getFileNumber(),
-                        outfileInfo.getTotalRows(), outfileInfo.getFileSize());
-                outfileInfoList.add(outfileInfo);
+                LOG.debug("[Export Task] taskId: {} executed successfully", taskId);
+                outfileInfoList = getOutFileInfo(r.connectContext.getResultAttachedInfo());
             } catch (Exception e) {
-                LOG.debug("[Export Task] taskId: {} failed with exception during statement {}: {}",
-                        taskId, idx + 1, e.getMessage(), e);
+                LOG.debug("[Export Task] taskId: {} failed with exception: {}",
+                        taskId, e.getMessage(), e);
                 exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
                         ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
                 throw new JobException(e);
@@ -205,7 +198,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         // Since originStmt is empty, reverting to the old optimizer when the new optimizer is enabled is meaningless.
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(exportJob.getTableName().getDb());
-        connectContext.setQualifiedUser(exportJob.getQualifiedUser());
         connectContext.setCurrentUserIdentity(exportJob.getUserIdentity());
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -214,12 +206,18 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         return new AutoCloseConnectContext(connectContext);
     }
 
-    private OutfileInfo getOutFileInfo(Map<String, String> resultAttachedInfo) {
-        OutfileInfo outfileInfo = new OutfileInfo();
-        outfileInfo.setFileNumber(resultAttachedInfo.get(OutFileClause.FILE_NUMBER));
-        outfileInfo.setTotalRows(resultAttachedInfo.get(OutFileClause.TOTAL_ROWS));
-        outfileInfo.setFileSize(resultAttachedInfo.get(OutFileClause.FILE_SIZE));
-        outfileInfo.setUrl(resultAttachedInfo.get(OutFileClause.URL));
+    private List<OutfileInfo> getOutFileInfo(List<Map<String, String>> resultAttachedInfo) {
+        List<OutfileInfo> outfileInfo = Lists.newArrayList();
+        for (Map<String, String> row : resultAttachedInfo) {
+            OutfileInfo outfileInfoOneRow = new OutfileInfo();
+            outfileInfoOneRow.setFileNumber(row.get(OutFileClause.FILE_NUMBER));
+            outfileInfoOneRow.setTotalRows(row.get(OutFileClause.TOTAL_ROWS));
+            outfileInfoOneRow.setFileSize(row.get(OutFileClause.FILE_SIZE));
+            outfileInfoOneRow.setUrl(row.get(OutFileClause.URL));
+            outfileInfoOneRow.setWriteTime(row.get(OutFileClause.WRITE_TIME_SEC));
+            outfileInfoOneRow.setWriteSpeed(row.get(OutFileClause.WRITE_SPEED_KB));
+            outfileInfo.add(outfileInfoOneRow);
+        }
         return outfileInfo;
     }
 

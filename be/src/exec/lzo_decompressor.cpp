@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "exec/decompressor.h"
 #include "olap/utils.h"
@@ -35,6 +36,7 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
 } // namespace orc
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Lzop
 const uint8_t LzopDecompressor::LZOP_MAGIC[9] = {0x89, 0x4c, 0x5a, 0x4f, 0x00,
@@ -68,8 +70,8 @@ Status LzopDecompressor::init() {
     return Status::OK();
 }
 
-Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                                    uint8_t* output, size_t output_max_len,
+Status LzopDecompressor::decompress(uint8_t* input, uint32_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, uint32_t output_max_len,
                                     size_t* decompressed_len, bool* stream_end,
                                     size_t* more_input_bytes, size_t* more_output_bytes) {
     if (!_is_header_loaded) {
@@ -80,8 +82,6 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         }
     }
 
-    // LOG(INFO) << "after load header: " << *input_bytes_read;
-
     // read compressed block
     // compressed-block ::=
     //   <uncompressed-size>
@@ -89,7 +89,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
     //   <uncompressed-checksums>
     //   <compressed-checksums>
     //   <compressed-data>
-    int left_input_len = input_len - *input_bytes_read;
+    size_t left_input_len = input_len - *input_bytes_read;
     if (left_input_len < sizeof(uint32_t)) {
         // block is at least have uncompressed_size
         *more_input_bytes = sizeof(uint32_t) - left_input_len;
@@ -144,7 +144,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
             return Status::OK();
         }
 
-        ptr = get_uint32(ptr, &out_checksum);
+        ptr = get_uint32(ptr, &in_checksum);
         left_input_len -= sizeof(uint32_t);
     } else {
         // If the compressed data size is equal to the uncompressed data size, then
@@ -185,16 +185,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         ptr += compressed_size;
     }
 
-    // 7. peek next block's uncompressed size
-    uint32_t next_uncompressed_size;
-    get_uint32(ptr, &next_uncompressed_size);
-    if (next_uncompressed_size == 0) {
-        // 0 means current block is the last block.
-        // consume this uncompressed_size to finish reading.
-        ptr += sizeof(uint32_t);
-    }
-
-    // 8. done
+    // 7. done
     *stream_end = true;
     *decompressed_len = uncompressed_size;
     *input_bytes_read += ptr - block_start;
@@ -202,8 +193,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
     VLOG_DEBUG << "finished decompress lzo block."
                << " compressed_size: " << compressed_size
                << " decompressed_len: " << *decompressed_len
-               << " input_bytes_read: " << *input_bytes_read
-               << " next_uncompressed_size: " << next_uncompressed_size;
+               << " input_bytes_read: " << *input_bytes_read;
 
     return Status::OK();
 }
@@ -360,7 +350,7 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
         ptr += sizeof(int32_t) + extra_len;
     }
 
-    _header_info.header_size = ptr - input;
+    _header_info.header_size = cast_set<int32_t>(ptr - input);
     *input_bytes_read = _header_info.header_size;
 
     _is_header_loaded = true;
@@ -410,4 +400,5 @@ std::string LzopDecompressor::debug_info() {
     return ss.str();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

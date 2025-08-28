@@ -33,9 +33,12 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
+import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TStatusCode;
@@ -46,6 +49,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -66,6 +70,7 @@ public class LoadLoadingTask extends LoadTask {
     private final long execMemLimit;
     private final boolean strictMode;
     private final boolean isPartialUpdate;
+    private final TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy;
     private final long txnId;
     private final String timezone;
     // timeout of load job, in seconds
@@ -78,21 +83,25 @@ public class LoadLoadingTask extends LoadTask {
     private final boolean enableMemTableOnSinkNode;
     private final int batchSize;
 
-    private LoadingTaskPlanner planner;
+    private NereidsLoadingTaskPlanner planner;
 
     private Profile jobProfile;
     private long beginTime;
 
     private List<TPipelineWorkloadGroup> tWorkloadGroups = null;
 
-    public LoadLoadingTask(Database db, OlapTable table,
+    protected UserIdentity userInfo;
+
+    public LoadLoadingTask(UserIdentity userInfo, Database db, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
             long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
             Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
         super(callback, TaskType.LOADING, priority);
+        this.userInfo = userInfo;
         this.db = db;
         this.table = table;
         this.brokerDesc = brokerDesc;
@@ -101,6 +110,7 @@ public class LoadLoadingTask extends LoadTask {
         this.execMemLimit = execMemLimit;
         this.strictMode = strictMode;
         this.isPartialUpdate = isPartialUpdate;
+        this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.txnId = txnId;
         this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL);
         this.retryTime = 2; // 2 times is enough
@@ -118,9 +128,13 @@ public class LoadLoadingTask extends LoadTask {
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
                      int fileNum, UserIdentity userInfo) throws UserException {
         this.loadId = loadId;
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
-                strictMode, isPartialUpdate, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
-                userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
+        List<NereidsBrokerFileGroup> brokerFileGroups = new ArrayList<>(fileGroups.size());
+        for (BrokerFileGroup fileGroup : fileGroups) {
+            brokerFileGroups.add(fileGroup.toNereidsBrokerFileGroup());
+        }
+        planner = new NereidsLoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc,
+                brokerFileGroups, strictMode, isPartialUpdate, partialUpdateNewKeyPolicy, timezone, timeoutS,
+                loadParallelism, sendBatchParallelism, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -166,6 +180,8 @@ public class LoadLoadingTask extends LoadTask {
         int timeoutS = Math.max((int) (leftTimeMs / 1000), 1);
         curCoordinator.setTimeout(timeoutS);
 
+        // NOTE: currently broker load not enter workload group's queue
+        // so we set tWorkloadGroup here directly.
         if (tWorkloadGroups != null) {
             curCoordinator.setTWorkloadGroups(tWorkloadGroups);
         }
@@ -220,7 +236,7 @@ public class LoadLoadingTask extends LoadTask {
         Env.getCurrentProgressManager().registerProgressSimple(String.valueOf(callback.getCallbackId()));
     }
 
-    void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+    public void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
         this.tWorkloadGroups = tWorkloadGroups;
     }
 

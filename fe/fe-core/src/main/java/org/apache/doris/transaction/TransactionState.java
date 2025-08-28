@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -277,11 +276,13 @@ public class TransactionState implements Writable {
     // this map should be set when load execution begin, so that when the txn commit, it will know
     // which tables and rollups it loaded.
     // tbl id -> (index ids)
+    @SerializedName(value = "loadedTblIndexes")
     private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
 
     /**
      * the value is the num delta rows of all replicas in each tablet
      */
+    @SerializedName(value = "deltaRows")
     private final Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
 
     private String errorLogUrl = null;
@@ -755,51 +756,8 @@ public class TransactionState implements Writable {
     }
 
     public static TransactionState read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_132) {
-            TransactionState transactionState = new TransactionState();
-            transactionState.readFields(in);
-            return transactionState;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, TransactionState.class);
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        transactionId = in.readLong();
-        label = Text.readString(in);
-        dbId = in.readLong();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            TableCommitInfo info = TableCommitInfo.read(in);
-            idToTableCommitInfos.put(info.getTableId(), info);
-        }
-        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), 0, Text.readString(in), 0);
-        transactionStatus = TransactionStatus.valueOf(in.readInt());
-        sourceType = LoadJobSourceType.valueOf(in.readInt());
-        prepareTime = in.readLong();
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_107) {
-            preCommitTime = in.readLong();
-        }
-        commitTime = in.readLong();
-        finishTime = in.readLong();
-        reason = Text.readString(in);
-        int errorReplicaNum = in.readInt();
-        for (int i = 0; i < errorReplicaNum; ++i) {
-            errorReplicas.add(in.readLong());
-        }
-
-        if (in.readBoolean()) {
-            txnCommitAttachment = TxnCommitAttachment.read(in);
-        }
-        callbackId = in.readLong();
-        timeoutMs = in.readLong();
-        tableIdList = Lists.newArrayList();
-        int tableListSize = in.readInt();
-        for (int i = 0; i < tableListSize; i++) {
-            tableIdList.add(in.readLong());
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, TransactionState.class);
     }
 
     public Map<Long, Map<Long, Long>> getTableIdToTabletDeltaRows() {

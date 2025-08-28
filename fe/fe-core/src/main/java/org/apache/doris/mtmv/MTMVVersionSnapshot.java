@@ -36,6 +36,11 @@ public class MTMVVersionSnapshot implements MTMVSnapshotIf {
         this.id = id;
     }
 
+    @Override
+    public long getSnapshotVersion() {
+        return version;
+    }
+
     public long getId() {
         return id;
     }

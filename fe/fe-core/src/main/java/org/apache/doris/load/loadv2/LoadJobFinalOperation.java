@@ -17,20 +17,14 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.common.Config;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
-import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.reflect.TypeToken;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -125,29 +119,6 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
 
     public Map<String, String> getProperties() {
         return properties;
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        id = in.readLong();
-        loadingStatus.readFields(in);
-        progress = in.readInt();
-        loadStartTimestamp = in.readLong();
-        finishTimestamp = in.readLong();
-        jobState = JobState.valueOf(Text.readString(in));
-        if (in.readBoolean()) {
-            failMsg = new FailMsg();
-            failMsg.readFields(in);
-        }
-        if (Config.isCloudMode()) {
-            copyId = Text.readString(in);
-            loadFilePaths = Text.readString(in);
-            String property = Text.readString(in);
-            properties = property.isEmpty() ? new HashMap<>()
-                    : (new Gson().fromJson(property, new TypeToken<Map<String, String>>() {
-                    }.getType()));
-        }
     }
 
     @Override

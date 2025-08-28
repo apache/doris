@@ -52,7 +52,7 @@ public:
         return _do_execute(context, block, result_column_id, arguments);
     }
 
-    Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
+    Status execute_runtime_filter(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
                                   ColumnNumbers& args) override {
         return _do_execute(context, block, result_column_id, args);
@@ -74,7 +74,7 @@ private:
         }
 
         uint32_t num_columns_without_result = block->columns();
-        auto res_data_column = ColumnVector<UInt8>::create(block->rows());
+        auto res_data_column = ColumnUInt8::create(block->rows());
         ColumnPtr argument_column =
                 block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         size_t sz = argument_column->size();

@@ -22,6 +22,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
 #include <snappy.h>
 #include <streamvbyte.h>
 #include <sys/types.h>
@@ -47,6 +48,7 @@
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -58,7 +60,7 @@ class SipHash;
 namespace doris::segment_v2 {
 enum CompressionTypePB : int;
 } // namespace doris::segment_v2
-
+#include "common/compile_check_begin.h"
 namespace doris::vectorized {
 template <typename T>
 void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
@@ -373,6 +375,37 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
     }
 }
 
+Status Block::check_type_and_column() const {
+#ifndef NDEBUG
+    for (const auto& elem : data) {
+        if (!elem.column) {
+            continue;
+        }
+        if (!elem.type) {
+            continue;
+        }
+
+        // ColumnNothing is a special column type, it is used to represent a column that
+        // is not materialized, so we don't need to check it.
+        if (check_and_get_column<ColumnNothing>(elem.column.get())) {
+            continue;
+        }
+
+        const auto& type = elem.type;
+        const auto& column = elem.column;
+
+        auto st = type->check_column(*column);
+        if (!st.ok()) {
+            return Status::InternalError(
+                    "Column {} in block is not compatible with its column type :{}, data type :{}, "
+                    "error: {}",
+                    elem.name, column->get_name(), type->get_name(), st.msg());
+        }
+    }
+#endif
+    return Status::OK();
+}
+
 size_t Block::rows() const {
     for (const auto& elem : data) {
         if (elem.column) {
@@ -381,19 +414,6 @@ size_t Block::rows() const {
     }
 
     return 0;
-}
-
-std::string Block::each_col_size() const {
-    std::string ss;
-    for (const auto& elem : data) {
-        if (elem.column) {
-            ss += elem.column->size();
-            ss += " | ";
-        } else {
-            ss += "-1 | ";
-        }
-    }
-    return ss;
 }
 
 void Block::set_num_rows(size_t length) {
@@ -501,10 +521,10 @@ std::string Block::dump_types() const {
 
 std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mismatch) const {
     std::vector<std::string> headers;
-    std::vector<size_t> headers_size;
+    std::vector<int> headers_size;
     for (const auto& it : data) {
         std::string s = fmt::format("{}({})", it.name, it.type->get_name());
-        headers_size.push_back(s.size() > 15 ? s.size() : 15);
+        headers_size.push_back(s.size() > 15 ? (int)s.size() : 15);
         headers.emplace_back(s);
     }
 
@@ -629,6 +649,7 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
+        DCHECK(data[i].type);
         columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
                                     : data[i].type->create_column();
     }
@@ -645,16 +666,6 @@ void Block::set_columns(MutableColumns&& columns) {
     }
 }
 
-void Block::set_columns(const Columns& columns) {
-    DCHECK_GE(columns.size(), data.size())
-            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
-                           columns.size(), data.size());
-    size_t num_columns = data.size();
-    for (size_t i = 0; i < num_columns; ++i) {
-        data[i].column = columns[i];
-    }
-}
-
 Block Block::clone_with_columns(MutableColumns&& columns) const {
     Block res;
 
@@ -663,24 +674,6 @@ Block Block::clone_with_columns(MutableColumns&& columns) const {
         res.insert({std::move(columns[i]), data[i].type, data[i].name});
     }
 
-    return res;
-}
-
-Block Block::clone_with_columns(const Columns& columns) const {
-    Block res;
-
-    size_t num_columns = data.size();
-
-    if (num_columns != columns.size()) {
-        throw Exception(Status::FatalError(
-                "Cannot clone block with columns because block has {} columns, but {} columns "
-                "given.",
-                num_columns, columns.size()));
-    }
-
-    for (size_t i = 0; i < num_columns; ++i) {
-        res.insert({columns[i], data[i].type, data[i].name});
-    }
     return res;
 }
 
@@ -699,16 +692,6 @@ Block Block::clone_without_columns(const std::vector<int>* column_offset) const 
         }
     }
     return res;
-}
-
-Block Block::sort_columns() const {
-    Block sorted_block;
-
-    for (const auto& name : index_by_name) {
-        sorted_block.insert(data[name.second]);
-    }
-
-    return sorted_block;
 }
 
 const ColumnsWithTypeAndName& Block::get_columns_with_type_and_name() const {
@@ -743,20 +726,12 @@ void Block::clear() {
     row_same_bit.clear();
 }
 
-std::string Block::print_use_count() {
-    std::stringstream ss;
-    for (auto& d : data) {
-        ss << ", [" << d.name << ", " << d.column->use_count() << "]";
-    }
-    return ss.str();
-}
-
 void Block::clear_column_data(int64_t column_size) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
     if (column_size != -1 and data.size() > column_size) {
-        for (int i = data.size() - 1; i >= column_size; --i) {
+        for (int64_t i = data.size() - 1; i >= column_size; --i) {
             erase(i);
         }
     }
@@ -764,7 +739,6 @@ void Block::clear_column_data(int64_t column_size) noexcept {
         if (d.column) {
             // Temporarily disable reference count check because a column might be referenced multiple times within a block.
             // Queries like this: `select c, c from t1;`
-            // DCHECK_EQ(d.column->use_count(), 1) << " " << print_use_count();
             (*std::move(d.column)).assume_mutable()->clear();
         }
     }
@@ -878,15 +852,6 @@ void Block::filter_block_internal(Block* block, const IColumn::Filter& filter) {
     }
 }
 
-Block Block::copy_block(const std::vector<int>& column_offset) const {
-    ColumnsWithTypeAndName columns_with_type_and_name;
-    for (auto offset : column_offset) {
-        DCHECK(offset < data.size());
-        columns_with_type_and_name.emplace_back(data[offset]);
-    }
-    return columns_with_type_and_name;
-}
-
 Status Block::append_to_block_by_selector(MutableBlock* dst,
                                           const IColumn::Selector& selector) const {
     RETURN_IF_CATCH_EXCEPTION({
@@ -931,8 +896,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         }
     } else {
         const IColumn::Filter& filter =
-                assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
-                        .get_data();
+                assert_cast<const doris::vectorized::ColumnUInt8&>(*filter_column).get_data();
         RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     }
 
@@ -1059,15 +1023,6 @@ void MutableBlock::swap(MutableBlock& another) noexcept {
     index_by_name.swap(another.index_by_name);
 }
 
-void MutableBlock::swap(MutableBlock&& another) noexcept {
-    SCOPED_SKIP_MEMORY_CHECK();
-    clear();
-    _columns = std::move(another._columns);
-    _data_types = std::move(another._data_types);
-    _names = std::move(another._names);
-    index_by_name = std::move(another.index_by_name);
-}
-
 void MutableBlock::add_row(const Block* block, int row) {
     const auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
@@ -1157,7 +1112,7 @@ void MutableBlock::erase(const String& name) {
 }
 
 Block MutableBlock::to_block(int start_column) {
-    return to_block(start_column, _columns.size());
+    return to_block(start_column, (int)_columns.size());
 }
 
 Block MutableBlock::to_block(int start_column, int end_column) {
@@ -1171,10 +1126,10 @@ Block MutableBlock::to_block(int start_column, int end_column) {
 
 std::string MutableBlock::dump_data(size_t row_limit) const {
     std::vector<std::string> headers;
-    std::vector<size_t> headers_size;
+    std::vector<int> headers_size;
     for (size_t i = 0; i < columns(); ++i) {
         std::string s = _data_types[i]->get_name();
-        headers_size.push_back(s.size() > 15 ? s.size() : 15);
+        headers_size.push_back(s.size() > 15 ? (int)s.size() : 15);
         headers.emplace_back(s);
     }
 
@@ -1266,15 +1221,6 @@ void MutableBlock::clear_column_data() noexcept {
     }
 }
 
-void MutableBlock::reset_column_data() noexcept {
-    SCOPED_SKIP_MEMORY_CHECK();
-    _columns.clear();
-    for (int i = 0; i < _names.size(); i++) {
-        _columns.emplace_back(_data_types[i]->create_column());
-        index_by_name[_names[i]] = i;
-    }
-}
-
 void MutableBlock::initialize_index_by_name() {
     for (size_t i = 0, size = _names.size(); i < size; ++i) {
         index_by_name[_names[i]] = i;
@@ -1305,5 +1251,5 @@ std::string MutableBlock::dump_names() const {
     }
     return out;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -26,17 +26,12 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ListUtil;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -63,17 +58,6 @@ public class ListPartitionInfo extends PartitionInfo {
         if (exprs != null) {
             this.partitionExprs.addAll(exprs);
         }
-    }
-
-    @Deprecated
-    public static PartitionInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), ListPartitionInfo.class);
-        }
-
-        PartitionInfo partitionInfo = new ListPartitionInfo();
-        partitionInfo.readFields(in);
-        return partitionInfo;
     }
 
     @Override
@@ -145,33 +129,6 @@ public class ListPartitionInfo extends PartitionInfo {
         ListUtil.checkListsConflict(list1, list2);
     }
 
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        int counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            Column column = Column.read(in);
-            partitionColumns.add(column);
-        }
-
-        this.isMultiColumnPartition = partitionColumns.size() > 1;
-
-        counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            long partitionId = in.readLong();
-            ListPartitionItem partitionItem = ListPartitionItem.read(in);
-            idToItem.put(partitionId, partitionItem);
-        }
-
-        counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            long partitionId = in.readLong();
-            ListPartitionItem partitionItem = ListPartitionItem.read(in);
-            idToTempItem.put(partitionId, partitionItem);
-        }
-    }
-
     public static void checkPartitionColumn(Column column) throws AnalysisException {
         PrimitiveType type = column.getDataType();
         if (!type.isFixedPointType() && !type.isDateType()
@@ -207,21 +164,27 @@ public class ListPartitionInfo extends PartitionInfo {
             String partitionName = partition.getName();
             List<PartitionKey> partitionKeys = entry.getValue().getItems();
 
-            sb.append("PARTITION ").append(partitionName).append(" VALUES IN ");
-            sb.append("(");
+            sb.append("PARTITION ").append(partitionName);
+            StringBuilder partitionKeysBuilder = new StringBuilder();
             int idxInternal = 0;
             for (PartitionKey partitionKey : partitionKeys) {
                 String partitionKeyStr = partitionKey.toSql();
-                if (!isMultiColumnPartition) {
+                if (!isMultiColumnPartition && !partitionKeyStr.isEmpty()) {
                     partitionKeyStr = partitionKeyStr.substring(1, partitionKeyStr.length() - 1);
                 }
-                sb.append(partitionKeyStr);
+                partitionKeysBuilder.append(partitionKeyStr);
                 if (partitionKeys.size() > 1 && idxInternal != partitionKeys.size() - 1) {
-                    sb.append(",");
+                    partitionKeysBuilder.append(",");
                 }
                 idxInternal++;
             }
-            sb.append(")");
+
+            // length == 0 means it is a default partition
+            if (partitionKeysBuilder.length() > 0) {
+                sb.append(" VALUES IN ").append("(");
+                sb.append(partitionKeysBuilder.toString());
+                sb.append(")");
+            }
 
             if (!"".equals(getStoragePolicy(entry.getKey()))) {
                 sb.append("(\"storage_policy\" = \"").append(getStoragePolicy(entry.getKey())).append("\")");

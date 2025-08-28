@@ -36,18 +36,13 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.load.DppConfig;
-import org.apache.doris.load.Load;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 
-import com.google.common.collect.Maps;
 import org.junit.Assert;
 
 import java.lang.reflect.Method;
@@ -66,8 +61,14 @@ public class UnitTestUtil {
 
     public static Database createDb(long dbId, long tableId, long partitionId, long indexId,
                                     long tabletId, long backendId, long version) {
-        // Catalog.getCurrentInvertedIndex().clear();
+        Database db = new Database(dbId, DB_NAME);
+        createTable(db, tableId, TABLE_NAME, partitionId, indexId, tabletId, backendId, version);
 
+        return db;
+    }
+
+    public static OlapTable createTable(Database db, long tableId, String tableName, long partitionId, long indexId,
+                                        long tabletId, long backendId, long version) {
         // replica
         long replicaId = 0;
         Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, 0);
@@ -79,7 +80,7 @@ public class UnitTestUtil {
 
         // index
         MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0, TStorageMedium.HDD);
+        TabletMeta tabletMeta = new TabletMeta(db.getId(), tableId, partitionId, indexId, 0, TStorageMedium.HDD);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);
@@ -115,17 +116,15 @@ public class UnitTestUtil {
         partitionInfo.setIsInMemory(partitionId, false);
         partitionInfo.setIsMutable(partitionId, true);
         partitionInfo.setTabletType(partitionId, TTabletType.TABLET_TYPE_DISK);
-        OlapTable table = new OlapTable(tableId, TABLE_NAME, columns,
+        OlapTable table = new OlapTable(tableId, tableName, columns,
                                         KeysType.AGG_KEYS, partitionInfo, distributionInfo);
         Deencapsulation.setField(table, "baseIndexId", indexId);
         table.addPartition(partition);
-        table.setIndexMeta(indexId, TABLE_NAME, columns, 0, SCHEMA_HASH, (short) 1, TStorageType.COLUMN,
+        table.setIndexMeta(indexId, tableName, columns, 0, SCHEMA_HASH, (short) 1, TStorageType.COLUMN,
                 KeysType.AGG_KEYS);
 
-        // db
-        Database db = new Database(dbId, DB_NAME);
         db.registerTable(table);
-        return db;
+        return table;
     }
 
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {
@@ -166,20 +165,4 @@ public class UnitTestUtil {
         }
         return innerClass;
     }
-
-    public static void initDppConfig() {
-        Map<String, String> defaultConfigs = Maps.newHashMap();
-        defaultConfigs.put("hadoop_palo_path", "/user/palo2");
-        defaultConfigs.put("hadoop_http_port", "1234");
-        defaultConfigs.put("hadoop_configs",
-                "mapred.job.tracker=host:111;fs.default.name=hdfs://host:112;hadoop.job.ugi=user,password");
-
-        try {
-            Load.dppDefaultConfig = DppConfig.create(defaultConfigs);
-            Load.clusterToDppConfig.put(Config.dpp_default_cluster, Load.dppDefaultConfig.getCopiedDppConfig());
-        } catch (LoadException e) {
-            e.printStackTrace();
-        }
-    }
-
 }

@@ -49,6 +49,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
@@ -60,11 +61,10 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_variant.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -108,250 +108,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
     }
 
     if ((is_nullable || col_desc.is_nullable()) && nested) {
-        return make_nullable(nested);
-    }
-    return nested;
-}
-
-DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bool is_nullable) {
-    DataTypePtr nested = nullptr;
-    DataTypes subTypes;
-    switch (col_desc.type) {
-    case TYPE_BOOLEAN:
-        nested = std::make_shared<vectorized::DataTypeUInt8>();
-        break;
-    case TYPE_TINYINT:
-        nested = std::make_shared<vectorized::DataTypeInt8>();
-        break;
-    case TYPE_SMALLINT:
-        nested = std::make_shared<vectorized::DataTypeInt16>();
-        break;
-    case TYPE_INT:
-        nested = std::make_shared<vectorized::DataTypeInt32>();
-        break;
-    case TYPE_FLOAT:
-        nested = std::make_shared<vectorized::DataTypeFloat32>();
-        break;
-    case TYPE_BIGINT:
-        nested = std::make_shared<vectorized::DataTypeInt64>();
-        break;
-    case TYPE_LARGEINT:
-        nested = std::make_shared<vectorized::DataTypeInt128>();
-        break;
-    case TYPE_IPV4:
-        nested = std::make_shared<vectorized::DataTypeIPv4>();
-        break;
-    case TYPE_IPV6:
-        nested = std::make_shared<vectorized::DataTypeIPv6>();
-        break;
-    case TYPE_DATE:
-        nested = std::make_shared<vectorized::DataTypeDate>();
-        break;
-    case TYPE_DATEV2:
-        nested = std::make_shared<vectorized::DataTypeDateV2>();
-        break;
-    case TYPE_DATETIMEV2:
-        nested = vectorized::create_datetimev2(col_desc.scale);
-        break;
-    case TYPE_DATETIME:
-        nested = std::make_shared<vectorized::DataTypeDateTime>();
-        break;
-    case TYPE_TIMEV2:
-        nested = std::make_shared<vectorized::DataTypeTimeV2>(col_desc.scale);
-        break;
-    case TYPE_DOUBLE:
-        nested = std::make_shared<vectorized::DataTypeFloat64>();
-        break;
-    case TYPE_VARIANT:
-        nested = std::make_shared<vectorized::DataTypeObject>("", true);
-        break;
-    case TYPE_STRING:
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_BINARY:
-    case TYPE_LAMBDA_FUNCTION:
-        nested = std::make_shared<vectorized::DataTypeString>();
-        break;
-    case TYPE_AGG_STATE:
-        for (size_t i = 0; i < col_desc.children.size(); i++) {
-            subTypes.push_back(create_data_type(col_desc.children[i], col_desc.contains_nulls[i]));
-        }
-        nested = std::make_shared<vectorized::DataTypeAggState>(
-                subTypes, col_desc.result_is_nullable, col_desc.function_name,
-                col_desc.be_exec_version);
-        break;
-    case TYPE_JSONB:
-        nested = std::make_shared<vectorized::DataTypeJsonb>();
-        break;
-    case TYPE_HLL:
-        nested = std::make_shared<vectorized::DataTypeHLL>();
-        break;
-    case TYPE_OBJECT:
-        nested = std::make_shared<vectorized::DataTypeBitMap>();
-        break;
-    case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
-                27, 9, col_desc.precision, col_desc.scale);
-        break;
-    case TYPE_QUANTILE_STATE:
-        nested = std::make_shared<vectorized::DataTypeQuantileState>();
-        break;
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256:
-        nested = vectorized::create_decimal(col_desc.precision, col_desc.scale, false);
-        break;
-    // Just Mock A NULL Type in Vec Exec Engine
-    case TYPE_NULL:
-        nested = std::make_shared<vectorized::DataTypeUInt8>();
-        const_cast<vectorized::DataTypeUInt8&>(
-                reinterpret_cast<const vectorized::DataTypeUInt8&>(*nested))
-                .set_null_literal(true);
-        break;
-    case TYPE_ARRAY:
-        DCHECK(col_desc.children.size() == 1);
-        nested = std::make_shared<vectorized::DataTypeArray>(
-                create_data_type(col_desc.children[0], col_desc.contains_nulls[0]));
-        break;
-    case TYPE_MAP:
-        DCHECK(col_desc.children.size() == 2);
-        DCHECK_EQ(col_desc.contains_nulls.size(), 2);
-        nested = std::make_shared<vectorized::DataTypeMap>(
-                create_data_type(col_desc.children[0], col_desc.contains_nulls[0]),
-                create_data_type(col_desc.children[1], col_desc.contains_nulls[1]));
-        break;
-    case TYPE_STRUCT: {
-        DCHECK(col_desc.children.size() >= 1);
-        size_t child_size = col_desc.children.size();
-        DCHECK_EQ(col_desc.field_names.size(), child_size);
-        DataTypes dataTypes;
-        Strings names;
-        dataTypes.reserve(child_size);
-        names.reserve(child_size);
-        for (size_t i = 0; i < child_size; i++) {
-            dataTypes.push_back(create_data_type(col_desc.children[i], col_desc.contains_nulls[i]));
-            names.push_back(col_desc.field_names[i]);
-        }
-        nested = std::make_shared<DataTypeStruct>(dataTypes, names);
-        break;
-    }
-    case INVALID_TYPE:
-    default:
-        throw Exception(ErrorCode::INTERNAL_ERROR, "invalid PrimitiveType: {}", (int)col_desc.type);
-        break;
-    }
-
-    if (nested && is_nullable) {
-        return make_nullable(nested);
-    }
-    return nested;
-}
-
-DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool is_nullable) {
-    DataTypePtr nested = nullptr;
-    switch (type_index) {
-    case TypeIndex::UInt8:
-        nested = std::make_shared<vectorized::DataTypeUInt8>();
-        break;
-    case TypeIndex::Int8:
-        nested = std::make_shared<vectorized::DataTypeInt8>();
-        break;
-    case TypeIndex::UInt16:
-        nested = std::make_shared<vectorized::DataTypeUInt16>();
-        break;
-    case TypeIndex::Int16:
-        nested = std::make_shared<vectorized::DataTypeInt16>();
-        break;
-    case TypeIndex::UInt32:
-        nested = std::make_shared<vectorized::DataTypeUInt32>();
-        break;
-    case TypeIndex::Int32:
-        nested = std::make_shared<vectorized::DataTypeInt32>();
-        break;
-    case TypeIndex::UInt64:
-        nested = std::make_shared<vectorized::DataTypeUInt64>();
-        break;
-    case TypeIndex::Int64:
-        nested = std::make_shared<vectorized::DataTypeInt64>();
-        break;
-    case TypeIndex::Int128:
-        nested = std::make_shared<vectorized::DataTypeInt128>();
-        break;
-    case TypeIndex::IPv4:
-        nested = std::make_shared<vectorized::DataTypeIPv4>();
-        break;
-    case TypeIndex::IPv6:
-        nested = std::make_shared<vectorized::DataTypeIPv6>();
-        break;
-    case TypeIndex::Float32:
-        nested = std::make_shared<vectorized::DataTypeFloat32>();
-        break;
-    case TypeIndex::Float64:
-        nested = std::make_shared<vectorized::DataTypeFloat64>();
-        break;
-    case TypeIndex::Date:
-        nested = std::make_shared<vectorized::DataTypeDate>();
-        break;
-    case TypeIndex::DateV2:
-        nested = std::make_shared<vectorized::DataTypeDateV2>();
-        break;
-    case TypeIndex::DateTimeV2:
-        nested = std::make_shared<DataTypeDateTimeV2>();
-        break;
-    case TypeIndex::DateTime:
-        nested = std::make_shared<vectorized::DataTypeDateTime>();
-        break;
-    case TypeIndex::String:
-        nested = std::make_shared<vectorized::DataTypeString>();
-        break;
-    case TypeIndex::VARIANT:
-        nested = std::make_shared<vectorized::DataTypeObject>("", true);
-        break;
-    case TypeIndex::Decimal32:
-        nested = std::make_shared<DataTypeDecimal<Decimal32>>(BeConsts::MAX_DECIMAL32_PRECISION, 0);
-        break;
-    case TypeIndex::Decimal64:
-        nested = std::make_shared<DataTypeDecimal<Decimal64>>(BeConsts::MAX_DECIMAL64_PRECISION, 0);
-        break;
-    case TypeIndex::Decimal128V2:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V2>>(BeConsts::MAX_DECIMALV2_PRECISION,
-                                                                 0);
-        break;
-    case TypeIndex::Decimal128V3:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V3>>(BeConsts::MAX_DECIMAL128_PRECISION,
-                                                                 0);
-        break;
-    case TypeIndex::Decimal256:
-        nested = std::make_shared<DataTypeDecimal<Decimal256>>(BeConsts::MAX_DECIMAL256_PRECISION,
-                                                               0);
-        break;
-    case TypeIndex::JSONB:
-        nested = std::make_shared<vectorized::DataTypeJsonb>();
-        break;
-    case TypeIndex::Nothing:
-        nested = std::make_shared<vectorized::DataTypeNothing>();
-        break;
-    case TypeIndex::BitMap:
-        nested = std::make_shared<vectorized::DataTypeBitMap>();
-        break;
-    case TypeIndex::HLL:
-        nested = std::make_shared<vectorized::DataTypeHLL>();
-        break;
-    case TypeIndex::QuantileState:
-        nested = std::make_shared<vectorized::DataTypeQuantileState>();
-        break;
-    case TypeIndex::TimeV2:
-    case TypeIndex::Time:
-        nested = std::make_shared<vectorized::DataTypeTimeV2>();
-        break;
-    default:
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "invalid typeindex: {}",
-                               getTypeName(type_index));
-        break;
-    }
-
-    if (nested && is_nullable) {
         return make_nullable(nested);
     }
     return nested;
@@ -404,12 +160,16 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeFloat64>();
         break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
+        result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_CHAR);
+        break;
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+        result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_VARCHAR);
+        break;
     case FieldType::OLAP_FIELD_TYPE_STRING:
-        result = std::make_shared<vectorized::DataTypeString>();
+        result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_STRING);
         break;
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
-        result = std::make_shared<vectorized::DataTypeObject>("", true);
+        result = std::make_shared<vectorized::DataTypeVariant>();
         break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
@@ -417,12 +177,11 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_HLL:
         result = std::make_shared<vectorized::DataTypeHLL>();
         break;
-    case FieldType::OLAP_FIELD_TYPE_OBJECT:
+    case FieldType::OLAP_FIELD_TYPE_BITMAP:
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
-        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
-                27, 9, precision, scale);
+        result = std::make_shared<vectorized::DataTypeDecimalV2>(27, 9, precision, scale);
         break;
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         result = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -445,18 +204,6 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     switch (pcolumn.type()) {
     case PGenericType::UINT8:
         nested = std::make_shared<DataTypeUInt8>();
-        break;
-    case PGenericType::UINT16:
-        nested = std::make_shared<DataTypeUInt16>();
-        break;
-    case PGenericType::UINT32:
-        nested = std::make_shared<DataTypeUInt32>();
-        break;
-    case PGenericType::UINT64:
-        nested = std::make_shared<DataTypeUInt64>();
-        break;
-    case PGenericType::UINT128:
-        nested = std::make_shared<DataTypeUInt128>();
         break;
     case PGenericType::INT8:
         nested = std::make_shared<DataTypeInt8>();
@@ -489,7 +236,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeString>();
         break;
     case PGenericType::VARIANT:
-        nested = std::make_shared<DataTypeObject>("", true);
+        nested = std::make_shared<DataTypeVariant>();
         break;
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();
@@ -507,24 +254,24 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeDateTime>();
         break;
     case PGenericType::DECIMAL32:
-        nested = std::make_shared<DataTypeDecimal<Decimal32>>(pcolumn.decimal_param().precision(),
-                                                              pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal32>(pcolumn.decimal_param().precision(),
+                                                     pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL64:
-        nested = std::make_shared<DataTypeDecimal<Decimal64>>(pcolumn.decimal_param().precision(),
-                                                              pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal64>(pcolumn.decimal_param().precision(),
+                                                     pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V2>>(
-                pcolumn.decimal_param().precision(), pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimalV2>(pcolumn.decimal_param().precision(),
+                                                     pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128I:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V3>>(
-                pcolumn.decimal_param().precision(), pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal128>(pcolumn.decimal_param().precision(),
+                                                      pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL256:
-        nested = std::make_shared<DataTypeDecimal<Decimal256>>(pcolumn.decimal_param().precision(),
-                                                               pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal256>(pcolumn.decimal_param().precision(),
+                                                      pcolumn.decimal_param().scale());
         break;
     case PGenericType::BITMAP:
         nested = std::make_shared<DataTypeBitMap>();
@@ -632,6 +379,337 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
         return make_nullable(nested);
     }
     return nested;
+}
+
+DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type, bool is_nullable,
+                                              int precision, int scale, int len) {
+    DataTypePtr nested = nullptr;
+    DataTypes subTypes;
+    switch (primitive_type) {
+    case TYPE_BOOLEAN:
+        nested = std::make_shared<vectorized::DataTypeUInt8>();
+        break;
+    case TYPE_TINYINT:
+        nested = std::make_shared<vectorized::DataTypeInt8>();
+        break;
+    case TYPE_SMALLINT:
+        nested = std::make_shared<vectorized::DataTypeInt16>();
+        break;
+    case TYPE_INT:
+        nested = std::make_shared<vectorized::DataTypeInt32>();
+        break;
+    case TYPE_FLOAT:
+        nested = std::make_shared<vectorized::DataTypeFloat32>();
+        break;
+    case TYPE_BIGINT:
+        nested = std::make_shared<vectorized::DataTypeInt64>();
+        break;
+    case TYPE_LARGEINT:
+        nested = std::make_shared<vectorized::DataTypeInt128>();
+        break;
+    case TYPE_IPV4:
+        nested = std::make_shared<vectorized::DataTypeIPv4>();
+        break;
+    case TYPE_IPV6:
+        nested = std::make_shared<vectorized::DataTypeIPv6>();
+        break;
+    case TYPE_DATE:
+        nested = std::make_shared<vectorized::DataTypeDate>();
+        break;
+    case TYPE_DATEV2:
+        nested = std::make_shared<vectorized::DataTypeDateV2>();
+        break;
+    case TYPE_DATETIMEV2:
+        nested = vectorized::create_datetimev2(scale);
+        break;
+    case TYPE_DATETIME:
+        nested = std::make_shared<vectorized::DataTypeDateTime>();
+        break;
+    case TYPE_TIMEV2:
+        nested = std::make_shared<vectorized::DataTypeTimeV2>(scale);
+        break;
+    case TYPE_DOUBLE:
+        nested = std::make_shared<vectorized::DataTypeFloat64>();
+        break;
+    case TYPE_VARIANT:
+        nested = std::make_shared<vectorized::DataTypeVariant>();
+        break;
+    case TYPE_STRING:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+        nested = std::make_shared<vectorized::DataTypeString>(len, primitive_type);
+        break;
+    case TYPE_BINARY:
+    case TYPE_LAMBDA_FUNCTION:
+        nested = std::make_shared<vectorized::DataTypeString>(len, TYPE_STRING);
+        break;
+    case TYPE_JSONB:
+        nested = std::make_shared<vectorized::DataTypeJsonb>();
+        break;
+    case TYPE_HLL:
+        nested = std::make_shared<vectorized::DataTypeHLL>();
+        break;
+    case TYPE_BITMAP:
+        nested = std::make_shared<vectorized::DataTypeBitMap>();
+        break;
+    case TYPE_DECIMALV2:
+        nested = std::make_shared<vectorized::DataTypeDecimalV2>(
+                precision > 0 ? precision : 0, precision > 0 ? scale : 0, precision, scale);
+        break;
+    case TYPE_QUANTILE_STATE:
+        nested = std::make_shared<vectorized::DataTypeQuantileState>();
+        break;
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256:
+        nested = vectorized::create_decimal(precision, scale, false);
+        break;
+    // Just Mock A NULL Type in Vec Exec Engine
+    case TYPE_NULL:
+        nested = std::make_shared<vectorized::DataTypeUInt8>();
+        const_cast<vectorized::DataTypeUInt8&>(
+                reinterpret_cast<const vectorized::DataTypeUInt8&>(*nested))
+                .set_null_literal(true);
+        break;
+    case TYPE_AGG_STATE:
+    case TYPE_ARRAY:
+    case TYPE_MAP:
+    case TYPE_STRUCT: {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Nested type should not reach here {}",
+                        type_to_string(primitive_type));
+        break;
+    }
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "invalid PrimitiveType: {}",
+                        type_to_string(primitive_type));
+        break;
+    }
+
+    if (nested && is_nullable) {
+        return make_nullable(nested);
+    }
+    return nested;
+}
+
+DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& types, int* idx,
+                                              bool is_nullable) {
+    DCHECK_GE(*idx, 0);
+    DCHECK_LT(*idx, types.size());
+    DataTypePtr nested = nullptr;
+    const TTypeNode& node = types[*idx];
+    switch (node.type) {
+    case TTypeNodeType::SCALAR: {
+        DCHECK(node.__isset.scalar_type);
+        const TScalarType& scalar_type = node.scalar_type;
+        return create_data_type(thrift_to_type(scalar_type.type), is_nullable,
+                                scalar_type.__isset.precision ? scalar_type.precision : 0,
+                                scalar_type.__isset.scale ? scalar_type.scale : 0,
+                                scalar_type.__isset.len ? scalar_type.len : -1);
+    }
+    case TTypeNodeType::ARRAY: {
+        DCHECK(!node.__isset.scalar_type);
+        DCHECK_LT(*idx, types.size() - 1);
+        DCHECK(node.__isset.contains_nulls && node.contains_nulls.size() == 1)
+                << node.__isset.contains_nulls
+                << " size: " << (node.__isset.contains_nulls ? node.contains_nulls.size() : 0);
+        ++(*idx);
+        nested = std::make_shared<vectorized::DataTypeArray>(
+                create_data_type(types, idx, node.contains_nulls[0]));
+        break;
+    }
+    case TTypeNodeType::STRUCT: {
+        DCHECK(!node.__isset.scalar_type);
+        DCHECK_LT(*idx, types.size() - 1);
+        DCHECK(!node.__isset.contains_nulls);
+        DCHECK(node.__isset.struct_fields);
+        DCHECK_GE(node.struct_fields.size(), 1);
+        DataTypes data_types;
+        Strings names;
+        data_types.reserve(node.struct_fields.size());
+        names.reserve(node.struct_fields.size());
+        for (size_t i = 0; i < node.struct_fields.size(); i++) {
+            ++(*idx);
+            data_types.push_back(create_data_type(types, idx, node.struct_fields[i].contains_null));
+            names.push_back(node.struct_fields[i].name);
+        }
+        nested = std::make_shared<DataTypeStruct>(data_types, names);
+        break;
+    }
+    case TTypeNodeType::MAP: {
+        DCHECK(!node.__isset.scalar_type);
+        DCHECK_LT(*idx, types.size() - 2);
+        DCHECK_EQ(node.contains_nulls.size(), 2);
+        DataTypes data_types;
+        data_types.reserve(2);
+        for (size_t i = 0; i < 2; i++) {
+            ++(*idx);
+            data_types.push_back(create_data_type(types, idx, node.contains_nulls[i]));
+        }
+        nested = std::make_shared<vectorized::DataTypeMap>(data_types[0], data_types[1]);
+        break;
+    }
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "invalid PrimitiveType: {}", (int)node.type);
+        break;
+    }
+    if (nested && is_nullable) {
+        return make_nullable(nested);
+    }
+    return nested;
+}
+
+DataTypePtr DataTypeFactory::create_data_type(
+        const google::protobuf::RepeatedPtrField<PTypeNode>& types, int* idx, bool is_nullable) {
+    DCHECK_GE(*idx, 0);
+    DCHECK_LT(*idx, types.size());
+
+    const PTypeNode& node = types.Get(*idx);
+    DataTypePtr nested = nullptr;
+    switch (node.type()) {
+    case TTypeNodeType::SCALAR: {
+        DCHECK(node.has_scalar_type());
+        const PScalarType& scalar_type = node.scalar_type();
+        // FIXME(gabriel): LoadChannel will set nested type as scalar type by DataType::to_protobuf
+        auto primitive_type = thrift_to_type((TPrimitiveType::type)scalar_type.type());
+        if (primitive_type == TYPE_ARRAY) {
+            ++(*idx);
+            nested = std::make_shared<vectorized::DataTypeArray>(create_data_type(
+                    types, idx, node.has_contains_null() ? node.has_contains_null() : true));
+        } else if (primitive_type == TYPE_MAP) {
+            DataTypes data_types;
+            data_types.resize(2, nullptr);
+            for (size_t i = 0; i < 2; i++) {
+                ++(*idx);
+                data_types[i] = create_data_type(types, idx,
+                                                 node.contains_nulls_size() > 1
+                                                         ? node.contains_nulls(cast_set<int>(i))
+                                                         : true);
+            }
+            nested = std::make_shared<vectorized::DataTypeMap>(data_types[0], data_types[1]);
+        } else if (primitive_type == TYPE_STRUCT) {
+            DataTypes data_types;
+            Strings names;
+            data_types.reserve(node.struct_fields_size());
+            names.reserve(node.struct_fields_size());
+            for (size_t i = 0; i < node.struct_fields_size(); i++) {
+                const auto& field = node.struct_fields(cast_set<int>(i));
+                ++(*idx);
+                data_types.push_back(create_data_type(types, idx, field.contains_null()));
+                names.push_back(field.name());
+            }
+            nested = std::make_shared<DataTypeStruct>(data_types, names);
+        } else if (primitive_type == TYPE_AGG_STATE) {
+            // Do nothing
+            nested = std::make_shared<DataTypeAggState>();
+        } else if (primitive_type == TYPE_VARIANT) {
+            nested = std::make_shared<DataTypeVariant>();
+        } else {
+            return create_data_type(primitive_type, is_nullable,
+                                    scalar_type.has_precision() ? scalar_type.precision() : 0,
+                                    scalar_type.has_scale() ? scalar_type.scale() : 0);
+        }
+        break;
+    }
+    case TTypeNodeType::ARRAY: {
+        ++(*idx);
+        nested = std::make_shared<vectorized::DataTypeArray>(create_data_type(
+                types, idx, node.has_contains_null() ? node.has_contains_null() : true));
+        break;
+    }
+    case TTypeNodeType::MAP: {
+        DataTypes data_types;
+        data_types.reserve(2);
+        for (size_t i = 0; i < 2; i++) {
+            ++(*idx);
+            data_types.push_back(create_data_type(
+                    types, idx,
+                    node.contains_nulls_size() > 1 ? node.contains_nulls(cast_set<int>(i)) : true));
+        }
+        nested = std::make_shared<vectorized::DataTypeMap>(data_types[0], data_types[1]);
+        break;
+    }
+    case TTypeNodeType::STRUCT: {
+        DataTypes data_types;
+        Strings names;
+        data_types.reserve(node.struct_fields_size());
+        names.reserve(node.struct_fields_size());
+        for (size_t i = 0; i < node.struct_fields_size(); i++) {
+            const auto& field = node.struct_fields(cast_set<int>(i));
+            ++(*idx);
+            data_types.push_back(create_data_type(types, idx, field.contains_null()));
+            names.push_back(field.name());
+        }
+        nested = std::make_shared<DataTypeStruct>(data_types, names);
+        break;
+    }
+    case TTypeNodeType::VARIANT: {
+        nested = std::make_shared<DataTypeVariant>();
+        break;
+    }
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "invalid TTypeNodeType: {}", (int)node.type());
+    }
+    if (nested && is_nullable) {
+        return make_nullable(nested);
+    }
+    return nested;
+}
+
+DataTypePtr DataTypeFactory::create_data_type(const TTypeDesc& t) {
+    DataTypePtr nested = nullptr;
+
+    auto is_agg_state = false;
+    if (t.types[0].type == TTypeNodeType::SCALAR) {
+        DCHECK(t.types[0].__isset.scalar_type);
+        const TScalarType& scalar_type = t.types[0].scalar_type;
+        is_agg_state = thrift_to_type(scalar_type.type) == TYPE_AGG_STATE;
+    }
+    if (is_agg_state) {
+        DCHECK(t.__isset.sub_types);
+        DataTypes subTypes;
+        for (auto sub : t.sub_types) {
+            subTypes.push_back(create_data_type(sub, sub.is_nullable));
+        }
+        DCHECK(t.__isset.result_is_nullable);
+        DCHECK(t.__isset.function_name);
+        nested = std::make_shared<vectorized::DataTypeAggState>(subTypes, t.result_is_nullable,
+                                                                t.function_name, t.be_exec_version);
+        return t.is_nullable ? make_nullable(nested) : nested;
+    } else {
+        int idx = 0;
+        nested = create_data_type(t.types, &idx, t.is_nullable);
+        DCHECK_EQ(idx, t.types.size() - 1);
+        return nested;
+    }
+}
+
+DataTypePtr DataTypeFactory::create_data_type(const TTypeDesc& t, bool is_nullable) {
+    DataTypePtr nested = nullptr;
+
+    auto is_agg_state = false;
+    if (t.types[0].type == TTypeNodeType::SCALAR) {
+        DCHECK(t.types[0].__isset.scalar_type);
+        const TScalarType& scalar_type = t.types[0].scalar_type;
+        is_agg_state = thrift_to_type(scalar_type.type) == TYPE_AGG_STATE;
+    }
+    if (is_agg_state) {
+        DCHECK(t.__isset.sub_types);
+        DataTypes subTypes;
+        for (auto sub : t.sub_types) {
+            subTypes.push_back(create_data_type(sub, sub.is_nullable));
+        }
+        DCHECK(t.__isset.result_is_nullable);
+        DCHECK(t.__isset.function_name);
+        nested = std::make_shared<vectorized::DataTypeAggState>(subTypes, t.result_is_nullable,
+                                                                t.function_name, t.be_exec_version);
+        return is_nullable ? make_nullable(nested) : nested;
+    } else {
+        int idx = 0;
+        nested = create_data_type(t.types, &idx, is_nullable);
+        DCHECK_EQ(idx, t.types.size() - 1);
+        return nested;
+    }
 }
 
 } // namespace doris::vectorized

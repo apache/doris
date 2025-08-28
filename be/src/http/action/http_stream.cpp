@@ -244,9 +244,6 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     //      -> StreamLoadExecutor::execute_plan_fragment
     //      -> exec_plan_fragment
     // , SCOPED_ATTACH_TASK will be called.
-    // So, SCOPED_ATTACH_TASK cannot be used here because it does not allow nesting.
-    // If stream pipe needs to use ResourceContext in the future,
-    // maybe SCOPED_ATTACH_TASK should be allowed to support nesting?
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->stream_load_pipe_tracker());
 
     int64_t start_read_data_time = MonotonicNanos();
@@ -387,8 +384,8 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
         }
         ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
-
-    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
+    TPipelineFragmentParamsList mocked;
+    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
 }
 
 void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,

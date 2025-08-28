@@ -18,9 +18,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.NativeInsertStmt;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -36,6 +33,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -49,7 +48,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -123,8 +121,8 @@ public class GroupCommitPlanner {
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
                 .setTrimDoubleQuotes(true).setGroupCommitMode(groupCommit)
                 .setStrictMode(ConnectContext.get().getSessionVariable().enableInsertStrict);
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
-        StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
+        NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
+        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
         // TODO support pipeline
         TPipelineFragmentParams tRequest = planner.plan(streamLoadTask.getId());
@@ -159,6 +157,8 @@ public class GroupCommitPlanner {
                 .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
                 .build()).addAllData(rows)
                 .build();
+        LOG.info("query_id={}, rows={}, reuse group commit query_id={} ", DebugUtil.printId(ctx.queryId()),
+                rows.size(), DebugUtil.printId(loadId));
         Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
                 .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
         return future.get();
@@ -166,27 +166,6 @@ public class GroupCommitPlanner {
 
     public long getBackendId() {
         return backendId;
-    }
-
-    public List<InternalService.PDataRow> getRows(NativeInsertStmt stmt) throws UserException {
-        List<InternalService.PDataRow> rows = new ArrayList<>();
-        SelectStmt selectStmt = (SelectStmt) (stmt.getQueryStmt());
-        if (selectStmt.getValueList() != null) {
-            for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                rows.add(getOneRow(row));
-            }
-        } else {
-            List<Expr> exprList = new ArrayList<>();
-            for (Expr resultExpr : selectStmt.getResultExprs()) {
-                if (resultExpr instanceof SlotRef) {
-                    exprList.add(((SlotRef) resultExpr).getDesc().getSourceExprs().get(0));
-                } else {
-                    exprList.add(resultExpr);
-                }
-            }
-            rows.add(getOneRow(exprList));
-        }
-        return rows;
     }
 
     private static InternalService.PDataRow getOneRow(List<Expr> row) throws UserException {

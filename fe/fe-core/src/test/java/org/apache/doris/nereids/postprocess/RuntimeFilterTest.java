@@ -22,9 +22,23 @@ import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -33,6 +47,7 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -253,7 +268,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(1, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
-                Pair.of("expr_(c_custkey + 5)", "lo_custkey")));
+                Pair.of("expr_(cast(c_custkey as BIGINT) + 5)", "lo_custkey")));
     }
 
     @Test
@@ -344,4 +359,65 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(0, filters.size());
     }
 
+    @Test
+    public void testNotGenerateRfOnDanglingSlot() {
+        String sql = "select lo_custkey from lineorder union all select c_custkey from customer union all select p_partkey from part;";
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+
+        /* construct plan for
+         join (#18=p_partkey)
+            -->join()
+               -->project(null as #18, ...)
+                  -->lineorder
+               -->project(c_custkey#17)
+                  -->customer(output: c_custkey#17, c_name#18, ...)
+            -->project(p_partkey#25)
+               -->part
+
+         test purpose:
+         do not generate RF by "#18=p_partkey" and apply this rf on customer
+         */
+        PhysicalProject<Plan> projectCustomer = (PhysicalProject<Plan>) plan.child(0).child(1);
+        SlotReference cCustkey = (SlotReference) projectCustomer.getProjects().get(0);
+        PhysicalProject<Plan> projectPart = (PhysicalProject<Plan>) plan.child(0).child(2);
+        SlotReference pPartkey = (SlotReference) projectPart.getProjects().get(0);
+
+        PhysicalOlapScan lo = (PhysicalOlapScan) plan.child(0).child(0).child(0);
+        SlotReference loCustkey = (SlotReference) lo.getBaseOutputs().get(2);
+        SlotReference loPartkey = (SlotReference) lo.getBaseOutputs().get(3);
+        Alias nullAlias = new Alias(new ExprId(18), new NullLiteral(), ""); // expr#18 is used by c_name
+        List<NamedExpression> projList = new ArrayList<>();
+        projList.add(loCustkey);
+        projList.add(loPartkey);
+        projList.add(nullAlias);
+        PhysicalProject projLo = new PhysicalProject(projList, null, lo);
+
+        PhysicalHashJoin joinLoC = new PhysicalHashJoin(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(loCustkey, cCustkey)),
+                ImmutableList.of(),
+                new DistributeHint(DistributeType.NONE),
+                Optional.empty(),
+                null,
+                projLo,
+                projectCustomer
+                );
+        PhysicalHashJoin joinLoCP = new PhysicalHashJoin(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(nullAlias.toSlot(), pPartkey)),
+                ImmutableList.of(),
+                new DistributeHint(DistributeType.NONE),
+                Optional.empty(),
+                null,
+                joinLoC,
+                projectPart
+                );
+        checker.getCascadesContext().getConnectContext().getSessionVariable().enableRuntimeFilterPrune = false;
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(joinLoCP);
+        System.out.println(plan.treeString());
+        Assertions.assertEquals(0, ((AbstractPhysicalPlan) plan.child(0).child(1).child(0))
+                .getAppliedRuntimeFilters().size());
+    }
 }

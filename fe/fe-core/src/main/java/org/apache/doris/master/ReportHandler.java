@@ -44,9 +44,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.cooldown.CooldownConf;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
@@ -69,12 +71,14 @@ import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.PushCooldownConfTask;
+import org.apache.doris.task.PushIndexPolicyTask;
 import org.apache.doris.task.PushStoragePolicyTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UpdateVisibleVersionTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TIndexPolicy;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TReportRequest;
@@ -90,6 +94,7 @@ import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
@@ -123,7 +128,8 @@ public class ReportHandler extends Daemon {
     private enum ReportType {
         TASK,
         DISK,
-        TABLET
+        TABLET,
+        INDEX_POLICY,
     }
 
     public ReportHandler() {
@@ -190,6 +196,10 @@ public class ReportHandler extends Daemon {
             Env.getCurrentSystemInfo().updateBackendReportVersion(beId, reportVersion, -1L, -1L, false);
         }
 
+        if (request.isSetIndexPolicy()) {
+            reportType = ReportType.INDEX_POLICY;
+        }
+
         if (tablets == null) {
             numTablets = request.isSetNumTablets() ? request.getNumTablets() : 0;
         } else {
@@ -214,7 +224,7 @@ public class ReportHandler extends Daemon {
 
         ReportTask reportTask = new ReportTask(beId, reportType, tasks, disks, tablets, partitionsVersion,
                 reportVersion, request.getStoragePolicy(), request.getResource(), request.getNumCores(),
-                request.getPipelineExecutorSize(), numTablets);
+                request.getPipelineExecutorSize(), numTablets, request.getIndexPolicy());
         try {
             putToQueue(reportTask);
         } catch (Exception e) {
@@ -305,12 +315,13 @@ public class ReportHandler extends Daemon {
         private int cpuCores;
         private int pipelineExecutorSize;
         private long numTablets;
+        private List<TIndexPolicy> indexPolicys;
 
         public ReportTask(long beId, ReportType reportType, Map<TTaskType, Set<Long>> tasks,
                 Map<String, TDisk> disks, Map<Long, TTablet> tablets,
                 Map<Long, Long> partitionsVersion, long reportVersion,
                 List<TStoragePolicy> storagePolicies, List<TStorageResource> storageResources, int cpuCores,
-                int pipelineExecutorSize, long numTablets) {
+                int pipelineExecutorSize, long numTablets, List<TIndexPolicy> indexPolicys) {
             this.beId = beId;
             this.reportType = reportType;
             this.tasks = tasks;
@@ -323,6 +334,7 @@ public class ReportHandler extends Daemon {
             this.cpuCores = cpuCores;
             this.pipelineExecutorSize = pipelineExecutorSize;
             this.numTablets = numTablets;
+            this.indexPolicys = indexPolicys;
         }
 
         @Override
@@ -336,6 +348,9 @@ public class ReportHandler extends Daemon {
             }
             if (Config.enable_storage_policy && storagePolicies != null && storageResources != null) {
                 storagePolicyReport(beId, storagePolicies, storageResources);
+            }
+            if (indexPolicys != null) {
+                storageIndexPolicyReport(beId, indexPolicys);
             }
 
             if (tablets != null) {
@@ -451,6 +466,86 @@ public class ReportHandler extends Daemon {
         }
     }
 
+    private static void handlePushIndexPolicy(long backendId,
+                                          List<IndexPolicy> policyToPush,
+                                          List<Long> policyToDrop) {
+        AgentBatchTask batchTask = new AgentBatchTask();
+        PushIndexPolicyTask pushIndexPolicyTask = new PushIndexPolicyTask(backendId,
+                policyToPush, policyToDrop);
+        batchTask.addTask(pushIndexPolicyTask);
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    private static void storageIndexPolicyReport(long backendId, List<TIndexPolicy> indexPoliciesInBe) {
+        List<IndexPolicy> policiesInFe = Env.getCurrentEnv().getIndexPolicyMgr().getCopiedIndexPolicies();
+
+        List<IndexPolicy> policyToPush = new ArrayList<>();
+        List<Long> policyToDrop = new ArrayList<>();
+
+        diffIndexPolicy(indexPoliciesInBe, policiesInFe, policyToPush, policyToDrop);
+
+        if (policyToPush.isEmpty() && policyToDrop.isEmpty()) {
+            return;
+        }
+
+        LOG.info("After diff index policy result - "
+                + "Policies to push[count={}, details={}], "
+                + "Policies to drop[count={}, details={}]",
+                policyToPush.size(),
+                policyToPush.stream()
+                        .map(p -> String.format(
+                                "IndexPolicy{id=%d, name='%s', type=%s}",
+                                p.getId(),
+                                p.getName(),
+                                p.getType()))
+                        .collect(Collectors.toList()),
+                policyToDrop.size(),
+                policyToDrop);
+
+        // send push rpc
+        handlePushIndexPolicy(backendId, policyToPush, policyToDrop);
+    }
+
+    private static void diffIndexPolicy(List<TIndexPolicy> indexPoliciesInBe,
+                                  List<IndexPolicy> policiesInFe,
+                                  List<IndexPolicy> policyToPush,
+                                  List<Long> policyToDrop) {
+        // fe - be: find policies that need to be pushed to BE
+        for (IndexPolicy policy : policiesInFe) {
+            if (policy.getId() <= 0) {
+                continue; // ignore policy with invalid id
+            }
+
+            boolean beHasIt = false;
+            for (TIndexPolicy tIndexPolicy : indexPoliciesInBe) {
+                if (policy.getId() == tIndexPolicy.getId()) {
+                    beHasIt = true;
+                    // Only check if BE has the policy, no version comparison
+                    break;
+                }
+            }
+            if (!beHasIt) {
+                // policy exists in FE but not in BE, need to push
+                policyToPush.add(policy);
+            }
+        }
+
+        // be - fe: find policies that need to be dropped from BE
+        for (TIndexPolicy tIndexPolicy : indexPoliciesInBe) {
+            boolean feHasIt = false;
+            for (IndexPolicy policy : policiesInFe) {
+                if (policy.getId() == tIndexPolicy.getId()) {
+                    feHasIt = true;
+                    break;
+                }
+            }
+            if (!feHasIt) {
+                // policy exists in BE but not in FE, need to drop
+                policyToDrop.add(tIndexPolicy.getId());
+            }
+        }
+    }
+
     private static void diffResource(List<TStorageResource> storageResourcesInBe, List<Resource> resourcesInFe,
                                    List<Resource> resourceToPush) {
         // fe - be
@@ -507,7 +602,7 @@ public class ReportHandler extends Daemon {
 
         // dbid -> txn id -> [partition info]
         Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
-        ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
+        SetMultimap<Long, Long> transactionsToClear = LinkedHashMultimap.create();
 
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
@@ -595,7 +690,22 @@ public class ReportHandler extends Daemon {
         LOG.info("finished to handle tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 
+    private static void debugBlock() {
+        if (DebugPointUtil.isEnable("ReportHandler.block")) {
+            LOG.info("debug point: block at ReportHandler.block");
+            while (DebugPointUtil.isEnable("ReportHandler.block")) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave ReportHandler.block");
+        }
+    }
+
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
+        debugBlock();
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to handle task report from backend {}", backendId);
         }
@@ -625,22 +735,15 @@ public class ReportHandler extends Daemon {
         AgentBatchTask batchTask = new AgentBatchTask(Config.report_resend_batch_task_num_per_rpc);
         long taskReportTime = System.currentTimeMillis();
         for (AgentTask task : diffTasks) {
-            // these tasks no need to do diff
-            // 1. CREATE
-            // 2. SYNC DELETE
-            // 3. CHECK_CONSISTENCY
-            // 4. STORAGE_MDEIUM_MIGRATE
-            if (task.getTaskType() == TTaskType.CREATE
-                    || task.getTaskType() == TTaskType.CHECK_CONSISTENCY
-                    || task.getTaskType() == TTaskType.STORAGE_MEDIUM_MIGRATE) {
+            if (!task.isNeedResendType()) {
                 continue;
             }
 
             // to escape sending duplicate agent task to be
             if (task.shouldResend(taskReportTime)) {
+                MetricRepo.COUNTER_AGENT_TASK_RESEND_TOTAL.getOrAdd(task.getTaskType().toString()).increase(1L);
                 batchTask.addTask(task);
             }
-
         }
 
         if (LOG.isDebugEnabled()) {
@@ -978,7 +1081,8 @@ public class ReportHandler extends Daemon {
                                             objectPool,
                                             olapTable.rowStorePageSize(),
                                             olapTable.variantEnableFlattenNested(),
-                                            olapTable.storagePageSize());
+                                            olapTable.storagePageSize(),
+                                            olapTable.storageDictPageSize());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
@@ -1281,11 +1385,11 @@ public class ReportHandler extends Daemon {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    private static void handleClearTransactions(ListMultimap<Long, Long> transactionsToClear, long backendId) {
+    private static void handleClearTransactions(SetMultimap<Long, Long> transactionsToClear, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Long transactionId : transactionsToClear.keySet()) {
             ClearTransactionTask clearTransactionTask = new ClearTransactionTask(backendId,
-                    transactionId, transactionsToClear.get(transactionId));
+                    transactionId, Lists.newArrayList(transactionsToClear.get(transactionId)));
             batchTask.addTask(clearTransactionTask);
         }
         AgentTaskExecutor.submit(batchTask);

@@ -22,11 +22,17 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <string>
+#include <vector>
 
 #include "common/status.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -35,6 +41,326 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+int ParsedDataInt::set_output(rapidjson::Document& document, int value_size) {
+    _values_null_flag.resize(value_size, 0);
+    _backup_data.resize(value_size);
+    int i = 0;
+    for (auto& v : document.GetArray()) {
+        if (v.IsInt64()) {
+            _backup_data[i] = v.GetInt64();
+        } else if (v.IsUint64()) {
+            auto value = v.GetUint64();
+            if (value > MAX_VALUE) {
+                _backup_data[i] = MAX_VALUE;
+            } else {
+                _backup_data[i] = value;
+            }
+        } else if (v.IsDouble()) {
+            auto value = v.GetDouble();
+            // target slot is int64(cast double to int64). so compare with int64_max
+            if (static_cast<int64_t>(value) > MAX_VALUE) {
+                _backup_data[i] = MAX_VALUE;
+            } else if (value < MIN_VALUE) {
+                _backup_data[i] = MIN_VALUE;
+            } else {
+                _backup_data[i] = long(value);
+            }
+        } else {
+            _values_null_flag[i] = 1;
+            _backup_data[i] = 0;
+        }
+        ++i;
+    }
+    return value_size;
+}
+int ParsedDataInt::set_output(const ArrayVal& array_doc, int value_size) {
+    _values_null_flag.resize(value_size, 0);
+    _backup_data.resize(value_size);
+    int i = 0;
+    for (const auto& val : array_doc) {
+        if (val.isInt8()) {
+            _backup_data[i] = val.unpack<JsonbInt8Val>()->val();
+        } else if (val.isInt16()) {
+            _backup_data[i] = val.unpack<JsonbInt16Val>()->val();
+        } else if (val.isInt32()) {
+            _backup_data[i] = val.unpack<JsonbInt32Val>()->val();
+        } else if (val.isInt64()) {
+            _backup_data[i] = val.unpack<JsonbInt64Val>()->val();
+        } else if (val.isDouble()) {
+            auto value = val.unpack<JsonbDoubleVal>()->val();
+            // target slot is int64(cast double to int64). so compare with int64_max
+            if (static_cast<int64_t>(value) > MAX_VALUE) {
+                _backup_data[i] = MAX_VALUE;
+            } else if (value < MIN_VALUE) {
+                _backup_data[i] = MIN_VALUE;
+            } else {
+                _backup_data[i] = long(value);
+            }
+        } else {
+            _values_null_flag[i] = 1;
+            _backup_data[i] = 0;
+        }
+        ++i;
+    }
+    return value_size;
+}
+
+void ParsedDataInt::insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
+                                                   int max_step) {
+    assert_cast<ColumnInt64*>(column.get())
+            ->insert_many_raw_data(reinterpret_cast<const char*>(_backup_data.data() + cur_offset),
+                                   max_step);
+}
+
+void ParsedDataInt::insert_many_same_value_from_parsed_data(MutableColumnPtr& column,
+                                                            int64_t cur_offset, int length) {
+    assert_cast<ColumnInt64*>(column.get())->insert_many_vals(_backup_data[cur_offset], length);
+}
+
+int ParsedDataDouble::set_output(rapidjson::Document& document, int value_size) {
+    _values_null_flag.resize(value_size, 0);
+    _backup_data.resize(value_size);
+    int i = 0;
+    for (auto& v : document.GetArray()) {
+        if (v.IsDouble()) {
+            _backup_data[i] = v.GetDouble();
+        } else {
+            _backup_data[i] = 0;
+            _values_null_flag[i] = 1;
+        }
+        ++i;
+    }
+    return value_size;
+}
+
+int ParsedDataDouble::set_output(const ArrayVal& array_doc, int value_size) {
+    _values_null_flag.resize(value_size, 0);
+    _backup_data.resize(value_size);
+    int i = 0;
+    for (const auto& val : array_doc) {
+        if (val.isDouble()) {
+            _backup_data[i] = val.unpack<JsonbDoubleVal>()->val();
+        } else {
+            _backup_data[i] = 0;
+            _values_null_flag[i] = 1;
+        }
+        ++i;
+    }
+    return value_size;
+}
+
+void ParsedDataDouble::insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
+                                                      int max_step) {
+    assert_cast<ColumnFloat64*>(column.get())
+            ->insert_many_raw_data(reinterpret_cast<const char*>(_backup_data.data() + cur_offset),
+                                   max_step);
+}
+
+void ParsedDataDouble::insert_many_same_value_from_parsed_data(MutableColumnPtr& column,
+                                                               int64_t cur_offset, int length) {
+    assert_cast<ColumnFloat64*>(column.get())->insert_many_vals(_backup_data[cur_offset], length);
+}
+
+void ParsedDataStringBase::insert_result_from_parsed_data(MutableColumnPtr& column,
+                                                          int64_t cur_offset, int max_step) {
+    assert_cast<ColumnString*>(column.get())
+            ->insert_many_strings(_data_string_ref.data() + cur_offset, max_step);
+}
+
+void ParsedDataStringBase::insert_many_same_value_from_parsed_data(MutableColumnPtr& column,
+                                                                   int64_t cur_offset, int length) {
+    assert_cast<ColumnString*>(column.get())
+            ->insert_data_repeatedly(_data_string_ref[cur_offset].data,
+                                     _data_string_ref[cur_offset].size, length);
+}
+
+void ParsedDataStringBase::reset() {
+    ParsedData<std::string>::reset();
+    _data_string_ref.clear();
+}
+
+int ParsedDataString::set_output(rapidjson::Document& document, int value_size) {
+    _data_string_ref.clear();
+    _backup_data.clear();
+    _values_null_flag.clear();
+    int32_t wbytes = 0;
+    for (auto& v : document.GetArray()) {
+        switch (v.GetType()) {
+        case rapidjson::Type::kStringType: {
+            _backup_data.emplace_back(v.GetString(), v.GetStringLength());
+            _values_null_flag.emplace_back(false);
+            break;
+            // do not set _data_string here.
+            // Because the address of the string stored in `_backup_data` may
+            // change each time `emplace_back()` is called.
+        }
+        case rapidjson::Type::kNumberType: {
+            if (v.IsUint()) {
+                wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%u", v.GetUint());
+            } else if (v.IsInt()) {
+                wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", v.GetInt());
+            } else if (v.IsUint64()) {
+                wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRIu64, v.GetUint64());
+            } else if (v.IsInt64()) {
+                wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64, v.GetInt64());
+            } else {
+                wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f", v.GetDouble());
+            }
+            _backup_data.emplace_back(tmp_buf, wbytes);
+            _values_null_flag.emplace_back(false);
+            // do not set _data_string here.
+            // Because the address of the string stored in `_backup_data` may
+            // change each time `emplace_back()` is called.
+            break;
+        }
+        case rapidjson::Type::kFalseType:
+            _backup_data.emplace_back(TRUE_VALUE);
+            _values_null_flag.emplace_back(false);
+            break;
+        case rapidjson::Type::kTrueType:
+            _backup_data.emplace_back(FALSE_VALUE);
+            _values_null_flag.emplace_back(false);
+            break;
+        case rapidjson::Type::kNullType:
+            _backup_data.emplace_back();
+            _values_null_flag.emplace_back(true);
+            break;
+        default:
+            _backup_data.emplace_back();
+            _values_null_flag.emplace_back(true);
+            break;
+        }
+    }
+    // Must set _data_string at the end, so that we can
+    // save the real addr of string in `_backup_data` to `_data_string`.
+    for (auto& str : _backup_data) {
+        _data_string_ref.emplace_back(str.data(), str.length());
+    }
+    return value_size;
+}
+
+int ParsedDataString::set_output(const ArrayVal& array_doc, int value_size) {
+    _data_string_ref.clear();
+    _backup_data.clear();
+    _values_null_flag.clear();
+    int32_t wbytes = 0;
+    for (const auto& val : array_doc) {
+        switch (val.type) {
+        case JsonbType::T_String: {
+            _backup_data.emplace_back(val.unpack<JsonbStringVal>()->getBlob(),
+                                      val.unpack<JsonbStringVal>()->getBlobLen());
+            _values_null_flag.emplace_back(false);
+            break;
+            // do not set _data_string here.
+            // Because the address of the string stored in `_backup_data` may
+            // change each time `emplace_back()` is called.
+        }
+        case JsonbType::T_Int8: {
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", val.unpack<JsonbInt8Val>()->val());
+            _backup_data.emplace_back(tmp_buf, wbytes);
+            _values_null_flag.emplace_back(false);
+            break;
+        }
+        case JsonbType::T_Int16: {
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", val.unpack<JsonbInt16Val>()->val());
+            _backup_data.emplace_back(tmp_buf, wbytes);
+            _values_null_flag.emplace_back(false);
+            break;
+        }
+        case JsonbType::T_Int64: {
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64,
+                              val.unpack<JsonbInt64Val>()->val());
+            _backup_data.emplace_back(tmp_buf, wbytes);
+            _values_null_flag.emplace_back(false);
+            break;
+        }
+        case JsonbType::T_Double: {
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f", val.unpack<JsonbDoubleVal>()->val());
+            _backup_data.emplace_back(tmp_buf, wbytes);
+            _values_null_flag.emplace_back(false);
+            break;
+        }
+        case JsonbType::T_Int32: {
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", val.unpack<JsonbInt32Val>()->val());
+            _backup_data.emplace_back(tmp_buf, wbytes);
+            _values_null_flag.emplace_back(false);
+            break;
+        }
+        case JsonbType::T_True:
+            _backup_data.emplace_back(TRUE_VALUE);
+            _values_null_flag.emplace_back(false);
+            break;
+        case JsonbType::T_False:
+            _backup_data.emplace_back(FALSE_VALUE);
+            _values_null_flag.emplace_back(false);
+            break;
+        case JsonbType::T_Null:
+            _backup_data.emplace_back();
+            _values_null_flag.emplace_back(true);
+            break;
+        default:
+            _backup_data.emplace_back();
+            _values_null_flag.emplace_back(true);
+            break;
+        }
+    }
+    // Must set _data_string at the end, so that we can
+    // save the real addr of string in `_backup_data` to `_data_string`.
+    for (auto& str : _backup_data) {
+        _data_string_ref.emplace_back(str.data(), str.length());
+    }
+    return value_size;
+}
+
+int ParsedDataJSON::set_output(rapidjson::Document& document, int value_size) {
+    _data_string_ref.clear();
+    _backup_data.clear();
+    _values_null_flag.clear();
+    for (auto& v : document.GetArray()) {
+        if (v.IsObject()) {
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            v.Accept(writer);
+            _backup_data.emplace_back(buffer.GetString(), buffer.GetSize());
+            _values_null_flag.emplace_back(false);
+        } else {
+            _backup_data.emplace_back();
+            _values_null_flag.emplace_back(true);
+        }
+    }
+    // Must set _data_string at the end, so that we can
+    // save the real addr of string in `_backup_data` to `_data_string`.
+    for (auto& str : _backup_data) {
+        _data_string_ref.emplace_back(str);
+    }
+    return value_size;
+}
+
+int ParsedDataJSON::set_output(const ArrayVal& array_doc, int value_size) {
+    _data_string_ref.clear();
+    _backup_data.clear();
+    _values_null_flag.clear();
+    auto writer = std::make_unique<JsonbWriter>();
+    for (const auto& v : array_doc) {
+        if (v.isObject()) {
+            writer->reset();
+            writer->writeValue(&v);
+            _backup_data.emplace_back(writer->getOutput()->getBuffer(),
+                                      writer->getOutput()->getSize());
+            _values_null_flag.emplace_back(false);
+        } else {
+            _backup_data.emplace_back();
+            _values_null_flag.emplace_back(true);
+        }
+    }
+    // Must set _data_string at the end, so that we can
+    // save the real addr of string in `_backup_data` to `_data_string`.
+    for (auto& str : _backup_data) {
+        _data_string_ref.emplace_back(str);
+    }
+    return value_size;
+}
 
 template <typename DataImpl>
 VExplodeJsonArrayTableFunction<DataImpl>::VExplodeJsonArrayTableFunction() : TableFunction() {
@@ -60,10 +386,11 @@ void VExplodeJsonArrayTableFunction<DataImpl>::process_row(size_t row_idx) {
 
     StringRef text = _text_column->get_data_at(row_idx);
     if (text.data != nullptr) {
-        if (WhichDataType(_text_datatype).is_json()) {
-            JsonbDocument* doc = JsonbDocument::createDocument(text.data, text.size);
-            if (doc && doc->getValue() && doc->getValue()->isArray()) {
-                auto* a = (ArrayVal*)doc->getValue();
+        if (_text_datatype->get_primitive_type() == TYPE_JSONB) {
+            JsonbDocument* doc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(text.data, text.size, &doc);
+            if (st.ok() && doc && doc->getValue() && doc->getValue()->isArray()) {
+                const auto* a = doc->getValue()->unpack<ArrayVal>();
                 if (a->numElem() > 0) {
                     _cur_size = _parsed_data.set_output(*a, a->numElem());
                 }

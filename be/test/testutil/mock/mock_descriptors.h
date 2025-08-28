@@ -17,18 +17,15 @@
 
 #pragma once
 
+#include <gmock/gmock-function-mocker.h>
+#include <gmock/gmock.h>
+
 #include <vector>
 
 #include "runtime/descriptors.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
-
-class MockSlotDescriptor : public SlotDescriptor {
-public:
-    doris::vectorized::DataTypePtr get_data_type_ptr() const override { return type; }
-    vectorized::DataTypePtr type;
-};
 
 class MockTupleDescriptor : public TupleDescriptor {
 public:
@@ -39,21 +36,45 @@ public:
 
 class MockRowDescriptor : public RowDescriptor {
 public:
+    MockRowDescriptor() = default;
     MockRowDescriptor(std::vector<vectorized::DataTypePtr> types, ObjectPool* pool) {
         std::vector<SlotDescriptor*> slots;
         for (auto type : types) {
-            auto* slot = pool->add(new MockSlotDescriptor());
-            slot->type = type;
+            auto* slot = pool->add(new SlotDescriptor());
+            slot->_type = type;
             slots.push_back(slot);
+            _num_slots++;
         }
         auto* tuple_desc = pool->add(new MockTupleDescriptor());
         tuple_desc->Slots = slots;
         tuple_desc_map.push_back(tuple_desc);
+        _tuple_desc_map.push_back(tuple_desc);
+        _num_materialized_slots = types.size();
     }
     const std::vector<TupleDescriptor*>& tuple_descriptors() const override {
         return tuple_desc_map;
     }
     std::vector<TupleDescriptor*> tuple_desc_map;
+};
+
+class MockDescriptorTbl : public DescriptorTbl {
+public:
+    MockDescriptorTbl(std::vector<vectorized::DataTypePtr> types, ObjectPool* pool) {
+        std::vector<SlotDescriptor*> slots;
+        for (auto type : types) {
+            auto* slot = pool->add(new SlotDescriptor());
+            slot->_type = type;
+            slots.push_back(slot);
+        }
+        auto* tuple_desc = pool->add(new MockTupleDescriptor());
+        tuple_desc->Slots = slots;
+        tuple_descriptors.push_back(tuple_desc);
+        _tuple_desc_map[0] = tuple_desc;
+    }
+
+    MOCK_METHOD(std::vector<TupleDescriptor*>, get_tuple_descs, (), (const));
+
+    std::vector<TupleDescriptor*> tuple_descriptors;
 };
 
 } // namespace doris

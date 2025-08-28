@@ -30,6 +30,8 @@ import org.apache.doris.datasource.CatalogIf;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -40,6 +42,7 @@ import java.util.List;
  * show all dbs' info
  */
 public class DbsProcDir implements ProcDirInterface {
+    private static final Logger LOG = LogManager.getLogger(DbsProcDir.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId").add("DbName").add("TableNum").add("Size").add("Quota")
             .add("LastConsistencyCheckTime").add("ReplicaCount").add("ReplicaQuota")
@@ -102,7 +105,18 @@ public class DbsProcDir implements ProcDirInterface {
             List<Comparable> dbInfo = new ArrayList<>();
             db.readLock();
             try {
-                int tableNum = db.getTables().size();
+                int tableNum = -1;
+                try {
+                    // There will be concurrency issues here.
+                    // The code first retrieves all databases under the catalog,
+                    // and then fetches all tables within a specific database.
+                    // However, between these two operations, another thread might delete the database,
+                    // may cause an exception when attempting to retrieve its tables.
+                    // Therefore, we need to handle this exception.
+                    tableNum = db.getTables().size();
+                } catch (Exception e) {
+                    LOG.warn("Failed to get table num for db: {}", dbName, e);
+                }
                 dbInfo.add(db.getId());
                 dbInfo.add(dbName);
                 dbInfo.add(tableNum);

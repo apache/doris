@@ -17,11 +17,11 @@
 
 #include "pipeline/exec/meta_scan_operator.h"
 
-#include "vec/exec/scan/vmeta_scanner.h"
+#include "vec/exec/scan/meta_scanner.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
-Status MetaScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status MetaScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     if (Base::_eos) {
         return Status::OK();
     }
@@ -29,8 +29,9 @@ Status MetaScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     auto& p = _parent->cast<MetaScanOperatorX>();
 
     for (auto& scan_range : _scan_ranges) {
-        std::shared_ptr<vectorized::VMetaScanner> scanner = vectorized::VMetaScanner::create_shared(
-                state(), this, p._tuple_id, scan_range, p._limit, profile(), p._user_identity);
+        std::shared_ptr<vectorized::MetaScanner> scanner = vectorized::MetaScanner::create_shared(
+                state(), this, p._tuple_id, scan_range, p._limit, custom_profile(),
+                p._user_identity);
         RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
         scanners->push_back(scanner);
     }

@@ -17,9 +17,7 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -28,6 +26,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
@@ -59,6 +58,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     // you need to the table's backend column id name to BACKEND_ID_COLUMN_SET
     // it's used to backend pruner, see computePartitionInfo;
     public static final Set<String> BEACKEND_ID_COLUMN_SET = new HashSet<>();
+    private final TableIf tableIf;
 
     static {
         BACKEND_TABLE.add("rowsets");
@@ -70,6 +70,9 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
         BACKEND_TABLE.add("file_cache_statistics");
         BACKEND_TABLE.add("backend_kerberos_ticket_cache");
+
+        BACKEND_TABLE.add("backend_tablets");
+        BACKEND_TABLE.add("backend_configuration");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {
@@ -90,22 +93,10 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     private Map<Long, Long> partitionIDToBackendID;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
-    public BackendPartitionedSchemaScanNode(PlanNodeId id, TupleDescriptor desc,
+    public BackendPartitionedSchemaScanNode(PlanNodeId id, TableIf table, TupleDescriptor desc,
                                             String schemaCatalog, String schemaDatabase, String schemaTable) {
         super(id, desc, schemaCatalog, schemaDatabase, schemaTable);
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        computeColumnsFilter();
-        computePartitionInfo();
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        super.finalize(analyzer);
-        createScanRangeLocations();
+        this.tableIf = table;
     }
 
     @Override
@@ -141,9 +132,9 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
     private void computePartitionInfo() throws UserException {
         List<Column> partitionColumns = new ArrayList<>();
-        for (SlotDescriptor slotDesc : desc.getSlots()) {
-            if (BEACKEND_ID_COLUMN_SET.contains(slotDesc.getColumn().getName().toLowerCase())) {
-                partitionColumns.add(slotDesc.getColumn());
+        for (Column column : tableIf.getColumns()) {
+            if (BEACKEND_ID_COLUMN_SET.contains(column.getName().toLowerCase())) {
+                partitionColumns.add(column);
                 break;
             }
         }

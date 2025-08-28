@@ -322,6 +322,12 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
             files->push_back(std::move(file_info));
         }
         is_trucated = outcome.GetResult().GetIsTruncated();
+        if (is_trucated && outcome.GetResult().GetNextContinuationToken().empty()) {
+            return {convert_to_obj_response(Status::InternalError(
+                    "failed to list {}, is_trucated is true, but next continuation token is empty",
+                    opts.prefix))};
+        }
+
         request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
     } while (is_trucated);
     return ObjectStorageResponse::OK();

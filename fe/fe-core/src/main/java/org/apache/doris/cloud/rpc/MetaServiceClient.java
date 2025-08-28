@@ -21,12 +21,14 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.MetaServiceGrpc;
 import org.apache.doris.common.Config;
 
+import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
 import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
 import io.grpc.NameResolverRegistry;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.netty.channel.ChannelOption;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,35 +41,42 @@ import java.util.concurrent.TimeUnit;
 
 public class MetaServiceClient {
     public static final Logger LOG = LogManager.getLogger(MetaServiceClient.class);
+    private static final Map<String, ?> serviceConfig;
 
     private final String address;
     private final MetaServiceGrpc.MetaServiceFutureStub stub;
     private final MetaServiceGrpc.MetaServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
     private final long expiredAt;
-    private final boolean isMetaServiceEndpointList;
     private Random random = new Random();
 
     static {
         NameResolverRegistry.getDefaultRegistry().register(new MetaServiceListResolverProvider());
+
+        // https://github.com/grpc/proposal/blob/master/A6-client-retries.md#retry-policy-capabilities
+        serviceConfig = new Gson().fromJson(new JsonReader(new InputStreamReader(
+                MetaServiceClient.class.getResourceAsStream("/retrying_service_config.json"),
+                StandardCharsets.UTF_8)), Map.class);
+        LOG.info("serviceConfig:{}", serviceConfig);
     }
 
     public MetaServiceClient(String address) {
         this.address = address;
 
-        isMetaServiceEndpointList = address.contains(",");
-
         String target = address;
-        if (isMetaServiceEndpointList) {
+        if (address.contains(",")) {
             target = MetaServiceListResolverProvider.MS_LIST_SCHEME_PREFIX + address;
         }
+
+        Preconditions.checkNotNull(serviceConfig, "serviceConfig is null");
         channel = NettyChannelBuilder.forTarget(target)
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
-                .defaultServiceConfig(getRetryingServiceConfig())
+                .defaultServiceConfig(serviceConfig)
                 .defaultLoadBalancingPolicy("round_robin")
                 .enableRetry()
-                .usePlaintext().build();
+                .usePlaintext()
+                .withOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, Config.meta_service_brpc_connect_timeout_ms).build();
         stub = MetaServiceGrpc.newFutureStub(channel);
         blockingStub = MetaServiceGrpc.newBlockingStub(channel);
         expiredAt = connectionAgeExpiredAt();
@@ -75,23 +84,13 @@ public class MetaServiceClient {
 
     private long connectionAgeExpiredAt() {
         long connectionAgeBase = Config.meta_service_connection_age_base_minutes;
-        // Disable connection age if the endpoint is a list.
-        if (!isMetaServiceEndpointList && connectionAgeBase > 1) {
+        if (connectionAgeBase > 0) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
             long now = System.currentTimeMillis();
             long rand = random.nextLong() % base;
             return now + base + rand;
         }
         return Long.MAX_VALUE;
-    }
-
-    protected Map<String, ?> getRetryingServiceConfig() {
-        // https://github.com/grpc/proposal/blob/master/A6-client-retries.md#retry-policy-capabilities
-        Map<String, ?> serviceConfig = new Gson().fromJson(new JsonReader(new InputStreamReader(
-                MetaServiceClient.class.getResourceAsStream("/retrying_service_config.json"),
-                StandardCharsets.UTF_8)), Map.class);
-        LOG.info("serviceConfig:{}", serviceConfig);
-        return serviceConfig;
     }
 
     // Is the connection age has expired?
@@ -124,214 +123,267 @@ public class MetaServiceClient {
         if (!request.hasCloudUniqueId()) {
             Cloud.GetVersionRequest.Builder builder = Cloud.GetVersionRequest.newBuilder();
             builder.mergeFrom(request);
-            return stub.getVersion(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return stub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getVersion(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return stub.getVersion(request);
+        return stub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS).getVersion(request);
     }
 
     public Cloud.GetVersionResponse getVersion(Cloud.GetVersionRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.GetVersionRequest.Builder builder = Cloud.GetVersionRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.getVersion(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getVersion(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.getVersion(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getVersion(request);
     }
 
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.CreateTabletsRequest.Builder builder = Cloud.CreateTabletsRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.createTablets(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .createTablets(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.createTablets(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .createTablets(request);
     }
 
     public Cloud.UpdateTabletResponse updateTablet(Cloud.UpdateTabletRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.UpdateTabletRequest.Builder builder = Cloud.UpdateTabletRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.updateTablet(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .updateTablet(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.updateTablet(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .updateTablet(request);
     }
 
     public Cloud.BeginTxnResponse beginTxn(Cloud.BeginTxnRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.BeginTxnRequest.Builder builder = Cloud.BeginTxnRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.beginTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .beginTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.beginTxn(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .beginTxn(request);
     }
 
     public Cloud.PrecommitTxnResponse precommitTxn(Cloud.PrecommitTxnRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.PrecommitTxnRequest.Builder builder = Cloud.PrecommitTxnRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.precommitTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .precommitTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.precommitTxn(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .precommitTxn(request);
     }
 
     public Cloud.CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.CommitTxnRequest.Builder builder = Cloud.CommitTxnRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.commitTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .commitTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.commitTxn(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .commitTxn(request);
     }
 
     public Cloud.AbortTxnResponse abortTxn(Cloud.AbortTxnRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.AbortTxnRequest.Builder builder = Cloud.AbortTxnRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.abortTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .abortTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.abortTxn(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .abortTxn(request);
     }
 
     public Cloud.GetTxnResponse getTxn(Cloud.GetTxnRequest request) {
-        return blockingStub.getTxn(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getTxn(request);
     }
 
     public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request) {
-        return blockingStub.getTxnId(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getTxnId(request);
     }
 
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request) {
-        return blockingStub.getCurrentMaxTxnId(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getCurrentMaxTxnId(request);
     }
 
     public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.BeginSubTxnRequest.Builder builder = Cloud.BeginSubTxnRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.beginSubTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .beginSubTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.beginSubTxn(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .beginSubTxn(request);
     }
 
     public Cloud.AbortSubTxnResponse abortSubTxn(Cloud.AbortSubTxnRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.AbortSubTxnRequest.Builder builder = Cloud.AbortSubTxnRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.abortSubTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .abortSubTxn(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.abortSubTxn(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .abortSubTxn(request);
     }
 
     public Cloud.CheckTxnConflictResponse checkTxnConflict(Cloud.CheckTxnConflictRequest request) {
-        return blockingStub.checkTxnConflict(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .checkTxnConflict(request);
     }
 
     public Cloud.CleanTxnLabelResponse cleanTxnLabel(Cloud.CleanTxnLabelRequest request) {
-        return blockingStub.cleanTxnLabel(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .cleanTxnLabel(request);
     }
 
     public Cloud.GetClusterResponse getCluster(Cloud.GetClusterRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.GetClusterRequest.Builder builder = Cloud.GetClusterRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.getCluster(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getCluster(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.getCluster(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getCluster(request);
     }
 
     public Cloud.IndexResponse prepareIndex(Cloud.IndexRequest request) {
-        return blockingStub.prepareIndex(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .prepareIndex(request);
     }
 
     public Cloud.IndexResponse commitIndex(Cloud.IndexRequest request) {
-        return blockingStub.commitIndex(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .commitIndex(request);
     }
 
     public Cloud.IndexResponse dropIndex(Cloud.IndexRequest request) {
-        return blockingStub.dropIndex(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .dropIndex(request);
     }
 
     public Cloud.PartitionResponse preparePartition(Cloud.PartitionRequest request) {
-        return blockingStub.preparePartition(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .preparePartition(request);
     }
 
     public Cloud.PartitionResponse commitPartition(Cloud.PartitionRequest request) {
-        return blockingStub.commitPartition(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .commitPartition(request);
     }
 
     public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) {
-        return blockingStub.checkKv(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .checkKv(request);
     }
 
     public Cloud.PartitionResponse dropPartition(Cloud.PartitionRequest request) {
-        return blockingStub.dropPartition(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .dropPartition(request);
     }
 
     public Cloud.GetTabletStatsResponse getTabletStats(Cloud.GetTabletStatsRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.GetTabletStatsRequest.Builder builder = Cloud.GetTabletStatsRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.getTabletStats(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getTabletStats(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.getTabletStats(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getTabletStats(request);
     }
 
     public Cloud.CreateStageResponse createStage(Cloud.CreateStageRequest request) {
-        return blockingStub.createStage(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .createStage(request);
     }
 
     public Cloud.GetStageResponse getStage(Cloud.GetStageRequest request) {
-        return blockingStub.getStage(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getStage(request);
     }
 
     public Cloud.DropStageResponse dropStage(Cloud.DropStageRequest request) {
-        return blockingStub.dropStage(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .dropStage(request);
     }
 
     public Cloud.GetIamResponse getIam(Cloud.GetIamRequest request) {
-        return blockingStub.getIam(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getIam(request);
     }
 
     public Cloud.BeginCopyResponse beginCopy(Cloud.BeginCopyRequest request) {
-        return blockingStub.beginCopy(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .beginCopy(request);
     }
 
     public Cloud.FinishCopyResponse finishCopy(Cloud.FinishCopyRequest request) {
-        return blockingStub.finishCopy(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .finishCopy(request);
     }
 
     public Cloud.GetCopyJobResponse getCopyJob(Cloud.GetCopyJobRequest request) {
-        return blockingStub.getCopyJob(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getCopyJob(request);
     }
 
     public Cloud.GetCopyFilesResponse getCopyFiles(Cloud.GetCopyFilesRequest request) {
-        return blockingStub.getCopyFiles(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getCopyFiles(request);
     }
 
     public Cloud.FilterCopyFilesResponse filterCopyFiles(Cloud.FilterCopyFilesRequest request) {
-        return blockingStub.filterCopyFiles(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .filterCopyFiles(request);
     }
 
     public Cloud.AlterClusterResponse alterCluster(Cloud.AlterClusterRequest request) {
-        return blockingStub.alterCluster(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .alterCluster(request);
     }
 
+    /**
+     * This method is deprecated, there is no code to call it.
+     */
+    @Deprecated
     public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.alterObjStoreInfo(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .alterObjStoreInfo(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.alterObjStoreInfo(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .alterObjStoreInfo(request);
     }
 
     public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.alterStorageVault(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .alterStorageVault(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.alterStorageVault(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .alterStorageVault(request);
     }
 
     public Cloud.GetDeleteBitmapUpdateLockResponse getDeleteBitmapUpdateLock(
@@ -340,9 +392,11 @@ public class MetaServiceClient {
             Cloud.GetDeleteBitmapUpdateLockRequest.Builder builder = Cloud.GetDeleteBitmapUpdateLockRequest
                     .newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.getDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.getDeleteBitmapUpdateLock(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getDeleteBitmapUpdateLock(request);
     }
 
     public Cloud.RemoveDeleteBitmapUpdateLockResponse removeDeleteBitmapUpdateLock(
@@ -351,18 +405,22 @@ public class MetaServiceClient {
             Cloud.RemoveDeleteBitmapUpdateLockRequest.Builder builder = Cloud.RemoveDeleteBitmapUpdateLockRequest
                     .newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.removeDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .removeDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.removeDeleteBitmapUpdateLock(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .removeDeleteBitmapUpdateLock(request);
     }
 
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.GetInstanceRequest.Builder builder = Cloud.GetInstanceRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.getInstance(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getInstance(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.getInstance(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getInstance(request);
     }
 
     public Cloud.GetRLTaskCommitAttachResponse
@@ -371,9 +429,11 @@ public class MetaServiceClient {
             Cloud.GetRLTaskCommitAttachRequest.Builder builder =
                     Cloud.GetRLTaskCommitAttachRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.getRlTaskCommitAttach(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getRlTaskCommitAttach(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.getRlTaskCommitAttach(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getRlTaskCommitAttach(request);
     }
 
     public Cloud. ResetRLProgressResponse resetRLProgress(Cloud. ResetRLProgressRequest request) {
@@ -381,9 +441,11 @@ public class MetaServiceClient {
             Cloud. ResetRLProgressRequest.Builder builder =
                     Cloud. ResetRLProgressRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.resetRlProgress(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .resetRlProgress(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.resetRlProgress(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .resetRlProgress(request);
     }
 
     public Cloud.GetObjStoreInfoResponse
@@ -392,9 +454,11 @@ public class MetaServiceClient {
             Cloud.GetObjStoreInfoRequest.Builder builder =
                     Cloud.GetObjStoreInfoRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.getObjStoreInfo(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .getObjStoreInfo(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.getObjStoreInfo(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getObjStoreInfo(request);
     }
 
     public Cloud.AbortTxnWithCoordinatorResponse
@@ -403,9 +467,11 @@ public class MetaServiceClient {
             Cloud.AbortTxnWithCoordinatorRequest.Builder builder =
                     Cloud.AbortTxnWithCoordinatorRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.abortTxnWithCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .abortTxnWithCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.abortTxnWithCoordinator(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .abortTxnWithCoordinator(request);
     }
 
     public Cloud.FinishTabletJobResponse
@@ -414,13 +480,16 @@ public class MetaServiceClient {
             Cloud.FinishTabletJobRequest.Builder builder =
                     Cloud.FinishTabletJobRequest.newBuilder();
             builder.mergeFrom(request);
-            return blockingStub.finishTabletJob(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                    .finishTabletJob(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
-        return blockingStub.finishTabletJob(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .finishTabletJob(request);
     }
 
     public Cloud.CreateInstanceResponse
             createInstance(Cloud.CreateInstanceRequest request) {
-        return blockingStub.createInstance(request);
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .createInstance(request);
     }
 }

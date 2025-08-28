@@ -33,8 +33,6 @@
 
 #include "common/logging.h"
 #include "common/object_pool.h"
-#include "gutil/integral_types.h"
-#include "util/container_util.hpp"
 #include "util/runtime_profile_counter_tree_node.h"
 #ifdef BE_TEST
 #include "common/status.h" // For ErrorCode
@@ -43,7 +41,6 @@
 namespace doris {
 
 // Thread counters name
-static const std::string THREAD_TOTAL_TIME = "TotalWallClockTime";
 static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSwitches";
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
 
@@ -56,6 +53,17 @@ std::unique_ptr<RuntimeProfile> RuntimeProfile::from_thrift(const TRuntimeProfil
     TRuntimeProfileNode root_node = node.nodes.front();
     std::unique_ptr<RuntimeProfile> res = std::make_unique<RuntimeProfile>(root_node.name);
     res->update(node);
+    return res;
+}
+
+std::unique_ptr<RuntimeProfile> RuntimeProfile::from_proto(const PRuntimeProfileTree& tree) {
+    if (tree.nodes().empty()) {
+        return std::make_unique<RuntimeProfile>("");
+    }
+
+    const PRuntimeProfileNode& root_node = tree.nodes(0);
+    std::unique_ptr<RuntimeProfile> res = std::make_unique<RuntimeProfile>(root_node.name());
+    res->update(tree);
     return res;
 }
 
@@ -112,10 +120,8 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
 
         for (child_counter_src_itr = other->_child_counter_map.begin();
              child_counter_src_itr != other->_child_counter_map.end(); ++child_counter_src_itr) {
-            std::set<std::string>* child_counters = find_or_insert(
-                    &_child_counter_map, child_counter_src_itr->first, std::set<std::string>());
-            child_counters->insert(child_counter_src_itr->second.begin(),
-                                   child_counter_src_itr->second.end());
+            _child_counter_map[child_counter_src_itr->first].insert(
+                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
         }
     }
 
@@ -152,6 +158,12 @@ void RuntimeProfile::update(const TRuntimeProfileTree& thrift_profile) {
     DCHECK_EQ(idx, thrift_profile.nodes.size());
 }
 
+void RuntimeProfile::update(const PRuntimeProfileTree& proto_profile) {
+    int idx = 0;
+    update(proto_profile.nodes(), &idx);
+    DCHECK_EQ(idx, proto_profile.nodes_size());
+}
+
 void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* idx) {
     DCHECK_LT(*idx, nodes.size());
     const TRuntimeProfileNode& node = nodes[*idx];
@@ -181,10 +193,8 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
 
         for (child_counter_src_itr = node.child_counters_map.begin();
              child_counter_src_itr != node.child_counters_map.end(); ++child_counter_src_itr) {
-            std::set<std::string>* child_counters = find_or_insert(
-                    &_child_counter_map, child_counter_src_itr->first, std::set<std::string>());
-            child_counters->insert(child_counter_src_itr->second.begin(),
-                                   child_counter_src_itr->second.end());
+            _child_counter_map[child_counter_src_itr->first].insert(
+                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
         }
     }
 
@@ -227,6 +237,80 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
                 child->_timestamp = tchild.timestamp;
                 _child_map[tchild.name] = child;
                 _children.push_back(std::make_pair(child, tchild.indent));
+            }
+
+            child->update(nodes, idx);
+        }
+    }
+}
+
+void RuntimeProfile::update(const google::protobuf::RepeatedPtrField<PRuntimeProfileNode>& nodes,
+                            int* idx) {
+    DCHECK_LT(*idx, nodes.size());
+    const PRuntimeProfileNode& node = nodes.Get(*idx);
+
+    {
+        std::lock_guard<std::mutex> l(_counter_map_lock);
+
+        for (const auto& pcounter : node.counters()) {
+            const std::string& name = pcounter.name();
+            auto j = _counter_map.find(name);
+
+            if (j == _counter_map.end()) {
+                _counter_map[name] =
+                        _pool->add(new Counter(unit_to_thrift(pcounter.type()), pcounter.value()));
+            } else {
+                if (unit_to_proto(j->second->type()) != pcounter.type()) {
+                    LOG(ERROR) << "Cannot update counters with the same name (" << name
+                               << ") but different types.";
+                } else {
+                    j->second->set(pcounter.value());
+                }
+            }
+        }
+
+        for (const auto& kv : node.child_counters_map()) {
+            for (const auto& child_name : kv.second.child_counters()) {
+                _child_counter_map[kv.first].insert(child_name);
+            }
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> l(_info_strings_lock);
+        const auto& info_map = node.info_strings();
+
+        for (const std::string& key : node.info_strings_display_order()) {
+            auto it = info_map.find(key);
+            DCHECK(it != info_map.end());
+
+            auto existing = _info_strings.find(key);
+            if (existing == _info_strings.end()) {
+                _info_strings.insert(std::make_pair(key, it->second));
+                _info_strings_display_order.push_back(key);
+            } else {
+                _info_strings[key] = it->second;
+            }
+        }
+    }
+
+    ++*idx;
+
+    {
+        std::lock_guard<std::mutex> l(_children_lock);
+        for (int i = 0; i < node.num_children(); ++i) {
+            const PRuntimeProfileNode& pchild = nodes.Get(*idx);
+            RuntimeProfile* child = nullptr;
+
+            auto j = _child_map.find(pchild.name());
+            if (j != _child_map.end()) {
+                child = j->second;
+            } else {
+                child = _pool->add(new RuntimeProfile(pchild.name()));
+                child->_metadata = pchild.metadata();
+                child->_timestamp = pchild.timestamp();
+                _child_map[pchild.name()] = child;
+                _children.emplace_back(child, pchild.indent());
             }
 
             child->update(nodes, idx);
@@ -300,9 +384,7 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     if (this->is_set_metadata()) {
         child->set_metadata(this->metadata());
     }
-    if (this->is_set_sink()) {
-        child->set_is_sink(this->is_sink());
-    }
+
     if (_children.empty()) {
         add_child_unlock(child, indent, nullptr);
     } else {
@@ -310,15 +392,6 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
         add_child_unlock(child, indent, pos);
     }
     return child;
-}
-
-void RuntimeProfile::insert_child_head(doris::RuntimeProfile* child, bool indent) {
-    std::lock_guard<std::mutex> l(_children_lock);
-    DCHECK(child != nullptr);
-    _child_map[child->_name] = child;
-
-    auto it = _children.begin();
-    _children.insert(it, std::make_pair(child, indent));
 }
 
 void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
@@ -341,6 +414,17 @@ void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, Runtim
 void RuntimeProfile::add_child(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
     std::lock_guard<std::mutex> l(_children_lock);
     add_child_unlock(child, indent, loc);
+}
+
+RuntimeProfile* RuntimeProfile::get_child(std::string name) {
+    std::lock_guard<std::mutex> l(_children_lock);
+    auto it = _child_map.find(name);
+
+    if (it == _child_map.end()) {
+        return nullptr;
+    }
+
+    return it->second;
 }
 
 void RuntimeProfile::get_children(std::vector<RuntimeProfile*>* children) {
@@ -397,9 +481,7 @@ RuntimeProfile::HighWaterMarkCounter* RuntimeProfile::AddHighWaterMarkCounter(
     RuntimeProfile::HighWaterMarkCounter* counter =
             _pool->add(new RuntimeProfile::HighWaterMarkCounter(unit, level, parent_counter_name));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -409,9 +491,6 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
     if (_counter_map.find(name) != _counter_map.end()) {
-        // TODO: FIX DUPLICATE COUNTERS
-        // In production, we will return the existing counter.
-        // This will not make be crash, but the result may be wrong.
         return _counter_map[name];
     }
 
@@ -421,9 +500,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
 
     Counter* counter = _pool->add(new Counter(type, 0, level));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -440,9 +517,7 @@ RuntimeProfile::NonZeroCounter* RuntimeProfile::add_nonzero_counter(
            _counter_map.find(parent_counter_name) != _counter_map.end());
     NonZeroCounter* counter = _pool->add(new NonZeroCounter(type, level, parent_counter_name));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -457,9 +532,53 @@ RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
 
     DerivedCounter* counter = _pool->add(new DerivedCounter(type, counter_fn));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
+    return counter;
+}
+
+void RuntimeProfile::add_description(const std::string& name, const std::string& description,
+                                     std::string parent_counter_name) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+
+    if (_counter_map.find(name) != _counter_map.end()) {
+        Counter* counter = _counter_map[name];
+        if (dynamic_cast<DescriptionEntry*>(counter) != nullptr) {
+            // Do replace instead of update to avoid data race.
+            _counter_map.erase(name);
+        } else {
+            DCHECK(false) << "Counter type mismatch, name: " << name
+                          << ", type: " << counter->type() << ", description: " << description;
+        }
+    }
+
+    // Parent counter must already exist.
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+           _counter_map.find(parent_counter_name) != _counter_map.end());
+    DescriptionEntry* counter = _pool->add(new DescriptionEntry(name, description));
+    _counter_map[name] = counter;
+    _child_counter_map[parent_counter_name].insert(name);
+}
+
+RuntimeProfile::ConditionCounter* RuntimeProfile::add_conditition_counter(
+        const std::string& name, TUnit::type type, const ConditionCounterFunction& counter_fn,
+        const std::string& parent_counter_name, int64_t level) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+
+    if (_counter_map.find(name) != _counter_map.end()) {
+        RuntimeProfile::ConditionCounter* contition_counter =
+                dynamic_cast<ConditionCounter*>(_counter_map[name]);
+        if (contition_counter == nullptr) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Failed to add a conditition counter that is duplicate and of a "
+                                   "different type for {}.",
+                                   name);
+        }
+        return contition_counter;
+    }
+
+    ConditionCounter* counter = _pool->add(new ConditionCounter(type, counter_fn, level));
+    _counter_map[name] = counter;
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -545,12 +664,12 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix,
     }
 }
 
-void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree, int64 profile_level) {
+void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree, int64_t profile_level) {
     tree->nodes.clear();
     to_thrift(&tree->nodes, profile_level);
 }
 
-void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64 profile_level) {
+void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64_t profile_level) {
     int index = nodes->size();
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
@@ -558,9 +677,6 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64 pr
     node.metadata = _metadata;
     node.timestamp = _timestamp;
     node.indent = true;
-    if (this->is_set_sink()) {
-        node.__set_is_sink(this->is_sink());
-    }
 
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
@@ -591,6 +707,53 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64 pr
         children[i].first->to_thrift(nodes, profile_level);
         // fix up indentation flag
         (*nodes)[child_idx].indent = children[i].second;
+    }
+}
+
+void RuntimeProfile::to_proto(PRuntimeProfileTree* tree, int64_t profile_level) {
+    tree->clear_nodes();
+    to_proto(tree->mutable_nodes(), profile_level);
+}
+
+void RuntimeProfile::to_proto(google::protobuf::RepeatedPtrField<PRuntimeProfileNode>* nodes,
+                              int64_t profile_level) {
+    PRuntimeProfileNode* node = nodes->Add(); // allocate new node
+    node->set_name(_name);
+    node->set_metadata(_metadata);
+    node->set_timestamp(_timestamp);
+    node->set_indent(true);
+
+    {
+        std::lock_guard<std::mutex> l(_counter_map_lock);
+        RuntimeProfileCounterTreeNode counter_tree = RuntimeProfileCounterTreeNode::from_map(
+                _counter_map, _child_counter_map, ROOT_COUNTER);
+        counter_tree = RuntimeProfileCounterTreeNode::prune_the_tree(counter_tree, profile_level);
+        counter_tree.to_proto(node->mutable_counters(), node->mutable_child_counters_map());
+    }
+
+    {
+        std::lock_guard<std::mutex> l(_info_strings_lock);
+        auto* info_map = node->mutable_info_strings();
+        for (const auto& kv : _info_strings) {
+            (*info_map)[kv.first] = kv.second;
+        }
+        for (const auto& key : _info_strings_display_order) {
+            node->add_info_strings_display_order(key);
+        }
+    }
+
+    ChildVector children;
+    {
+        std::lock_guard<std::mutex> l(_children_lock);
+        children = _children;
+    }
+
+    node->set_num_children(children.size());
+
+    for (const auto& child : children) {
+        int child_index = nodes->size(); // capture index for indent correction
+        child.first->to_proto(nodes, profile_level);
+        (*nodes)[child_index].set_indent(child.second);
     }
 }
 

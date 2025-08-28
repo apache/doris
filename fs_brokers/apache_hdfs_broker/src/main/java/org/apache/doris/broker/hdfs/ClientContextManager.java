@@ -145,11 +145,11 @@ public class ClientContextManager {
                 fd = entry.getKey();
                 if (entry.getValue().checkExpire(inputStreamExpireSeconds)) {
                     ClientContextManager.this.removeInputStream(fd);
+                    iter.remove();
+                    logger.info(fd + " in client [" + clientContext.clientId
+                            + "] is expired, remove it from contexts. last update time is "
+                            + entry.getValue().getLastPingTimestamp());
                 }
-                iter.remove();
-                logger.info(fd + " in client [" + clientContext.clientId
-                        + "] is expired, remove it from contexts. last update time is "
-                        + entry.getValue().getLastPingTimestamp());
             }
         }
     }
@@ -167,7 +167,7 @@ public class ClientContextManager {
                             ClientContextManager.this.removeOutputStream(fd);
                         }
                         clientContexts.remove(clientContext.clientId);
-                        logger.info("client [" + clientContext.clientId 
+                        logger.info("client [" + clientContext.clientId
                                 + "] is expired, remove it from contexts. last access time is "
                                 + clientContext.lastAccessTimestamp);
                     }

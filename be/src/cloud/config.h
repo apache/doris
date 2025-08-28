@@ -44,6 +44,9 @@ static inline bool is_cloud_mode() {
 // separated by a comma, like "host:port,host:port,host:port", then BE will choose a server to connect in randomly.
 // In this mode, The config meta_service_connection_pooled is still useful, but the other two configs will be ignored.
 DECLARE_mString(meta_service_endpoint);
+// Whether check config::meta_service_endpoint is identical to the ms endpoint from FE master heartbeat
+// This may help in some cases that we intend to change the config only FE side or BE side
+DECLARE_mBool(enable_meta_service_endpoint_consistency_check);
 // Set the underlying connection type to pooled.
 DECLARE_Bool(meta_service_connection_pooled);
 DECLARE_mInt64(meta_service_connection_pool_size);
@@ -60,23 +63,26 @@ DECLARE_mInt32(meta_service_rpc_timeout_ms);
 DECLARE_mInt32(meta_service_rpc_retry_times);
 // default brpc timeout
 DECLARE_mInt32(meta_service_brpc_timeout_ms);
+DECLARE_mInt32(meta_service_rpc_timeout_retry_times);
 
 // CloudTabletMgr config
 DECLARE_Int64(tablet_cache_capacity);
 DECLARE_Int64(tablet_cache_shards);
 DECLARE_mInt32(tablet_sync_interval_s);
+// parallelism for scanner init where may issue RPCs to sync rowset meta from MS
+DECLARE_mInt32(init_scanner_sync_rowsets_parallelism);
+DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
 
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mBool(enable_new_tablet_do_compaction);
 // For cloud read/write separate mode
 DECLARE_mInt64(base_compaction_freeze_interval_s);
-DECLARE_mInt64(cu_compaction_freeze_interval_s);
+DECLARE_mInt64(compaction_load_max_freeze_interval_s);
 DECLARE_mInt64(cumu_compaction_interval_s);
 
 DECLARE_mInt32(compaction_timeout_seconds);
 DECLARE_mInt32(lease_compaction_interval_seconds);
-DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
 DECLARE_mBool(enable_parallel_cumu_compaction);
 DECLARE_mDouble(base_compaction_thread_num_factor);
 DECLARE_mDouble(cumu_compaction_thread_num_factor);
@@ -100,6 +106,8 @@ DECLARE_mInt32(sync_load_for_tablets_thread);
 
 DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
+DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
+
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
 
@@ -114,6 +122,14 @@ DECLARE_Bool(enable_cloud_tablet_report);
 DECLARE_mInt32(delete_bitmap_rpc_retry_times);
 
 DECLARE_mInt64(meta_service_rpc_reconnect_interval_ms);
+
+DECLARE_mInt32(meta_service_conflict_error_retry_times);
+
+DECLARE_Bool(enable_check_storage_vault);
+
+DECLARE_mInt64(warmup_tablet_replica_info_cache_ttl_sec);
+
+DECLARE_mInt64(warm_up_rowset_slow_log_ms);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

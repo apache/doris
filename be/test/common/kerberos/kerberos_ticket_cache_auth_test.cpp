@@ -22,7 +22,6 @@
 
 #include "common/kerberos/kerberos_config.h"
 #include "common/kerberos/kerberos_ticket_cache.h"
-#include "gutil/strings/substitute.h"
 
 namespace doris::kerberos {
 

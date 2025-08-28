@@ -104,6 +104,9 @@ public:
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
     }
+    PartialUpdateNewRowPolicyPB partial_update_new_key_policy() const {
+        return _partial_update_new_row_policy;
+    }
     std::string auto_increment_coulumn() const { return _auto_increment_column; }
     int32_t auto_increment_column_unique_id() const { return _auto_increment_column_unique_id; }
     void set_timestamp_ms(int64_t timestamp_ms) { _timestamp_ms = timestamp_ms; }
@@ -128,6 +131,8 @@ private:
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
     UniqueKeyUpdateModePB _unique_key_update_mode {UniqueKeyUpdateModePB::UPSERT};
+    PartialUpdateNewRowPolicyPB _partial_update_new_row_policy {
+            PartialUpdateNewRowPolicyPB::APPEND};
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
     std::string _auto_increment_column;
@@ -158,6 +163,8 @@ struct VOlapTablePartition {
     bool is_mutable;
     // -1 indicates partition with hash distribution
     int64_t load_tablet_idx = -1;
+    int total_replica_num = 0;
+    int load_required_replica_num = 0;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             // the default value of partition bound is -1.
@@ -233,7 +240,8 @@ public:
                     auto& column = block->get_by_position(_distributed_slot_loc).column;
                     auto val = column->get_data_at(row);
                     if (val.data != nullptr) {
-                        hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type,
+                        hash_val = RawValue::zlib_crc32(val.data, val.size,
+                                                        slot_desc->type()->get_primitive_type(),
                                                         hash_val);
                     } else {
                         hash_val = HashUtil::zlib_crc_hash_null(hash_val);
@@ -325,7 +333,7 @@ private:
             _partitions_map;
 
     bool _is_in_partition = false;
-    uint32_t _mem_usage = 0;
+    size_t _mem_usage = 0;
     // only works when using list partition, the resource is owned by _partitions
     VOlapTablePartition* _default_partition = nullptr;
 

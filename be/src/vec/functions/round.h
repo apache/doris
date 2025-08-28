@@ -26,7 +26,6 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -49,7 +48,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 enum class ScaleMode {
     Positive, // round to a number with N decimal places after the decimal point
     Negative, // round to an integer with N zero characters
@@ -75,41 +74,41 @@ enum class TieBreakingMode {
     Bankers, // use banker's rounding
 };
 
-template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
+template <PrimitiveType Type, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode, typename U>
 struct IntegerRoundingComputation {
+    using T =
+            std::conditional_t<is_decimal(Type), typename PrimitiveTypeTraits<Type>::CppNativeType,
+                               typename PrimitiveTypeTraits<Type>::ColumnItemType>;
     static const size_t data_count = 1;
 
     static size_t prepare(size_t scale) { return scale; }
 
     /// Integer overflow is Ok.
     static ALWAYS_INLINE T compute_impl(T x, T scale, T target_scale) {
-        switch (rounding_mode) {
-        case RoundingMode::Trunc: {
+        if constexpr (rounding_mode == RoundingMode::Trunc) {
             return target_scale > 1 ? x / scale * target_scale : x / scale;
         }
-        case RoundingMode::Floor: {
+        if constexpr (rounding_mode == RoundingMode::Floor) {
             if (x < 0) {
                 x -= scale - 1;
             }
             return target_scale > 1 ? x / scale * target_scale : x / scale;
         }
-        case RoundingMode::Ceil: {
+        if constexpr (rounding_mode == RoundingMode::Ceil) {
             if (x >= 0) {
                 x += scale - 1;
             }
             return target_scale > 1 ? x / scale * target_scale : x / scale;
         }
-        case RoundingMode::Round: {
+        if constexpr (rounding_mode == RoundingMode::Round) {
             if (x < 0) {
                 x -= scale;
             }
-            switch (tie_breaking_mode) {
-            case TieBreakingMode::Auto: {
+            if constexpr (tie_breaking_mode == TieBreakingMode::Auto) {
                 x = (x + scale / 2) / scale;
-                break;
             }
-            case TieBreakingMode::Bankers: {
+            if constexpr (tie_breaking_mode == TieBreakingMode::Bankers) {
                 T quotient = (x + scale / 2) / scale;
                 if (quotient * scale == x + scale / 2) {
                     // round half to even
@@ -118,28 +117,16 @@ struct IntegerRoundingComputation {
                     // round the others as usual
                     x = quotient;
                 }
-                break;
-            }
             }
             return target_scale > 1 ? x * target_scale : x;
         }
-        }
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "IntegerRoundingComputation __builtin_unreachable ", rounding_mode);
-        __builtin_unreachable();
     }
 
     static ALWAYS_INLINE T compute(T x, T scale, T target_scale) {
-        switch (scale_mode) {
-        case ScaleMode::Zero:
-        case ScaleMode::Positive:
-            return x;
-        case ScaleMode::Negative:
+        if constexpr (scale_mode == ScaleMode::Negative) {
             return compute_impl(x, scale, target_scale);
         }
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "IntegerRoundingComputation __builtin_unreachable ", scale_mode);
-        __builtin_unreachable();
+        return x;
     }
 
     static ALWAYS_INLINE void compute(const T* __restrict in, U scale, T* __restrict out,
@@ -154,27 +141,28 @@ struct IntegerRoundingComputation {
     }
 };
 
-template <typename T, RoundingMode rounding_mode, TieBreakingMode tie_breaking_mode>
+template <PrimitiveType Type, RoundingMode rounding_mode, TieBreakingMode tie_breaking_mode>
 class DecimalRoundingImpl {
 private:
+    using T = typename PrimitiveTypeTraits<Type>::ColumnItemType;
     using NativeType = typename T::NativeType;
-    using Op = IntegerRoundingComputation<NativeType, rounding_mode, ScaleMode::Negative,
+    using Op = IntegerRoundingComputation<Type, rounding_mode, ScaleMode::Negative,
                                           tie_breaking_mode, NativeType>;
-    using Container = typename ColumnDecimal<T>::Container;
+    using Container = typename ColumnDecimal<Type>::Container;
 
 public:
     static NO_INLINE void apply(const Container& in, UInt32 in_scale, Container& out,
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
-            auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
+            auto scale = DecimalScaleParams::get_scale_factor<Type>(scale_arg);
 
             const NativeType* __restrict p_in = reinterpret_cast<const NativeType*>(in.data());
             const NativeType* end_in = reinterpret_cast<const NativeType*>(in.data()) + in.size();
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
-                auto negative_scale = DecimalScaleParams::get_scale_factor<T>(-out_scale);
+                auto negative_scale = DecimalScaleParams::get_scale_factor<Type>(-out_scale);
                 while (p_in < end_in) {
                     Op::compute(p_in, scale, p_out, negative_scale);
                     ++p_in;
@@ -196,9 +184,9 @@ public:
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
-            auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
+            auto scale = DecimalScaleParams::get_scale_factor<Type>(scale_arg);
             if (out_scale < 0) {
-                auto negative_scale = DecimalScaleParams::get_scale_factor<T>(-out_scale);
+                auto negative_scale = DecimalScaleParams::get_scale_factor<Type>(-out_scale);
                 Op::compute(&in, scale, &out, negative_scale);
             } else {
                 Op::compute(&in, scale, &out, 1);
@@ -303,15 +291,16 @@ public:
 
 /** Implementing high-level rounding functions.
   */
-template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
+template <PrimitiveType Type, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode>
 struct FloatRoundingImpl {
 private:
-    static_assert(!IsDecimalNumber<T>);
+    using T = typename PrimitiveTypeTraits<Type>::ColumnItemType;
+    static_assert(!is_decimal(Type));
 
     using Op = FloatRoundingComputation<T, rounding_mode, scale_mode, tie_breaking_mode>;
     using Data = std::array<T, Op::data_count>;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnVector<Type>;
     using Container = typename ColumnType::Container;
 
 public:
@@ -350,12 +339,14 @@ public:
     }
 };
 
-template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
+template <PrimitiveType Type, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode>
 struct IntegerRoundingImpl {
 private:
-    using Op = IntegerRoundingComputation<T, rounding_mode, scale_mode, tie_breaking_mode, size_t>;
-    using Container = typename ColumnVector<T>::Container;
+    using T = typename PrimitiveTypeTraits<Type>::ColumnItemType;
+    using Op =
+            IntegerRoundingComputation<Type, rounding_mode, scale_mode, tie_breaking_mode, size_t>;
+    using Container = typename ColumnVector<Type>::Container;
 
 public:
     template <size_t scale>
@@ -429,13 +420,13 @@ public:
 
 /** Select the appropriate processing algorithm depending on the scale.
   */
-template <typename T, RoundingMode rounding_mode, TieBreakingMode tie_breaking_mode>
+template <PrimitiveType T, RoundingMode rounding_mode, TieBreakingMode tie_breaking_mode>
 struct Dispatcher {
     template <ScaleMode scale_mode>
     using FunctionRoundingImpl = std::conditional_t<
-            IsDecimalNumber<T>, DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>,
+            is_decimal(T), DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>,
             std::conditional_t<
-                    std::is_floating_point_v<T>,
+                    is_float_or_double(T) || T == TYPE_TIME || T == TYPE_TIMEV2,
                     FloatRoundingImpl<T, rounding_mode, scale_mode, tie_breaking_mode>,
                     IntegerRoundingImpl<T, rounding_mode, scale_mode, tie_breaking_mode>>>;
 
@@ -443,7 +434,8 @@ struct Dispatcher {
     // result_scale: scale for result decimal, this scale is got from planner
     static ColumnPtr apply_vec_const(const IColumn* col_general, const Int16 scale_arg,
                                      [[maybe_unused]] Int16 result_scale) {
-        if constexpr (IsNumber<T>) {
+        if constexpr (is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
+                      T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64) {
             const auto* const col = check_and_get_column<ColumnVector<T>>(col_general);
             auto col_res = ColumnVector<T>::create();
 
@@ -466,11 +458,12 @@ struct Dispatcher {
             }
 
             return col_res;
-        } else if constexpr (IsDecimalNumber<T>) {
-            const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(col_general);
+        } else if constexpr (is_decimal(T)) {
+            const auto* const decimal_col =
+                    check_and_get_column<typename PrimitiveTypeTraits<T>::ColumnType>(col_general);
             const auto& vec_src = decimal_col->get_data();
             const size_t input_rows_count = vec_src.size();
-            auto col_res = ColumnDecimal<T>::create(vec_src.size(), result_scale);
+            auto col_res = PrimitiveTypeTraits<T>::ColumnType::create(vec_src.size(), result_scale);
             auto& vec_res = col_res->get_data();
 
             if (!vec_res.empty()) {
@@ -501,12 +494,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            auto error_type = std::make_shared<T>();
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Dispatcher apply_vec_const __builtin_unreachable {}",
-                                   error_type->get_name());
-            __builtin_unreachable();
-            return nullptr;
+            static_assert(false);
         }
     }
 
@@ -525,7 +513,8 @@ struct Dispatcher {
             }
         }
 
-        if constexpr (IsNumber<T>) {
+        if constexpr (is_int_or_bool(T) || is_date_type(T) || is_ip(T) || is_float_or_double(T) ||
+                      T == TYPE_TIMEV2 || T == TYPE_TIME) {
             const auto* col = assert_cast<const ColumnVector<T>*>(col_general);
             auto col_res = ColumnVector<T>::create();
             typename ColumnVector<T>::Container& vec_res = col_res->get_data();
@@ -548,10 +537,12 @@ struct Dispatcher {
                 }
             }
             return col_res;
-        } else if constexpr (IsDecimalNumber<T>) {
-            const auto* decimal_col = assert_cast<const ColumnDecimal<T>*>(col_general);
+        } else if constexpr (is_decimal(T)) {
+            const auto* decimal_col =
+                    assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType*>(col_general);
             const Int32 input_scale = decimal_col->get_scale();
-            auto col_res = ColumnDecimal<T>::create(input_row_count, result_scale);
+            auto col_res =
+                    PrimitiveTypeTraits<T>::ColumnType::create(input_row_count, result_scale);
 
             for (size_t i = 0; i < input_row_count; ++i) {
                 DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>::apply(
@@ -581,12 +572,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            auto error_type = std::make_shared<T>();
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Dispatcher apply_vec_vec __builtin_unreachable {}",
-                                   error_type->get_name());
-            __builtin_unreachable();
-            return nullptr;
+            static_assert(false);
         }
     }
 
@@ -607,12 +593,14 @@ struct Dispatcher {
             }
         }
 
-        if constexpr (IsDecimalNumber<T>) {
-            const ColumnDecimal<T>& data_col_general =
-                    assert_cast<const ColumnDecimal<T>&>(const_col_general->get_data_column());
-            const T& general_val = data_col_general.get_data()[0];
+        if constexpr (is_decimal(T)) {
+            const typename PrimitiveTypeTraits<T>::ColumnType& data_col_general =
+                    assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(
+                            const_col_general->get_data_column());
+            const auto& general_val = data_col_general.get_data()[0];
             Int32 input_scale = data_col_general.get_scale();
-            auto col_res = ColumnDecimal<T>::create(input_rows_count, result_scale);
+            auto col_res =
+                    PrimitiveTypeTraits<T>::ColumnType::create(input_rows_count, result_scale);
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>::apply(
@@ -641,10 +629,11 @@ struct Dispatcher {
             }
 
             return col_res;
-        } else if constexpr (IsNumber<T>) {
+        } else if constexpr (is_int_or_bool(T) || is_date_type(T) || is_ip(T) ||
+                             is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
             const ColumnVector<T>& data_col_general =
                     assert_cast<const ColumnVector<T>&>(const_col_general->get_data_column());
-            const T& general_val = data_col_general.get_data()[0];
+            const auto& general_val = data_col_general.get_data()[0];
             auto col_res = ColumnVector<T>::create(input_rows_count);
             typename ColumnVector<T>::Container& vec_res = col_res->get_data();
 
@@ -666,12 +655,7 @@ struct Dispatcher {
 
             return col_res;
         } else {
-            auto error_type = std::make_shared<T>();
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Dispatcher apply_const_vec __builtin_unreachable {}",
-                                   error_type->get_name());
-            __builtin_unreachable();
-            return nullptr;
+            static_assert(false);
         }
     }
 };
@@ -720,8 +704,6 @@ public:
         return Status::OK();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& column_general = block.get_by_position(arguments[0]);
@@ -749,7 +731,7 @@ public:
             // arguments from query plan.
             Int16 result_scale = 0;
             if constexpr (IsDataTypeDecimal<DataType>) {
-                if (column_result.type->get_type_id() == TypeIndex::Nullable) {
+                if (column_result.type->is_nullable()) {
                     if (auto nullable_type = std::dynamic_pointer_cast<const DataTypeNullable>(
                                 column_result.type)) {
                         result_scale = nullable_type->get_nested_type()->get_scale();
@@ -763,7 +745,6 @@ public:
             }
 
             if constexpr (IsDataTypeNumber<DataType> || IsDataTypeDecimal<DataType>) {
-                using FieldType = typename DataType::FieldType;
                 if (arguments.size() == 1 ||
                     is_column_const(*block.get_by_position(arguments[1]).column)) {
                     // the SECOND argument is MISSING or CONST
@@ -773,18 +754,19 @@ public:
                                 get_scale_arg(block.get_by_position(arguments[1]), &scale_arg));
                     }
 
-                    res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::apply_vec_const(
-                            col_general, scale_arg, result_scale);
+                    res = Dispatcher<DataType::PType, rounding_mode,
+                                     tie_breaking_mode>::apply_vec_const(col_general, scale_arg,
+                                                                         result_scale);
                 } else {
                     // the SECOND arugment is COLUMN
                     if (is_col_general_const) {
-                        res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::
+                        res = Dispatcher<DataType::PType, rounding_mode, tie_breaking_mode>::
                                 apply_const_vec(
                                         &assert_cast<const ColumnConst&>(*column_general.column),
                                         block.get_by_position(arguments[1]).column.get(),
                                         result_scale);
                     } else {
-                        res = Dispatcher<FieldType, rounding_mode, tie_breaking_mode>::
+                        res = Dispatcher<DataType::PType, rounding_mode, tie_breaking_mode>::
                                 apply_vec_vec(col_general,
                                               block.get_by_position(arguments[1]).column.get(),
                                               result_scale);
@@ -806,7 +788,7 @@ public:
         }
 #endif
 
-        if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
+        if (!call_on_index_and_data_type<void>(column_general.type->get_primitive_type(), call)) {
             return Status::InvalidArgument("Invalid argument type {} for function {}",
                                            column_general.type->get_name(), name);
         }
@@ -857,23 +839,23 @@ struct DoubleRoundOneImpl {
     }
 };
 
-template <typename Name>
+template <typename Name, PrimitiveType Type>
 struct DecimalRoundTwoImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0),
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
                 std::make_shared<vectorized::DataTypeInt32>()};
     }
 };
 
-template <typename Name>
+template <typename Name, PrimitiveType Type>
 struct DecimalRoundOneImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0)};
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

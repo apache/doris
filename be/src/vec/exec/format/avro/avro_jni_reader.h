@@ -36,7 +36,6 @@ class SlotDescriptor;
 namespace vectorized {
 class Block;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -64,25 +63,25 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
-    Status init_fetch_table_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init_reader(
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     TFileType::type get_file_type() const;
 
-    Status init_fetch_table_schema_reader();
+    Status init_schema_reader() override;
 
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
-    TypeDescriptor convert_to_doris_type(const rapidjson::Value& column_schema);
+    DataTypePtr convert_to_doris_type(const rapidjson::Value& column_schema);
 
 private:
     const TFileScanRangeParams _params;
     const TFileRangeDesc _range;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
 };
 
 #include "common/compile_check_end.h"

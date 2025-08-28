@@ -17,16 +17,9 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_object.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_struct.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/functions/function.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -34,16 +27,12 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
-    WhichDataType which(remove_nullable(argument_types[0]));
-
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                             \
-    if (which.idx == TypeIndex::TYPE)                                                           \
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<COLUMN_TYPE>>( \
-                argument_types, result_is_nullable);
-    TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
-
-    return nullptr;
+    return creator_with_type_list<
+            TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
+            TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+            TYPE_DECIMALV2, TYPE_DECIMAL256, TYPE_VARCHAR, TYPE_DATEV2, TYPE_DATETIMEV2, TYPE_IPV4,
+            TYPE_IPV6>::create<AggregateFunctionApproxCountDistinct>(argument_types,
+                                                                     result_is_nullable, attr);
 }
 
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory) {

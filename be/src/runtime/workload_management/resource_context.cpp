@@ -23,21 +23,7 @@
 #include "util/time.h"
 
 namespace doris {
-
-void ResourceContext::to_pb_query_statistics(PQueryStatistics* statistics) const {
-    DCHECK(statistics != nullptr);
-    statistics->set_scan_rows(io_context()->scan_rows());
-    statistics->set_scan_bytes(io_context()->scan_bytes());
-    statistics->set_cpu_ms(cpu_context()->cpu_cost_ms() / NANOS_PER_MILLIS);
-    statistics->set_returned_rows(io_context()->returned_rows());
-    statistics->set_max_peak_memory_bytes(memory_context()->max_peak_memory_bytes());
-    statistics->set_scan_bytes_from_remote_storage(io_context()->scan_bytes_from_remote_storage());
-    statistics->set_scan_bytes_from_local_storage(io_context()->scan_bytes_from_local_storage());
-    statistics->set_spill_write_bytes_to_local_storage(
-            io_context_->spill_write_bytes_to_local_storage());
-    statistics->set_spill_read_bytes_from_local_storage(
-            io_context_->spill_read_bytes_from_local_storage());
-}
+#include "common/compile_check_begin.h"
 
 void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) const {
     DCHECK(statistics != nullptr);
@@ -65,4 +51,5 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
             io_context_->spill_read_bytes_from_local_storage());
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

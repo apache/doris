@@ -17,9 +17,7 @@
 
 package org.apache.doris.common.jni.utils;
 
-import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.collect.Sets;
@@ -28,7 +26,6 @@ import org.apache.log4j.Logger;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.InetAddress;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -60,9 +57,9 @@ public class JavaUdfDataType {
 
     public static final JavaUdfDataType IPV4 = new JavaUdfDataType("IPV4", TPrimitiveType.IPV4, 4);
     public static final JavaUdfDataType IPV6 = new JavaUdfDataType("IPV6", TPrimitiveType.IPV6, 16);
-    public static final JavaUdfDataType ARRAY_TYPE = new JavaUdfDataType("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
-    public static final JavaUdfDataType MAP_TYPE = new JavaUdfDataType("MAP_TYPE", TPrimitiveType.MAP, 0);
-    public static final JavaUdfDataType STRUCT_TYPE = new JavaUdfDataType("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
+    public static final JavaUdfDataType ARRAY_TYPE = new JavaUdfArrayType("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
+    public static final JavaUdfDataType MAP_TYPE = new JavaUdfMapType("MAP_TYPE", TPrimitiveType.MAP, 0);
+    public static final JavaUdfDataType STRUCT_TYPE = new JavaUdfStructType("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
 
     private static final Map<TPrimitiveType, JavaUdfDataType> javaUdfDataTypeMap = new HashMap<>();
 
@@ -101,12 +98,6 @@ public class JavaUdfDataType {
     private final int len;
     private int precision;
     private int scale;
-    private Type itemType = null;
-    private Type keyType;
-    private Type valueType;
-    private int keyScale;
-    private int valueScale;
-    private ArrayList<StructField> fields = new ArrayList<>();
 
     public JavaUdfDataType(String description, TPrimitiveType thriftType, int len) {
         this.description = description;
@@ -122,23 +113,7 @@ public class JavaUdfDataType {
 
     @Override
     public String toString() {
-        StringBuilder res = new StringBuilder();
-        res.append(description);
-        // TODO: the item/key/value type should be dispose in child class
-        if (getItemType() != null) {
-            res.append(" item: ").append(getItemType().toString()).append(" sql: ")
-                .append(getItemType().toSql());
-        }
-        if (getKeyType() != null) {
-            res.append(" key: ").append(getKeyType().toString()).append(" sql: ")
-                .append(getKeyType().toSql());
-        }
-        if (getValueType() != null) {
-            res.append(" value: ").append(getValueType().toString()).append(" sql: ")
-                .append(getValueType().toSql());
-        }
-
-        return res.toString();
+        return description;
     }
 
     public int getLen() {
@@ -179,9 +154,9 @@ public class JavaUdfDataType {
         } else if (c == BigDecimal.class) {
             return Sets.newHashSet(JavaUdfDataType.DECIMALV2, JavaUdfDataType.DECIMAL32, JavaUdfDataType.DECIMAL64,
                     JavaUdfDataType.DECIMAL128);
-        } else if (c == java.util.ArrayList.class) {
+        } else if (Type.ARRAY_SUPPORTED_JAVA_TYPE.contains(c)) {
             return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE, JavaUdfDataType.STRUCT_TYPE);
-        } else if (c == java.util.HashMap.class) {
+        } else if (Type.MAP_SUPPORTED_JAVA_TYPE.contains(c)) {
             return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
         } else if (c == InetAddress.class) {
             return Sets.newHashSet(JavaUdfDataType.IPV4, JavaUdfDataType.IPV6);
@@ -214,64 +189,5 @@ public class JavaUdfDataType {
 
     public void setScale(int scale) {
         this.scale = scale;
-    }
-
-    public Type getItemType() {
-        return itemType;
-    }
-
-    public void setItemType(Type type) throws InternalException {
-        if (this.itemType == null) {
-            this.itemType = type;
-        } else {
-            if (!this.itemType.matchesType(type)) {
-                throw new InternalException("udf type not matches origin type :" + this.itemType.toSql()
-                        + " set type :" + type.toSql());
-            }
-        }
-    }
-
-    public Type getKeyType() {
-        return keyType;
-    }
-
-    public Type getValueType() {
-        return valueType;
-    }
-
-    public void setKeyType(Type type) {
-        this.keyType = type;
-    }
-
-    public void setValueType(Type type) {
-        this.valueType = type;
-    }
-
-    public void setKeyScale(int scale) {
-        this.keyScale = scale;
-    }
-
-    public void setValueScale(int scale) {
-        this.valueScale = scale;
-    }
-
-    public int getKeyScale() {
-        return keyScale;
-    }
-
-    public int getValueScale() {
-        return valueScale;
-    }
-
-    public void setFields(ArrayList<StructField> fields) {
-        this.fields = fields;
-    }
-
-    public ArrayList<String> getFieldNames() {
-        ArrayList<String> names = new ArrayList<>();
-        for (StructField filed : fields) {
-            names.add(filed.getName());
-        }
-        return names;
     }
 }

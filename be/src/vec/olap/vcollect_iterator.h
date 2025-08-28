@@ -78,11 +78,10 @@ public:
         return _inner_iter->current_block_row_locations(block_row_locations);
     }
 
-    bool update_profile(RuntimeProfile* profile) {
+    void update_profile(RuntimeProfile* profile) {
         if (_inner_iter != nullptr) {
-            return _inner_iter->update_profile(profile);
+            _inner_iter->update_profile(profile);
         }
-        return false;
     }
 
     inline bool use_topn_next() const { return _topn_limit > 0; }
@@ -148,7 +147,7 @@ private:
 
         [[nodiscard]] virtual Status ensure_first_row_ref() = 0;
 
-        virtual bool update_profile(RuntimeProfile* profile) = 0;
+        virtual void update_profile(RuntimeProfile* profile) = 0;
 
     protected:
         const TabletSchema& _schema;
@@ -209,11 +208,10 @@ private:
 
         Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) override;
 
-        bool update_profile(RuntimeProfile* profile) override {
+        void update_profile(RuntimeProfile* profile) override {
             if (_rs_reader != nullptr) {
-                return _rs_reader->update_profile(profile);
+                _rs_reader->update_profile(profile);
             }
-            return false;
         }
 
         Status refresh_current_row();
@@ -289,11 +287,10 @@ private:
 
         ~Level1Iterator() override;
 
-        bool update_profile(RuntimeProfile* profile) override {
+        void update_profile(RuntimeProfile* profile) override {
             if (_cur_child != nullptr) {
-                return _cur_child->update_profile(profile);
+                _cur_child->update_profile(profile);
             }
-            return false;
         }
 
         void init_level0_iterators_for_union();

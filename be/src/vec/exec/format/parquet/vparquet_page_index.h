@@ -39,15 +39,15 @@ class OffsetIndex;
 } // namespace tparquet
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class PageIndex {
 public:
     PageIndex() = default;
     ~PageIndex() = default;
-    Status create_skipped_row_range(tparquet::OffsetIndex& offset_index, int total_rows_of_group,
-                                    int page_idx, RowRange* row_range);
+    Status create_skipped_row_range(tparquet::OffsetIndex& offset_index,
+                                    int64_t total_rows_of_group, int page_idx, RowRange* row_range);
     Status collect_skipped_page_range(tparquet::ColumnIndex* column_index,
-                                      ColumnValueRangeType& col_val_range,
+                                      const ColumnValueRangeType& col_val_range,
                                       const FieldSchema* col_schema,
                                       std::vector<int>& skipped_ranges, const cctz::time_zone& ctz);
     bool check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns);
@@ -63,5 +63,6 @@ private:
     int64_t _offset_index_start;
     int64_t _offset_index_size;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

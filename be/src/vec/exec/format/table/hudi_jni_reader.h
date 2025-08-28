@@ -34,7 +34,6 @@ class SlotDescriptor;
 namespace vectorized {
 class Block;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -52,18 +51,13 @@ public:
 
     ~HudiJniReader() override = default;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
-
     Status init_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 private:
     const TFileScanRangeParams& _scan_params;
     const THudiFileDesc& _hudi_params;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
 #include "common/compile_check_end.h"

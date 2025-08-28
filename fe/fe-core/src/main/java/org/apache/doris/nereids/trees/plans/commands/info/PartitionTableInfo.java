@@ -329,6 +329,7 @@ public class PartitionTableInfo {
         try {
             identifierPartitionColumns = PartitionDesc.getColNamesFromExpr(exprs,
                     partitionType.equalsIgnoreCase(PartitionType.LIST.name()), isAutoPartition);
+            // check of it will be done in validatePartitionInfo later.
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
@@ -336,5 +337,9 @@ public class PartitionTableInfo {
 
     public boolean inIdentifierPartitions(String columnName) {
         return identifierPartitionColumns != null && identifierPartitionColumns.contains(columnName);
+    }
+
+    public List<String> getIdentifierPartitionColumns() {
+        return identifierPartitionColumns;
     }
 }

@@ -21,23 +21,37 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "exprs/runtime_filter.h"
+#include "exec/rowid_fetcher.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime_filter/runtime_filter_consumer.h"
+#include "util/brpc_client_cache.h"
+#include "vec/exec/scan/file_scanner.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
                                                        const std::string& name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
+}
+
+void BasicSharedState::create_source_dependencies(int num_sources, int operator_id, int node_id,
+                                                  const std::string& name) {
+    source_deps.resize(num_sources, nullptr);
+    for (auto& source_dep : source_deps) {
+        source_dep = std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY");
+        source_dep->set_shared_state(this);
+    }
 }
 
 Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
@@ -47,8 +61,9 @@ Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
     return sink_deps.back().get();
 }
 
-void Dependency::_add_block_task(PipelineTask* task) {
-    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
+void Dependency::_add_block_task(std::shared_ptr<PipelineTask> task) {
+    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1].lock() == nullptr ||
+           _blocked_task[_blocked_task.size() - 1].lock().get() != task.get())
             << "Duplicate task: " << task->debug_string();
     _blocked_task.push_back(task);
 }
@@ -58,7 +73,7 @@ void Dependency::set_ready() {
         return;
     }
     _watcher.stop();
-    std::vector<PipelineTask*> local_block_task {};
+    std::vector<std::weak_ptr<PipelineTask>> local_block_task {};
     {
         std::unique_lock<std::mutex> lc(_task_lock);
         if (_ready) {
@@ -67,26 +82,30 @@ void Dependency::set_ready() {
         _ready = true;
         local_block_task.swap(_blocked_task);
     }
-    for (auto* task : local_block_task) {
-        task->wake_up();
+    for (auto task : local_block_task) {
+        if (auto t = task.lock()) {
+            std::unique_lock<std::mutex> lc(_task_lock);
+            THROW_IF_ERROR(t->wake_up(this));
+        }
     }
 }
 
-Dependency* Dependency::is_blocked_by(PipelineTask* task) {
+Dependency* Dependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
+        start_watcher();
+        THROW_IF_ERROR(task->blocked(this));
     }
     return ready ? nullptr : this;
 }
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}this={}, {}: id={}, block task = {}, ready={}, _always_ready={}",
-                   std::string(indentation_level * 2, ' '), (void*)this, _name, _node_id,
-                   _blocked_task.size(), _ready, _always_ready);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -96,13 +115,6 @@ std::string CountedFinishDependency::debug_string(int indentation_level) {
                    "{}{}: id={}, block_task={}, ready={}, _always_ready={}, count={}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
                    _ready, _always_ready, _counter);
-    return fmt::to_string(debug_string_buffer);
-}
-
-std::string RuntimeFilterDependency::debug_string(int indentation_level) {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
-                   Dependency::debug_string(indentation_level), _runtime_filter->formatted_state());
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -152,7 +164,7 @@ void RuntimeFilterTimerQueue::start() {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
                 } else if (it->should_be_check_timeout()) {
-                    if (it->_parent->is_blocked_by(nullptr)) {
+                    if (it->force_wait_timeout() || it->_parent->is_blocked_by()) {
                         // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
                         int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
                         if (ms_since_registration > it->wait_time_ms()) {
@@ -208,10 +220,10 @@ vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
                         auto& data = *agg_method.hash_table;
                         bool has_null_key = data.has_null_key_data();
                         const auto size = data.size() - has_null_key;
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         auto iter = aggregate_data_container->begin();
                         {
                             while (iter != aggregate_data_container->end()) {
@@ -280,7 +292,8 @@ Status AggSharedState::reset_hash_table() {
                         auto& hash_table = *agg_method.hash_table;
                         using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                        agg_method.reset();
+                        agg_method.arena.clear();
+                        agg_method.inited_iterator = false;
 
                         hash_table.for_each_mapped([&](auto& mapped) {
                             if (mapped) {
@@ -301,7 +314,6 @@ Status AggSharedState::reset_hash_table() {
                                  align_aggregate_states) *
                                         align_aggregate_states));
                         agg_method.hash_table.reset(new HashTableType());
-                        agg_arena_pool.reset(new vectorized::Arena);
                         return Status::OK();
                     }},
             agg_data->method_variant);
@@ -424,6 +436,19 @@ Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprConte
     return Status::OK();
 }
 
+size_t SetSharedState::get_hash_table_size() const {
+    size_t hash_table_size = 0;
+    std::visit(
+            [&](auto&& arg) {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    hash_table_size = arg.hash_table->size();
+                }
+            },
+            hash_table_variants->method_variant);
+    return hash_table_size;
+}
+
 Status SetSharedState::hash_table_init() {
     std::vector<vectorized::DataTypePtr> data_types;
     for (size_t i = 0; i != child_exprs_lists[0].size(); ++i) {
@@ -447,6 +472,230 @@ void AggSharedState::refresh_top_limit(size_t row_id,
 
     limit_heap.pop();
     limit_columns_min = limit_heap.top()._row_id;
+}
+
+Status MaterializationSharedState::merge_multi_response(vectorized::Block* block) {
+    std::map<int64_t, std::pair<vectorized::Block, int>> _block_maps;
+    for (int i = 0; i < block_order_results.size(); ++i) {
+        for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
+            vectorized::Block partial_block;
+            DCHECK(rpc_struct.callback->response_->blocks_size() > i);
+            RETURN_IF_ERROR(
+                    partial_block.deserialize(rpc_struct.callback->response_->blocks(i).block()));
+            if (rpc_struct.callback->response_->blocks(i).has_profile()) {
+                auto response_profile = RuntimeProfile::from_proto(
+                        rpc_struct.callback->response_->blocks(i).profile());
+                _update_profile_info(backend_id, response_profile.get());
+            }
+
+            if (!partial_block.is_empty_column()) {
+                _block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
+            }
+        }
+
+        for (int j = 0; j < block_order_results[i].size(); ++j) {
+            auto backend_id = block_order_results[i][j];
+            if (backend_id) {
+                auto& source_block_rows = _block_maps[backend_id];
+                DCHECK(source_block_rows.second < source_block_rows.first.rows());
+                for (int k = 0; k < response_blocks[i].columns(); ++k) {
+                    response_blocks[i].get_column_by_position(k)->insert_from(
+                            *source_block_rows.first.get_by_position(k).column,
+                            source_block_rows.second);
+                }
+                source_block_rows.second++;
+            } else {
+                for (int k = 0; k < response_blocks[i].columns(); ++k) {
+                    response_blocks[i].get_column_by_position(k)->insert_default();
+                }
+            }
+        }
+    }
+
+    // clear request/response
+    for (auto& [_, rpc_struct] : rpc_struct_map) {
+        for (int i = 0; i < rpc_struct.request.request_block_descs_size(); ++i) {
+            rpc_struct.request.mutable_request_block_descs(i)->clear_row_id();
+            rpc_struct.request.mutable_request_block_descs(i)->clear_file_id();
+        }
+    }
+
+    for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); i++) {
+        if (i != rowid_to_block_loc) {
+            block->insert(origin_block.get_by_position(i));
+        } else {
+            auto response_block = response_blocks[j].to_block();
+            for (int k = 0; k < response_block.columns(); k++) {
+                auto& data = response_block.get_by_position(k);
+                response_blocks[j].mutable_columns()[k] = data.column->clone_empty();
+                block->insert(data);
+            }
+            if (++j < rowid_locs.size()) {
+                rowid_to_block_loc = rowid_locs[j];
+            }
+        }
+    }
+    origin_block.clear();
+
+    return Status::OK();
+}
+
+void MaterializationSharedState::_update_profile_info(int64_t backend_id,
+                                                      RuntimeProfile* response_profile) {
+    if (!backend_profile_info_string.contains(backend_id)) {
+        backend_profile_info_string.emplace(backend_id,
+                                            std::map<std::string, fmt::memory_buffer> {});
+    }
+    auto& info_map = backend_profile_info_string[backend_id];
+
+    auto update_profile_info_key = [&](const std::string& info_key) {
+        const auto* info_value = response_profile->get_info_string(info_key);
+        if (info_value == nullptr) [[unlikely]] {
+            LOG(WARNING) << "Get row id fetch rpc profile success, but no info key :" << info_key;
+            return;
+        }
+        if (!info_map.contains(info_key)) {
+            info_map.emplace(info_key, fmt::memory_buffer {});
+        }
+        fmt::format_to(info_map[info_key], "{}, ", *info_value);
+    };
+
+    update_profile_info_key(RowIdStorageReader::ScannersRunningTimeProfile);
+    update_profile_info_key(RowIdStorageReader::InitReaderAvgTimeProfile);
+    update_profile_info_key(RowIdStorageReader::GetBlockAvgTimeProfile);
+    update_profile_info_key(RowIdStorageReader::FileReadLinesProfile);
+    update_profile_info_key(vectorized::FileScanner::FileReadBytesProfile);
+    update_profile_info_key(vectorized::FileScanner::FileReadTimeProfile);
+}
+
+void MaterializationSharedState::create_counter_dependency(int operator_id, int node_id,
+                                                           const std::string& name) {
+    auto dep =
+            std::make_shared<CountedFinishDependency>(operator_id, node_id, name + "_DEPENDENCY");
+    dep->set_shared_state(this);
+    // just block source wait for add the counter in sink
+    dep->add(0);
+
+    source_deps.push_back(dep);
+}
+
+Status MaterializationSharedState::create_muiltget_result(const vectorized::Columns& columns,
+                                                          bool eos, bool gc_id_map) {
+    const auto rows = columns.empty() ? 0 : columns[0]->size();
+    block_order_results.resize(columns.size());
+
+    for (int i = 0; i < columns.size(); ++i) {
+        const uint8_t* null_map = nullptr;
+        const vectorized::ColumnString* column_rowid = nullptr;
+        auto& column = columns[i];
+
+        if (auto column_ptr = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+            null_map = column_ptr->get_null_map_data().data();
+            column_rowid = assert_cast<const vectorized::ColumnString*>(
+                    column_ptr->get_nested_column_ptr().get());
+        } else {
+            column_rowid = assert_cast<const vectorized::ColumnString*>(column.get());
+        }
+
+        auto& block_order = block_order_results[i];
+        block_order.resize(rows);
+
+        for (int j = 0; j < rows; ++j) {
+            if (!null_map || !null_map[j]) {
+                DCHECK(column_rowid->get_data_at(j).size == sizeof(GlobalRowLoacationV2));
+                GlobalRowLoacationV2 row_location =
+                        *((GlobalRowLoacationV2*)column_rowid->get_data_at(j).data);
+                auto rpc_struct = rpc_struct_map.find(row_location.backend_id);
+                if (UNLIKELY(rpc_struct == rpc_struct_map.end())) {
+                    return Status::InternalError(
+                            "MaterializationSinkOperatorX failed to find rpc_struct, backend_id={}",
+                            row_location.backend_id);
+                }
+                rpc_struct->second.request.mutable_request_block_descs(i)->add_row_id(
+                        row_location.row_id);
+                rpc_struct->second.request.mutable_request_block_descs(i)->add_file_id(
+                        row_location.file_id);
+                block_order[j] = row_location.backend_id;
+            } else {
+                block_order[j] = 0;
+            }
+        }
+    }
+
+    if (eos && gc_id_map) {
+        for (auto& [_, rpc_struct] : rpc_struct_map) {
+            rpc_struct.request.set_gc_id_map(true);
+        }
+    }
+    last_block = eos;
+    need_merge_block = rows > 0;
+
+    return Status::OK();
+}
+
+Status MaterializationSharedState::init_multi_requests(
+        const TMaterializationNode& materialization_node, RuntimeState* state) {
+    rpc_struct_inited = true;
+    PMultiGetRequestV2 multi_get_request;
+    // Initialize the base struct of PMultiGetRequestV2
+    multi_get_request.set_be_exec_version(state->be_exec_version());
+    multi_get_request.set_wg_id(state->get_query_ctx()->workload_group()->id());
+    auto query_id = multi_get_request.mutable_query_id();
+    query_id->set_hi(state->query_id().hi);
+    query_id->set_lo(state->query_id().lo);
+    DCHECK_EQ(materialization_node.column_descs_lists.size(),
+              materialization_node.slot_locs_lists.size());
+
+    const auto& tuple_desc =
+            state->desc_tbl().get_tuple_descriptor(materialization_node.intermediate_tuple_id);
+    const auto& slots = tuple_desc->slots();
+    response_blocks =
+            std::vector<vectorized::MutableBlock>(materialization_node.column_descs_lists.size());
+
+    for (int i = 0; i < materialization_node.column_descs_lists.size(); ++i) {
+        auto request_block_desc = multi_get_request.add_request_block_descs();
+        request_block_desc->set_fetch_row_store(materialization_node.fetch_row_stores[i]);
+        // Initialize the column_descs and slot_locs
+        auto& column_descs = materialization_node.column_descs_lists[i];
+        for (auto& column_desc_item : column_descs) {
+            TabletColumn(column_desc_item).to_schema_pb(request_block_desc->add_column_descs());
+        }
+
+        auto& slot_locs = materialization_node.slot_locs_lists[i];
+        tuple_desc->to_protobuf(request_block_desc->mutable_desc());
+
+        auto& column_idxs = materialization_node.column_idxs_lists[i];
+        for (auto idx : column_idxs) {
+            request_block_desc->add_column_idxs(idx);
+        }
+
+        std::vector<SlotDescriptor*> slots_res;
+        for (auto& slot_loc_item : slot_locs) {
+            slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
+            slots_res.emplace_back(slots[slot_loc_item]);
+        }
+        response_blocks[i] = vectorized::MutableBlock(vectorized::Block(slots_res, 10));
+    }
+
+    // Initialize the stubs and requests for each BE
+    for (const auto& node_info : materialization_node.nodes_info.nodes) {
+        auto client = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                node_info.host, node_info.async_internal_port);
+        if (!client) {
+            LOG(WARNING) << "Get rpc stub failed, host=" << node_info.host
+                         << ", port=" << node_info.async_internal_port;
+            return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
+                                         node_info.host, node_info.async_internal_port);
+        }
+        rpc_struct_map.emplace(node_info.id, FetchRpcStruct {.stub = std::move(client),
+                                                             .request = multi_get_request,
+                                                             .callback = nullptr,
+                                                             .rpc_timer = MonotonicStopWatch()});
+    }
+    // add be_num ad count finish counter for source dependency
+    ((CountedFinishDependency*)source_deps.back().get())->add((int)rpc_struct_map.size());
+
+    return Status::OK();
 }
 
 } // namespace doris::pipeline

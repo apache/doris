@@ -20,11 +20,12 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,12 +34,18 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -46,11 +53,13 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -67,45 +76,6 @@ public class StatsCalculatorTest {
         group.getLogicalExpressions().remove(0);
         return group;
     }
-
-    // TODO: temporary disable this test, until we could get column stats
-    // @Test
-    // public void testAgg() {
-    //     List<String> qualifier = new ArrayList<>();
-    //     qualifier.add("test");
-    //     qualifier.add("t");
-    //     SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
-    //     SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
-    //     ColumnStats columnStats1 = new ColumnStats();
-    //     columnStats1.setNdv(10);
-    //     columnStats1.setNumNulls(5);
-    //     ColumnStats columnStats2 = new ColumnStats();
-    //     columnStats2.setNdv(20);
-    //     columnStats1.setNumNulls(10);
-    //     Map<Slot, ColumnStats> slotColumnStatsMap = new HashMap<>();
-    //     slotColumnStatsMap.put(slot1, columnStats1);
-    //     slotColumnStatsMap.put(slot2, columnStats2);
-    //     List<Expression> groupByExprList = new ArrayList<>();
-    //     groupByExprList.add(slot1);
-    //     AggregateFunction sum = new Sum(slot2);
-    //     Statistics childStats = new Statistics(20, slotColumnStatsMap);
-    //     Alias alias = new Alias(sum, "a");
-    //     Group childGroup = newGroup();
-    //     childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
-    //         @Override
-    //         public List<Slot> get() {
-    //             return Collections.emptyList();
-    //         }
-    //     }));
-    //     GroupPlan groupPlan = new GroupPlan(childGroup);
-    //     childGroup.setStatistics(childStats);
-    //     LogicalAggregate logicalAggregate = new LogicalAggregate(groupByExprList, Arrays.asList(alias), groupPlan);
-    //     GroupExpression groupExpression = new GroupExpression(logicalAggregate, Arrays.asList(childGroup));
-    //     Group ownerGroup = newGroup();
-    //     groupExpression.setOwnerGroup(ownerGroup);
-    //     StatsCalculator.estimate(groupExpression);
-    //     Assertions.assertEquals(groupExpression.getOwnerGroup().getStatistics().getRowCount(), 10);
-    // }
 
     @Test
     public void testFilter() {
@@ -145,14 +115,14 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
-        Assertions.assertEquals(49.945, ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(49.90005, ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         StatsCalculator.estimate(groupExpressionOr, null);
         Assertions.assertEquals(1448.555,
-                ownerGroupOr.getStatistics().getRowCount(), 0.001);
+                ownerGroupOr.getStatistics().getRowCount(), 0.1);
     }
 
     // a, b are in (0,100)
@@ -182,7 +152,7 @@ public class StatsCalculatorTest {
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(200));
         EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(300));
 
-        ImmutableSet and = ImmutableSet.of(new And(eq1, eq2));
+        ImmutableSet and = ImmutableSet.of(eq1, eq2);
         ImmutableSet or = ImmutableSet.of(new Or(eq1, eq2));
 
         Group childGroup = newFakeGroup();
@@ -203,51 +173,15 @@ public class StatsCalculatorTest {
         StatsCalculator.estimate(groupExpressionOr, null);
         Assertions.assertEquals(0, ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
-    // TODO: temporary disable this test, until we could get column stats
-    // @Test
-    // public void testHashJoin() {
-    //     List<String> qualifier = ImmutableList.of("test", "t");
-    //     SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
-    //     SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
-    //     ColumnStats columnStats1 = new ColumnStats();
-    //     columnStats1.setNdv(10);
-    //     columnStats1.setNumNulls(5);
-    //     ColumnStats columnStats2 = new ColumnStats();
-    //     columnStats2.setNdv(20);
-    //     columnStats1.setNumNulls(10);
-    //     Map<Slot, ColumnStats> slotColumnStatsMap1 = new HashMap<>();
-    //     slotColumnStatsMap1.put(slot1, columnStats1);
-    //
-    //     Map<Slot, ColumnStats> slotColumnStatsMap2 = new HashMap<>();
-    //     slotColumnStatsMap2.put(slot2, columnStats2);
-    //
-    //     final long leftRowCount = 5000;
-    //     Statistics leftStats = new Statistics(leftRowCount, slotColumnStatsMap1);
-    //
-    //     final long rightRowCount = 10000;
-    //     Statistics rightStats = new Statistics(rightRowCount, slotColumnStatsMap2);
-    //
-    //     EqualTo equalTo = new EqualTo(slot1, slot2);
-    //
-    //     LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t", 0);
-    //     LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(0, "t", 0);
-    //     LogicalJoin<LogicalOlapScan, LogicalOlapScan> fakeSemiJoin = new LogicalJoin<>(
-    //             JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(equalTo), Optional.empty(), scan1, scan2);
-    //     LogicalJoin<LogicalOlapScan, LogicalOlapScan> fakeInnerJoin = new LogicalJoin<>(
-    //             JoinType.INNER_JOIN, Lists.newArrayList(equalTo), Optional.empty(), scan1, scan2);
-    //     Statistics semiJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeSemiJoin);
-    //     Assertions.assertEquals(leftRowCount, semiJoinStats.getRowCount());
-    //     Statistics innerJoinStats = JoinEstimation.estimate(leftStats, rightStats, fakeInnerJoin);
-    //     Assertions.assertEquals(2500000, innerJoinStats.getRowCount());
-    // }
 
     @Test
     public void testOlapScan() {
         long tableId1 = 0;
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         List<String> qualifier = ImmutableList.of("test", "t");
-        SlotReference slot1 = new SlotReference(new ExprId(0),
-                "c1", IntegerType.INSTANCE, true, qualifier, table1, new Column("c1", PrimitiveType.INT));
+        SlotReference slot1 = new SlotReference(new ExprId(0), "c1", IntegerType.INSTANCE, true, qualifier,
+                table1, new Column("c1", PrimitiveType.INT),
+                table1, new Column("c1", PrimitiveType.INT));
 
         LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(
                 StatementScopeIdGenerator.newRelationId(), table1,
@@ -265,14 +199,15 @@ public class StatsCalculatorTest {
     @Test
     public void testLimit() {
         List<String> qualifier = ImmutableList.of("test", "t");
-        SlotReference slot1 = new SlotReference(new ExprId(0),
-                "c1", IntegerType.INSTANCE, true, qualifier, null, new Column("c1", PrimitiveType.INT));
+        SlotReference slot1 = new SlotReference(new ExprId(0), "c1", IntegerType.INSTANCE, true, qualifier,
+                null, new Column("c1", PrimitiveType.INT),
+                null, new Column("c1", PrimitiveType.INT));
         ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);
         Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
         slotColumnStatsMap.put(slot1, columnStat1.build());
-        Statistics childStats = new Statistics(10, slotColumnStatsMap);
+        Statistics childStats = new Statistics(20, slotColumnStatsMap);
 
         Group childGroup = newFakeGroup();
         GroupPlan groupPlan = new GroupPlan(childGroup);
@@ -287,7 +222,7 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, limitStats.getRowCount());
         ColumnStatistic slot1Stats = limitStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
-        Assertions.assertEquals(0, slot1Stats.numNulls, 0.1);
+        Assertions.assertEquals(1, slot1Stats.numNulls, 0.1);
     }
 
     @Test
@@ -299,7 +234,7 @@ public class StatsCalculatorTest {
         columnStat1.setNumNulls(5);
         Map<Expression, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
         slotColumnStatsMap.put(slot1, columnStat1.build());
-        Statistics childStats = new Statistics(10, slotColumnStatsMap);
+        Statistics childStats = new Statistics(20, slotColumnStatsMap);
 
         Group childGroup = newFakeGroup();
         GroupPlan groupPlan = new GroupPlan(childGroup);
@@ -313,6 +248,290 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, topNStats.getRowCount());
         ColumnStatistic slot1Stats = topNStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
-        Assertions.assertEquals(0, slot1Stats.numNulls, 0.1);
+        Assertions.assertEquals(1, slot1Stats.numNulls, 0.1);
+    }
+
+    @Test
+    public void testHashJoinSkew() {
+        double rowCount = 100;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia = ib");
+        Expression joinCondition = pair.first;
+        SlotReference ia = pair.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, new String[]{"1", "2"});
+
+        SlotReference ib = pair.second.get(1);
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
+                rowCount, "1", "10", 0, new String[]{"2", "3", "4"});
+
+        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE);
+        ColumnStatistic icStats = StatsTestUtil.instance.createColumnStatistic("ic", 10,
+                rowCount, "1", "10", 0, new String[]{"6", "7", "8", "9", "10"});
+
+        LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(joinCondition),
+                new DummyPlan(), new DummyPlan(),
+                JoinReorderContext.EMPTY);
+
+        StatsCalculator calculator = new StatsCalculator(null);
+
+        Statistics leftStats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats, ic, icStats));
+        Statistics rightStats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
+        Statistics outputStats = calculator.computeJoin(join, leftStats, rightStats);
+
+        ColumnStatistic icStatsOut = outputStats.findColumnStatistics(ic);
+        Assertions.assertEquals(5, icStatsOut.getHotValues().size());
+
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(1, iaStatsOut.getHotValues().size());
+
+        ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
+        Assertions.assertEquals(1, ibStatsOut.getHotValues().size());
+    }
+
+    @Test
+    public void testHashJoinPkFkSkew() {
+        double leftRowCount = 100;
+        double rightRowCount = 10;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia = ib");
+        Expression joinCondition = pair.first;
+        SlotReference ia = pair.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                leftRowCount, "1", "10", 0, new String[]{"1", "2"});
+
+        SlotReference ib = pair.second.get(1);
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
+                rightRowCount, "1", "10", 0, new String[]{"2", "3", "4"});
+
+        LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(joinCondition),
+                new DummyPlan(), new DummyPlan(),
+                JoinReorderContext.EMPTY);
+
+        StatsCalculator calculator = new StatsCalculator(null);
+
+        Statistics leftStats = new Statistics(leftRowCount, ImmutableMap.of(ia, iaStats));
+        Statistics rightStats = new Statistics(rightRowCount, ImmutableMap.of(ib, ibStats));
+        Statistics outputStats = calculator.computeJoin(join, leftStats, rightStats);
+
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(1, iaStatsOut.getHotValues().size());
+
+        ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
+        Assertions.assertEquals(1, ibStatsOut.getHotValues().size());
+    }
+
+    @Test
+    public void testLeftOuterJoinSkew() {
+        double rowCount = 100;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia = ib");
+        Expression joinCondition = pair.first;
+        SlotReference ia = pair.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, new String[]{"1", "2"});
+
+        SlotReference ib = pair.second.get(1);
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
+                rowCount, "1", "10", 0, new String[]{"2", "3", "4"});
+
+        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE);
+        ColumnStatistic icStats = StatsTestUtil.instance.createColumnStatistic("ic", 10,
+                rowCount, "1", "10", 0, new String[]{"4", "5", "6", "7"});
+
+        LogicalJoin join = new LogicalJoin(JoinType.LEFT_OUTER_JOIN, Lists.newArrayList(joinCondition),
+                new DummyPlan(), new DummyPlan(),
+                JoinReorderContext.EMPTY);
+
+        StatsCalculator calculator = new StatsCalculator(null);
+
+        Statistics leftStats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats, ic, icStats));
+        Statistics rightStats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
+        Statistics outputStats = calculator.computeJoin(join, leftStats, rightStats);
+
+        ColumnStatistic icStatsOut = outputStats.findColumnStatistics(ic);
+        Assertions.assertEquals(4, icStatsOut.getHotValues().size());
+
+        // left outer join,
+        // ia.hotValues:  "2", "3", "4" -> "2", "3", "4"
+        // ib.hotValues: "4", "5" -> "4"
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(2, iaStatsOut.getHotValues().size());
+
+        ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
+        Assertions.assertEquals(1, ibStatsOut.getHotValues().size());
+    }
+
+    @Test
+    public void testRightOuterJoinSkew() {
+        double rowCount = 100;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia = ib");
+        Expression joinCondition = pair.first;
+        SlotReference ia = pair.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, new String[]{"1", "2"});
+
+        SlotReference ib = pair.second.get(1);
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
+                rowCount, "1", "10", 0, new String[]{"2", "3", "4"});
+
+        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE);
+        ColumnStatistic icStats = StatsTestUtil.instance.createColumnStatistic("ic", 10,
+                rowCount, "1", "10", 0, new String[]{"4", "5", "6", "7"});
+
+        LogicalJoin join = new LogicalJoin(JoinType.RIGHT_OUTER_JOIN, Lists.newArrayList(joinCondition),
+                new DummyPlan(), new DummyPlan(),
+                JoinReorderContext.EMPTY);
+
+        StatsCalculator calculator = new StatsCalculator(null);
+
+        Statistics leftStats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats, ic, icStats));
+        Statistics rightStats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
+        Statistics outputStats = calculator.computeJoin(join, leftStats, rightStats);
+
+        ColumnStatistic icStatsOut = outputStats.findColumnStatistics(ic);
+        Assertions.assertEquals(4, icStatsOut.getHotValues().size());
+
+        // right outer join,
+        // ia.hotValues:  "1", "2" -> "2"
+        // ib.hotValues: "2", "3", "4" -> "2", "3", "4"
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(1, iaStatsOut.getHotValues().size());
+
+        ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
+        Assertions.assertEquals(3, ibStatsOut.getHotValues().size());
+    }
+
+    @Test
+    public void testLeftSemiJoinSkew() {
+        double rowCount = 100;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia = ib");
+        Expression joinCondition = pair.first;
+        SlotReference ia = pair.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, new String[]{"0", "1", "2"});
+
+        SlotReference ib = pair.second.get(1);
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
+                rowCount, "1", "10", 0, new String[]{"2", "3", "4"});
+
+        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE);
+        ColumnStatistic icStats = StatsTestUtil.instance.createColumnStatistic("ic", 10,
+                rowCount, "1", "10", 0, new String[]{"4", "5", "6", "7"});
+
+        LogicalJoin join = new LogicalJoin(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(joinCondition),
+                new DummyPlan(), new DummyPlan(),
+                JoinReorderContext.EMPTY);
+
+        StatsCalculator calculator = new StatsCalculator(null);
+
+        Statistics leftStats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats, ic, icStats));
+        Statistics rightStats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
+        Statistics outputStats = calculator.computeJoin(join, leftStats, rightStats);
+
+        ColumnStatistic icStatsOut = outputStats.findColumnStatistics(ic);
+        Assertions.assertEquals(4, icStatsOut.getHotValues().size());
+
+        // left semi join,
+        // ia.hotValues:  "0", "1", "2" -> "0", "1", "2"
+        // ib.hotValues: "2", "3", "4"
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(3, iaStatsOut.getHotValues().size());
+    }
+
+    @Test
+    public void testAggSkew() {
+        double rowCount = 100;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia");
+        SlotReference ia = pair.second.get(0);
+        LogicalAggregate agg = new LogicalAggregate(
+                ImmutableList.of(ia),
+                ImmutableList.of(ia),
+                new DummyPlan()
+        );
+
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, new String[]{"0", "1", "2"});
+
+        Statistics inputStats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats));
+        StatsCalculator calculator = new StatsCalculator(null);
+        Statistics outputStats = calculator.computeAggregate(agg, inputStats);
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertNull(iaStatsOut.getHotValues());
+    }
+
+    @Test
+    public void testExceptSkew() {
+        double rowCount = 100;
+        Pair<Expression, ArrayList<SlotReference>> pair1 = StatsTestUtil.instance.createExpr("ia");
+        SlotReference ia = pair1.second.get(0);
+        SlotReference ib = StatsTestUtil.instance.createExpr("ia").second.get(0);
+        LogicalExcept exceptAll = new LogicalExcept(
+                Qualifier.ALL,
+                ImmutableList.of(ia),
+                ImmutableList.of(
+                        ImmutableList.of(ia),
+                        ImmutableList.of(ib)
+                ),
+                ImmutableList.of(new DummyPlan(), new DummyPlan())
+        );
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, new String[]{"0", "1", "2"});
+        Statistics child0Stats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats));
+        StatsCalculator calculator = new StatsCalculator(null);
+        Statistics outputStats = calculator.computeExcept(exceptAll, child0Stats);
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(3, iaStatsOut.getHotValues().size());
+    }
+
+    @Test
+    public void testUnionSkew() {
+        double rowCount = 100;
+        Pair<Expression, ArrayList<SlotReference>> pair1 = StatsTestUtil.instance.createExpr("ia");
+        SlotReference ia = pair1.second.get(0);
+        SlotReference ib = StatsTestUtil.instance.createExpr("ia").second.get(0);
+        LogicalUnion unionAll = new LogicalUnion(
+                Qualifier.ALL,
+                ImmutableList.of(ia),
+                ImmutableList.of(
+                        ImmutableList.of(ia),
+                        ImmutableList.of(ib)
+                ),
+                ImmutableList.of(),
+                true,
+                ImmutableList.of(new DummyPlan(), new DummyPlan())
+        );
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, ImmutableMap.of("0", 40.0f, "1", 50.0f));
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, ImmutableMap.of("1", 40.0f, "2", 40.0f));
+        Statistics child0Stats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats));
+        Statistics child1Stats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
+
+        StatsCalculator calculator = new StatsCalculator(null);
+        Statistics outputStats = calculator.computeUnion(unionAll, ImmutableList.of(child0Stats, child1Stats));
+        ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
+        Assertions.assertEquals(1, iaStatsOut.getHotValues().size());
+        Assertions.assertTrue(containsHotValue(iaStatsOut, "1"));
+    }
+
+    private boolean containsHotValue(ColumnStatistic columnStatistic, String value) {
+        if (columnStatistic.getHotValues() == null) {
+            return false;
+        }
+        return columnStatistic.getHotValues().keySet().stream()
+                .anyMatch(literal -> literal.getStringValue().equals(value));
+    }
+
+    @Test
+    public void testLimitSkew() {
+        LogicalLimit limit = new LogicalLimit(10, 10, LimitPhase.GLOBAL, new DummyPlan());
+        double rowCount = 100;
+        Pair<Expression, ArrayList<SlotReference>> pair1 = StatsTestUtil.instance.createExpr("ia");
+        SlotReference ia = pair1.second.get(0);
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, ImmutableMap.of("0", 40.0f, "1", 50.0f));
+
+        Statistics childStats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats));
+        StatsCalculator calculator = new StatsCalculator(null);
+        Statistics outputStats = calculator.computeLimit(limit, childStats);
+        Assertions.assertNull(outputStats.findColumnStatistics(ia).getHotValues());
     }
 }

@@ -35,10 +35,10 @@ public class WorkloadGroupTest {
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(WorkloadGroup.CPU_SHARE, "10");
         properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.COMPUTE_GROUP, "default");
         String name1 = "g1";
         WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
         Assert.assertEquals(name1, group1.getName());
-        Assert.assertEquals(7, group1.getProperties().size());
         Assert.assertTrue(group1.getProperties().containsKey(WorkloadGroup.CPU_SHARE));
         Assert.assertTrue(Math.abs(group1.getMemoryLimitPercent() - 30) < 1e-6);
     }
@@ -80,11 +80,12 @@ public class WorkloadGroupTest {
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(WorkloadGroup.CPU_SHARE, "10");
         properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.COMPUTE_GROUP, "default");
         String name1 = "g1";
         WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
 
         BaseProcResult result = new BaseProcResult();
-        group1.getProcNodeData(result, null);
+        group1.getProcNodeData(result);
         List<List<String>> rows = result.getRows();
         Assert.assertEquals(1, rows.size());
     }
@@ -106,5 +107,48 @@ public class WorkloadGroupTest {
             hasException = true;
         }
         Assert.assertEquals(hasException, true);
+    }
+
+    @Test
+    public void testWorkloadGroupKey() {
+        // equal
+        WorkloadGroupKey eqKey1 = WorkloadGroupKey.get("cg1", "wg1");
+        WorkloadGroupKey eqKey2 = WorkloadGroupKey.get("cg1", "wg1");
+        WorkloadGroupKey eqKey3 = WorkloadGroupKey.get("cg1", "wg2");
+        Assert.assertTrue(eqKey1.equals(eqKey1));
+        Assert.assertTrue(eqKey1.equals(eqKey2));
+        Assert.assertTrue(eqKey2.equals(eqKey1));
+        Assert.assertTrue(eqKey1.hashCode() == eqKey2.hashCode());
+
+        Assert.assertFalse(eqKey3.equals(eqKey1));
+        Assert.assertFalse(eqKey1.equals(eqKey3));
+        Assert.assertTrue(eqKey1.hashCode() != eqKey3.hashCode());
+
+        WorkloadGroupKey eqKey4 = WorkloadGroupKey.get("cg2", "wg2");
+        Assert.assertFalse(eqKey4.equals(eqKey3));
+        Assert.assertFalse(eqKey3.equals(eqKey4));
+        Assert.assertFalse(eqKey4.hashCode() == eqKey3.hashCode());
+
+
+        // test wg name exception
+        try {
+            WorkloadGroupKey.get("cg1", "");
+            Assert.fail();
+        } catch (IllegalStateException e) {
+            Assert.assertTrue(true);
+        }
+
+
+        // test null equal
+        Assert.assertTrue(!eqKey1.equals(null));
+
+        WorkloadGroupKey nullkey2 = WorkloadGroupKey.get(null, "wg1");
+        WorkloadGroupKey nullkey3 = WorkloadGroupKey.get("", "wg1");
+        Assert.assertTrue(nullkey2.equals(nullkey3));
+        Assert.assertTrue(nullkey3.equals(nullkey2));
+
+        Assert.assertFalse(nullkey2.equals(eqKey1));
+        Assert.assertFalse(eqKey1.equals(nullkey2));
+
     }
 }

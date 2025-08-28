@@ -46,4 +46,13 @@ public interface Udf extends ComputeNullable {
     NullableMode getNullableMode();
 
     List<Expression> children();
+
+    @Override
+    default boolean foldable() {
+        // Udf should not be folded in FE.
+        // When session variable "prefer_udf_fold" is set to true,
+        // we may find udf with same signature as builtin function.
+        // If return true, the FE will calculate the result of the udf with builtin function's logic, which is wrong.
+        return false;
+    }
 }

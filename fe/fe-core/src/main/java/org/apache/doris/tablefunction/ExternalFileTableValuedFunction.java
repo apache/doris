@@ -18,7 +18,6 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
@@ -41,8 +40,13 @@ import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
@@ -63,15 +67,12 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
-import org.apache.doris.thrift.TTextSerdeType;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -83,18 +84,22 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 /**
- * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL table-valued-function
+ * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL/HTTP_STREAM/GROUP_COMMIT table-valued-function
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
+    protected static final String URI_KEY = "uri";
 
     public static final String PROP_TABLE_ID = "table_id";
 
@@ -107,28 +112,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private List<String> pathPartitionKeys;
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-    protected Map<String, String> locationProperties = Maps.newHashMap();
+    protected Map<String, String> backendConnectProperties = Maps.newHashMap();
+    protected StorageProperties storageProperties;
+    // Processed parameters derived from user input; includes normalization and default value filling.
+    Map<String, String> processedParams;
     protected String filePath;
-
-    protected TFileFormatType fileFormatType;
 
     protected Optional<String> resourceName = Optional.empty();
 
-    private TFileCompressType compressionType;
-    private String headerType = "";
-
-    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
-    private String columnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
-    private String lineDelimiter = FileFormatConstants.DEFAULT_LINE_DELIMITER;
-    private byte enclose = 0;
-    private String jsonRoot = "";
-    private String jsonPaths = "";
-    private boolean stripOuterArray;
-    private boolean readJsonByLine;
-    private boolean numAsString;
-    private boolean fuzzyParse;
-    private boolean trimDoubleQuotes;
-    private int skipLines;
+    public FileFormatProperties fileFormatProperties;
     private long tableId;
 
     public abstract TFileType getTFileType();
@@ -138,15 +130,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public abstract BrokerDesc getBrokerDesc();
 
     public TFileFormatType getTFileFormatType() {
-        return fileFormatType;
+        return fileFormatProperties.getFileFormatType();
     }
 
     public TFileCompressType getTFileCompressType() {
-        return compressionType;
+        return fileFormatProperties.getCompressionType();
     }
 
-    public Map<String, String> getLocationProperties() {
-        return locationProperties;
+    public Map<String, String> getBackendConnectProperties() {
+        return backendConnectProperties;
     }
 
     public List<String> getPathPartitionKeys() {
@@ -179,94 +171,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         copiedProps.putAll(mergedProperties);
 
-        String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
-        String defaultColumnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
-        switch (formatString) {
-            case "csv":
-                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-                break;
-            case "hive_text":
-                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-                defaultColumnSeparator = FileFormatConstants.DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR;
-                this.textSerdeType = TTextSerdeType.HIVE_TEXT_SERDE;
-                break;
-            case "csv_with_names":
-                this.headerType = FileFormatConstants.FORMAT_CSV_WITH_NAMES;
-                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-                break;
-            case "csv_with_names_and_types":
-                this.headerType = FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES;
-                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-                break;
-            case "parquet":
-                this.fileFormatType = TFileFormatType.FORMAT_PARQUET;
-                break;
-            case "orc":
-                this.fileFormatType = TFileFormatType.FORMAT_ORC;
-                break;
-            case "json":
-                this.fileFormatType = TFileFormatType.FORMAT_JSON;
-                break;
-            case "avro":
-                this.fileFormatType = TFileFormatType.FORMAT_AVRO;
-                break;
-            case "wal":
-                this.fileFormatType = TFileFormatType.FORMAT_WAL;
-                break;
-            default:
-                throw new AnalysisException("format:" + formatString + " is not supported.");
-        }
-
         tableId = Long.valueOf(getOrDefaultAndRemove(copiedProps, PROP_TABLE_ID, "-1"));
-        columnSeparator = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_COLUMN_SEPARATOR,
-                defaultColumnSeparator);
-        if (Strings.isNullOrEmpty(columnSeparator)) {
-            throw new AnalysisException("column_separator can not be empty.");
-        }
-        columnSeparator = Separator.convertSeparator(columnSeparator);
 
-        lineDelimiter = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_LINE_DELIMITER,
-                FileFormatConstants.DEFAULT_LINE_DELIMITER);
-        if (Strings.isNullOrEmpty(lineDelimiter)) {
-            throw new AnalysisException("line_delimiter can not be empty.");
-        }
-        lineDelimiter = Separator.convertSeparator(lineDelimiter);
+        String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
+        fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+        fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
-        String enclosedString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_ENCLOSE, "");
-        if (!Strings.isNullOrEmpty(enclosedString)) {
-            if (enclosedString.length() > 1) {
-                throw new AnalysisException("enclose should not be longer than one byte.");
-            }
-            enclose = (byte) enclosedString.charAt(0);
-            if (enclose == 0) {
-                throw new AnalysisException("enclose should not be byte [0].");
-            }
-        }
-
-        jsonRoot = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_JSON_ROOT, "");
-        jsonPaths = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_JSON_PATHS, "");
-        readJsonByLine = Boolean.valueOf(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_READ_JSON_BY_LINE, "")).booleanValue();
-        stripOuterArray = Boolean.valueOf(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_STRIP_OUTER_ARRAY, "")).booleanValue();
-        numAsString = Boolean.valueOf(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_NUM_AS_STRING, "")).booleanValue();
-        fuzzyParse = Boolean.valueOf(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FUZZY_PARSE, "")).booleanValue();
-        trimDoubleQuotes = Boolean.valueOf(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_TRIM_DOUBLE_QUOTES, "")).booleanValue();
-        skipLines = Integer.valueOf(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_SKIP_LINES, "0")).intValue();
-
-        String compressTypeStr = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_COMPRESS_TYPE, "UNKNOWN");
-        try {
-            compressionType = Util.getFileCompressType(compressTypeStr);
-        } catch (IllegalArgumentException e) {
-            throw new AnalysisException("Compress type : " +  compressTypeStr + " is not supported.");
-        }
-        if (FileFormatUtils.isCsv(formatString)) {
+        if (fileFormatProperties instanceof CsvFileFormatProperties
+                || fileFormatProperties instanceof TextFileFormatProperties) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
-                    FileFormatConstants.PROP_CSV_SCHEMA, ""));
+                    CsvFileFormatProperties.PROP_CSV_SCHEMA, ""));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get csv schema: {}", csvSchema);
             }
@@ -278,7 +192,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                         .map(String::trim)
                         .collect(Collectors.toList()))
                 .orElse(Lists.newArrayList());
-
+        this.processedParams = new HashMap<>(copiedProps);
         return copiedProps;
     }
 
@@ -293,29 +207,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     public TFileAttributes getFileAttributes() {
-        TFileAttributes fileAttributes = new TFileAttributes();
-        TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
-        fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
-        fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
-        if (enclose != 0) {
-            fileTextScanRangeParams.setEnclose(enclose);
-        }
-        fileAttributes.setTextParams(fileTextScanRangeParams);
-        if (this.fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
-            fileAttributes.setHeaderType(this.headerType);
-            fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
-            fileAttributes.setSkipLines(skipLines);
-            fileAttributes.setEnableTextValidateUtf8(
-                    ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
-        } else if (this.fileFormatType == TFileFormatType.FORMAT_JSON) {
-            fileAttributes.setJsonRoot(jsonRoot);
-            fileAttributes.setJsonpaths(jsonPaths);
-            fileAttributes.setReadJsonByLine(readJsonByLine);
-            fileAttributes.setStripOuterArray(stripOuterArray);
-            fileAttributes.setNumAsString(numAsString);
-            fileAttributes.setFuzzyParse(fuzzyParse);
-        }
-        return fileAttributes;
+        return fileFormatProperties.toTFileAttributes();
     }
 
     @Override
@@ -345,13 +237,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("No Alive backends");
         }
 
-        if (this.fileFormatType == TFileFormatType.FORMAT_WAL) {
+        if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_WAL) {
             List<Column> fileColumns = new ArrayList<>();
             Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
             List<Column> tableColumns = table.getBaseSchema(true);
             for (int i = 0; i < tableColumns.size(); i++) {
                 Column column = new Column(tableColumns.get(i).getName(), tableColumns.get(i).getType(), true);
                 column.setUniqueId(tableColumns.get(i).getUniqueId());
+                column.setIsAllowNull(true);
                 fileColumns.add(column);
             }
             return fileColumns;
@@ -447,11 +340,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } else if (tPrimitiveType == TPrimitiveType.STRUCT) {
             parsedNodes = 1;
             ArrayList<StructField> fields = new ArrayList<>();
+            Set<String> fieldLowerNames = new HashSet<>();
+
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
                 PStructField structField = typeNodes.get(start).getStructFields(i);
-                fields.add(new StructField(structField.getName(), fieldType.key(), structField.getComment(),
-                                            structField.getContainsNull()));
+                String fieldName = structField.getName().toLowerCase();
+                if (fieldLowerNames.contains(fieldName)) {
+                    throw new NotSupportedException("Repeated lowercase field names: " + fieldName);
+                } else {
+                    fieldLowerNames.add(fieldName);
+                    fields.add(new StructField(fieldName, fieldType.key(), structField.getComment(),
+                            structField.getContainsNull()));
+                }
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
@@ -471,10 +372,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return;
         }
         // add fetched file columns
+        Set<String> columnLowerNames = new HashSet<>();
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
-            String colName = result.getColumnNames(idx);
-            columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
+            String colName = result.getColumnNames(idx).toLowerCase();
+            // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
+            // query ambiguity, two columns with the same name but different capitalization are not allowed.
+            if (columnLowerNames.contains(colName)) {
+                throw new NotSupportedException("Repeated lowercase column names: " + colName);
+            } else {
+                columnLowerNames.add(colName);
+                columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
+            }
         }
         // add path columns
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
@@ -487,9 +396,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
-        fileScanRangeParams.setFormatType(fileFormatType);
-        fileScanRangeParams.setProperties(locationProperties);
-        fileScanRangeParams.setTextSerdeType(textSerdeType);
+        fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
+        Map<String, String> beProperties = new HashMap<>();
+        beProperties.putAll(backendConnectProperties);
+        fileScanRangeParams.setProperties(beProperties);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
@@ -500,8 +410,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         if (getTFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-            String fsName = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(storageProperties.getBackendConfigProperties());
+            String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
@@ -528,7 +438,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
         fileRangeDesc.setLoadId(ctx.queryId());
         fileRangeDesc.setFileType(getTFileType());
-        fileRangeDesc.setCompressType(Util.getOrInferCompressType(compressionType, firstFile.getPath()));
+        fileRangeDesc.setCompressType(Util.getOrInferCompressType(
+                fileFormatProperties.getCompressionType(), firstFile.getPath()));
         fileRangeDesc.setPath(firstFile.getPath());
         fileRangeDesc.setStartOffset(0);
         fileRangeDesc.setSize(firstFile.getSize());
@@ -546,9 +457,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (fileStatus.isIsDir() || fileStatus.size == 0) {
             return true;
         }
-        if (Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON) {
+        if (Util.isCsvFormat(fileFormatProperties.getFileFormatType())
+                || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON) {
             int magicNumberBytes = 0;
-            switch (compressionType) {
+            switch (fileFormatProperties.getCompressionType()) {
                 case GZ:
                     magicNumberBytes = 20;
                     break;

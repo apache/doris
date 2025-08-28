@@ -61,11 +61,14 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
                         Optional.empty(),
                         olapScan.getLogicalProperties(),
-                        olapScan.getTableSample())
+                        olapScan.getTableSample(),
+                        olapScan.getOperativeSlots(),
+                        olapScan.getVirtualColumns())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
-    private DistributionSpec convertDistribution(LogicalOlapScan olapScan) {
+    /** convertDistribution */
+    public static DistributionSpec convertDistribution(LogicalOlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
@@ -85,8 +88,9 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 List<ExprId> hashColumns = Lists.newArrayList();
                 for (Column column : hashDistributionInfo.getDistributionColumns()) {
                     for (Slot slot : output) {
-                        if (((SlotReference) slot).getColumn().get().getNameWithoutMvPrefix()
-                                .equals(column.getName())) {
+                        Column originalColumn = ((SlotReference) slot).getOriginalColumn().get();
+                        String origName = originalColumn.tryGetBaseColumnName();
+                        if (origName.equals(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }
                     }
@@ -97,14 +101,15 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                             // If the length of the column in the bucket key changes after DDL, the length cannot be
                             // determined. As a result, some bucket fields are lost in the query execution plan.
                             // So here we use the column name to avoid this problem
-                            if (((SlotReference) slot).getColumn().get().getName().equalsIgnoreCase(column.getName())) {
+                            if (((SlotReference) slot).getOriginalColumn().get().getName()
+                                    .equalsIgnoreCase(column.getName())) {
                                 hashColumns.add(slot.getExprId());
                             }
                         }
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
             } else {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
@@ -114,13 +119,15 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         // If the length of the column in the bucket key changes after DDL, the length cannot be
                         // determined. As a result, some bucket fields are lost in the query execution plan.
                         // So here we use the column name to avoid this problem
-                        if (((SlotReference) slot).getColumn().get().getName().equalsIgnoreCase(column.getName())) {
+                        if (((SlotReference) slot).getOriginalColumn().isPresent()
+                                && ((SlotReference) slot).getOriginalColumn().get().getName()
+                                .equalsIgnoreCase(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
             }
         } else {
             // RandomDistributionInfo

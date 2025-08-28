@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/result_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "util/runtime_profile.h"
@@ -32,19 +33,44 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-class BufferControlBlock;
 class RuntimeState;
 
 namespace vectorized {
 class Block;
 
+class GetResultBatchCtx {
+public:
+    using ResultType = TFetchDataResult;
+    ENABLE_FACTORY_CREATOR(GetResultBatchCtx)
+    GetResultBatchCtx(PFetchDataResult* result, google::protobuf::Closure* done)
+            : _result(result), _done(done) {}
+#ifdef BE_TEST
+    GetResultBatchCtx() = default;
+#endif
+    MOCK_FUNCTION ~GetResultBatchCtx() = default;
+    MOCK_FUNCTION void on_failure(const Status& status);
+    MOCK_FUNCTION void on_close(int64_t packet_seq, int64_t returned_rows = 0);
+    MOCK_FUNCTION Status on_data(const std::shared_ptr<TFetchDataResult>& t_result,
+                                 int64_t packet_seq, ResultBlockBufferBase* buffer);
+
+private:
+#ifndef BE_TEST
+    const int32_t _max_msg_size = std::numeric_limits<int32_t>::max();
+#else
+    int32_t _max_msg_size = std::numeric_limits<int32_t>::max();
+#endif
+
+    PFetchDataResult* _result = nullptr;
+    google::protobuf::Closure* _done = nullptr;
+};
+
+using MySQLResultBlockBuffer = ResultBlockBuffer<GetResultBatchCtx>;
+
 template <bool is_binary_format = false>
 class VMysqlResultWriter final : public ResultWriter {
 public:
-    using ResultList = std::vector<std::unique_ptr<TFetchDataResult>>;
-
-    VMysqlResultWriter(BufferControlBlock* sinker, const VExprContextSPtrs& output_vexpr_ctxs,
-                       RuntimeProfile* parent_profile);
+    VMysqlResultWriter(std::shared_ptr<ResultBlockBufferBase> sinker,
+                       const VExprContextSPtrs& output_vexpr_ctxs, RuntimeProfile* parent_profile);
 
     Status init(RuntimeState* state) override;
 
@@ -52,24 +78,12 @@ public:
 
     Status close(Status status) override;
 
-    const ResultList& results() { return _results; }
-
 private:
     void _init_profile();
-
     Status _set_options(const TSerdeDialect::type& serde_dialect);
-
-    template <PrimitiveType type, bool is_nullable>
-    Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
-                           std::vector<MysqlRowBuffer<is_binary_format>>& rows_buffer,
-                           bool arg_const, int scale = -1,
-                           const DataTypes& sub_types = DataTypes());
-    int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
-                      MysqlRowBuffer<is_binary_format>& buffer, int scale = -1);
-
     Status _write_one_block(RuntimeState* state, Block& block);
 
-    BufferControlBlock* _sinker = nullptr;
+    std::shared_ptr<MySQLResultBlockBuffer> _sinker = nullptr;
 
     const VExprContextSPtrs& _output_vexpr_ctxs;
 
@@ -80,14 +94,10 @@ private:
     RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
     // file write timer, child timer of _append_row_batch_timer
     RuntimeProfile::Counter* _result_send_timer = nullptr;
-    // timer of copying buffer to thrift
-    RuntimeProfile::Counter* _copy_buffer_timer = nullptr;
     // number of sent rows
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
     // size of sent data
     RuntimeProfile::Counter* _bytes_sent_counter = nullptr;
-    // for synchronized results
-    ResultList _results;
     // If true, no block will be sent
     bool _is_dry_run = false;
 

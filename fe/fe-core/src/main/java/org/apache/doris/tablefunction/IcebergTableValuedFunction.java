@@ -20,68 +20,55 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TIcebergMetadataParams;
-import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.util.SerializationUtil;
 
 import java.util.List;
 import java.util.Map;
 
 /**
- * The Implement of table valued function
+ * The class of table valued function for iceberg metadata.
  * iceberg_meta("table" = "ctl.db.tbl", "query_type" = "snapshots").
  */
 public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
 
     public static final String NAME = "iceberg_meta";
-    private static final String TABLE = "table";
-    private static final String QUERY_TYPE = "query_type";
+    public static final String TABLE = "table";
+    public static final String QUERY_TYPE = "query_type";
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(TABLE, QUERY_TYPE);
 
-    private static final ImmutableList<Column> SCHEMA_SNAPSHOT = ImmutableList.of(
-            new Column("committed_at", PrimitiveType.DATETIMEV2, false),
-            new Column("snapshot_id", PrimitiveType.BIGINT, false),
-            new Column("parent_id", PrimitiveType.BIGINT, false),
-            new Column("operation", PrimitiveType.STRING, false),
-            // todo: compress manifest_list string
-            new Column("manifest_list", PrimitiveType.STRING, false),
-            new Column("summary", PrimitiveType.STRING, false));
+    private final String queryType;
+    private final Table sysTable;
+    private final List<Column> schema;
+    private final Map<String, String> hadoopProps;
+    private final ExecutionAuthenticator preExecutionAuthenticator;
 
-
-    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
-
-    static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
-        for (int i = 0; i < SCHEMA_SNAPSHOT.size(); i++) {
-            builder.put(SCHEMA_SNAPSHOT.get(i).getName().toLowerCase(), i);
-        }
-        COLUMN_TO_INDEX = builder.build();
-    }
-
-    public static Integer getColumnIndexFromColumnName(String columnName) {
-        return COLUMN_TO_INDEX.get(columnName.toLowerCase());
-    }
-
-    private TIcebergQueryType queryType;
-
-    // here tableName represents the name of a table in Iceberg.
-    private final TableName icebergTableName;
-
-    public IcebergTableValuedFunction(Map<String, String> params) throws AnalysisException {
+    public static IcebergTableValuedFunction create(Map<String, String> params)
+            throws AnalysisException {
         Map<String, String> validParams = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
@@ -91,31 +78,55 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             validParams.put(key.toLowerCase(), params.get(key));
         }
         String tableName = validParams.get(TABLE);
-        String queryTypeString = validParams.get(QUERY_TYPE);
-        if (tableName == null || queryTypeString == null) {
+        String queryType = validParams.get(QUERY_TYPE);
+        if (tableName == null || queryType == null) {
             throw new AnalysisException("Invalid iceberg metadata query");
+        }
+        // TODO: support these system tables in future;
+        if (queryType.equalsIgnoreCase("all_manifests") || queryType.equalsIgnoreCase("position_deletes")) {
+            throw new AnalysisException("SysTable " + queryType + " is not supported yet");
         }
         String[] names = tableName.split("\\.");
         if (names.length != 3) {
             throw new AnalysisException("The iceberg table name contains the catalogName, databaseName, and tableName");
         }
-        this.icebergTableName = new TableName(names[0], names[1], names[2]);
+        TableName icebergTableName = new TableName(names[0], names[1], names[2]);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), this.icebergTableName, PrivPredicate.SELECT)) {
+                .checkTblPriv(ConnectContext.get(), icebergTableName, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    this.icebergTableName.getDb() + ": " + this.icebergTableName.getTbl());
+                    icebergTableName.getDb() + ": " + icebergTableName.getTbl());
         }
-        try {
-            this.queryType = TIcebergQueryType.valueOf(queryTypeString.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new AnalysisException("Unsupported iceberg metadata query type: " + queryType);
-        }
+        return new IcebergTableValuedFunction(icebergTableName, queryType);
     }
 
-    public TIcebergQueryType getIcebergQueryType() {
-        return queryType;
+    public IcebergTableValuedFunction(TableName icebergTableName, String queryType)
+            throws AnalysisException {
+        this.queryType = queryType;
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(icebergTableName.getCtl());
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new AnalysisException("Catalog " + icebergTableName.getCtl() + " is not an external catalog");
+        }
+        ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+        hadoopProps = externalCatalog.getCatalogProperty().getHadoopProperties();
+        preExecutionAuthenticator = externalCatalog.getExecutionAuthenticator();
+
+        TableIf dorisTable = externalCatalog.getDbOrAnalysisException(icebergTableName.getDb())
+                .getTableOrAnalysisException(icebergTableName.getTbl());
+        if (!(dorisTable instanceof ExternalTable)) {
+            throw new AnalysisException("Table " + icebergTableName + " is not an iceberg table");
+        }
+        Table icebergTable = IcebergUtils.getIcebergTable((ExternalTable) dorisTable);
+        if (icebergTable == null) {
+            throw new AnalysisException("Iceberg table " + icebergTableName + " does not exist");
+        }
+        MetadataTableType tableType = MetadataTableType.from(queryType);
+        if (tableType == null) {
+            throw new AnalysisException("Unrecognized queryType for iceberg metadata: " + queryType);
+        }
+        this.sysTable = MetadataTableUtils.createMetadataTableInstance(icebergTable, tableType);
+        this.schema = IcebergUtils.parseSchema(sysTable.schema());
     }
 
     @Override
@@ -124,36 +135,36 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
-        TMetaScanRange metaScanRange = new TMetaScanRange();
-        metaScanRange.setMetadataType(TMetadataType.ICEBERG);
-        // set iceberg metadata params
-        TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
-        icebergMetadataParams.setIcebergQueryType(queryType);
-        icebergMetadataParams.setCatalog(icebergTableName.getCtl());
-        icebergMetadataParams.setDatabase(icebergTableName.getDb());
-        icebergMetadataParams.setTable(icebergTableName.getTbl());
-        metaScanRange.setIcebergParams(icebergMetadataParams);
-        return metaScanRange;
+    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
+        List<TMetaScanRange> scanRanges = Lists.newArrayList();
+        CloseableIterable<FileScanTask> tasks;
+        try {
+            tasks = preExecutionAuthenticator.execute(() -> {
+                return sysTable.newScan().select(requiredFileds).planFiles();
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));
+        }
+        for (FileScanTask task : tasks) {
+            TMetaScanRange metaScanRange = new TMetaScanRange();
+            metaScanRange.setMetadataType(TMetadataType.ICEBERG);
+            // set iceberg metadata params
+            TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
+            icebergMetadataParams.setHadoopProps(hadoopProps);
+            icebergMetadataParams.setSerializedTask(SerializationUtil.serializeToBase64(task));
+            metaScanRange.setIcebergParams(icebergMetadataParams);
+            scanRanges.add(metaScanRange);
+        }
+        return scanRanges;
     }
 
     @Override
     public String getTableName() {
-        return "IcebergMetadataTableValuedFunction";
+        return "IcebergTableValuedFunction<" + queryType + ">";
     }
 
-    /**
-     * The tvf can register columns of metadata table
-     * The data is provided by getIcebergMetadataTable in FrontendService
-     *
-     * @return metadata columns
-     * @see org.apache.doris.service.FrontendServiceImpl
-     */
     @Override
     public List<Column> getTableColumns() {
-        if (queryType == TIcebergQueryType.SNAPSHOTS) {
-            return SCHEMA_SNAPSHOT;
-        }
-        return Lists.newArrayList();
+        return schema;
     }
 }

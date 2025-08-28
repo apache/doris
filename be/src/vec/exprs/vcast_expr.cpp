@@ -118,9 +118,22 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
         state = _function->execute(context->fn_context(_fn_context_index), *block,
                                    {static_cast<uint32_t>(column_id)}, num_columns_without_result,
                                    block->rows(), false);
+        RETURN_IF_ERROR(state);
+        // set the result column id only state is ok
         *result_column_id = num_columns_without_result;
     } catch (const Exception& e) {
         state = e.to_status();
+    }
+    if (state.ok()) {
+        auto [result_column, is_const] =
+                unpack_if_const(block->get_by_position(num_columns_without_result).column);
+
+        if (result_column->is_nullable() != _data_type->is_nullable()) {
+            return Status::InternalError(
+                    fmt::format("CastExpr result column type mismatch, expect {}, got {} , return "
+                                "column is const {}",
+                                _data_type->get_name(), result_column->get_name(), is_const));
+        }
     }
     return state;
 }

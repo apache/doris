@@ -28,7 +28,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.RoutineLoadDesc;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -57,7 +56,7 @@ public class RoutineLoadSchedulerTest {
     public void testNormalRunOneCycle(@Mocked Env env, @Mocked InternalCatalog catalog,
             @Injectable RoutineLoadManager routineLoadManager, @Injectable SystemInfoService systemInfoService,
             @Injectable Database database, @Injectable RoutineLoadDesc routineLoadDesc,
-            @Mocked StreamLoadPlanner planner, @Injectable OlapTable olapTable)
+            @Injectable OlapTable olapTable)
             throws LoadException, MetaNotFoundException {
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);

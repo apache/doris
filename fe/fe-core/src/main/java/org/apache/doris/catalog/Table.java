@@ -22,7 +22,6 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -131,6 +130,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
 
+    @SerializedName(value = "isTemporary")
+    private boolean isTemporary = false;
+
+    // gson deserialization will call this at first by derived classes' non-parametered constructor.
     public Table(TableType type) {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
@@ -140,6 +143,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             this.readLockThreads = Maps.newConcurrentMap();
         }
         this.commitLock = new MonitoredReentrantLock(true);
+    }
+
+    public Table(long id, String tableName, TableType type, boolean isTemporary, List<Column> fullSchema) {
+        this(id, tableName, type, fullSchema);
+        this.isTemporary = isTemporary;
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -384,6 +392,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    public String getDisplayName() {
+        return isTemporary ? Util.getTempTableDisplayName(name) : name;
+    }
+
     public Constraint getConstraint(String name) {
         return getConstraintsMap().get(name);
     }
@@ -454,42 +466,16 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return 0;
     }
 
+    public boolean isTemporary() {
+        return isTemporary;
+    }
+
     public TTableDescriptor toThrift() {
         return null;
     }
 
     public static Table read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            Table table = null;
-            TableType type = TableType.valueOf(Text.readString(in));
-            if (type == TableType.OLAP) {
-                table = new OlapTable();
-            } else if (type == TableType.MATERIALIZED_VIEW) {
-                table = new MTMV();
-            } else if (type == TableType.ODBC) {
-                table = new OdbcTable();
-            } else if (type == TableType.MYSQL) {
-                table = new MysqlTable();
-            } else if (type == TableType.VIEW) {
-                table = new View();
-            } else if (type == TableType.BROKER) {
-                table = new BrokerTable();
-            } else if (type == TableType.ELASTICSEARCH) {
-                table = new EsTable();
-            } else if (type == TableType.HIVE) {
-                table = new HiveTable();
-            } else if (type == TableType.JDBC) {
-                table = new JdbcTable();
-            } else {
-                throw new IOException("Unknown table type: " + type.name());
-            }
-
-            table.setTypeRead(true);
-            table.readFields(in);
-            return table;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Table.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), Table.class);
     }
 
     @Override
@@ -511,43 +497,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        if (!isTypeRead) {
-            type = TableType.valueOf(Text.readString(in));
-            isTypeRead = true;
-        }
-
-        super.readFields(in);
-
-        this.id = in.readLong();
-        this.name = Text.readString(in);
-        List<Column> keys = Lists.newArrayList();
-        // base schema
-        int columnCount = in.readInt();
-        for (int i = 0; i < columnCount; i++) {
-            Column column = Column.read(in);
-            if (column.isKey()) {
-                keys.add(column);
-            }
-            this.fullSchema.add(column);
-            this.nameToColumn.put(column.getName(), column);
-        }
-        if (keys.size() > 1) {
-            keys.forEach(key -> key.setCompoundKey(true));
-            hasCompoundKey = true;
-        }
-        comment = Text.readString(in);
-        // table attribute only support after version 127
-        if (FeMetaVersion.VERSION_127 <= Env.getCurrentEnvJournalVersion()) {
-            String json = Text.readString(in);
-            this.tableAttributes = GsonUtils.GSON.fromJson(json, TableAttributes.class);
-
-        }
-        // read create time
-        this.createTime = in.readLong();
     }
 
     // return if this table is partitioned, for planner.

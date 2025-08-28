@@ -43,12 +43,17 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchOp;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -125,6 +130,9 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
                 .getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tableName);
+        if (tableIf.isTemporary()) {
+            throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
+        }
         if (tableIf instanceof OlapTable) {
             rewriteAlterOpForOlapTable(ctx, (OlapTable) tableIf);
         } else {
@@ -236,10 +244,15 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterClause instanceof AddColumnOp
                     || alterClause instanceof AddColumnsOp
                     || alterClause instanceof DropColumnOp
+                    || alterClause instanceof RenameColumnOp
                     || alterClause instanceof ModifyColumnOp
                     || alterClause instanceof ReorderColumnsOp
                     || alterClause instanceof ModifyEngineOp
-                    || alterClause instanceof ModifyTablePropertiesOp) {
+                    || alterClause instanceof ModifyTablePropertiesOp
+                    || alterClause instanceof CreateOrReplaceBranchOp
+                    || alterClause instanceof CreateOrReplaceTagOp
+                    || alterClause instanceof DropBranchOp
+                    || alterClause instanceof DropTagOp) {
                 alterTableOps.add(alterClause);
             } else {
                 throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] "

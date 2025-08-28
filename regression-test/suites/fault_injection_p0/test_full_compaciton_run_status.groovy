@@ -67,13 +67,13 @@ suite("test_full_compaction_run_status","nonConcurrent") {
 
             def times = 1
             do{
-                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 ++times
                 sleep(1000)
             } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
 
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def compactJson = parseJson(out.trim())
@@ -85,14 +85,14 @@ suite("test_full_compaction_run_status","nonConcurrent") {
             String tablet_id = tablet.TabletId
             backend_id = tablet.BackendId
 
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def compactJson = parseJson(out.trim())
             assertTrue(compactJson.msg.toLowerCase().contains("is not running"))
         }
 
-        (code, out, err) = be_get_overall_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+        def (code, out, err) = be_get_overall_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
         logger.info("Get overall compaction status: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         assertTrue(out.toLowerCase().contains("cumulativecompaction"))

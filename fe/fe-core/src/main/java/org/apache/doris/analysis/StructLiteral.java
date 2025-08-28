@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -30,8 +32,6 @@ import org.apache.doris.thrift.TTypeNode;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -82,6 +82,14 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(v.toSqlImpl(disableTableName, needExternalSql, tableType, table)));
+        return "STRUCT(" + StringUtils.join(list, ", ") + ")";
+    }
+
+    @Override
     public String toDigestImpl() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toDigestImpl()));
@@ -107,15 +115,9 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValueForArray(options)));
-        return "{" + StringUtils.join(list, ", ") + "}";
-    }
-
-    @Override
-    public String getStringValueInFe(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
+        ++options.level;
         // same with be default field index start with 1
         for (int i = 0; i < children.size(); i++) {
             Expr child = children.get(i);
@@ -123,16 +125,21 @@ public class StructLiteral extends LiteralExpr {
                     + ((StructType) type).getFields().get(i).getName()
                     + options.getNestedStringWrapper()
                     + options.getMapKeyDelim()
-                    + getStringLiteralForComplexType(child, options));
+                    + child.getStringValueInComplexTypeForQuery(options));
         }
-        return "{" + StringUtils.join(list, ", ") + "}";
+        --options.level;
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override
     public String getStringValueForStreamLoad(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(getStringLiteralForComplexType(v, options)));
-        return "{" + StringUtils.join(list, ", ") + "}";
+        // same with be default field index start with 1
+        for (int i = 0; i < children.size(); i++) {
+            Expr child = children.get(i);
+            list.add(child.getStringValueInComplexTypeForQuery(options));
+        }
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override
@@ -143,22 +150,6 @@ public class StructLiteral extends LiteralExpr {
         container.setTypes(new ArrayList<TTypeNode>());
         type.toThrift(container);
         msg.setType(container);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int size = in.readInt();
-        children = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            children.add(Expr.readIn(in));
-        }
-    }
-
-    public static StructLiteral read(DataInput in) throws IOException {
-        StructLiteral literal = new StructLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

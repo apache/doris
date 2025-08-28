@@ -22,6 +22,10 @@
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -47,7 +51,7 @@ Status AvroJNIReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     return Status::OK();
 }
 
-Status AvroJNIReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status AvroJNIReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
     for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
@@ -55,8 +59,8 @@ Status AvroJNIReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     return Status::OK();
 }
 
-Status AvroJNIReader::init_fetch_table_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+Status AvroJNIReader::init_reader(
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     std::ostringstream required_fields;
     std::ostringstream columns_types;
@@ -65,7 +69,7 @@ Status AvroJNIReader::init_fetch_table_reader(
     for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         column_names.emplace_back(field);
-        std::string type = JniConnector::get_jni_type(desc->type());
+        std::string type = JniConnector::get_jni_type_with_different_string(desc->type());
         if (index == 0) {
             required_fields << field;
             columns_types << type;
@@ -108,7 +112,8 @@ TFileType::type AvroJNIReader::get_file_type() const {
     return type;
 }
 
-Status AvroJNIReader::init_fetch_table_schema_reader() {
+// open the jni connector for parsing schema
+Status AvroJNIReader::init_schema_reader() {
     std::map<String, String> required_param = {{"uri", _range.path},
                                                {"file_type", std::to_string(get_file_type())},
                                                {"is_get_table_schema", "true"}};
@@ -120,7 +125,7 @@ Status AvroJNIReader::init_fetch_table_schema_reader() {
 }
 
 Status AvroJNIReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                        std::vector<TypeDescriptor>* col_types) {
+                                        std::vector<DataTypePtr>* col_types) {
     std::string table_schema_str;
     RETURN_IF_ERROR(_jni_connector->get_table_schema(table_schema_str));
 
@@ -136,7 +141,7 @@ Status AvroJNIReader::get_parsed_schema(std::vector<std::string>* col_names,
     return _jni_connector->close();
 }
 
-TypeDescriptor AvroJNIReader::convert_to_doris_type(const rapidjson::Value& column_schema) {
+DataTypePtr AvroJNIReader::convert_to_doris_type(const rapidjson::Value& column_schema) {
     auto schema_type = static_cast< ::doris::TPrimitiveType::type>(column_schema["type"].GetInt());
     switch (schema_type) {
     case TPrimitiveType::INT:
@@ -146,33 +151,32 @@ TypeDescriptor AvroJNIReader::convert_to_doris_type(const rapidjson::Value& colu
     case TPrimitiveType::DOUBLE:
     case TPrimitiveType::FLOAT:
     case TPrimitiveType::BINARY:
-        return {thrift_to_type(schema_type)};
+        return DataTypeFactory::instance().create_data_type(thrift_to_type(schema_type), true);
     case TPrimitiveType::ARRAY: {
-        TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
         const rapidjson::Value& childColumns = column_schema["childColumns"];
-        list_type.add_sub_type(convert_to_doris_type(childColumns[0]));
-        return list_type;
+        return make_nullable(std::make_shared<DataTypeArray>(
+                make_nullable(convert_to_doris_type(childColumns[0]))));
     }
     case TPrimitiveType::MAP: {
-        TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
         const rapidjson::Value& childColumns = column_schema["childColumns"];
-        // The default type of AVRO MAP structure key is STRING
-        map_type.add_sub_type(PrimitiveType::TYPE_STRING);
-        map_type.add_sub_type(convert_to_doris_type(childColumns[1]));
-        return map_type;
+        return make_nullable(std::make_shared<DataTypeMap>(
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true),
+                make_nullable(convert_to_doris_type(childColumns[1]))));
     }
     case TPrimitiveType::STRUCT: {
-        TypeDescriptor struct_type(PrimitiveType::TYPE_STRUCT);
+        DataTypes res_data_types;
+        std::vector<std::string> names;
         const rapidjson::Value& childColumns = column_schema["childColumns"];
         for (auto i = 0; i < childColumns.Size(); i++) {
             const rapidjson::Value& child = childColumns[i];
-            struct_type.add_sub_type(convert_to_doris_type(childColumns[i]),
-                                     std::string(child["name"].GetString()));
+            res_data_types.push_back(make_nullable(convert_to_doris_type(child)));
+            names.push_back(std::string(child["name"].GetString()));
         }
-        return struct_type;
+        return make_nullable(std::make_shared<DataTypeStruct>(res_data_types, names));
     }
     default:
-        return {PrimitiveType::INVALID_TYPE};
+        throw Exception(Status::InternalError("Orc type is not supported!"));
+        return nullptr;
     }
 }
 

@@ -29,7 +29,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace vectorized {
-class NewEsScanner;
+class EsScanner;
 }
 } // namespace doris
 
@@ -44,13 +44,13 @@ public:
     EsScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
 
 private:
-    friend class vectorized::NewEsScanner;
+    friend class vectorized::EsScanner;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts(RuntimeState* state) override;
-    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
 
     std::vector<std::unique_ptr<TEsScanRange>> _scan_ranges;
     // FIXME: non-static data member '_rows_read_counter' of 'EsScanLocalState' shadows member inherited from type 'ScanLocalStateBase'
@@ -72,7 +72,7 @@ public:
                     const DescriptorTbl& descs, int parallel_tasks);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
 private:
     friend class EsScanLocalState;

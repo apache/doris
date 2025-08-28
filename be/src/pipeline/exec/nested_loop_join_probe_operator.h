@@ -97,7 +97,7 @@ private:
                     }
                     if (!_cur_probe_row_visited_flags[i]) {
                         _cur_probe_row_visited_flags[i] =
-                                simd::contain_byte<uint8>(filter.data() + offset, end - offset, 1)
+                                simd::contain_byte<uint8_t>(filter.data() + offset, end - offset, 1)
                                         ? 1
                                         : 0;
                     }
@@ -204,7 +204,7 @@ public:
     NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,

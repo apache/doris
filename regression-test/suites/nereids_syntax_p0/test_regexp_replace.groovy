@@ -36,4 +36,38 @@ suite("test_regexp_replace") {
         (5, null);"""
 
     qt_replace_in_table_chinese """SELECT id, regexp_replace(name, '\\\\p{Han}', '汉') as replaced_name FROM test_table_for_regexp;"""
+
+    qt_replace_ignore1 """select regexp_replace('{"abc":5},{"def":78}', '\\}\\,\\{', '\\}&&\\{', 'IGNORE_INVALID_ESCAPE');"""
+    qt_replace_ignore2 """select regexp_replace('abc', 'b', "\\}", 'IGNORE_INVALID_ESCAPE');"""
+    qt_replace_ignore3 """select regexp_replace_one('{"abc":5},{"def":78}', '\\}\\,\\{', '\\}&&\\{', 'IGNORE_INVALID_ESCAPE');"""
+    qt_replace_ignore4 """select regexp_replace_one('abc', 'b', '\\}', 'IGNORE_INVALID_ESCAPE');"""
+    qt_replace_ignore5 """select regexp_replace(name, 'b', '\\}', 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_ignore6 """select regexp_replace_one(name, 'b', '\\}', 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+
+    qt_replace_const """select regexp_replace_one('abc', name, '\\}', 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace_one('abc', 'b', name, 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace_one(name, name, '\\}', 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace_one(name, 'b', name, 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace_one('abc', name, name, 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace_one(name, name, name, 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+
+    qt_replace_const """select regexp_replace('abc', name, '\\}', 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace('abc', 'b', name, 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace(name, name, '\\}', 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace(name, 'b', name, 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace('abc', name, name, 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+    qt_replace_const """select regexp_replace_one(name, name, name, 'IGNORE_INVALID_ESCAPE') from test_table_for_regexp order by id;"""
+
+    test {
+        sql """
+            select regexp_replace('{"abc":5},{"def":78}', '\\}\\,\\{', '\\}&&\\{', 123);
+        """
+        exception "must be a string type"
+    }
+    test {
+        sql """
+            select regexp_replace_one('{"abc":5},{"def":78}', '\\}\\,\\{', '\\}&&\\{', 123);
+        """
+        exception "must be a string type"
+    }
 }

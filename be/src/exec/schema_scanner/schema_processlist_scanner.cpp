@@ -33,20 +33,21 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaProcessListScanner::_s_processlist_columns = {
-        {"CURRENT_CONNECTED", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"ID", TYPE_LARGEINT, sizeof(int128_t), false},
-        {"USER", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"HOST", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"LOGIN_TIME", TYPE_DATETIMEV2, sizeof(DateTimeV2ValueType), false},
-        {"CATALOG", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"DB", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"COMMAND", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"TIME", TYPE_INT, sizeof(int32_t), false},
-        {"STATE", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"INFO", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"FE", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"CLOUD_CLUSTER", TYPE_VARCHAR, sizeof(StringRef), false}};
+        {"CurrentConnected", TYPE_VARCHAR, sizeof(StringRef), false},       // 0
+        {"Id", TYPE_LARGEINT, sizeof(int128_t), false},                     // 1
+        {"User", TYPE_VARCHAR, sizeof(StringRef), false},                   // 2
+        {"Host", TYPE_VARCHAR, sizeof(StringRef), false},                   // 3
+        {"LoginTime", TYPE_DATETIMEV2, sizeof(DateTimeV2ValueType), false}, // 4
+        {"Catalog", TYPE_VARCHAR, sizeof(StringRef), false},                // 5
+        {"Db", TYPE_VARCHAR, sizeof(StringRef), false},                     // 6
+        {"Command", TYPE_VARCHAR, sizeof(StringRef), false},                // 7
+        {"Time", TYPE_INT, sizeof(int32_t), false},                         // 8
+        {"State", TYPE_VARCHAR, sizeof(StringRef), false},                  // 9
+        {"QueryId", TYPE_VARCHAR, sizeof(StringRef), false},                // 10
+        {"TraceId", TYPE_VARCHAR, sizeof(StringRef), false},                // 11
+        {"Info", TYPE_VARCHAR, sizeof(StringRef), false},                   // 12
+        {"FE", TYPE_VARCHAR, sizeof(StringRef), false},                     // 13
+        {"CloudCluster", TYPE_VARCHAR, sizeof(StringRef), false}};          // 14
 
 SchemaProcessListScanner::SchemaProcessListScanner()
         : SchemaScanner(_s_processlist_columns, TSchemaTableType::SCH_PROCESSLIST) {}
@@ -56,11 +57,22 @@ SchemaProcessListScanner::~SchemaProcessListScanner() = default;
 Status SchemaProcessListScanner::start(RuntimeState* state) {
     TShowProcessListRequest request;
     request.__set_show_full_sql(true);
+    request.__set_time_zone(state->timezone_obj().name());
 
     for (const auto& fe_addr : _param->common_param->fe_addr_list) {
         TShowProcessListResult tmp_ret;
         RETURN_IF_ERROR(
                 SchemaHelper::show_process_list(fe_addr.hostname, fe_addr.port, request, &tmp_ret));
+
+        // Check and adjust the number of columns in each row to ensure 15 columns
+        // This is compatible with newly added column "trace id". #51400
+        for (auto& row : tmp_ret.process_list) {
+            if (row.size() == 14) {
+                // Insert an empty string at position 11 (index 11) for the TRACE_ID column
+                row.insert(row.begin() + 11, "");
+            }
+        }
+
         _process_list_result.process_list.insert(_process_list_result.process_list.end(),
                                                  tmp_ret.process_list.begin(),
                                                  tmp_ret.process_list.end());

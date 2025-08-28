@@ -32,15 +32,19 @@ suite ("testOrderByQueryOnProjectView") {
         """
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view emps_mv as select deptno, empid from emps;")
+    createMV("create materialized view emps_mv as select deptno as a1, empid as a2 from emps;")
 
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table emps with sync;"
-    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
+    sql """alter table emps modify column time_col set stats ('row_count'='8');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")

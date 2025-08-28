@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -113,27 +115,19 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + (isNotNull ? " IS NOT NULL"
+                : " IS NULL");
+    }
+
+    @Override
     public String toDigestImpl() {
         return getChild(0).toDigest() + (isNotNull ? " IS NOT NULL" : " IS NULL");
     }
 
     public boolean isSlotRefChildren() {
         return (children.get(0) instanceof SlotRef);
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        if (isNotNull) {
-            fn = getBuiltinFunction(IS_NOT_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
-        } else {
-            fn = getBuiltinFunction(IS_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
-        }
-        Preconditions.checkState(fn != null, "tupleisNull fn == NULL");
-
-        // determine selectivity
-        selectivity = 0.1;
-        // LOG.debug(toSql() + " selectivity: " + Double.toString(selectivity));
     }
 
     @Override

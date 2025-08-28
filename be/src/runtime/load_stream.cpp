@@ -34,7 +34,6 @@
 #include "cloud/config.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
-#include "gutil/ref_counted.h"
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
@@ -52,12 +51,13 @@
 #define UNKNOWN_ID_FOR_TEST 0x7c00
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_load_stream_cnt("load_stream_count");
 bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
 bvar::Adder<int> g_load_stream_flush_running_threads("load_stream_flush_wait_threads");
 
-TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
+TabletStream::TabletStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
                            LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
         : _id(id),
           _next_segid(0),
@@ -72,7 +72,7 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream) {
-    ostr << "load_id=" << tablet_stream._load_id << ", txn_id=" << tablet_stream._txn_id
+    ostr << "load_id=" << print_id(tablet_stream._load_id) << ", txn_id=" << tablet_stream._txn_id
          << ", tablet_id=" << tablet_stream._id << ", status=" << tablet_stream._status.status();
     return ostr;
 }
@@ -241,7 +241,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
             return _status.status();
         }
         DBUG_EXECUTE_IF("TabletStream.add_segment.segid_never_written",
-                        { segid = _segids_mapping[src_id]->size(); });
+                        { segid = static_cast<uint32_t>(_segids_mapping[src_id]->size()); });
         if (segid >= _segids_mapping[src_id]->size()) {
             _status.update(Status::InternalError(
                     "add segment failed, segment is never written, src_id={}, segment_id={}",
@@ -296,6 +296,8 @@ Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
 
 void TabletStream::pre_close() {
     if (!_status.ok()) {
+        // cancel all pending tasks, wait all running tasks to finish
+        _flush_token->shutdown();
         return;
     }
 
@@ -332,7 +334,7 @@ Status TabletStream::close() {
     return _status.status();
 }
 
-IndexStream::IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id,
+IndexStream::IndexStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
                          std::shared_ptr<OlapTableSchemaParam> schema,
                          LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
         : _id(id),
@@ -415,7 +417,8 @@ void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
 // TODO: Profile is temporary disabled, because:
 // 1. It's not being processed by the upstream for now
 // 2. There are some problems in _profile->to_thrift()
-LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
+LoadStream::LoadStream(const PUniqueId& load_id, LoadStreamMgr* load_stream_mgr,
+                       bool enable_profile)
         : _load_id(load_id), _enable_profile(false), _load_stream_mgr(load_stream_mgr) {
     g_load_stream_cnt << 1;
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
@@ -452,7 +455,7 @@ LoadStream::~LoadStream() {
 
 Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
-    _total_streams = request->total_streams();
+    _total_streams = static_cast<int32_t>(request->total_streams());
     _is_incremental = (_total_streams == 0);
 
     _schema = std::make_shared<OlapTableSchemaParam>();
@@ -515,14 +518,14 @@ void LoadStream::_report_result(StreamId stream, const Status& status,
     if (_enable_profile && _close_load_cnt == _total_streams) {
         TRuntimeProfileTree tprofile;
         ThriftSerializer ser(false, 4096);
-        uint8_t* buf = nullptr;
+        uint8_t* profile_buf = nullptr;
         uint32_t len = 0;
         std::unique_lock<bthread::Mutex> l(_lock);
 
         _profile->to_thrift(&tprofile);
-        auto st = ser.serialize(&tprofile, &len, &buf);
+        auto st = ser.serialize(&tprofile, &len, &profile_buf);
         if (st.ok()) {
-            response.set_load_stream_profile(buf, len);
+            response.set_load_stream_profile(profile_buf, len);
         } else {
             LOG(WARNING) << "TRuntimeProfileTree serialize failed, errmsg=" << st << ", " << *this;
         }
@@ -643,9 +646,10 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     // otherwise the message will be ignored and causing close wait timeout
     if (hdr.opcode() != PStreamHeader::CLOSE_LOAD) {
         DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
-            PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
-            load_id.set_hi(UNKNOWN_ID_FOR_TEST);
-            load_id.set_lo(UNKNOWN_ID_FOR_TEST);
+            PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
+            PUniqueId* load_id = t_hdr.mutable_load_id();
+            load_id->set_hi(UNKNOWN_ID_FOR_TEST);
+            load_id->set_lo(UNKNOWN_ID_FOR_TEST);
         });
         DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
             PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
@@ -717,4 +721,5 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStream& load_strea
     return ostr;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

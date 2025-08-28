@@ -29,6 +29,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "set_replica_status," + // not a case for cloud mode, no need to run
     "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
     "test_dump_image," +
+    "test_nereids_show_restore," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
     "test_profile," +
@@ -43,10 +44,30 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_query_sys_rowsets," + // rowsets sys table
     "test_unique_table_debug_data," + // disable auto compaction
     "test_insert," + // txn insert
+    "test_nereids_show_snapshot," +
     "test_full_compaction_run_status," +
     "test_topn_fault_injection," +
     "auto_partition_in_partition_prune," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "one_col_range_partition," + // inserted data in too many tablets, txn to large. not suitable for cloud.
+    "test_nereids_show_backup," +
+    "check_meta,"+
+    "test_checker,"+
+    "test_recycler_expired_stage_objects," +
+    "test_recycler_inverted_index," +
+    "test_recycler_with_drop_column," +
+    "test_recycler_with_drop_db," +
+    "test_recycler_with_drop_index," +
+    "test_recycler_with_drop_multi_db," +
+    "test_recycler_with_drop_mv," +
+    "test_recycler_with_drop_partition," +
+    "test_recycler_with_drop_rollup," +
+    "test_recycler_with_dynamic_partition," +
+    "test_recycler_with_internal_copy," +
+    "test_recycler_with_many_partitions," +
+    "test_recycler_with_schema_change," +
+    "test_recycler_with_truncate_table," +
+    "test_recycler_with_txn_label," +
+    "test_recycler," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
@@ -76,3 +97,4 @@ enableKafkaTest=true
 enableTrinoConnectorTest = false
 
 s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"

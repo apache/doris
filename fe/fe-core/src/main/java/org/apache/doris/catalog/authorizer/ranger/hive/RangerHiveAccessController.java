@@ -177,8 +177,13 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
+    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
             PrivPredicate wanted, ResourceTypeEnum type) {
+        return false;
+    }
+
+    @Override
+    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
         return false;
     }
 

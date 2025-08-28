@@ -52,6 +52,6 @@ suite("str64_serialize") {
     sql "set parallel_pipeline_task_num=1;"
 
     qt_test "select /*+ LEADING(a,b) */ count(*) from d_table as a, d_table2 as b where a.k4=b.k4 and a.k1=b.k1;"
-    qt_test "select /*+ LEADING(b,a) */ count(*) from d_table as a, d_table2 as b where a.k4=b.k4 and a.k1=b.k1;"
+    //qt_test "select /*+ LEADING(b,a) */ count(*) from d_table as a, d_table2 as b where a.k4=b.k4 and a.k1=b.k1;" // use too much memory.
 }
 

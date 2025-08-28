@@ -28,13 +28,13 @@
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -54,24 +54,33 @@ class FunctionContext;
 namespace doris::vectorized {
 
 struct ArrayContainsAction {
-    using ResultType = UInt8;
+    static constexpr auto ResultType = PrimitiveType::TYPE_BOOLEAN;
     static constexpr auto name = "array_contains";
     static constexpr const bool resume_execution = false;
-    static constexpr void apply(ResultType& current, size_t) noexcept { current = 1; }
+    static constexpr void apply(typename PrimitiveTypeTraits<ResultType>::CppType& current,
+                                size_t) noexcept {
+        current = 1;
+    }
 };
 
 struct ArrayPositionAction {
-    using ResultType = Int64;
+    static constexpr auto ResultType = PrimitiveType::TYPE_BIGINT;
     static constexpr auto name = "array_position";
     static constexpr const bool resume_execution = false;
-    static constexpr void apply(ResultType& current, size_t j) noexcept { current = j + 1; }
+    static constexpr void apply(typename PrimitiveTypeTraits<ResultType>::CppType& current,
+                                size_t j) noexcept {
+        current = j + 1;
+    }
 };
 
 struct ArrayCountEqual {
-    using ResultType = Int64;
+    static constexpr auto ResultType = PrimitiveType::TYPE_BIGINT;
     static constexpr auto name = "countequal";
     static constexpr const bool resume_execution = true;
-    static constexpr void apply(ResultType& current, size_t j) noexcept { ++current; }
+    static constexpr void apply(typename PrimitiveTypeTraits<ResultType>::CppType& current,
+                                size_t j) noexcept {
+        ++current;
+    }
 };
 
 struct ParamValue {
@@ -82,7 +91,7 @@ struct ParamValue {
 template <typename ConcreteAction>
 class FunctionArrayIndex : public IFunction {
 public:
-    using ResultType = typename ConcreteAction::ResultType;
+    static constexpr auto ResultType = ConcreteAction::ResultType;
 
     static constexpr auto name = ConcreteAction::name;
     static FunctionPtr create() { return std::make_shared<FunctionArrayIndex>(); }
@@ -102,14 +111,14 @@ public:
         }
 
         DCHECK(context->get_num_args() >= 1);
-        DCHECK(context->get_arg_type(0)->is_array_type());
+        DCHECK_EQ(context->get_arg_type(0)->get_primitive_type(), PrimitiveType::TYPE_ARRAY);
         // now we only support same
         std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
         Field field;
         if (context->get_constant_col(1)) {
             context->get_constant_col(1)->column_ptr->get(0, field);
             state->value = field;
-            state->type = context->get_arg_type(1)->type;
+            state->type = context->get_arg_type(1)->get_primitive_type();
             context->set_function_state(scope, state);
         }
         return Status::OK();
@@ -118,7 +127,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -128,8 +137,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+        if (iter->get_reader()->is_fulltext_index()) {
             // parser is not none we can not make sure the result is correct in expr combination
             // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
             // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
@@ -140,14 +148,13 @@ public:
         }
         Field param_value;
         arguments[0].column->get(0, param_value);
-        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+        auto param_type = arguments[0].type->get_primitive_type();
         // The current implementation for the inverted index of arrays cannot handle cases where the array contains null values,
         // meaning an item in the array is null.
         if (param_value.is_null()) {
             return Status::OK();
         }
 
-        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         if (iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
@@ -157,9 +164,14 @@ public:
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                            query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, query_param->get_value(),
-                segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+        InvertedIndexParam param;
+        param.column_name = data_type_with_name.first;
+        param.query_value = query_param->get_value();
+        param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+        param.num_rows = num_rows;
+        param.roaring = std::make_shared<roaring::Roaring>();
+        ;
+        RETURN_IF_ERROR(iter->read_from_index(&param));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -168,14 +180,14 @@ public:
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "result_bitmap count cannot be negative");
             }
-            if (roaring->cardinality() != result_bitmap) {
+            if (param.roaring->cardinality() != result_bitmap) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "array_contains really filtered {} by inverted index not equal to expected "
                         "{}",
-                        roaring->cardinality(), result_bitmap);
+                        param.roaring->cardinality(), result_bitmap);
             }
         })
-        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
         bitmap_result = result;
         bitmap_result.mask_out_null();
 
@@ -184,9 +196,10 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments[0]->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
+            return make_nullable(
+                    std::make_shared<typename PrimitiveTypeTraits<ResultType>::DataType>());
         } else {
-            return std::make_shared<DataTypeNumber<ResultType>>();
+            return std::make_shared<typename PrimitiveTypeTraits<ResultType>::DataType>();
         }
     }
 
@@ -217,7 +230,7 @@ private:
         const auto& right_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
+        auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
         auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
@@ -229,7 +242,7 @@ private:
                 continue;
             }
             dst_null_data[row] = false;
-            ResultType res = 0;
+            typename PrimitiveTypeTraits<ResultType>::CppType res = 0;
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
 
@@ -286,7 +299,7 @@ private:
         const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
+        auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
         auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
@@ -298,7 +311,7 @@ private:
                 continue;
             }
             dst_null_data[row] = false;
-            ResultType res = 0;
+            typename PrimitiveTypeTraits<ResultType>::CppType res = 0;
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
             for (size_t pos = 0; pos < len; ++pos) {
@@ -340,7 +353,7 @@ private:
                                        const IColumn& right_column,
                                        const UInt8* right_nested_null_map,
                                        const UInt8* outer_null_map) const {
-        if (check_column<NestedColumnType>(right_column)) {
+        if (is_column<NestedColumnType>(right_column)) {
             return _execute_number<NestedColumnType, NestedColumnType>(
                     offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
                     outer_null_map);
@@ -353,7 +366,7 @@ private:
         // extract array offsets and nested data
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (!is_array(remove_nullable(block.get_by_position(arguments[0]).type))) {
+        if (block.get_by_position(arguments[0]).type->get_primitive_type() != TYPE_ARRAY) {
             return Status::InvalidArgument(get_name() + " first argument must be array, but got " +
                                            block.get_by_position(arguments[0]).type->get_name());
         }
@@ -396,82 +409,105 @@ private:
         auto right_type = remove_nullable(block.get_by_position(arguments[1]).type);
 
         ColumnPtr return_column = nullptr;
-        WhichDataType left_which_type(left_element_type);
-
-        if (is_string(right_type) && is_string(left_element_type)) {
+        if (is_string_type(right_type->get_primitive_type()) &&
+            is_string_type(left_element_type->get_primitive_type())) {
             return_column = _execute_string(offsets, nested_null_map, *nested_column, *right_column,
                                             right_nested_null_map, array_null_map);
-        } else if (is_number(right_type) && is_number(left_element_type)) {
-            if (left_which_type.is_uint8()) {
+        } else if (is_number(right_type->get_primitive_type()) &&
+                   is_number(left_element_type->get_primitive_type())) {
+            switch (left_element_type->get_primitive_type()) {
+            case TYPE_BOOLEAN:
                 return_column = _execute_number_expanded<ColumnUInt8>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_int8()) {
+                break;
+            case TYPE_TINYINT:
                 return_column = _execute_number_expanded<ColumnInt8>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_int16()) {
+                break;
+            case TYPE_SMALLINT:
                 return_column = _execute_number_expanded<ColumnInt16>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_int32()) {
+                break;
+            case TYPE_INT:
                 return_column = _execute_number_expanded<ColumnInt32>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_int64()) {
+                break;
+            case TYPE_BIGINT:
                 return_column = _execute_number_expanded<ColumnInt64>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_int128()) {
+                break;
+            case TYPE_LARGEINT:
                 return_column = _execute_number_expanded<ColumnInt128>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_float32()) {
+                break;
+            case TYPE_FLOAT:
                 return_column = _execute_number_expanded<ColumnFloat32>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_float64()) {
+                break;
+            case TYPE_DOUBLE:
                 return_column = _execute_number_expanded<ColumnFloat64>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_decimal32()) {
+                break;
+            case TYPE_DECIMAL32:
                 return_column = _execute_number_expanded<ColumnDecimal32>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_decimal64()) {
+                break;
+            case TYPE_DECIMAL64:
                 return_column = _execute_number_expanded<ColumnDecimal64>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_decimal128v3()) {
+                break;
+            case TYPE_DECIMAL128I:
                 return_column = _execute_number_expanded<ColumnDecimal128V3>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_decimal128v2()) {
+                break;
+            case TYPE_DECIMALV2:
                 return_column = _execute_number_expanded<ColumnDecimal128V2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_decimal256()) {
+                break;
+            case TYPE_DECIMAL256:
                 return_column = _execute_number_expanded<ColumnDecimal256>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
+                break;
+            default:
+                break;
             }
-        } else if ((is_date_or_datetime(right_type) || is_date_v2_or_datetime_v2(right_type)) &&
-                   (is_date_or_datetime(left_element_type) ||
-                    is_date_v2_or_datetime_v2(left_element_type))) {
-            if (left_which_type.is_date()) {
+        } else if ((is_date_or_datetime(right_type->get_primitive_type()) ||
+                    is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
+                    right_type->get_primitive_type() == TYPE_TIMEV2) &&
+                   (is_date_or_datetime(left_element_type->get_primitive_type()) ||
+                    is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
+                    left_element_type->get_primitive_type() == TYPE_TIMEV2)) {
+            if (left_element_type->get_primitive_type() == TYPE_DATE) {
                 return_column = _execute_number_expanded<ColumnDate>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_date_time()) {
+            } else if (left_element_type->get_primitive_type() == TYPE_DATETIME) {
                 return_column = _execute_number_expanded<ColumnDateTime>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_date_v2()) {
+            } else if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
                 return_column = _execute_number_expanded<ColumnDateV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_which_type.is_date_time_v2()) {
+            } else if (left_element_type->get_primitive_type() == TYPE_DATETIMEV2) {
                 return_column = _execute_number_expanded<ColumnDateTimeV2>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (left_element_type->get_primitive_type() == TYPE_TIMEV2) {
+                return_column = _execute_number_expanded<ColumnTimeV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             }

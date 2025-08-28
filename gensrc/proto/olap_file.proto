@@ -60,6 +60,11 @@ message KeyBoundsPB {
     required bytes max_key = 2;
 }
 
+message SplitSchemaPB {
+    repeated int64 split_field_ids = 1; // The split fields ids
+    optional uint64 num_split_keys = 2; // The num of split keys, used to limit the scan range.
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -109,7 +114,8 @@ message RowsetMetaPB {
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,
-    // only used in unique key data model with primary_key_index support.
+    // ATTN: segments_key_bounds may be truncated! please refer to field `segments_key_bounds_truncated`
+    // to check if these are truncated segments key bounds
     repeated KeyBoundsPB segments_key_bounds = 27;
     // tablet meta pb, for compaction
     optional TabletSchemaPB tablet_schema = 28;
@@ -118,6 +124,11 @@ message RowsetMetaPB {
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
     optional int64 compaction_level = 52 [default = 0];
+    // For backup/restore, record the tablet id and rowset id of the source cluster.
+    optional int64 source_tablet_id = 53;
+    optional string source_rowset_id = 54;
+    // indicate that whether the segments key bounds is truncated
+    optional bool segments_key_bounds_truncated = 55;
 
     // For cloud
     // for data recycling
@@ -134,6 +145,9 @@ message RowsetMetaPB {
 
     optional bool enable_inverted_index_file_info = 1006;
     repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
+    optional SchemaDictKeyList schema_dict_key_list = 1008; // align to cloud rowset
+
+    optional SplitSchemaPB __split_schema = 1009;  // A special field, DO NOT change it.
 }
 
 message SchemaDictKeyList {
@@ -192,7 +206,8 @@ message RowsetMetaCloudPB {
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,
-    // only used in unique key data model with primary_key_index support.
+    // ATTN: segments_key_bounds may be truncated! please refer to field `segments_key_bounds_truncated`
+    // to check if these are truncated segments key bounds
     repeated KeyBoundsPB segments_key_bounds = 27;
     // tablet meta pb, for compaction
     optional TabletSchemaCloudPB tablet_schema = 28;
@@ -203,6 +218,11 @@ message RowsetMetaCloudPB {
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
     optional int64 compaction_level = 52 [default = 0];
+    // For backup/restore, record the tablet id and rowset id of the source cluster.
+    optional int64 source_tablet_id = 53;
+    optional string source_rowset_id = 54;
+    // indicate that whether the segments key bounds is truncated
+    optional bool segments_key_bounds_truncated = 55;
 
     // cloud
     // the field is a vector, rename it
@@ -221,6 +241,8 @@ message RowsetMetaCloudPB {
 
     optional bool enable_inverted_index_file_info = 106;
     repeated InvertedIndexFileInfo inverted_index_file_info = 107;
+
+    optional SplitSchemaPB __split_schema = 108;  // A special field, DO NOT change it.
 }
 
 message SegmentStatisticsPB {
@@ -294,6 +316,11 @@ message AlterTabletPB {
     optional AlterTabletType alter_type = 4;
 }
 
+enum PatternTypePB {
+    MATCH_NAME = 1;
+    MATCH_NAME_GLOB = 2;
+}
+
 message ColumnPB {
     required int32 unique_id = 1; // ColumnMessage.unique_id
     optional string name = 2; // ColumnMessage.name
@@ -322,6 +349,11 @@ message ColumnPB {
     // only reference by variant sparse columns
     optional int32 parent_unique_id = 23;
     optional int32 be_exec_version = 24;
+    optional int32 variant_max_subcolumns_count = 25 [default = 0];
+    optional PatternTypePB pattern_type = 26;
+    optional bool variant_enable_typed_paths_to_sparse = 27 [default = false];
+    // this field is only used during flexible partial update load
+    optional bool is_on_update_current_timestamp = 28 [default = false];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size
@@ -377,6 +409,7 @@ message TabletSchemaPB {
     optional CompressKind compress_kind = 5; // OLAPHeaderMessage.compress_kind
     optional double bf_fpp = 6; // OLAPHeaderMessage.bf_fpp
     optional uint32 next_column_unique_id = 7; // OLAPHeaderMessage.next_column_unique_id
+    // FIXME(gavin): deprecate and remove in the future
     optional bool is_in_memory = 8 [default=false];
     optional int32 delete_sign_idx = 9 [default = -1];
     optional int32 sequence_col_idx = 10 [default= -1];
@@ -389,8 +422,8 @@ message TabletSchemaPB {
     optional int32 version_col_idx = 17 [default = -1];
     optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
     optional bool is_dynamic_schema = 19 [default=false]; // deprecated
-    optional bool is_partial_update = 20 [default=false]; // deprecated
-    repeated string partial_update_input_columns = 21; // deprecated
+    reserved 20; // deprecated is_partial_update
+    reserved 21; // deprecated partial_update_input_columns
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_uids = 24;
@@ -399,9 +432,10 @@ message TabletSchemaPB {
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
 
-    optional bool variant_enable_flatten_nested = 28 [default=false];
+    optional bool enable_variant_flatten_nested = 28 [default=false];
     optional int32 skip_bitmap_col_idx = 29 [default = -1];
     optional int64 storage_page_size = 30 [default=65536];
+    optional int64 storage_dict_page_size = 31 [default=262144];
 }
 
 message TabletSchemaCloudPB {
@@ -431,12 +465,16 @@ message TabletSchemaCloudPB {
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
-    optional bool enable_mow_light_delete = 28 [default=false];
+    reserved 28; // deprecated enable_mow_light_delete
     optional bool enable_variant_flatten_nested = 29 [default=false];
     optional int32 skip_bitmap_col_idx = 30 [default = -1];
     optional int64 storage_page_size = 31 [default=65536];
+    optional int64 storage_dict_page_size = 32 [default=262144];
 
     optional bool is_dynamic_schema = 100 [default=false];
+
+    // FIXME(gavin): deprecate and remove in the future
+    optional bool is_in_memory = 200 [default=false]; // unused, just keep align to TabletSchemaPB
 }
 
 enum TabletStatePB {
@@ -572,8 +610,8 @@ message TabletMetaCloudPB {
     optional int64 time_series_compaction_goal_size_mbytes = 32 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 33 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 34 [default = 3600];
-    optional int64 group_commit_interval_ms = 35 [default = 10000];
-    optional int64 group_commit_data_bytes = 36 [default = 134217728];
+    reserved 35; // deprecated group_commit_interval_ms
+    reserved 36; // deprecated group_commit_data_bytes
     optional int64 time_series_compaction_empty_rowsets_threshold = 37 [default = 5];
     optional int64 time_series_compaction_level_threshold = 38 [default = 1];
 
@@ -623,6 +661,11 @@ message RowsetBinlogMetasPB {
     repeated RowsetBinlogMetaPB rowset_binlog_metas = 1;
 }
 
+enum PartialUpdateNewRowPolicyPB {
+    APPEND = 0;
+    ERROR = 1;
+}
+
 message PartialUpdateInfoPB {
     optional bool is_partial_update = 1 [default = false]; // deprecated
     repeated string partial_update_input_columns = 2;
@@ -638,4 +681,5 @@ message PartialUpdateInfoPB {
     optional int64 max_version_in_flush_phase = 12 [default = -1];
     optional int32 nano_seconds = 13 [default = 0];
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
+    optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
 }

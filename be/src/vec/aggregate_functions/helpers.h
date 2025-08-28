@@ -25,29 +25,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/utils/template_helpers.hpp"
 
-#define FOR_INTEGER_TYPES(M) \
-    M(UInt8)                 \
-    M(Int8)                  \
-    M(Int16)                 \
-    M(Int32)                 \
-    M(Int64)                 \
-    M(Int128)
-
-#define FOR_FLOAT_TYPES(M) \
-    M(Float32)             \
-    M(Float64)
-
-#define FOR_NUMERIC_TYPES(M) \
-    FOR_INTEGER_TYPES(M)     \
-    FOR_FLOAT_TYPES(M)
-
-#define FOR_DECIMAL_TYPES(M) \
-    M(Decimal32)             \
-    M(Decimal64)             \
-    M(Decimal128V2)          \
-    M(Decimal128V3)          \
-    M(Decimal256)
-
 /** If the serialized type is not the default type(string),
  * aggregation function need to override these functions:
  * 1. serialize_to_column
@@ -111,20 +88,21 @@ struct creator_without_type {
                                         const bool result_is_nullable,
                                         const AggregateFunctionAttr& attr) {
         CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
-        return create<AggregateFunctionTemplate>(argument_types, result_is_nullable);
+        return create<AggregateFunctionTemplate>(argument_types, result_is_nullable, attr);
     }
 
     template <typename AggregateFunctionTemplate, typename... TArgs>
     static AggregateFunctionPtr create(const DataTypes& argument_types_,
-                                       const bool result_is_nullable, TArgs&&... args) {
+                                       const bool result_is_nullable,
+                                       const AggregateFunctionAttr& attr, TArgs&&... args) {
         std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
                 std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
         if (have_nullable(argument_types_)) {
             std::visit(
                     [&](auto multi_arguments, auto result_is_nullable) {
                         result.reset(new NullableT<multi_arguments, result_is_nullable,
-                                                   AggregateFunctionTemplate>(result.release(),
-                                                                              argument_types_));
+                                                   AggregateFunctionTemplate>(
+                                result.release(), argument_types_, attr.is_window_function));
                     },
                     make_bool_variant(argument_types_.size() > 1),
                     make_bool_variant(result_is_nullable));
@@ -134,11 +112,54 @@ struct creator_without_type {
         return AggregateFunctionPtr(result.release());
     }
 
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_multi_arguments(const DataTypes& argument_types_,
+                                                       const bool result_is_nullable,
+                                                       const AggregateFunctionAttr& attr,
+                                                       TArgs&&... args) {
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            std::visit(
+                    [&](auto result_is_nullable) {
+                        result.reset(
+                                new NullableT<true, result_is_nullable, AggregateFunctionTemplate>(
+                                        result.release(), argument_types_,
+                                        attr.is_window_function));
+                    },
+                    make_bool_variant(result_is_nullable));
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_unary_arguments(const DataTypes& argument_types_,
+                                                       const bool result_is_nullable,
+                                                       const AggregateFunctionAttr& attr,
+                                                       TArgs&&... args) {
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            std::visit(
+                    [&](auto result_is_nullable) {
+                        result.reset(
+                                new NullableT<false, result_is_nullable, AggregateFunctionTemplate>(
+                                        result.release(), argument_types_,
+                                        attr.is_window_function));
+                    },
+                    make_bool_variant(result_is_nullable));
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
     /// AggregateFunctionTemplate will handle the nullable arguments, no need to use
     /// AggregateFunctionNullVariadicInline/AggregateFunctionNullUnaryInline
     template <typename AggregateFunctionTemplate, typename... TArgs>
     static AggregateFunctionPtr create_ignore_nullable(const DataTypes& argument_types_,
                                                        const bool /*result_is_nullable*/,
+                                                       const AggregateFunctionAttr& /*attr*/,
                                                        TArgs&&... args) {
         std::unique_ptr<IAggregateFunction> result = std::make_unique<AggregateFunctionTemplate>(
                 std::forward<TArgs>(args)..., argument_types_);
@@ -147,119 +168,288 @@ struct creator_without_type {
     }
 };
 
-template <template <typename> class AggregateFunctionTemplate>
+template <template <PrimitiveType> class AggregateFunctionTemplate>
 struct CurryDirect {
-    template <typename Type>
-    using T = AggregateFunctionTemplate<Type>;
+    template <PrimitiveType type>
+    using T = AggregateFunctionTemplate<type>;
 };
-template <template <typename> class AggregateFunctionTemplate, template <typename> class Data>
+template <template <typename> class AggregateFunctionTemplate, template <PrimitiveType> class Data>
 struct CurryData {
-    template <typename Type>
+    template <PrimitiveType Type>
     using T = AggregateFunctionTemplate<Data<Type>>;
 };
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-          template <typename> class Impl>
+          template <PrimitiveType> class Impl>
 struct CurryDataImpl {
-    template <typename Type>
+    template <PrimitiveType Type>
     using T = AggregateFunctionTemplate<Data<Impl<Type>>>;
 };
-template <template <typename, typename> class AggregateFunctionTemplate,
-          template <typename> class Data>
+template <template <PrimitiveType, typename> class AggregateFunctionTemplate,
+          template <PrimitiveType> class Data>
 struct CurryDirectAndData {
-    template <typename Type>
+    template <PrimitiveType Type>
     using T = AggregateFunctionTemplate<Type, Data<Type>>;
 };
 
-template <bool allow_integer, bool allow_float, bool allow_decimal, int define_index = 0>
+template <bool allow_integer, bool allow_float, bool allow_decimal, bool allow_stringlike,
+          bool allow_datelike, bool allow_ip, int define_index = 0>
 struct creator_with_type_base {
     template <typename Class, typename... TArgs>
     static AggregateFunctionPtr create_base(const DataTypes& argument_types,
-                                            const bool result_is_nullable, TArgs&&... args) {
-        WhichDataType which(remove_nullable(argument_types[define_index]));
-#define DISPATCH(TYPE)                                                             \
-    if (which.idx == TypeIndex::TYPE) {                                            \
-        return creator_without_type::create<typename Class::template T<TYPE>>(     \
-                argument_types, result_is_nullable, std::forward<TArgs>(args)...); \
-    }
-
+                                            const bool result_is_nullable,
+                                            const AggregateFunctionAttr& attr, TArgs&&... args) {
+        auto create = [&]<PrimitiveType Ptype>() {
+            return creator_without_type::create<typename Class::template T<Ptype>>(
+                    argument_types, result_is_nullable, attr, std::forward<TArgs>(args)...);
+        };
         if constexpr (allow_integer) {
-            FOR_INTEGER_TYPES(DISPATCH);
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_BOOLEAN:
+                return create.template operator()<PrimitiveType::TYPE_BOOLEAN>();
+            case PrimitiveType::TYPE_TINYINT:
+                return create.template operator()<PrimitiveType::TYPE_TINYINT>();
+            case PrimitiveType::TYPE_SMALLINT:
+                return create.template operator()<PrimitiveType::TYPE_SMALLINT>();
+            case PrimitiveType::TYPE_INT:
+                return create.template operator()<PrimitiveType::TYPE_INT>();
+            case PrimitiveType::TYPE_BIGINT:
+                return create.template operator()<PrimitiveType::TYPE_BIGINT>();
+            case PrimitiveType::TYPE_LARGEINT:
+                return create.template operator()<PrimitiveType::TYPE_LARGEINT>();
+            default:
+                break;
+            }
         }
         if constexpr (allow_float) {
-            FOR_FLOAT_TYPES(DISPATCH);
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_FLOAT:
+                return create.template operator()<PrimitiveType::TYPE_FLOAT>();
+            case PrimitiveType::TYPE_DOUBLE:
+                return create.template operator()<PrimitiveType::TYPE_DOUBLE>();
+            default:
+                break;
+            }
         }
         if constexpr (allow_decimal) {
-            FOR_DECIMAL_TYPES(DISPATCH);
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_DECIMAL32:
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL32>();
+            case PrimitiveType::TYPE_DECIMAL64:
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL64>();
+            case PrimitiveType::TYPE_DECIMALV2:
+                return create.template operator()<PrimitiveType::TYPE_DECIMALV2>();
+            case PrimitiveType::TYPE_DECIMAL128I:
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL128I>();
+            case PrimitiveType::TYPE_DECIMAL256:
+                return create.template operator()<PrimitiveType::TYPE_DECIMAL256>();
+            default:
+                break;
+            }
         }
-#undef DISPATCH
+
+        if constexpr (allow_stringlike) {
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_CHAR:
+            case PrimitiveType::TYPE_VARCHAR:
+            case PrimitiveType::TYPE_STRING:
+            case PrimitiveType::TYPE_JSONB:
+                return create.template operator()<PrimitiveType::TYPE_VARCHAR>();
+            default:
+                break;
+            }
+        }
+
+        if constexpr (allow_datelike) {
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_DATE:
+                return create.template operator()<PrimitiveType::TYPE_DATE>();
+            case PrimitiveType::TYPE_DATETIME:
+                return create.template operator()<PrimitiveType::TYPE_DATETIME>();
+            case PrimitiveType::TYPE_DATEV2:
+                return create.template operator()<PrimitiveType::TYPE_DATEV2>();
+            case PrimitiveType::TYPE_DATETIMEV2:
+                return create.template operator()<PrimitiveType::TYPE_DATETIMEV2>();
+            default:
+                break;
+            }
+        }
+
+        if constexpr (allow_ip) {
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_IPV4:
+                return create.template operator()<PrimitiveType::TYPE_IPV4>();
+            case PrimitiveType::TYPE_IPV6:
+                return create.template operator()<PrimitiveType::TYPE_IPV6>();
+            default:
+                break;
+            }
+        }
+
         return nullptr;
     }
 
-    template <template <typename> class AggregateFunctionTemplate>
+    template <template <PrimitiveType> class AggregateFunctionTemplate>
     static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
                                         const bool result_is_nullable,
                                         const AggregateFunctionAttr& attr) {
         return create_base<CurryDirect<AggregateFunctionTemplate>>(argument_types,
-                                                                   result_is_nullable);
+                                                                   result_is_nullable, attr);
     }
 
-    template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
+    template <template <PrimitiveType> class AggregateFunctionTemplate, typename... TArgs>
     static AggregateFunctionPtr create(TArgs&&... args) {
         return create_base<CurryDirect<AggregateFunctionTemplate>>(std::forward<TArgs>(args)...);
     }
 
-    template <template <typename> class AggregateFunctionTemplate, template <typename> class Data>
+    template <template <typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data>
     static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
                                         const bool result_is_nullable,
                                         const AggregateFunctionAttr& attr) {
         return create_base<CurryData<AggregateFunctionTemplate, Data>>(argument_types,
-                                                                       result_is_nullable);
+                                                                       result_is_nullable, attr);
     }
 
-    template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-              typename... TArgs>
+    template <template <typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data, typename... TArgs>
     static AggregateFunctionPtr create(TArgs&&... args) {
         return create_base<CurryData<AggregateFunctionTemplate, Data>>(
                 std::forward<TArgs>(args)...);
     }
 
     template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-              template <typename> class Impl>
+              template <PrimitiveType> class Impl>
     static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
                                         const bool result_is_nullable,
                                         const AggregateFunctionAttr& attr) {
         return create_base<CurryDataImpl<AggregateFunctionTemplate, Data, Impl>>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
 
     template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-              template <typename> class Impl, typename... TArgs>
+              template <PrimitiveType> class Impl, typename... TArgs>
     static AggregateFunctionPtr create(TArgs&&... args) {
         return create_base<CurryDataImpl<AggregateFunctionTemplate, Data, Impl>>(
                 std::forward<TArgs>(args)...);
     }
 
-    template <template <typename, typename> class AggregateFunctionTemplate,
-              template <typename> class Data>
+    template <template <PrimitiveType, typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data>
     static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
                                         const bool result_is_nullable,
                                         const AggregateFunctionAttr& attr) {
-        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(argument_types,
-                                                                                result_is_nullable);
+        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(
+                argument_types, result_is_nullable, attr);
     }
 
-    template <template <typename, typename> class AggregateFunctionTemplate,
-              template <typename> class Data, typename... TArgs>
+    template <template <PrimitiveType, typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data, typename... TArgs>
+    static AggregateFunctionPtr create(TArgs&&... args) {
+        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(
+                std::forward<TArgs>(args)...);
+    }
+};
+template <int define_index>
+using creator_with_integer_type_with_index =
+        creator_with_type_base<true, false, false, false, false, false, define_index>;
+using creator_with_integer_type = creator_with_integer_type_with_index<0>;
+using creator_with_numeric_type = creator_with_type_base<true, true, false, false, false, false>;
+using creator_with_decimal_type = creator_with_type_base<false, false, true, false, false, false>;
+using creator_with_type = creator_with_type_base<true, true, true, false, false, false>;
+using creator_with_any = creator_with_type_base<true, true, true, true, true, true>;
+
+template <int define_index, PrimitiveType... AllowedTypes>
+struct creator_with_type_list_base {
+    template <typename Class, typename... TArgs>
+    static AggregateFunctionPtr create_base(const DataTypes& argument_types,
+                                            const bool result_is_nullable,
+                                            const AggregateFunctionAttr& attr, TArgs&&... args) {
+        auto create = [&]<PrimitiveType Ptype>() {
+            return creator_without_type::create<typename Class::template T<Ptype>>(
+                    argument_types, result_is_nullable, attr, std::forward<TArgs>(args)...);
+        };
+        AggregateFunctionPtr result = nullptr;
+        auto type = argument_types[define_index]->get_primitive_type();
+        if (type == PrimitiveType::TYPE_CHAR || type == PrimitiveType::TYPE_STRING ||
+            type == PrimitiveType::TYPE_JSONB) {
+            type = PrimitiveType::TYPE_VARCHAR;
+        }
+
+        (
+                [&] {
+                    if (type == AllowedTypes) {
+                        result = create.template operator()<AllowedTypes>();
+                    }
+                }(),
+                ...);
+
+        return result;
+    }
+
+    template <template <PrimitiveType> class AggregateFunctionTemplate>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable,
+                                        const AggregateFunctionAttr& attr) {
+        return create_base<CurryDirect<AggregateFunctionTemplate>>(argument_types,
+                                                                   result_is_nullable, attr);
+    }
+
+    template <template <PrimitiveType> class AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create(TArgs&&... args) {
+        return create_base<CurryDirect<AggregateFunctionTemplate>>(std::forward<TArgs>(args)...);
+    }
+
+    template <template <typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable,
+                                        const AggregateFunctionAttr& attr) {
+        return create_base<CurryData<AggregateFunctionTemplate, Data>>(argument_types,
+                                                                       result_is_nullable, attr);
+    }
+
+    template <template <typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data, typename... TArgs>
+    static AggregateFunctionPtr create(TArgs&&... args) {
+        return create_base<CurryData<AggregateFunctionTemplate, Data>>(
+                std::forward<TArgs>(args)...);
+    }
+
+    template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
+              template <PrimitiveType> class Impl>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable,
+                                        const AggregateFunctionAttr& attr) {
+        return create_base<CurryDataImpl<AggregateFunctionTemplate, Data, Impl>>(
+                argument_types, result_is_nullable, attr);
+    }
+
+    template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
+              template <PrimitiveType> class Impl, typename... TArgs>
+    static AggregateFunctionPtr create(TArgs&&... args) {
+        return create_base<CurryDataImpl<AggregateFunctionTemplate, Data, Impl>>(
+                std::forward<TArgs>(args)...);
+    }
+
+    template <template <PrimitiveType, typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data>
+    static AggregateFunctionPtr creator(const std::string& name, const DataTypes& argument_types,
+                                        const bool result_is_nullable,
+                                        const AggregateFunctionAttr& attr) {
+        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(
+                argument_types, result_is_nullable, attr);
+    }
+
+    template <template <PrimitiveType, typename> class AggregateFunctionTemplate,
+              template <PrimitiveType> class Data, typename... TArgs>
     static AggregateFunctionPtr create(TArgs&&... args) {
         return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(
                 std::forward<TArgs>(args)...);
     }
 };
 
-using creator_with_integer_type = creator_with_type_base<true, false, false>;
-using creator_with_numeric_type = creator_with_type_base<true, true, false>;
-using creator_with_decimal_type = creator_with_type_base<false, false, true>;
-using creator_with_type = creator_with_type_base<true, true, true>;
+template <PrimitiveType... AllowedTypes>
+using creator_with_type_list = creator_with_type_list_base<0, AllowedTypes...>;
 
 } // namespace  doris::vectorized
 

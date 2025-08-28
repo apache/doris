@@ -158,9 +158,8 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true", "inverted_index_storage_format"= "v2");
     """
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
@@ -178,18 +177,19 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
 
-    if (!isCloudMode()) {
-        // BUILD INDEX and expect state is FINISHED
+    // BUILD INDEX
+    try {
         sql """ BUILD INDEX idx_var ON  github_events"""
-        def state = wait_for_last_build_index_on_table_finish("github_events", timeout)
-        assertEquals("FINISHED", state)
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("The idx_var index can not be built on the v column, because it is a variant type column"))
     }
 
     // // add bloom filter at the end of loading data
 
     def tablets = sql_return_maparray """ show tablets from github_events; """
     // trigger compactions for all tablets in github_events
-    trigger_and_wait_compaction("github_events", "cumulative")
+    trigger_and_wait_compaction("github_events", "full")
 
     sql """set enable_match_without_inverted_index = false"""
     sql """ set enable_common_expr_pushdown = true """

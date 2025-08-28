@@ -152,7 +152,9 @@ public class SearchSignature {
                 finalType = DecimalV3Type.forType(arguments.get(i).getDataType());
             } else {
                 Expression arg = arguments.get(i);
-                if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
+                if (arg.isNullLiteral()) {
+                    // do nothing
+                } else if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
                     // create decimalV3 with minimum scale enough to hold the integral literal
                     finalType = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
                 } else {

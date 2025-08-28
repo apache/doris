@@ -20,6 +20,7 @@ package org.apache.doris.service.arrowflight.sessions;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenDetails;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenManager;
@@ -40,7 +41,8 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     @Override
     public ConnectContext getConnectContext(String peerIdentity) {
         try {
-            ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getContext(peerIdentity);
+            ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
+                    .getContextWithFlightToken(peerIdentity);
             if (null == connectContext) {
                 connectContext = createConnectContext(peerIdentity);
                 return connectContext;
@@ -65,13 +67,23 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
         flightTokenDetails.setCreatedSession(true);
         ConnectContext connectContext = FlightSessionsManager.buildConnectContext(peerIdentity,
                 flightTokenDetails.getUserIdentity(), flightTokenDetails.getRemoteIp());
-        ExecuteEnv.getInstance().getScheduler().submit(connectContext);
-        if (!ExecuteEnv.getInstance().getScheduler().registerConnection(connectContext)) {
-            String err = "Reach limit of connections, increase `qe_max_connection` in fe.conf, or decrease "
-                    + "`arrow_flight_token_cache_size` to evict unused bearer tokens and it connections faster";
-            connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, err);
-            throw new IllegalArgumentException(err);
+        ConnectScheduler connectScheduler = ExecuteEnv.getInstance().getScheduler();
+        connectScheduler.submit(connectContext);
+        int res = connectScheduler.getFlightSqlConnectPoolMgr().registerConnection(connectContext);
+        if (res >= 0) {
+            String errMsg = String.format(
+                    "Register arrow flight sql connection failed, Unknown Error, the number of arrow flight "
+                            + "bearer tokens should be equal to arrow flight sql max connections, "
+                            + "max connections: %d, used: %d.",
+                    connectScheduler.getFlightSqlConnectPoolMgr().getMaxConnections(), res);
+            connectContext.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
+            throw new IllegalArgumentException(errMsg);
         }
         return connectContext;
+    }
+
+    @Override
+    public void closeConnectContext(String peerIdentity) {
+        flightTokenManager.invalidateToken(peerIdentity);
     }
 }

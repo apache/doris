@@ -36,9 +36,9 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
@@ -394,6 +394,8 @@ TEST(ResourceTest, AddDropCluster) {
         auto* key_id = try_any_cast<int64_t*>(args[2]);
         *key_id = 1;
     });
+    sp->set_call_back("resource_manager::set_safe_drop_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
     sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
         auto* key = try_any_cast<std::string*>(args[0]);
         *key = "test";

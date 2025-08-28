@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.load;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -79,8 +78,16 @@ public class CreateRoutineLoadCommand extends Command implements ForwardWithSync
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         createRoutineLoadInfo.validate(ctx);
-        CreateRoutineLoadStmt createRoutineLoadStmt = createRoutineLoadInfo.translateToLegacyStmt(ctx);
-        Env.getCurrentEnv().getRoutineLoadManager().createRoutineLoadJob(createRoutineLoadStmt);
+        Env.getCurrentEnv().getRoutineLoadManager().createRoutineLoadJob(this.createRoutineLoadInfo, ctx);
+    }
+
+    /**
+     * getCreateRoutineLoadInfo
+     *
+     * @return createRoutineLoadInfo
+     */
+    public CreateRoutineLoadInfo getCreateRoutineLoadInfo() {
+        return createRoutineLoadInfo;
     }
 
     @Override

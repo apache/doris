@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_slow_close") {
+suite("test_slow_close", "nonConcurrent") {
+    sql "set enable_spill = false"
+    sql "set enable_force_spill = false"
     sql "set disable_join_reorder=true;"
     sql "set runtime_filter_type='bloom_filter';"
     sql "set parallel_pipeline_task_num=3"

@@ -17,13 +17,22 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -45,15 +54,17 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PredicateInferUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -66,11 +77,15 @@ import java.util.function.Supplier;
  */
 public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void> {
 
+    private static final ImmutableSet<Class<? extends Expression>> supportAggFunctions = ImmutableSet.of(
+            Max.class, Min.class, AnyValue.class);
     Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
     private final boolean getAllPredicates;
+    private final ExpressionRewriteContext rewriteContext;
 
-    public PullUpPredicates(boolean all) {
+    public PullUpPredicates(boolean all, CascadesContext cascadesContext) {
         getAllPredicates = all;
+        rewriteContext = new ExpressionRewriteContext(cascadesContext);
     }
 
     @Override
@@ -134,7 +149,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Set<Expression> predicates = new LinkedHashSet<>();
             for (NamedExpression expr : r.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    predicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+                    predicates.add(generateEqual(expr));
                 }
             }
             return ImmutableSet.copyOf(predicates);
@@ -252,8 +267,13 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     public ImmutableSet<Expression> visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         return cacheOrElse(project, () -> {
             ImmutableSet<Expression> childPredicates = project.child().accept(this, context);
-            Set<Expression> allPredicates = Sets.newLinkedHashSet(childPredicates);
-            for (Entry<Slot, Expression> kv : project.getAliasToProducer().entrySet()) {
+            Set<Expression> allPredicates = Sets.newLinkedHashSet();
+            /* this generateMap is used to
+            * e.g LogicalProject(t.a)   the qualifier t may come from LogicalSubQueryAlias
+            *       +--LogicalFilter(a>1)
+            * use generateMap to make sure a>1 is pulled up and turn into t.a>1
+            * */
+            for (Entry<Slot, Expression> kv : generateMap(project.getProjects()).entrySet()) {
                 Slot k = kv.getKey();
                 Expression v = kv.getValue();
                 for (Expression childPredicate : childPredicates) {
@@ -262,35 +282,53 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             }
             for (NamedExpression expr : project.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    allPredicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+                    allPredicates.add(generateEqual(expr));
                 }
             }
             return getAvailableExpressions(allPredicates, project);
         });
     }
 
+    /* e.g. LogicalAggregate(output:max(a), min(a), avg(a))
+              +--LogicalFilter(a>1, a<10)
+       when a>1 is pulled up, we can have max(a)>1, min(a)>1 and avg(a)>1
+       and a<10 is pulled up, we can have max(a)<10, min(a)<10 and avg(a)<10
+    * */
     @Override
     public ImmutableSet<Expression> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
         return cacheOrElse(aggregate, () -> {
             ImmutableSet<Expression> childPredicates = aggregate.child().accept(this, context);
-            // TODO
             List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
-
-            Map<Expression, Slot> expressionSlotMap
-                    = Maps.newLinkedHashMapWithExpectedSize(outputExpressions.size());
+            Map<Expression, List<Slot>> expressionSlotMap
+                    = Maps.newHashMapWithExpectedSize(outputExpressions.size());
             for (NamedExpression output : outputExpressions) {
-                if (hasAgg(output)) {
-                    expressionSlotMap.putIfAbsent(
-                            output instanceof Alias ? output.child(0) : output, output.toSlot()
-                    );
+                if (output instanceof Alias && supportPullUpAgg(output.child(0))) {
+                    expressionSlotMap.computeIfAbsent(output.child(0).child(0),
+                            k -> new ArrayList<>()).add(output.toSlot());
                 }
             }
-            Expression expression = ExpressionUtils.replace(
-                    ExpressionUtils.and(Lists.newArrayList(childPredicates)),
-                    expressionSlotMap
-            );
-            Set<Expression> predicates = Sets.newLinkedHashSet(ExpressionUtils.extractConjunction(expression));
-            return getAvailableExpressions(predicates, aggregate);
+            Set<Expression> pullPredicates = new LinkedHashSet<>(childPredicates);
+            boolean isScalar = aggregate.getGroupByExpressions().isEmpty();
+            for (Expression childPredicate : childPredicates) {
+                if (childPredicate instanceof ComparisonPredicate) {
+                    ComparisonPredicate cmp = (ComparisonPredicate) childPredicate;
+                    if (cmp.left() instanceof SlotReference && cmp.right() instanceof Literal
+                            && expressionSlotMap.containsKey(cmp.left())) {
+                        for (Slot slot : expressionSlotMap.get(cmp.left())) {
+                            Expression genPredicates = TypeCoercionUtils.processComparisonPredicate(
+                                     (ComparisonPredicate) cmp.withChildren(slot, cmp.right()));
+                            genPredicates = FoldConstantRuleOnFE.evaluate(genPredicates, rewriteContext);
+                            if (isScalar) {
+                                // Aggregation will return null if there are no matching rows
+                                pullPredicates.add(new Or(new IsNull(slot), genPredicates));
+                            } else {
+                                pullPredicates.add(genPredicates);
+                            }
+                        }
+                    }
+                }
+            }
+            return getAvailableExpressions(pullPredicates, aggregate);
         });
     }
 
@@ -325,8 +363,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         return ImmutableSet.copyOf(newPredicates);
     }
 
-    private boolean hasAgg(Expression expression) {
-        return expression.anyMatch(AggregateFunction.class::isInstance);
+    private boolean supportPullUpAgg(Expression expr) {
+        return supportAggFunctions.contains(expr.getClass());
     }
 
     private ImmutableSet<Expression> getFiltersFromUnionChild(LogicalUnion union, Void context) {
@@ -378,5 +416,26 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             }
         }
         return ImmutableSet.copyOf(filtersFromConstExprs);
+    }
+
+    private Expression generateEqual(NamedExpression expr) {
+        // IsNull have better performance and compatibility than NullSafeEqualTo
+        if (expr.child(0) instanceof NullLiteral) {
+            return new IsNull(expr.toSlot());
+        } else {
+            return new EqualTo(expr.toSlot(), expr.child(0));
+        }
+    }
+
+    private Map<Slot, Expression> generateMap(List<NamedExpression> namedExpressions) {
+        Map<Slot, Expression> replaceMap = new LinkedHashMap<>(namedExpressions.size());
+        for (NamedExpression namedExpression : namedExpressions) {
+            if (namedExpression instanceof Alias) {
+                replaceMap.putIfAbsent(namedExpression.toSlot(), namedExpression.child(0));
+            } else if (namedExpression instanceof SlotReference) {
+                replaceMap.putIfAbsent((Slot) namedExpression, namedExpression);
+            }
+        }
+        return replaceMap;
     }
 }

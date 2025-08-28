@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -52,6 +51,4 @@ public abstract class AlterSystemOp {
 
     public void validate(ConnectContext ctx) throws UserException {
     }
-
-    public abstract AlterClause translateToLegacyAlterClause() throws UserException;
 }

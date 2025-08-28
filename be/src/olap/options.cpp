@@ -17,6 +17,8 @@
 
 #include "olap/options.h"
 
+#include <absl/strings/ascii.h>
+#include <absl/strings/str_split.h>
 #include <ctype.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
@@ -30,8 +32,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
-#include "gutil/strings/strip.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
@@ -75,10 +75,10 @@ static std::string CACHE_STORAGE_MEMORY = "memory";
 //   format 2:   /home/disk1/palo,medium:ssd,capacity:50
 //   remote cache format:  /home/disk/palo/cache,medium:remote_cache,capacity:50
 Status parse_root_path(const string& root_path, StorePath* path) {
-    std::vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
+    std::vector<string> tmp_vec = absl::StrSplit(root_path, ",", absl::SkipWhitespace());
 
     // parse root path name
-    StripWhiteSpace(&tmp_vec[0]);
+    absl::StripAsciiWhitespace(&tmp_vec[0]);
     tmp_vec[0].erase(tmp_vec[0].find_last_not_of('/') + 1);
     if (tmp_vec[0].empty() || tmp_vec[0][0] != '/') {
         return Status::Error<INVALID_ARGUMENT>("invalid store path. path={}", tmp_vec[0]);
@@ -101,8 +101,7 @@ Status parse_root_path(const string& root_path, StorePath* path) {
         // <property>:<value> or <value>
         string property;
         string value;
-        std::pair<string, string> pair =
-                strings::Split(tmp_vec[i], strings::delimiter::Limit(":", 1));
+        std::pair<string, string> pair = absl::StrSplit(tmp_vec[i], absl::MaxSplits(":", 1));
         if (pair.second.empty()) {
             // format_1: <value> only supports setting capacity
             property = CAPACITY_UC;
@@ -113,8 +112,8 @@ Status parse_root_path(const string& root_path, StorePath* path) {
             value = pair.second;
         }
 
-        StripWhiteSpace(&property);
-        StripWhiteSpace(&value);
+        absl::StripAsciiWhitespace(&property);
+        absl::StripAsciiWhitespace(&value);
         if (property == CAPACITY_UC) {
             capacity_str = value;
         } else if (property == MEDIUM_UC) {
@@ -155,7 +154,7 @@ Status parse_root_path(const string& root_path, StorePath* path) {
 }
 
 Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>* paths) {
-    std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
+    std::vector<string> path_vec = absl::StrSplit(config_path, ";", absl::SkipWhitespace());
     if (path_vec.empty()) {
         // means compute node
         return Status::OK();
@@ -190,7 +189,7 @@ Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>*
 }
 
 void parse_conf_broken_store_paths(const string& config_path, std::set<std::string>* paths) {
-    std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
+    std::vector<string> path_vec = absl::StrSplit(config_path, ";", absl::SkipWhitespace());
     if (path_vec.empty()) {
         return;
     }
@@ -240,6 +239,8 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
                 total_size = value.GetInt64();
             } else {
                 total_size = 0;
+                LOG(WARNING) << "[FileCache] the value of " << CACHE_TOTAL_SIZE.c_str()
+                             << " is not int64: " << value.GetString() << " , use 0 as default";
             }
         }
         if (config::enable_file_cache_query_limit) {
@@ -249,6 +250,8 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
                     query_limit_bytes = value.GetInt64();
                 } else {
                     query_limit_bytes = 0;
+                    LOG(WARNING) << "[FileCache] the value of " << CACHE_QUERY_LIMIT_SIZE.c_str()
+                                 << " is not int64: " << value.GetString() << " , use 0 as default";
                 }
             }
         }

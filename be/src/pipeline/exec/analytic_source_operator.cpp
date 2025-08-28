@@ -34,8 +34,8 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _get_next_timer = ADD_TIMER(profile(), "GetNextTime");
-    _filtered_rows_counter = ADD_COUNTER(profile(), "FilteredRows", TUnit::UNIT);
+    _get_next_timer = ADD_TIMER(custom_profile(), "GetNextTime");
+    _filtered_rows_counter = ADD_COUNTER(custom_profile(), "FilteredRows", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -86,8 +86,8 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return Status::OK();
 }
 
-Status AnalyticSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
+Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::prepare(state));
     DCHECK(_child->row_desc().is_prefix_of(_row_descriptor));
     return Status::OK();
 }

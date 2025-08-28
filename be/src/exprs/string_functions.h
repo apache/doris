@@ -36,6 +36,7 @@ public:
 
     // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
     static bool compile_regex(const StringRef& pattern, std::string* error_str,
-                              const StringRef& match_parameter, std::unique_ptr<re2::RE2>& re);
+                              const StringRef& match_parameter, const StringRef& options_value,
+                              std::unique_ptr<re2::RE2>& re);
 };
 } // namespace doris

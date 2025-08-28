@@ -66,7 +66,7 @@ suite("insert_group_commit_into") {
             } catch (Exception e) {
                 logger.warn("group_commit_insert failed, retry: " + retry + ", error: " + e.getMessage())
                 retry++
-                if (e.getMessage().contains("is blocked on schema change") && retry < 20) {
+                if ((e.getMessage().contains("is blocked on schema change") || e.getMessage().contains("can not get a block queue") || e.getMessage().contains("schema version not match")) && retry < 20) {
                     sleep(1500)
                     continue
                 } else {
@@ -138,7 +138,7 @@ suite("insert_group_commit_into") {
             group_commit_insert """ insert into ${table}(id) values(4);  """, 1
             group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50); """, 2
             group_commit_insert """ insert into ${table}(id, name) values(2, 'b'); """, 1
-            none_group_commit_insert """ insert into ${table}(id) select 6; """, 1
+            group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
             getRowCount(6)
             order_qt_select1 """ select * from ${table} order by id, name, score asc; """
@@ -226,13 +226,30 @@ suite("insert_group_commit_into") {
             assertTrue(getAlterTableState(), "add rollup should success")
 
             group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
-            none_group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
+            group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
             group_commit_insert """ insert into ${table} with label test_gc_""" + System.currentTimeMillis() + """ (id, name, score) values(13, 'h', 100);  """, 1
             getRowCount(23)
 
             def rowCount = sql "select count(*) from ${table}"
             logger.info("row count: " + rowCount)
             assertEquals(23, rowCount[0][0])
+
+            // 8. Test create rollup throw exception and group commit behavior
+            try {
+                sql """ alter table ${table} ADD ROLLUP r1(name, score); """
+                assertTrue(false, "create rollup with duplicate name should fail.")
+            } catch (Exception e) {
+                logger.info("Expected create rollup error: " + e.getMessage())
+                assertTrue(e.getMessage().contains("already exists"))
+            }
+
+            group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+            group_commit_insert_with_retry """ insert into ${table}(id) values(6); """, 1
+            getRowCount(25)
+
+            // Verify group commit works after add rollup throw exception
+            group_commit_insert """ insert into ${table}(id, name) values(2, 'b'); """, 1
+            getRowCount(26)
 
             // txn insert
             sql """ set enable_nereids_dml = true; """
@@ -247,7 +264,7 @@ suite("insert_group_commit_into") {
 
             rowCount = sql "select count(*) from ${table}"
             logger.info("row count: " + rowCount)
-            assertEquals(rowCount[0][0], 25)
+            assertEquals(rowCount[0][0], 28)
         }
     } finally {
         // try_sql("DROP TABLE ${table}")
@@ -397,7 +414,7 @@ suite("insert_group_commit_into") {
             ); """
         sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON ${table};"""
         createMV("""create materialized view ods_zn_dnt_max1 as
-            select ordernum,max(dnt) as dnt from ${table}
+            select ordernum as a1,max(dnt) as dnt from ${table}
             group by ordernum
             ORDER BY ordernum;""")
         connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {

@@ -173,7 +173,7 @@ public class HudiUtilsTest {
         HMSExternalCatalog catalog = new HMSExternalCatalog();
         HMSExternalDatabase db = new HMSExternalDatabase(catalog, 1, "db", "db");
         HMSExternalTable hmsExternalTable = new HMSExternalTable(2, "tb", "tb", catalog, db);
-        HiveMetaStoreClientHelper.getHudiTableSchema(hmsExternalTable);
+        HiveMetaStoreClientHelper.getHudiTableSchema(hmsExternalTable, new boolean[] {false}, "20241219214518880");
 
         // 4. delete the commit file,
         //    this operation is used to imitate the clean operation in hudi
@@ -187,7 +187,7 @@ public class HudiUtilsTest {
         //    because we will refresh timeline in this `getHudiTableSchema` method,
         //    and we can get the latest commit.
         //    so that this error: `Could not read commit details from file <table_path>/.hoodie/1.commit` will be not reported.
-        HiveMetaStoreClientHelper.getHudiTableSchema(hmsExternalTable);
+        HiveMetaStoreClientHelper.getHudiTableSchema(hmsExternalTable, new boolean[] {false}, "20241219214518880");
 
         // 7. clean up
         Assert.assertTrue(commit2.delete());

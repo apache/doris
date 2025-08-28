@@ -34,11 +34,10 @@ suite("test_map_select_with_limit", "query") {
     // prepare data
     sql """ 
         INSERT INTO test_map_select_with_limit VALUES (100, {1: "amory", 2: "is", 3: "better"}), (101, {1: "amory", 2: "is", 3: "better"});
-        analyze table test_map_select_with_limit with sync;
+        alter table test_map_select_with_limit modify column k1 set stats ('ndv'='41700404', 'num_nulls'='0', 'min_value'='810', 'max_value'='602901', 'row_count'='1500000000');
         """
     // set topn_opt_limit_threshold = 1024 to make sure _internal_service to be request with proto request
     sql """ set topn_opt_limit_threshold = 1024 """
-    sql """ set topn_filter_ratio = 1 """
     explain{
         sql("select * from test_map_select_with_limit order by k1 limit 1")
         contains "TOPN"

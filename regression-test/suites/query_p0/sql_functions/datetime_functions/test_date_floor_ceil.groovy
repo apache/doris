@@ -34,6 +34,17 @@ suite("test_date_floor_ceil") {
     qt_sql11 """select date_ceil("2023-07-14 10:51:00",interval 5 month); """
     qt_sql12 """select date_ceil("2023-07-14 10:51:00",interval 5 year); """
 
+    // test hour_floor
+    qt_sql1 """select hour_floor("2023-07-14 10:51:00", 5, "0001-01-01 00:00:00");"""
+    qt_sql2 """select hour_floor("2023-07-14 10:51:00", 5, "1970-01-01 00:00:00");"""
+    qt_sql3 """select hour_floor("2023-07-14 10:51:00", 5);"""
+    sql """set debug_skip_fold_constant = true"""
+    qt_sql1 """select hour_floor("2023-07-14 10:51:00", 5, "0001-01-01 00:00:00");"""
+    qt_sql2 """select hour_floor("2023-07-14 10:51:00", 5, "1970-01-01 00:00:00");"""
+    qt_sql3 """select hour_floor("2023-07-14 10:51:00", 5);"""
+    
+
+    sql """set debug_skip_fold_constant = false"""
     qt_x1 """ select date_floor('9999-12-31 23:59:59.999999', interval 5 minute); """
     qt_x2 """ select date_floor('9999-12-31 23:59:59.999999', interval 33333 year); """
     qt_x3 """ select date_floor('9999-12-31 23:59:59.999999', interval -10 year); """

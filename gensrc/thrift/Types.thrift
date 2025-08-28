@@ -40,82 +40,85 @@ typedef i64 TTransactionId
 typedef i64 TPartitionId
 
 enum TStorageType {
-    ROW,
-    COLUMN,
+    ROW = 0,
+    COLUMN = 1,
 }
 
 enum TStorageMedium {
-    HDD,
-    SSD,
-    S3,
-    REMOTE_CACHE,
+    HDD = 0,
+    SSD = 1,
+    S3 = 2,
+    REMOTE_CACHE = 3,
 }
 
 enum TVarType {
-    SESSION,
-    GLOBAL
+    SESSION = 0,
+    GLOBAL = 1
 }
 
 enum TPrimitiveType {
-  INVALID_TYPE,
-  NULL_TYPE,
-  BOOLEAN,
-  TINYINT,
-  SMALLINT,
-  INT,
-  BIGINT,
-  FLOAT,
-  DOUBLE,
-  DATE,
-  DATETIME,
-  BINARY,
-  DECIMAL_DEPRACTED, // not used now, only for place holder
+  INVALID_TYPE = 0,
+  NULL_TYPE = 1,
+  BOOLEAN = 2,
+  TINYINT = 3,
+  SMALLINT = 4,
+  INT = 5,
+  BIGINT = 6,
+  FLOAT = 7,
+  DOUBLE = 8,
+  DATE = 9,
+  DATETIME = 10,
+  BINARY = 11,
+  DECIMAL_DEPRACTED = 12, // not used now, only for place holder
   // CHAR(n). Currently only supported in UDAs
-  CHAR,
-  LARGEINT,
-  VARCHAR,
-  HLL,
-  DECIMALV2,
-  TIME,
-  OBJECT,
-  ARRAY,
-  MAP,
-  STRUCT,
-  STRING,
-  ALL,
-  QUANTILE_STATE,
-  DATEV2,
-  DATETIMEV2,
-  TIMEV2,
-  DECIMAL32,
-  DECIMAL64,
-  DECIMAL128I,
-  JSONB,
-  UNSUPPORTED,
-  VARIANT,
-  LAMBDA_FUNCTION,
-  AGG_STATE,
-  DECIMAL256,
-  IPV4,
-  IPV6
+  CHAR = 13,
+  LARGEINT = 14,
+  VARCHAR = 15,
+  HLL = 16,
+  DECIMALV2 = 17,
+  // TIME = 18, deprecated, use TIMEV2 instead
+  BITMAP = 19,
+  ARRAY = 20,
+  MAP = 21,
+  STRUCT = 22,
+  STRING = 23,
+  ALL = 24,
+  QUANTILE_STATE = 25,
+  DATEV2 = 26,
+  DATETIMEV2 = 27,
+  TIMEV2 = 28,
+  DECIMAL32 = 29,
+  DECIMAL64 = 30,
+  DECIMAL128I = 31,
+  JSONB = 32,
+  UNSUPPORTED = 33,
+  VARIANT = 34,
+  LAMBDA_FUNCTION = 35,
+  AGG_STATE = 36,
+  DECIMAL256 = 37,
+  IPV4 = 38,
+  IPV6 = 39,
+  UINT32 = 40, // only used in BE to represent offsets
+  UINT64 = 41,  // only used in BE to represent offsets
+  FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
 }
 
 enum TTypeNodeType {
-    SCALAR,
-    ARRAY,
-    MAP,
-    STRUCT,
-    VARIANT,
+    SCALAR = 0,
+    ARRAY = 1,
+    MAP = 2,
+    STRUCT = 3,
+    VARIANT = 4,
 }
 
 enum TStorageBackendType {
-    BROKER,
-    S3,
-    HDFS,
-    JFS,
-    LOCAL,
-    OFS,
-    AZURE
+    BROKER = 0,
+    S3 = 1,
+    HDFS = 2,
+    JFS = 3,
+    LOCAL = 4,
+    OFS = 5,
+    AZURE = 6
 }
 
 // Enumerates the storage formats for inverted indexes in src_backends.
@@ -124,7 +127,7 @@ enum TStorageBackendType {
 enum TInvertedIndexFileStorageFormat {
     DEFAULT = 0, // Default format, unspecified storage method.
     V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
-    V2 = 2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    V2 = 2,      // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
     V3 = 3       // Position and dictionary compression
 }
 
@@ -137,6 +140,9 @@ struct TScalarType {
     // Only set for DECIMAL
     3: optional i32 precision
     4: optional i32 scale
+
+    // Only set for VARIANT
+    5: optional i32 variant_max_subcolumns_count = 0;
 }
 
 // Represents a field in a STRUCT type.
@@ -182,62 +188,63 @@ struct TTypeDesc {
 }
 
 enum TAggregationType {
-    SUM,
-    MAX,
-    MIN,
-    REPLACE,
-    HLL_UNION,
-    NONE,
-    BITMAP_UNION,
-    REPLACE_IF_NOT_NULL,
-    QUANTILE_UNION
+    SUM = 0,
+    MAX = 1,
+    MIN = 2,
+    REPLACE = 3,
+    HLL_UNION = 4,
+    NONE = 5,
+    BITMAP_UNION = 6,
+    REPLACE_IF_NOT_NULL = 7,
+    QUANTILE_UNION = 8
 }
 
 enum TPushType {
-    LOAD, // deprecated, it is used for old hadoop dpp load
-    DELETE,
-    LOAD_DELETE,
+    LOAD = 0, // deprecated, it is used for old hadoop dpp load
+    DELETE = 1,
+    LOAD_DELETE = 2,
     // for spark load push request
-    LOAD_V2
+    LOAD_V2 = 3
 }
 
 enum TTaskType {
-    CREATE,
-    DROP,
-    PUSH,
-    CLONE,
-    STORAGE_MEDIUM_MIGRATE,
-    ROLLUP, // Deprecated
-    SCHEMA_CHANGE,  // Deprecated
-    CANCEL_DELETE,  // Deprecated
-    MAKE_SNAPSHOT,
-    RELEASE_SNAPSHOT,
-    CHECK_CONSISTENCY,
-    UPLOAD,
-    DOWNLOAD,
-    CLEAR_REMOTE_FILE,
-    MOVE,
-    REALTIME_PUSH,
-    PUBLISH_VERSION,
-    CLEAR_ALTER_TASK,
-    CLEAR_TRANSACTION_TASK,
-    RECOVER_TABLET, // deprecated
-    STREAM_LOAD,
-    UPDATE_TABLET_META_INFO,
+    CREATE = 0,
+    DROP = 1,
+    PUSH = 2,
+    CLONE = 3,
+    STORAGE_MEDIUM_MIGRATE = 4,
+    ROLLUP = 5, // Deprecated
+    SCHEMA_CHANGE = 6,  // Deprecated
+    CANCEL_DELETE = 7,  // Deprecated
+    MAKE_SNAPSHOT = 8,
+    RELEASE_SNAPSHOT = 9,
+    CHECK_CONSISTENCY = 10,
+    UPLOAD = 11,
+    DOWNLOAD = 12,
+    CLEAR_REMOTE_FILE = 13,
+    MOVE = 14,
+    REALTIME_PUSH = 15,
+    PUBLISH_VERSION = 16,
+    CLEAR_ALTER_TASK = 17,
+    CLEAR_TRANSACTION_TASK = 18,
+    RECOVER_TABLET = 19, // deprecated
+    STREAM_LOAD = 20,
+    UPDATE_TABLET_META_INFO = 21,
     // this type of task will replace both ROLLUP and SCHEMA_CHANGE
-    ALTER,
-    INSTALL_PLUGIN,
-    UNINSTALL_PLUGIN,
-    COMPACTION,
-    STORAGE_MEDIUM_MIGRATE_V2,
-    NOTIFY_UPDATE_STORAGE_POLICY, // deprecated
-    PUSH_COOLDOWN_CONF,
-    PUSH_STORAGE_POLICY,
-    ALTER_INVERTED_INDEX,
-    GC_BINLOG,
-    CLEAN_TRASH,
-    UPDATE_VISIBLE_VERSION,
-    CLEAN_UDF_CACHE,
+    ALTER = 22,
+    INSTALL_PLUGIN = 23,
+    UNINSTALL_PLUGIN = 24,
+    COMPACTION = 25,
+    STORAGE_MEDIUM_MIGRATE_V2 = 26,
+    NOTIFY_UPDATE_STORAGE_POLICY = 27, // deprecated
+    PUSH_COOLDOWN_CONF = 28,
+    PUSH_STORAGE_POLICY = 29,
+    ALTER_INVERTED_INDEX = 30,
+    GC_BINLOG = 31,
+    CLEAN_TRASH = 32,
+    UPDATE_VISIBLE_VERSION = 33,
+    CLEAN_UDF_CACHE = 34,
+    PUSH_INDEX_POLICY = 35,
 
     // CLOUD
     CALCULATE_DELETE_BITMAP = 1000
@@ -246,9 +253,9 @@ enum TTaskType {
 // level of verboseness for "explain" output
 // TODO: should this go somewhere else?
 enum TExplainLevel {
-  BRIEF,
-  NORMAL,
-  VERBOSE
+  BRIEF = 0,
+  NORMAL = 1,
+  VERBOSE = 2
 }
 
 enum TRuntimeFilterMode {
@@ -273,6 +280,7 @@ struct TColumnType {
   3: optional i32 index_len
   4: optional i32 precision
   5: optional i32 scale
+  6: optional i32 variant_max_subcolumns_count = 0;
 }
 
 // A TNetworkAddress is the standard host, port representation of a
@@ -290,39 +298,39 @@ struct TUniqueId {
 }
 
 enum QueryState {
-  CREATED,
-  INITIALIZED,
-  COMPILED,
-  RUNNING,
-  FINISHED,
-  EXCEPTION
+  CREATED = 0,
+  INITIALIZED = 1,
+  COMPILED = 2,
+  RUNNING = 3,
+  FINISHED = 4,
+  EXCEPTION = 5
 }
 
 enum TFunctionType {
-  SCALAR,
-  AGGREGATE,
+  SCALAR = 0,
+  AGGREGATE = 1,
 }
 
 enum TFunctionBinaryType {
   // Doris builtin. We can either run this interpreted or via codegen
   // depending on the query option.
-  BUILTIN,
+  BUILTIN = 0,
 
   // Hive UDFs, loaded from *.jar
-  HIVE,
+  HIVE = 1,
 
   // Native-interface, precompiled UDFs loaded from *.so
-  NATIVE,
+  NATIVE = 2,
 
   // Native-interface, precompiled to IR; loaded from *.ll
-  IR,
+  IR = 3,
 
   // call udfs by rpc service
-  RPC,
+  RPC = 4,
 
-  JAVA_UDF,
+  JAVA_UDF = 5,
 
-  AGG_STATE
+  AGG_STATE = 6
 }
 
 // Represents a fully qualified function name.
@@ -354,6 +362,11 @@ struct TAggregateFunction {
   10: optional bool is_analytic_only_fn = false
   // used for java-udaf to point user defined class
   11: optional string symbol
+}
+
+struct TDictFunction {
+  1: optional i64 dictionary_id
+  2: optional i64 version_id
 }
 
 // Represents a function in the Catalog.
@@ -392,29 +405,30 @@ struct TFunction {
   14: optional bool is_udtf_function = false
   15: optional bool is_static_load = false
   16: optional i64 expiration_time //minutes
+  17: optional TDictFunction dict_function
 }
 
 enum TJdbcOperation {
-    READ,
-    WRITE
+    READ = 0,
+    WRITE = 1
 }
 
 enum TOdbcTableType {
-    MYSQL,
-    ORACLE,
-    POSTGRESQL,
-    SQLSERVER,
-    REDIS,
-    MONGODB,
-    CLICKHOUSE,
-    SAP_HANA,
-    TRINO,
-    PRESTO,
-    OCEANBASE,
-    OCEANBASE_ORACLE,
-    NEBULA, // Deprecated
-    DB2,
-    GBASE
+    MYSQL = 0,
+    ORACLE = 1,
+    POSTGRESQL = 2,
+    SQLSERVER = 3,
+    REDIS = 4,
+    MONGODB = 5,
+    CLICKHOUSE = 6,
+    SAP_HANA = 7,
+    TRINO = 8,
+    PRESTO = 9,
+    OCEANBASE = 10,
+    OCEANBASE_ORACLE = 11,
+    NEBULA = 12, // Deprecated
+    DB2 = 13,
+    GBASE = 14
 }
 
 struct TJdbcExecutorCtorParams {
@@ -449,6 +463,7 @@ struct TJdbcExecutorCtorParams {
   15: optional bool connection_pool_keep_alive
   16: optional i64 catalog_id
   17: optional string jdbc_driver_checksum
+  18: optional bool is_tvf
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -600,48 +615,49 @@ struct TGetJMXJsonResponse {
 }
 
 enum TLoadJobState {
-    PENDING,
-    ETL,
-    LOADING,
-    FINISHED,
-    CANCELLED
+    PENDING = 0,
+    ETL = 1,
+    LOADING = 2,
+    FINISHED = 3,
+    CANCELLED = 4
 }
 
 enum TEtlState {
-	RUNNING,
-	FINISHED,
-	CANCELLED,
-    UNKNOWN
+	RUNNING = 0,
+	FINISHED = 1,
+	CANCELLED = 2,
+  UNKNOWN = 3
 }
 
 enum TTableType {
-    MYSQL_TABLE, // Deprecated
-    OLAP_TABLE,
-    SCHEMA_TABLE,
-    KUDU_TABLE, // Deprecated
-    BROKER_TABLE,
-    ES_TABLE,
-    ODBC_TABLE,
-    HIVE_TABLE,
-    ICEBERG_TABLE,
-    HUDI_TABLE,
-    JDBC_TABLE,
-    TEST_EXTERNAL_TABLE,
-    MAX_COMPUTE_TABLE,
-    LAKESOUL_TABLE,
-    TRINO_CONNECTOR_TABLE
+    MYSQL_TABLE = 0, // Deprecated
+    OLAP_TABLE = 1,
+    SCHEMA_TABLE = 2,
+    KUDU_TABLE = 3, // Deprecated
+    BROKER_TABLE = 4,
+    ES_TABLE = 5,
+    ODBC_TABLE = 6,
+    HIVE_TABLE = 7,
+    ICEBERG_TABLE = 8,
+    HUDI_TABLE = 9,
+    JDBC_TABLE = 10,
+    TEST_EXTERNAL_TABLE = 11,
+    MAX_COMPUTE_TABLE = 12,
+    LAKESOUL_TABLE = 13,
+    TRINO_CONNECTOR_TABLE = 14,
+    DICTIONARY_TABLE = 15
 }
 
 enum TKeysType {
-    PRIMARY_KEYS,
-    DUP_KEYS,
-    UNIQUE_KEYS,
-    AGG_KEYS
+    PRIMARY_KEYS = 0,
+    DUP_KEYS = 1,
+    UNIQUE_KEYS = 2,
+    AGG_KEYS = 3
 }
 
 enum TPriority {
-    NORMAL,
-    HIGH
+    NORMAL = 0,
+    HIGH = 1
 }
 
 struct TBackend {
@@ -659,6 +675,8 @@ struct TReplicaInfo {
     3: required TPort  http_port
     4: required TPort  brpc_port
     5: required TReplicaId replica_id
+    6: optional bool is_alive
+    7: optional i64 backend_id
 }
 
 struct TResourceInfo {
@@ -667,19 +685,19 @@ struct TResourceInfo {
 }
 
 enum TExportState {
-    RUNNING,
-    FINISHED,
-    CANCELLED,
-    UNKNOWN
+    RUNNING = 0,
+    FINISHED = 1,
+    CANCELLED = 2,
+    UNKNOWN = 3
 }
 
 enum TFileType {
-    FILE_LOCAL,
-    FILE_BROKER,
-    FILE_STREAM,    // file content is streaming in the buffer
-    FILE_S3,
-    FILE_HDFS,
-    FILE_NET,       // read file by network, such as http
+    FILE_LOCAL = 0,
+    FILE_BROKER = 1,
+    FILE_STREAM = 2,    // file content is streaming in the buffer
+    FILE_S3 = 3,
+    FILE_HDFS = 4,
+    FILE_NET = 5,       // read file by network, such as http
 }
 
 struct TTabletCommitInfo {
@@ -696,55 +714,52 @@ struct TErrorTabletInfo {
 }
 
 enum TLoadType {
-    MANUL_LOAD,
-    ROUTINE_LOAD,
-    MINI_LOAD
+    MANUL_LOAD = 0,
+    ROUTINE_LOAD = 1,
+    MINI_LOAD = 2
 }
 
 enum TLoadSourceType {
-    RAW,
-    KAFKA,
-    MULTI_TABLE,
+    RAW = 0,
+    KAFKA = 1,
+    MULTI_TABLE = 2,
 }
 
 enum TMergeType {
-  APPEND,
-  MERGE,
-  DELETE
+  APPEND = 0,
+  MERGE = 1,
+  DELETE = 2
 }
 
 enum TUniqueKeyUpdateMode {
-  UPSERT,
-  UPDATE_FIXED_COLUMNS,
-  UPDATE_FLEXIBLE_COLUMNS
+  UPSERT = 0,
+  UPDATE_FIXED_COLUMNS = 1,
+  UPDATE_FLEXIBLE_COLUMNS = 2
 }
 
 enum TSortType {
-    LEXICAL,
-    ZORDER,
+    LEXICAL = 0,
+    ZORDER = 1,
 }
 
 enum TMetadataType {
-  ICEBERG,
-  BACKENDS,
-  FRONTENDS,
-  CATALOGS,
-  FRONTENDS_DISKS,
-  MATERIALIZED_VIEWS,
-  JOBS,
-  TASKS,
-  WORKLOAD_SCHED_POLICY,
-  PARTITIONS,
-  PARTITION_VALUES,
-  HUDI,
-}
-
-enum TIcebergQueryType {
-  SNAPSHOTS
+  ICEBERG = 0,
+  BACKENDS = 1,
+  FRONTENDS = 2,
+  CATALOGS = 3,
+  FRONTENDS_DISKS = 4,
+  MATERIALIZED_VIEWS = 5,
+  JOBS = 6,
+  TASKS = 7,
+  WORKLOAD_SCHED_POLICY = 8,
+  PARTITIONS = 9,
+  PARTITION_VALUES = 10,
+  HUDI = 11,
+  PAIMON = 12,
 }
 
 enum THudiQueryType {
-  TIMELINE
+  TIMELINE = 0
 }
 
 // represent a user identity

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -28,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddObserverOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterLoadErrorUrlOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropAllBrokerOp;
@@ -46,25 +46,27 @@ import com.google.common.base.Preconditions;
 /**
  * Alter System
  */
-public class AlterSystemCommand extends Command implements ForwardWithSync {
+public class AlterSystemCommand extends AlterCommand {
     private AlterSystemOp alterSystemOp;
 
-    public AlterSystemCommand(AlterSystemOp alterSystemOp) {
-        super(PlanType.ALTER_SYSTEM);
+    public AlterSystemCommand(AlterSystemOp alterSystemOp, PlanType planType) {
+        super(planType);
         this.alterSystemOp = alterSystemOp;
     }
 
-    /**
-     * getOps
-     */
-    public AlterClause getAlterClause() throws UserException {
-        return alterSystemOp.translateToLegacyAlterClause();
+    public AlterSystemOp getAlterSystemOp() {
+        return alterSystemOp;
+    }
+
+    @Override
+    public PlanType getType() {
+        return type;
     }
 
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws UserException {
+    public void validate(ConnectContext ctx) throws UserException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                     "NODE");
@@ -81,14 +83,15 @@ public class AlterSystemCommand extends Command implements ForwardWithSync {
                 || alterSystemOp instanceof AddBrokerOp
                 || alterSystemOp instanceof DropBrokerOp
                 || alterSystemOp instanceof ModifyBackendOp
-                || alterSystemOp instanceof ModifyFrontendOrBackendHostNameOp)
+                || alterSystemOp instanceof ModifyFrontendOrBackendHostNameOp
+                || alterSystemOp instanceof AlterLoadErrorUrlOp)
         );
 
         alterSystemOp.validate(ctx);
     }
 
     @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         ctx.getEnv().alterSystem(this);
     }

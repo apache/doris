@@ -44,15 +44,36 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
     def choseDeadBeIndex = 1
     def table = "test_clean_tablet_when_rebalance"
 
-    def testCase = { deadTime, mergedCacheDir -> 
-        boolean beDeadLong = deadTime > rehashTime ? true : false
-        logger.info("begin exec beDeadLong {}", beDeadLong)
-
+    def selectTriggerRehash = { ->
         for (int i = 0; i < 5; i++) {
             sql """
                 select count(*) from $table
             """
         }
+    }
+
+    def getTabletInHostFromBe = { bes ->
+        def ret = [:]
+        bes.each { be ->
+            // {"msg":"OK","code":0,"data":{"host":"128.2.51.2","tablets":[{"tablet_id":10560},{"tablet_id":10554},{"tablet_id":10552}]},"count":3}
+            def data = Http.GET("http://${be.host}:${be.httpPort}/tablets_json?limit=all", true).data
+            def tablets = data.tablets.collect { it.tablet_id as String }
+            tablets.each {
+                if (ret[it] != null) {
+                    ret[it].add(data.host)
+                } else {
+                    ret[it] = [data.host]
+                }
+            }
+        }
+        ret
+    }
+
+    def testCase = { deadTime, mergedCacheDir -> 
+        boolean beDeadLong = deadTime > rehashTime ? true : false
+        logger.info("begin exec beDeadLong {}", beDeadLong)
+
+        selectTriggerRehash.call()
 
         def beforeGetFromFe = getTabletAndBeHostFromFe(table)
         def beforeGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
@@ -63,39 +84,66 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
         }
 
         cluster.stopBackends(choseDeadBeIndex)
-        dockerAwaitUntil(50) {
-            def bes = sql_return_maparray("SHOW TABLETS FROM ${table}")
-                    .collect { it.BackendId }
-                    .unique()
-            logger.info("bes {}", bes)
+        awaitUntil(50) {
+            def showTablets = sql_return_maparray("SHOW TABLETS FROM ${table}")
+            def bes = showTablets
+                .collect { it.BackendId }
+                .unique()
+            logger.info("before start bes {}, tablets {}", bes, showTablets)
             bes.size() == 2
         }
+        // rehash
+        selectTriggerRehash.call()
+        // curl be, tablets in 2 bes
 
         if (beDeadLong) {
             setFeConfig('enable_cloud_partition_balance', false)
             setFeConfig('enable_cloud_table_balance', false)
             setFeConfig('enable_cloud_global_balance', false)
         }
+
+        // wait report logic
         sleep(deadTime * 1000)
-
         cluster.startBackends(choseDeadBeIndex)
-
-        dockerAwaitUntil(50) {
-           def bes = sql_return_maparray("SHOW TABLETS FROM ${table}")
-                .collect { it.BackendId }
-                .unique()
-            logger.info("bes {}", bes)
-            bes.size() == (beDeadLong ? 2 : 3)
-        }
-        for (int i = 0; i < 5; i++) {
-            sleep(2000)
-            sql """
-                select count(*) from $table
-            """
-        }
         def afterGetFromFe = getTabletAndBeHostFromFe(table)
         def afterGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
-        logger.info("after fe tablets {}, be tablets {}", afterGetFromFe, afterGetFromBe)
+        logger.info("after stop one be, rehash fe tablets {}, be tablets {}", afterGetFromFe, afterGetFromBe)
+
+        awaitUntil(50) {
+            def showTablets = sql_return_maparray("SHOW TABLETS FROM ${table}")
+            def bes = showTablets
+                .collect { it.BackendId }
+                .unique()
+            logger.info("after start bes {}, tablets {}", bes, showTablets)
+            bes.size() == (beDeadLong ? 2 : 3)
+        }
+
+        selectTriggerRehash.call()
+        // wait report logic
+        // tablet report clean not work, before sleep, in fe secondary not been clear
+        afterGetFromFe = getTabletAndBeHostFromFe(table)
+        afterGetFromBe = getTabletInHostFromBe(cluster.getAllBackends())
+        logger.info("before sleep rehash time, fe tablets {}, be tablets {}", afterGetFromFe, afterGetFromBe)
+        def redundancyTablet = null
+        afterGetFromFe.each {
+            assertTrue(afterGetFromBe.containsKey(it.Key))
+            if (afterGetFromBe[it.Key].size() == 2) {
+                redundancyTablet = it.Key
+                logger.info("find tablet {} redundancy in {}", it.Key, afterGetFromBe[it.Key])
+            }
+            assertTrue(afterGetFromBe[it.Key].contains(it.Value[1]))
+        }
+
+        sleep(rehashTime * 1000 + 10 * 1000)
+        // tablet report clean will work, after sleep, in fe secondary been clear
+
+        afterGetFromFe = getTabletAndBeHostFromFe(table)
+        afterGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
+        if (!beDeadLong) {
+            def checkAfterGetFromBe = getTabletInHostFromBe(cluster.getAllBackends())
+            assertEquals(1, checkAfterGetFromBe[redundancyTablet].size())
+        }
+        logger.info("after sleep rehash time, fe tablets {}, be tablets {}", afterGetFromFe, afterGetFromBe)
         afterGetFromFe.each {
             assertTrue(afterGetFromBe.containsKey(it.Key))
             assertEquals(afterGetFromBe[it.Key], it.Value[1])
@@ -163,7 +211,8 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
             );
         """
         sql """
-            insert into $table values (1, 1, 'v1'), (2, 2, 'v2'), (3, 3, 'v3')
+            insert into $table values (1, 1, 'v1'), (2, 2, 'v2'), (3, 3, 'v3'), 
+                (4, 4,'v4'), (5, 5, 'v5'), (6, 6, 'v6'), (100, 100, 'v100'), (7, 7, 'v7')
         """
         def cacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2)
         // 'rehash_tablet_after_be_dead_seconds=100'

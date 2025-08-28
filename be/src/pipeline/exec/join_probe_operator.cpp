@@ -31,10 +31,13 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
                                                           LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
 
-    _join_filter_timer = ADD_TIMER(Base::profile(), "JoinFilterTimer");
-    _build_output_block_timer = ADD_TIMER(Base::profile(), "BuildOutputBlock");
-    _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(Base::profile(), "ProbeRows", TUnit::UNIT, 1);
-    _finish_probe_phase_timer = ADD_TIMER(Base::profile(), "FinishProbePhaseTime");
+    _join_filter_timer = ADD_TIMER(Base::custom_profile(), "JoinFilterTimer");
+    _build_output_block_timer = ADD_TIMER(Base::custom_profile(), "BuildOutputBlock");
+    _probe_rows_counter =
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "ProbeRows", TUnit::UNIT, 1);
+    _intermediate_rows_counter =
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "ProbeIntermediateRows", TUnit::UNIT, 1);
+    _finish_probe_phase_timer = ADD_TIMER(Base::custom_profile(), "FinishProbePhaseTime");
     return Status::OK();
 }
 

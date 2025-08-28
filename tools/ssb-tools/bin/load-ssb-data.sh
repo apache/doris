@@ -286,12 +286,12 @@ echo "==========Start to load data into ssb tables=========="
 echo 'Loading data for table: part'
 if [[ -z ${TXN_ID} ]]; then
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "column_separator:|" \
+        -H "Expect: 100-continue" -H "column_separator:|" \
         -H "columns:p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy" \
         -T "${SSB_DATA_DIR}"/part.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/part/_stream_load
 else
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "label:${TXN_ID}_part" -H "column_separator:|" \
+        -H "Expect: 100-continue" -H "label:${TXN_ID}_part" -H "column_separator:|" \
         -H "columns:p_partkey,p_name,p_mfgr,p_category,p_brand,p_color,p_type,p_size,p_container,p_dummy" \
         -T "${SSB_DATA_DIR}"/part.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/part/_stream_load
 fi
@@ -299,12 +299,12 @@ fi
 echo 'Loading data for table: dates'
 if [[ -z ${TXN_ID} ]]; then
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "column_separator:|" \
+        -H "Expect: 100-continue" -H "column_separator:|" \
         -H "columns:d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy" \
         -T "${SSB_DATA_DIR}"/date.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/dates/_stream_load
 else
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "label:${TXN_ID}_date" -H "column_separator:|" \
+        -H "Expect: 100-continue" -H "label:${TXN_ID}_date" -H "column_separator:|" \
         -H "columns:d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy" \
         -T "${SSB_DATA_DIR}"/date.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/dates/_stream_load
 fi
@@ -312,12 +312,12 @@ fi
 echo 'Loading data for table: supplier'
 if [[ -z ${TXN_ID} ]]; then
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "column_separator:|" \
+        -H "Expect: 100-continue" -H "column_separator:|" \
         -H "columns:s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy" \
         -T "${SSB_DATA_DIR}"/supplier.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/supplier/_stream_load
 else
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "label:${TXN_ID}_supplier" -H "column_separator:|" \
+        -H "Expect: 100-continue" -H "label:${TXN_ID}_supplier" -H "column_separator:|" \
         -H "columns:s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy" \
         -T "${SSB_DATA_DIR}"/supplier.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/supplier/_stream_load
 fi
@@ -325,12 +325,12 @@ fi
 echo 'Loading data for table: customer'
 if [[ -z ${TXN_ID} ]]; then
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "column_separator:|" \
+        -H "Expect: 100-continue" -H "column_separator:|" \
         -H "columns:c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use" \
         -T "${SSB_DATA_DIR}"/customer.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/customer/_stream_load
 else
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "label:${TXN_ID}_customer" -H "column_separator:|" \
+        -H "Expect: 100-continue" -H "label:${TXN_ID}_customer" -H "column_separator:|" \
         -H "columns:c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use" \
         -T "${SSB_DATA_DIR}"/customer.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/customer/_stream_load
 fi
@@ -342,12 +342,12 @@ function load() {
     local FILE_ID="${@//*./}"
     if [[ -z ${TXN_ID} ]]; then
         curl --location-trusted -u "${USER}":"${PASSWORD}" \
-            -H "column_separator:|" \
+            -H "Expect: 100-continue" -H "column_separator:|" \
             -H "columns:lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority,lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount,lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy" \
             -T "$@" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/lineorder/_stream_load
     else
         curl --location-trusted -u "${USER}":"${PASSWORD}" \
-            -H "label:${TXN_ID}_lineorder_${FILE_ID}" -H "column_separator:|" \
+            -H "Expect: 100-continue" -H "label:${TXN_ID}_lineorder_${FILE_ID}" -H "column_separator:|" \
             -H "columns:lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority,lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount,lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode,lo_dummy" \
             -T "$@" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/lineorder/_stream_load
     fi

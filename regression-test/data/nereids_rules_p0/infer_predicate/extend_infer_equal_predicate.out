@@ -24,7 +24,7 @@ PhysicalResultSink
 
 -- !test_simple_compare_datetimev2 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.d_datetimev2 = t2.d_datetimev2)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((t1.d_datetimev2 = '2024-01-01 00:00:00'))
 ------PhysicalOlapScan[extend_infer_t1]
 ----filter((t2.d_datetimev2 = '2024-01-01 00:00:00'))
@@ -79,7 +79,7 @@ PhysicalResultSink
 
 -- !test_like_to_equal --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.d_char100 = t2.d_char100)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((t1.d_char100 = '012'))
 ------PhysicalOlapScan[extend_infer_t1]
 ----filter((t2.d_char100 = '012'))
@@ -156,10 +156,10 @@ PhysicalResultSink
 
 -- !test_multi_slot_in_predicate1 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_(a + c) = expr_(a + c))) otherCondition=()
-----filter(((t1.a + t1.c) < 10))
+--hashJoin[INNER_JOIN] hashCondition=((expr_(cast(a as BIGINT) + cast(c as BIGINT)) = expr_(cast(a as BIGINT) + cast(c as BIGINT)))) otherCondition=()
+----filter(((cast(a as BIGINT) + cast(c as BIGINT)) < 10))
 ------PhysicalOlapScan[extend_infer_t3]
-----filter(((t2.a + t2.c) < 10))
+----filter(((cast(a as BIGINT) + cast(c as BIGINT)) < 10))
 ------PhysicalOlapScan[extend_infer_t4]
 
 -- !test_multi_slot_in_predicate2 --
@@ -227,7 +227,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.d_int = expr_cast(d_tinyint as INT))) otherCondition=()
 ----filter((t1.d_int < 10))
 ------PhysicalOlapScan[extend_infer_t1]
-----filter((cast(d_tinyint as INT) < 10) and (t2.d_tinyint < 10))
+----filter((t2.d_tinyint < 10))
 ------PhysicalOlapScan[extend_infer_t1]
 
 -- !test_int_downcast --
@@ -318,7 +318,7 @@ PhysicalResultSink
 -- !test_cast_and_func3 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(cast(d_int as TINYINT) as SMALLINT) = expr_abs(d_tinyint))) otherCondition=()
-----filter((cast(cast(d_int as TINYINT) as SMALLINT) < 10))
+----filter((cast(d_int as TINYINT) < 10))
 ------PhysicalOlapScan[extend_infer_t1]
 ----filter((abs(d_tinyint) < 10))
 ------PhysicalOlapScan[extend_infer_t1]
@@ -603,12 +603,12 @@ PhysicalResultSink
 -- !not_equal_semi_semi_with_cast --
 PhysicalResultSink
 --hashJoin[LEFT_SEMI_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.c1)) otherCondition=()
-----filter(( not (cast(d_smallint as INT) = 10)) and ( not (d_smallint = 10)))
+----filter(( not (d_smallint = 10)))
 ------PhysicalOlapScan[extend_infer_t1]
 ----hashJoin[LEFT_SEMI_JOIN] hashCondition=((c1 = expr_cast(d_tinyint as INT))) otherCondition=()
 ------filter(( not (d_int = 10)))
 --------PhysicalOlapScan[extend_infer_t1]
-------filter(( not (cast(d_tinyint as INT) = 10)))
+------filter(( not (d_tinyint = 10)))
 --------PhysicalOlapScan[extend_infer_t1]
 
 -- !not_equal_anti_anti_with_cast --
@@ -619,7 +619,7 @@ PhysicalResultSink
 ----hashJoin[LEFT_ANTI_JOIN] hashCondition=((c1 = expr_cast(d_tinyint as INT))) otherCondition=()
 ------filter(( not (d_int = 10)))
 --------PhysicalOlapScan[extend_infer_t1]
-------filter(( not (cast(d_tinyint as INT) = 10)))
+------filter(( not (d_tinyint = 10)))
 --------PhysicalOlapScan[extend_infer_t1]
 
 -- !not_equal_anti_left_with_cast --
@@ -630,18 +630,18 @@ PhysicalResultSink
 ----hashJoin[LEFT_OUTER_JOIN] hashCondition=((c1 = expr_cast(d_tinyint as INT))) otherCondition=()
 ------filter(( not (d_int = 10)))
 --------PhysicalOlapScan[extend_infer_t1]
-------filter(( not (cast(d_tinyint as INT) = 10)))
+------filter(( not (d_tinyint = 10)))
 --------PhysicalOlapScan[extend_infer_t1]
 
 -- !not_equal_semi_anti_with_cast --
 PhysicalResultSink
 --hashJoin[LEFT_SEMI_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.c1)) otherCondition=()
-----filter(( not (cast(d_smallint as INT) = 10)) and ( not (d_smallint = 10)))
+----filter(( not (d_smallint = 10)))
 ------PhysicalOlapScan[extend_infer_t1]
 ----hashJoin[LEFT_ANTI_JOIN] hashCondition=((c1 = expr_cast(d_tinyint as INT))) otherCondition=()
 ------filter(( not (d_int = 10)))
 --------PhysicalOlapScan[extend_infer_t1]
-------filter(( not (cast(d_tinyint as INT) = 10)))
+------filter(( not (d_tinyint = 10)))
 --------PhysicalOlapScan[extend_infer_t1]
 
 -- !in_subquery_to_semi_join --

@@ -19,18 +19,14 @@
 
 #include <fmt/format.h>
 
-#include <cmath>
-#include <type_traits>
-
-#include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
-#include "vec/data_types/data_type_number_base.h"
-#include "vec/io/io_helper.h"
+#include "util/to_string.h"
+#include "vec/functions/cast/cast_to_string.h"
 
 namespace doris::vectorized {
 
 /// TODO: Currently, only integers have been considered; other types will be added later.
-template <typename T>
+template <PrimitiveType T>
 size_t DataTypeNumber<T>::number_length() const {
     // The maximum number of decimal digits for an integer represented by n bytes:
     // 1. Each byte = 8 bits, so n bytes = 8n bits.
@@ -39,39 +35,23 @@ size_t DataTypeNumber<T>::number_length() const {
     // 4. Approximation: log10(2^(8n)) ≈ 8n * log10(2).
     // 5. log10(2) ≈ 0.30103, so 8n * log10(2) ≈ 2.40824n.
     // 6. Therefore, d ≈ floor(2.408 * n) + 1.
-    return size_t(2.408 * sizeof(T)) + 1;
+    return size_t(2.408 * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType)) + 1;
 }
 
-template <typename T>
-void DataTypeNumber<T>::push_number(ColumnString::Chars& chars, const T& num) const {
-    if constexpr (std::is_same<T, UInt128>::value) {
-        std::string hex = int128_to_string(num);
-        chars.insert(hex.begin(), hex.end());
-    } else if constexpr (std::is_same_v<T, float>) {
-        char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(num, MAX_FLOAT_STR_LENGTH + 2, buf);
-        chars.insert(buf, buf + len);
-    } else if constexpr (std::is_same_v<Int128, T> || std::numeric_limits<T>::is_iec559) {
-        fmt::memory_buffer buffer;
-        fmt::format_to(buffer, "{}", num);
-        chars.insert(buffer.data(), buffer.data() + buffer.size());
-    } else {
-        auto f = fmt::format_int(num);
-        chars.insert(f.data(), f.data() + f.size());
-    }
+template <PrimitiveType T>
+void DataTypeNumber<T>::push_number(
+        ColumnString::Chars& chars,
+        const typename PrimitiveTypeTraits<T>::ColumnItemType& num) const {
+    CastToString::push_number(num, chars);
 }
 
-template class DataTypeNumber<UInt8>;
-template class DataTypeNumber<UInt16>;
-template class DataTypeNumber<UInt32>;
-template class DataTypeNumber<UInt64>;
-template class DataTypeNumber<UInt128>;
-template class DataTypeNumber<Int8>;
-template class DataTypeNumber<Int16>;
-template class DataTypeNumber<Int32>;
-template class DataTypeNumber<Int64>;
-template class DataTypeNumber<Int128>;
-template class DataTypeNumber<Float32>;
-template class DataTypeNumber<Float64>;
+template class DataTypeNumber<TYPE_BOOLEAN>;
+template class DataTypeNumber<TYPE_TINYINT>;
+template class DataTypeNumber<TYPE_SMALLINT>;
+template class DataTypeNumber<TYPE_INT>;
+template class DataTypeNumber<TYPE_BIGINT>;
+template class DataTypeNumber<TYPE_LARGEINT>;
+template class DataTypeNumber<TYPE_FLOAT>;
+template class DataTypeNumber<TYPE_DOUBLE>;
 
 } // namespace doris::vectorized

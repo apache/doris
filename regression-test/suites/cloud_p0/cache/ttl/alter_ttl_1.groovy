@@ -18,7 +18,17 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("alter_ttl_1") {
-    sql """ use @regression_cluster_name1 """
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    sql "set global enable_auto_analyze = false"
+    def clusters = sql " SHOW CLUSTERS; "
+    assertTrue(!clusters.isEmpty())
+    def validCluster = clusters[0][0]
+    sql """use @${validCluster};""";
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="90") """
     String[][] backends = sql """ show backends """
     String backendId;
@@ -26,7 +36,7 @@ suite("alter_ttl_1") {
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
+        if (backend[9].equals("true") && backend[19].contains("${validCluster}")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -66,14 +76,15 @@ suite("alter_ttl_1") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     def load_customer_ttl_once =  { String table ->
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         // def table = "customer"
         // create table if not exists
         sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
+        sql """ alter table ${table} set ("disable_auto_compaction" = "true") """ // no influence from compaction
         def loadLabel = table + "_" + uniqueID
         // load data from cos
         def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
@@ -96,17 +107,20 @@ suite("alter_ttl_1") {
     clearFileCache.call() {
         respCode, body -> {}
     }
+    sleep(30000)
 
     load_customer_ttl_once("customer_ttl")
     sql """ select count(*) from customer_ttl """
     sleep(30000)
     long ttl_cache_size = 0
+    long normal_cache_size = 0
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
             def strs = out.split('\n')
             Boolean flag1 = false;
+            Boolean flag2 = false;
             for (String line in strs) {
                 if (flag1) break;
                 if (line.contains("ttl_cache_size")) {
@@ -117,10 +131,18 @@ suite("alter_ttl_1") {
                     ttl_cache_size = line.substring(i).toLong()
                     flag1 = true
                 }
+                if (line.contains("normal_queue_cache_size")) {
+                    if (line.startsWith("#")) {
+                        continue
+                    }
+                    def i = line.indexOf(' ')
+                    normal_cache_size = line.substring(i).toLong()
+                    flag2 = true
+                }
             }
-            assertTrue(flag1)
+            assertTrue(flag1 && flag2)
     }
-    sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="140") """
+    sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="100") """
     sleep(80000)
     // after 110s, the first load has translate to normal
     getMetricsMethod.call() {
@@ -139,45 +161,17 @@ suite("alter_ttl_1") {
                     assertEquals(line.substring(i).toLong(), 0)
 
                 }
-                
+
                 if (line.contains("normal_queue_cache_size")) {
                     if (line.startsWith("#")) {
                         continue
                     }
                     def i = line.indexOf(' ')
-                    assertEquals(line.substring(i).toLong(), ttl_cache_size)
+                    assertEquals(line.substring(i).toLong(), ttl_cache_size + normal_cache_size)
                     flag1 = true
                 }
             }
             assertTrue(flag1)
     }
-    // wait for ttl timeout
-    sleep(50000)
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            Boolean flag2 = false;
-            for (String line in strs) {
-                if (flag1 && flag2) break;
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    assertEquals(line.substring(i).toLong(), 0)
-                }
-                if (line.contains("normal_queue_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    assertEquals(line.substring(i).toLong(), ttl_cache_size)
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
     }
 }

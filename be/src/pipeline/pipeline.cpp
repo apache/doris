@@ -86,8 +86,8 @@ Status Pipeline::add_operator(OperatorPtr& op, const int parallelism) {
 }
 
 Status Pipeline::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(_operators.back()->open(state));
-    RETURN_IF_ERROR(_sink->open(state));
+    RETURN_IF_ERROR(_operators.back()->prepare(state));
+    RETURN_IF_ERROR(_sink->prepare(state));
     _name.append(std::to_string(id()));
     _name.push_back('-');
     for (auto& op : _operators) {
@@ -129,7 +129,7 @@ void Pipeline::make_all_runnable() {
         }
         for (auto* task : _tasks) {
             if (task) {
-                task->clear_blocking_state();
+                task->terminate();
             }
         }
     }

@@ -33,6 +33,7 @@ public:
 
     Status prepare_compact() override;
     Status execute_compact() override;
+    Status request_global_lock();
 
     void do_lease();
 
@@ -47,8 +48,8 @@ protected:
 private:
     Status _cloud_full_compaction_update_delete_bitmap(int64_t initiator);
     Status _cloud_full_compaction_calc_delete_bitmap(const RowsetSharedPtr& rowset,
-                                                     const int64_t& cur_version,
-                                                     const DeleteBitmapPtr& delete_bitmap);
+                                                     int64_t cur_version,
+                                                     DeleteBitmapPtr delete_bitmap);
 
     ReaderType compaction_type() const override { return ReaderType::READER_FULL_COMPACTION; }
 

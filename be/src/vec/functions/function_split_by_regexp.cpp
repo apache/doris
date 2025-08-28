@@ -168,10 +168,10 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string(arguments[0]))
+        DCHECK(is_string_type(arguments[0]->get_primitive_type()))
                 << "first argument for function: " << name << " should be string"
                 << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string(arguments[1]))
+        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
                 << "second argument for function: " << name << " should be string"
                 << " and arguments[1] is " << arguments[1]->get_name();
         auto nullable_string_type = make_nullable(std::make_shared<DataTypeString>());
@@ -247,9 +247,6 @@ private:
         std::unique_ptr<re2::RE2> re2_ptr = nullptr;
         if (pattern_ref.size) {
             re2_ptr = std::make_unique<re2::RE2>(pattern_ref.to_string_view(), *opts);
-        }
-        if ((re2_ptr == nullptr) || (!re2_ptr->ok())) {
-            return Status::RuntimeError("Invalid pattern: {}", pattern_ref.debug_string());
         }
         RegexpSplit RegexpSplit;
         RegexpSplit.init(re2_ptr.get(), limit_value);

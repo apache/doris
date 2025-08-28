@@ -17,34 +17,20 @@
 
 #include "vec/aggregate_functions/aggregate_function_covar.h"
 
-#include <fmt/format.h>
-
-#include <string>
-
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <template <typename> class Function, template <typename> class Data>
+template <template <typename> class Function, template <PrimitiveType> class Data>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
-                                                  const bool result_is_nullable) {
-    WhichDataType which(remove_nullable(argument_types[0]));
-#define DISPATCH(TYPE)                                                            \
-    if (which.idx == TypeIndex::TYPE)                                             \
-        return creator_without_type::create<Function<Data<TYPE>>>(argument_types, \
-                                                                  result_is_nullable);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-
-    LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
-                                argument_types[0]->get_name());
-    return nullptr;
+                                                  const bool result_is_nullable,
+                                                  const AggregateFunctionAttr& attr) {
+    return creator_with_numeric_type::create<Function, Data>(argument_types, result_is_nullable,
+                                                             attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,
@@ -52,7 +38,7 @@ AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string
                                                                const bool result_is_nullable,
                                                                const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampCovariance, SampData>(
-            name, argument_types, result_is_nullable);
+            name, argument_types, result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string& name,
@@ -60,7 +46,7 @@ AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string&
                                                               const bool result_is_nullable,
                                                               const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampCovariance, PopData>(
-            name, argument_types, result_is_nullable);
+            name, argument_types, result_is_nullable, attr);
 }
 
 void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory) {

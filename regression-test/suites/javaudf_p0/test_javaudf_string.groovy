@@ -114,8 +114,21 @@ suite("test_javaudf_string") {
         }
         sql """  insert into tbl1 select random()%10000 * 10000, "5" from tbl1;"""
         qt_select_5 """ select count(0) from (select k1, max(k2) as k2 from tbl1 group by k1)v where java_udf_string_test(k2, 0, 1) = "asd" """;
+
+        sql """ CREATE FUNCTION java_udf_string_test_not_nullabel(string, int, int) RETURNS string PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.StringTest",
+            "always_nullable"="false",
+            "type"="JAVA_UDF"
+        ); """
+
+        test {
+            sql """ SELECT java_udf_string_test_not_nullabel(NULL,NULL,NULL); """
+            exception "but the return type is not nullable"
+        }
     } finally {
         try_sql("DROP FUNCTION IF EXISTS java_udf_string_test(string, int, int);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_string_test_not_nullabel(string, int, int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
         try_sql("DROP TABLE IF EXISTS tbl1")
         try_sql("DROP TABLE IF EXISTS test_javaudf_string_2")

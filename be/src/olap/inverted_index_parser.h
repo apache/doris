@@ -38,14 +38,18 @@ enum class InvertedIndexParserType {
     PARSER_ENGLISH = 3,
     PARSER_CHINESE = 4,
     PARSER_UNICODE = 5,
-    PARSER_ICU = 6
+    PARSER_ICU = 6,
+    PARSER_BASIC = 7,
+    PARSER_IK = 8
 };
 
 using CharFilterMap = std::map<std::string, std::string>;
 
 struct InvertedIndexCtx {
+    std::string custom_analyzer;
     InvertedIndexParserType parser_type;
     std::string parser_mode;
+    std::string support_phrase;
     CharFilterMap char_filter_map;
     std::string lower_case;
     std::string stop_words;
@@ -60,6 +64,8 @@ const std::string INVERTED_INDEX_PARSER_FALSE = "false";
 const std::string INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
 const std::string INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
 const std::string INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
+const std::string INVERTED_INDEX_PARSER_MAX_WORD = "ik_max_word";
+const std::string INVERTED_INDEX_PARSER_SMART = "ik_smart";
 
 const std::string INVERTED_INDEX_PARSER_KEY = "parser";
 const std::string INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
@@ -69,6 +75,8 @@ const std::string INVERTED_INDEX_PARSER_UNICODE = "unicode";
 const std::string INVERTED_INDEX_PARSER_ENGLISH = "english";
 const std::string INVERTED_INDEX_PARSER_CHINESE = "chinese";
 const std::string INVERTED_INDEX_PARSER_ICU = "icu";
+const std::string INVERTED_INDEX_PARSER_BASIC = "basic";
+const std::string INVERTED_INDEX_PARSER_IK = "ik";
 
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";
@@ -86,6 +94,8 @@ const std::string INVERTED_INDEX_PARSER_LOWERCASE_KEY = "lower_case";
 const std::string INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
 
 const std::string INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY = "dict_compression";
+
+const std::string INVERTED_INDEX_CUSTOM_ANALYZER_KEY = "analyzer";
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
@@ -124,6 +134,9 @@ std::string get_parser_stopwords_from_properties(
         const std::map<std::string, std::string>& properties);
 
 std::string get_parser_dict_compression_from_properties(
+        const std::map<std::string, std::string>& properties);
+
+std::string get_custom_analyzer_string_from_properties(
         const std::map<std::string, std::string>& properties);
 
 } // namespace doris

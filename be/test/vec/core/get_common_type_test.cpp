@@ -22,11 +22,11 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/get_least_supertype.h"
 
 namespace doris::vectorized {
@@ -44,12 +44,6 @@ static DataTypePtr typeFromString(const std::string& str) {
         return std::make_shared<DataTypeNothing>();
     } else if (str == "UInt8") {
         return std::make_shared<DataTypeUInt8>();
-    } else if (str == "UInt16") {
-        return std::make_shared<DataTypeUInt32>();
-    } else if (str == "UInt32") {
-        return std::make_shared<DataTypeUInt32>();
-    } else if (str == "UInt64") {
-        return std::make_shared<DataTypeUInt64>();
     } else if (str == "Int8") {
         return std::make_shared<DataTypeInt8>();
     } else if (str == "Int16") {
@@ -140,11 +134,7 @@ INSTANTIATE_TEST_SUITE_P(data_type, LeastSuperTypeTest,
                                  {"Int8 Int8", "Int8"},
                                  {"UInt8 Int8", "Int16"},
                                  {"UInt8 Int16", "Int16"},
-                                 {"UInt8 UInt32 UInt64", "UInt64"},
                                  {"Int8 Int32 Int64", "Int64"},
-                                 {"UInt8 UInt32 Int64", "Int64"},
                                  {"Float32 Float64", "Float64"},
                                  {"Date Date", "Date"},
-                                 {"Float32 UInt16 Int32", "Float64"},
-                                 {"Float32 Int16 UInt32", "Float64"},
                                  {"String String String", "String"}}));

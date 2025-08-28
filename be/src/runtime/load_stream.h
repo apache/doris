@@ -20,7 +20,6 @@
 #include <bthread/mutex.h>
 #include <gen_cpp/olap_common.pb.h>
 
-#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -31,6 +30,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/load_stream_writer.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -44,8 +44,8 @@ using SegIdMapping = std::vector<uint32_t>;
 using FailedTablets = std::vector<std::pair<int64_t, Status>>;
 class TabletStream {
 public:
-    TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, LoadStreamMgr* load_stream_mgr,
-                 RuntimeProfile* profile);
+    TabletStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
+                 LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile);
 
     Status init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
                 int64_t partition_id);
@@ -85,7 +85,7 @@ using TabletStreamSharedPtr = std::shared_ptr<TabletStream>;
 
 class IndexStream {
 public:
-    IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id,
+    IndexStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
                 std::shared_ptr<OlapTableSchemaParam> schema, LoadStreamMgr* load_stream_mgr,
                 RuntimeProfile* profile);
 
@@ -116,7 +116,7 @@ using IndexStreamSharedPtr = std::shared_ptr<IndexStream>;
 using StreamId = brpc::StreamId;
 class LoadStream : public brpc::StreamInputHandler {
 public:
-    LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile);
+    LoadStream(const PUniqueId& load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile);
     ~LoadStream() override;
 
     Status init(const POpenLoadStreamRequest* request);

@@ -72,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
@@ -87,6 +88,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
@@ -94,25 +96,29 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
 
 /**
  * Used to estimate for expressions that not producing boolean value.
  */
 public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Statistics> {
-
+    public static final Logger LOG = LogManager.getLogger(ExpressionEstimation.class);
     public static final long DAYS_FROM_0_TO_1970 = 719528;
     public static final long DAYS_FROM_0_TO_9999 = 3652424;
     private static final ExpressionEstimation INSTANCE = new ExpressionEstimation();
@@ -121,11 +127,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
      * returned columnStat is newly created or a copy of stats
      */
     public static ColumnStatistic estimate(Expression expression, Statistics stats) {
-        ColumnStatistic columnStatistic = expression.accept(INSTANCE, stats);
-        if (columnStatistic == null) {
-            return ColumnStatistic.UNKNOWN;
+        try {
+            ColumnStatistic columnStatistic = expression.accept(INSTANCE, stats);
+            if (columnStatistic == null) {
+                return ColumnStatistic.createUnknownByDataType(expression.getDataType());
+            }
+            return columnStatistic;
+        } catch (Exception e) {
+            // in regression test, feDebug is true so that the exception is thrown in order to detect problems.
+            if (SessionVariable.isFeDebug()) {
+                throw e;
+            }
+            LOG.warn("ExpressionEstimation failed : " + expression, e);
+            return ColumnStatistic.createUnknownByDataType(expression.getDataType());
         }
-        return columnStatistic;
     }
 
     @Override
@@ -213,7 +228,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     long min = dateMinLiteral.getValue();
                     builder.setMinValue(min);
                     builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
-                } catch (AnalysisException | DateTimeException e) {
+                } catch (AnalysisException e) {
                     convertSuccess = false;
                 }
             }
@@ -224,7 +239,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     long max = dateMaxLiteral.getValue();
                     builder.setMaxValue(max);
                     builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
-                } catch (AnalysisException | DateTimeException e) {
+                } catch (AnalysisException e) {
                     convertSuccess = false;
                 }
             }
@@ -252,6 +267,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             return ColumnStatistic.UNKNOWN;
         }
         double literalVal = literal.getDouble();
+        HashMap<Literal, Float> hotValues = Maps.newHashMap();
+        hotValues.put(literal, 100.0f);
         return new ColumnStatisticBuilder()
                 .setMaxValue(literalVal)
                 .setMinValue(literalVal)
@@ -260,12 +277,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 .setAvgSizeByte(literal.getDataType().width())
                 .setMinExpr(literal.toLegacyLiteral())
                 .setMaxExpr(literal.toLegacyLiteral())
+                .setHotValues(hotValues)
                 .build();
     }
 
     @Override
     public ColumnStatistic visitSlotReference(SlotReference slotReference, Statistics context) {
         return context.findColumnStatistics(slotReference);
+    }
+
+    @Override
+    public ColumnStatistic visitNonNullable(NonNullable nonNullable, Statistics context) {
+        ColumnStatistic childColStats = nonNullable.child().accept(this, context);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(childColStats);
+        return builder.setNumNulls(0).build();
     }
 
     @Override
@@ -353,7 +378,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         Expression child = min.child();
         ColumnStatistic columnStat = child.accept(this, context);
         if (columnStat.isUnKnown) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.UNKNOWN.withAvgSizeByte(min.getDataType().width());
         }
         // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
         return new ColumnStatisticBuilder(columnStat).build();
@@ -364,7 +389,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         Expression child = max.child();
         ColumnStatistic columnStat = child.accept(this, context);
         if (columnStat.isUnKnown) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.UNKNOWN.withAvgSizeByte(max.getDataType().width());
         }
         // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
         return new ColumnStatisticBuilder(columnStat).build();
@@ -374,24 +399,40 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitCount(Count count, Statistics context) {
         double width = count.getDataType().width();
         // for scalar agg, ndv and row count will be normalized by 1 in StatsCalculator.computeAggregate()
-        return new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setAvgSizeByte(width).build();
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(width);
     }
 
     // TODO: return a proper estimated stat after supports histogram
     @Override
     public ColumnStatistic visitSum(Sum sum, Statistics context) {
-        return sum.child().accept(this, context);
+        // estimate size as BIGINT
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(sum.getDataType().width());
     }
 
     // TODO: return a proper estimated stat after supports histogram
     @Override
     public ColumnStatistic visitAvg(Avg avg, Statistics context) {
-        return avg.child().accept(this, context);
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(avg.getDataType().width());
     }
 
     @Override
     public ColumnStatistic visitYear(Year year, Statistics context) {
         ColumnStatistic childStat = year.child().accept(this, context);
+        double rowCount = context.getRowCount();
+        long minYear = 1970;
+        long maxYear = 2038;
+        return new ColumnStatisticBuilder()
+                .setNdv(maxYear - minYear + 1)
+                .setAvgSizeByte(4)
+                .setNumNulls(childStat.numNulls)
+                .setDataSize(4 * rowCount)
+                .setMinValue(minYear)
+                .setMaxValue(maxYear).setMinExpr(null).build();
+    }
+
+    @Override
+    public ColumnStatistic visitYearOfWeek(YearOfWeek yearOfWeek, Statistics context) {
+        ColumnStatistic childStat = yearOfWeek.child().accept(this, context);
         double rowCount = context.getRowCount();
         long minYear = 1970;
         long maxYear = 2038;

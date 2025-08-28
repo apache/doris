@@ -17,8 +17,8 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -31,7 +31,6 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -41,7 +40,15 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.nereids.load.NereidsImportColumnDesc;
+import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
+import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.transaction.TransactionState;
@@ -61,8 +68,6 @@ import org.apache.commons.lang3.BooleanUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -423,6 +428,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private boolean isKafkaPartitionsChanged() throws UserException {
         if (CollectionUtils.isNotEmpty(customKafkaPartitions)) {
+            // for the case where the currentKafkaPartitions has not been assigned,
+            // we assume that the fe master has restarted or the job has been newly created,
+            // in this case, we need to pull the saved progress from meta service once
+            if (Config.isCloudMode() && (currentKafkaPartitions == null || currentKafkaPartitions.isEmpty())) {
+                updateCloudProgress();
+            }
             currentKafkaPartitions = customKafkaPartitions;
             return false;
         }
@@ -474,7 +485,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected String getStatistic() {
+    public String getStatistic() {
         Map<String, Object> summary = this.jobStatistic.summary();
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(summary);
@@ -483,6 +494,34 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private List<Integer> getAllKafkaPartitions() throws UserException {
         convertCustomProperties(false);
         return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties);
+    }
+
+    public static KafkaRoutineLoadJob fromCreateInfo(CreateRoutineLoadInfo info, ConnectContext ctx)
+            throws UserException {
+        // check db and table
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getDBName());
+
+        long id = Env.getCurrentEnv().getNextId();
+        KafkaDataSourceProperties kafkaProperties = (KafkaDataSourceProperties) info.getDataSourceProperties();
+        KafkaRoutineLoadJob kafkaRoutineLoadJob;
+        if (kafkaProperties.isMultiTable()) {
+            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, info.getName(),
+                db.getId(),
+                kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), ctx.getCurrentUserIdentity(), true);
+        } else {
+            OlapTable olapTable = db.getOlapTableOrDdlException(info.getTableName());
+            checkMeta(olapTable, info.getRoutineLoadDesc());
+            long tableId = olapTable.getId();
+            // init kafka routine load job
+            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, info.getName(),
+                db.getId(), tableId,
+                kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), ctx.getCurrentUserIdentity());
+        }
+        kafkaRoutineLoadJob.setOptional(info);
+        kafkaRoutineLoadJob.checkCustomProperties();
+        kafkaRoutineLoadJob.checkCustomPartition();
+
+        return kafkaRoutineLoadJob;
     }
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
@@ -593,6 +632,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return partitionOffsets;
     }
 
+    protected void setOptional(CreateRoutineLoadInfo info) throws UserException {
+        super.setOptional(info);
+        KafkaDataSourceProperties kafkaDataSourceProperties
+                = (KafkaDataSourceProperties) info.getDataSourceProperties();
+        if (CollectionUtils.isNotEmpty(kafkaDataSourceProperties.getKafkaPartitionOffsets())) {
+            setCustomKafkaPartitions(kafkaDataSourceProperties);
+        }
+        if (MapUtils.isNotEmpty(kafkaDataSourceProperties.getCustomKafkaProperties())) {
+            setCustomKafkaProperties(kafkaDataSourceProperties.getCustomKafkaProperties());
+        }
+        // set group id if not specified
+        this.customProperties.putIfAbsent(PROP_GROUP_ID, name + "_" + UUID.randomUUID());
+    }
+
     @Override
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
         super.setOptional(stmt);
@@ -635,7 +688,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected String dataSourcePropertiesJsonToString() {
+    public String dataSourcePropertiesJsonToString() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("brokerList", brokerList);
         dataSourceProperties.put("topic", topic);
@@ -647,13 +700,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected String customPropertiesJsonToString() {
+    public String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(customProperties);
     }
 
     @Override
-    protected Map<String, String> getDataSourceProperties() {
+    public Map<String, String> getDataSourceProperties() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("kafka_broker_list", brokerList);
         dataSourceProperties.put("kafka_topic", topic);
@@ -661,36 +714,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected Map<String, String> getCustomProperties() {
+    public Map<String, String> getCustomProperties() {
         Map<String, String> ret = new HashMap<>();
         customProperties.forEach((k, v) -> ret.put("property." + k, v));
         return ret;
     }
 
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        brokerList = Text.readString(in);
-        topic = Text.readString(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            customKafkaPartitions.add(in.readInt());
-        }
-
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            String propertyKey = Text.readString(in);
-            String propertyValue = Text.readString(in);
-            if (propertyKey.startsWith("property.")) {
-                this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
-            }
-        }
-    }
-
     @Override
-    public void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException {
-        Map<String, String> jobProperties = stmt.getAnalyzedJobProperties();
-        KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) stmt.getDataSourceProperties();
+    public void modifyProperties(AlterRoutineLoadCommand command) throws UserException {
+        Map<String, String> jobProperties = command.getAnalyzedJobProperties();
+        KafkaDataSourceProperties dataSourceProperties = (KafkaDataSourceProperties) command.getDataSourceProperties();
         if (null != dataSourceProperties) {
             // if the partition offset is set by timestamp, convert it to real offset
             convertOffset(dataSourceProperties);
@@ -910,7 +943,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected String getLag() {
+    public String getLag() {
         Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
         Gson gson = new Gson();
         return gson.toJson(partitionIdToOffsetLag);
@@ -924,5 +957,46 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public double getMaxFilterRatio() {
         return maxFilterRatio;
+    }
+
+    @Override
+    public Long totalProgress() {
+        return ((KafkaProgress) progress).totalProgress();
+    }
+
+    @Override
+    public Long totalLag() {
+        Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
+        return partitionIdToOffsetLag.values().stream()
+                .filter(lag -> lag >= 0)
+                .mapToLong(v -> v)
+                .sum();
+    }
+
+    @Override
+    public NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException {
+        Expression deleteCondition = getDeleteCondition() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSql()).get(0)
+                : null;
+        Expression precedingFilter = getPrecedingFilter() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilter().toSql()).get(0)
+                : null;
+        Expression whereExpr = getWhereExpr() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSqlWithoutTbl()).get(0)
+                : null;
+        NereidsLoadTaskInfo.NereidsImportColumnDescs importColumnDescs = null;
+        if (columnDescs != null) {
+            importColumnDescs = new NereidsLoadTaskInfo.NereidsImportColumnDescs();
+            for (ImportColumnDesc desc : columnDescs.descs) {
+                Expression expression = desc.getExpr() != null
+                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSqlWithoutTbl()).get(0)
+                        : null;
+                importColumnDescs.descs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
+            }
+        }
+        return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS, partitions,
+                mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs, precedingFilter,
+                whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism, loadToSingleTablet,
+                isPartialUpdate, memtableOnSinkNode);
     }
 }

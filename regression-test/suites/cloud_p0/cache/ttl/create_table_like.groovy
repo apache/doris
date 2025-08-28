@@ -18,14 +18,23 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("create_table_like") {
-    sql """ use @regression_cluster_name1 """
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    def clusters = sql " SHOW CLUSTERS; "
+    assertTrue(!clusters.isEmpty())
+    def validCluster = clusters[0][0]
+    sql """use @${validCluster};""";
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
+        if (backend[9].equals("true") && backend[19].contains("${validCluster}")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -57,8 +66,8 @@ def clearFileCache = { check_func ->
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     sql """ DROP TABLE IF EXISTS customer_ttl_like """
     sql """
@@ -74,7 +83,7 @@ def clearFileCache = { check_func ->
         )
         DUPLICATE KEY(C_CUSTKEY, C_NAME)
         DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 32
-        PROPERTIES("file_cache_ttl_seconds"="180")
+        PROPERTIES("file_cache_ttl_seconds"="180","disable_auto_compaction" = "true")
     """
     sql """ create table customer_ttl like customer_ttl_like """
 
@@ -90,6 +99,7 @@ def clearFileCache = { check_func ->
     clearFileCache.call() {
         respCode, body -> {}
     }
+    sleep(30000)
 
     def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
     def loadLabel = "customer_ttl_load_" + uniqueID
@@ -153,4 +163,5 @@ def clearFileCache = { check_func ->
     }
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     sql """ DROP TABLE IF EXISTS customer_ttl_like """
+    }
 }

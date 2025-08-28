@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.UnsupportedType;
 
@@ -54,8 +55,12 @@ public class CheckDataTypes implements CustomRewriter {
         if (plan instanceof LogicalJoin) {
             checkLogicalJoin((LogicalJoin<? extends Plan, ? extends Plan>) plan);
         }
-        plan.getExpressions().forEach(ExpressionChecker.INSTANCE::check);
-        plan.children().forEach(this::checkPlan);
+        for (Expression expression : plan.getExpressions()) {
+            ExpressionChecker.INSTANCE.check(expression);
+        }
+        for (Plan child : plan.children()) {
+            checkPlan(child);
+        }
     }
 
     private void checkLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> plan) {
@@ -64,7 +69,11 @@ public class CheckDataTypes implements CustomRewriter {
             // if hash conjuncts are empty, we may use mark conjuncts to build hash table
             conjuncts = plan.getMarkJoinConjuncts();
         }
-        conjuncts.forEach(expr -> {
+        for (Expression expr : conjuncts) {
+            // constant propagation may rewrite mark join conjuncts to literal,
+            if (expr.isLiteral()) {
+                continue;
+            }
             DataType leftType = expr.child(0).getDataType();
             DataType rightType = expr.child(1).getDataType();
             if (!leftType.acceptsType(rightType)) {
@@ -72,7 +81,7 @@ public class CheckDataTypes implements CustomRewriter {
                         String.format("type %s is not same as %s in hash join condition %s",
                                 leftType, rightType, expr.toSql()));
             }
-        });
+        }
     }
 
     private static class ExpressionChecker extends DefaultExpressionVisitor<Expression, Void> {
@@ -88,7 +97,9 @@ public class CheckDataTypes implements CustomRewriter {
             } catch (UnboundException ignored) {
                 return expr;
             }
-            expr.children().forEach(child -> child.accept(this, null));
+            for (Expression child : expr.children()) {
+                child.accept(this, null);
+            }
             return expr;
         }
 
@@ -99,7 +110,9 @@ public class CheckDataTypes implements CustomRewriter {
                 checkTypes(((MapType) dataType).getKeyType());
                 checkTypes(((MapType) dataType).getValueType());
             } else if (dataType instanceof StructType) {
-                ((StructType) dataType).getFields().forEach(f -> this.checkTypes(f.getDataType()));
+                for (StructField field : ((StructType) dataType).getFields()) {
+                    checkTypes(field.getDataType());
+                }
             } else if (UNSUPPORTED_TYPE.contains(dataType.getClass())) {
                 throw new AnalysisException(String.format("type %s is unsupported for Nereids", dataType));
             }

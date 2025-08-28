@@ -31,11 +31,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
 #include "runtime/query_context.h"
-#include "runtime_filter_mgr.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
 #include "util/metrics.h"
@@ -45,6 +46,7 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+#include "common/compile_check_begin.h"
 extern bvar::Adder<uint64_t> g_fragment_executing_count;
 extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
@@ -57,7 +59,6 @@ class ThreadPool;
 class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
-class PPublishFilterRequest;
 class RuntimeProfile;
 class RuntimeState;
 class TPipelineFragmentParams;
@@ -122,17 +123,17 @@ public:
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
+                              const TPipelineFragmentParamsList& parent);
 
-    void remove_pipeline_context(
-            std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
+    void remove_pipeline_context(std::pair<TUniqueId, int> key);
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type,
                               const FinishCallback& cb);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb);
+                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -140,7 +141,7 @@ public:
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Can be used in both version.
-    void cancel_query(const TUniqueId query_id, const Status reason);
+    MOCK_FUNCTION void cancel_query(const TUniqueId query_id, const Status reason);
 
     void cancel_worker();
 
@@ -171,7 +172,11 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
-    int32_t running_query_num() { return _query_ctx_map.num_items(); }
+    // When fragment mgr is going to stop, the _stop_background_threads_latch is set to 0
+    // and other module that use fragment mgr's thread pool should get this signal and exit.
+    bool shutting_down() { return _stop_background_threads_latch.count() == 0; }
+
+    int32_t running_query_num() { return cast_set<int32_t>(_query_ctx_map.num_items()); }
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
     std::string dump_pipeline_tasks(TUniqueId& query_id);
@@ -180,6 +185,8 @@ public:
 
     Status get_realtime_exec_status(const TUniqueId& query_id,
                                     TReportExecStatusParams* exec_status);
+    // get the query statistics of with a given query id
+    Status get_query_statistics(const TUniqueId& query_id, TQueryStatistics* query_stats);
 
     std::shared_ptr<QueryContext> get_query_ctx(const TUniqueId& query_id);
 
@@ -189,11 +196,9 @@ private:
         std::vector<std::weak_ptr<QueryContext>> queries;
     };
 
-    template <typename Param>
-    void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
-
-    Status _get_or_create_query_ctx(const TPipelineFragmentParams& params, TUniqueId query_id,
-                                    bool pipeline, QuerySource query_type,
+    Status _get_or_create_query_ctx(const TPipelineFragmentParams& params,
+                                    const TPipelineFragmentParamsList& parent,
+                                    QuerySource query_type,
                                     std::shared_ptr<QueryContext>& query_ctx);
 
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
@@ -214,16 +219,14 @@ private:
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;
-    // every job is a pool
+    // This pool is used as global async task pool
     std::unique_ptr<ThreadPool> _thread_pool;
 
     std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
-
-    RuntimeFilterMergeController _runtimefilter_controller;
 };
 
 uint64_t get_fragment_executing_count();
 uint64_t get_fragment_last_active_time();
-
+#include "common/compile_check_end.h"
 } // namespace doris

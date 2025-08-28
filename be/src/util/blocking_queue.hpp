@@ -31,13 +31,13 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Fixed capacity FIFO queue, where both BlockingGet and BlockingPut operations block
 // if the queue is empty or full, respectively.
 template <typename T>
 class BlockingQueue {
 public:
-    BlockingQueue(size_t max_elements)
+    BlockingQueue(uint32_t max_elements)
             : _shutdown(false),
               _max_elements(max_elements),
               _total_get_wait_time(0),
@@ -48,13 +48,21 @@ public:
     // Get an element from the queue, waiting indefinitely for one to become available.
     // Returns false if we were shut down prior to getting the element, and there
     // are no more elements available.
-    bool blocking_get(T* out) {
+    bool blocking_get(T* out) { return controlled_blocking_get(out, MAX_CV_WAIT_TIMEOUT_MS); }
+
+    // Blocking_get and blocking_put may cause deadlock,
+    // but we still don't find root cause,
+    // introduce condition variable wait timeout to avoid blocking queue deadlock temporarily.
+    bool controlled_blocking_get(T* out, int64_t cv_wait_timeout_ms) {
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
         while (!(_shutdown || !_list.empty())) {
             ++_get_waiting;
-            _get_cv.wait(unique_lock);
+            if (_get_cv.wait_for(unique_lock, std::chrono::milliseconds(cv_wait_timeout_ms)) ==
+                std::cv_status::timeout) {
+                _get_waiting--;
+            }
         }
         _total_get_wait_time += timer.elapsed_time();
 
@@ -75,13 +83,21 @@ public:
 
     // Puts an element into the queue, waiting indefinitely until there is space.
     // If the queue is shut down, returns false.
-    bool blocking_put(const T& val) {
+    bool blocking_put(const T& val) { return controlled_blocking_put(val, MAX_CV_WAIT_TIMEOUT_MS); }
+
+    // Blocking_get and blocking_put may cause deadlock,
+    // but we still don't find root cause,
+    // introduce condition variable wait timeout to avoid blocking queue deadlock temporarily.
+    bool controlled_blocking_put(const T& val, int64_t cv_wait_timeout_ms) {
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
         while (!(_shutdown || _list.size() < _max_elements)) {
             ++_put_waiting;
-            _put_cv.wait(unique_lock);
+            if (_put_cv.wait_for(unique_lock, std::chrono::milliseconds(cv_wait_timeout_ms)) ==
+                std::cv_status::timeout) {
+                _put_waiting--;
+            }
         }
         _total_put_wait_time += timer.elapsed_time();
 
@@ -135,7 +151,7 @@ public:
 
     uint32_t get_size() const {
         std::lock_guard<std::mutex> l(_lock);
-        return _list.size();
+        return static_cast<uint32_t>(_list.size());
     }
 
     uint32_t get_capacity() const { return _max_elements; }
@@ -147,6 +163,7 @@ public:
     uint64_t total_put_wait_time() const { return _total_put_wait_time; }
 
 private:
+    static constexpr int64_t MAX_CV_WAIT_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
     bool _shutdown;
     const int _max_elements;
     std::condition_variable _get_cv; // 'get' callers wait on this
@@ -159,5 +176,5 @@ private:
     size_t _get_waiting;
     size_t _put_waiting;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -37,11 +37,12 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-service/meta_service_txn.cpp"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "recycler/recycler.h"
@@ -74,6 +75,7 @@ int main(int argc, char** argv) {
     config::enable_txn_store_retry = false;
 
     config::label_keep_max_second = 0;
+    config::force_immediate_recycle = true;
 
     if (!doris::cloud::init_glog("txn_lazy_commit_test")) {
         std::cerr << "failed to init glog" << std::endl;
@@ -154,21 +156,23 @@ static void create_tablet_with_db_id(MetaServiceProxy* meta_service, int64_t db_
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
 }
 
-static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id,
-                                              int64_t version = -1, int num_rows = 100) {
+static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int index_id,
+                                              int partition_id, int64_t version = -1,
+                                              int num_rows = 100) {
     doris::RowsetMetaCloudPB rowset;
     rowset.set_rowset_id(0); // required
     rowset.set_rowset_id_v2(next_rowset_id());
     rowset.set_tablet_id(tablet_id);
     rowset.set_partition_id(partition_id);
+    rowset.set_index_id(index_id);
     rowset.set_txn_id(txn_id);
     if (version > 0) {
         rowset.set_start_version(version);
         rowset.set_end_version(version);
     }
-    rowset.set_num_segments(1);
-    rowset.set_num_rows(num_rows);
-    rowset.set_data_disk_size(num_rows * 100);
+    rowset.set_num_segments(0);
+    rowset.set_num_rows(0);
+    rowset.set_data_disk_size(0);
     rowset.mutable_tablet_schema()->set_schema_version(0);
     rowset.set_txn_expiration(::time(nullptr)); // Required by DCHECK
     return rowset;
@@ -421,7 +425,7 @@ TEST(TxnLazyCommitTest, RepairTabletIndexTest) {
     for (int i = 0; i < 5; ++i) {
         create_tablet_without_db_id(meta_service.get(), table_id, index_id, partition_id,
                                     tablet_id_base + i);
-        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
         tmp_rowsets_meta.push_back(std::make_pair("mock_tmp_rowset_key", tmp_rowset));
         CreateRowsetResponse res;
         commit_rowset(meta_service.get(), tmp_rowset, res);
@@ -509,7 +513,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
     for (int i = 0; i < 5; ++i) {
         create_tablet_without_db_id(meta_service.get(), table_id, index_id, partition_id,
                                     tablet_id_base + i);
-        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
         CreateRowsetResponse res;
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -590,7 +594,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortedTest) {
     for (int i = 0; i < 5; ++i) {
         create_tablet_without_db_id(meta_service.get(), table_id, index_id, partition_id,
                                     tablet_id_base + i);
-        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
         CreateRowsetResponse res;
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -699,7 +703,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
     for (int i = 0; i < 5; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
-        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
         CreateRowsetResponse res;
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -777,7 +781,7 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
     for (int i = 0; i < config::txn_lazy_commit_rowsets_thresold; ++i) {
         create_tablet_without_db_id(meta_service.get(), table_id, index_id, partition_id,
                                     tablet_id_base + i);
-        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
         CreateRowsetResponse res;
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -865,7 +869,7 @@ TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
     for (int i = 0; i < config::txn_lazy_commit_rowsets_thresold; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
-        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
         CreateRowsetResponse res;
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -953,7 +957,7 @@ TEST(TxnLazyCommitTest, FallThroughCommitTxnEventuallyTest) {
     for (int i = 0; i < config::txn_lazy_commit_rowsets_thresold; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
-        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
         CreateRowsetResponse res;
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -970,7 +974,7 @@ TEST(TxnLazyCommitTest, FallThroughCommitTxnEventuallyTest) {
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.ShortDebugString();
         ASSERT_TRUE(commit_txn_immediatelly_hit);
         ASSERT_TRUE(commit_txn_eventually_finish_hit);
     }
@@ -1110,7 +1114,8 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
         }
         {
             for (int i = 0; i < 10; ++i) {
-                auto tmp_rowset = create_rowset(txn_id1, tablet_id_base + i, partition_id);
+                auto tmp_rowset =
+                        create_rowset(txn_id1, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1157,7 +1162,8 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
         }
         {
             for (int i = 0; i < 10; ++i) {
-                auto tmp_rowset = create_rowset(txn_id2, tablet_id_base + i, partition_id);
+                auto tmp_rowset =
+                        create_rowset(txn_id2, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1348,7 +1354,8 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
         }
         {
             for (int i = 0; i < 10; ++i) {
-                auto tmp_rowset = create_rowset(txn_id1, tablet_id_base + i, partition_id);
+                auto tmp_rowset =
+                        create_rowset(txn_id1, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1395,7 +1402,8 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
         }
         {
             for (int i = 0; i < 10; ++i) {
-                auto tmp_rowset = create_rowset(txn_id2, tablet_id_base + i, partition_id);
+                auto tmp_rowset =
+                        create_rowset(txn_id2, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1505,7 +1513,8 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
 
         {
             for (int i = 0; i < 10; ++i) {
-                auto tmp_rowset = create_rowset(tmp_txn_id, tablet_id_base + i, partition_id);
+                auto tmp_rowset =
+                        create_rowset(tmp_txn_id, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1614,7 +1623,8 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
 
         {
             for (int i = 0; i < 10; ++i) {
-                auto tmp_rowset = create_rowset(txn_id1, tablet_id_base + i, partition_id);
+                auto tmp_rowset =
+                        create_rowset(txn_id1, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1765,7 +1775,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
 
         {
             for (int i = 0; i < 10; ++i) {
-                auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
+                auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1850,7 +1860,7 @@ TEST(TxnLazyCommitTest, RowsetMetaSizeExceedTest) {
             ASSERT_GT(res.txn_id(), 0);
         }
         {
-            auto tmp_rowset = create_rowset(tmp_txn_id, tablet_id, partition_id);
+            auto tmp_rowset = create_rowset(tmp_txn_id, tablet_id, index_id, partition_id);
             CreateRowsetResponse res;
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1898,6 +1908,688 @@ TEST(TxnLazyCommitTest, RowsetMetaSizeExceedTest) {
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::PROTOBUF_PARSE_ERR);
     }
+}
+TEST(TxnLazyCommitTest, FuzzyRandom) {
+    int counter = 0;
+    for (size_t i = 0; i < 100000; i++) {
+        if (fuzzy_random()) {
+            counter++;
+        }
+    }
+    LOG(INFO) << "fuzzy_random counter: " << counter;
+    ASSERT_GT(counter, 30000);
+    ASSERT_LT(counter, 70000);
+}
+
+TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
+    int counter = 0;
+    config::enable_cloud_txn_lazy_commit_fuzzy_test = false;
+    for (size_t i = 0; i < 100000; i++) {
+        if (force_txn_lazy_commit()) {
+            counter++;
+        }
+    }
+    LOG(INFO) << "force_txn_lazy_commit counter: " << counter;
+    ASSERT_EQ(counter, 0);
+
+    config::enable_cloud_txn_lazy_commit_fuzzy_test = true;
+    counter = 0;
+    for (size_t i = 0; i < 100000; i++) {
+        if (force_txn_lazy_commit()) {
+            counter++;
+        }
+    }
+    LOG(INFO) << "force_txn_lazy_commit counter: " << counter;
+    ASSERT_GT(counter, 30000);
+    ASSERT_LT(counter, 70000);
+    config::enable_cloud_txn_lazy_commit_fuzzy_test = false;
+}
+
+TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase1) {
+    // ===========================================================================
+    // threads concurrent execution flow:
+    //
+    //   meta-service             recycler
+    //         |                      |
+    //       begin                    |
+    //         |                      |
+    // prepare/commit rowset          |
+    //         |                      |
+    //   lazy commit submit           |
+    //         |                      |
+    //       dead                     |
+    //         |                      |
+    //         |              recyle_tmp_rowsets
+    //         |                      |
+    //         |              abort_timeout_txn
+    //         |                      |
+    //         |                      |
+    //         v                      v
+
+    auto txn_kv = get_mem_txn_kv();
+
+    int64_t db_id = 988032131;
+    int64_t table_id = 5145043;
+    int64_t index_id = 273456;
+    int64_t partition_id = 44576544;
+    std::string mock_instance = "test_instance";
+    const std::string label = "test_label_67ae2q1231";
+
+    bool commit_txn_eventullay_hit = false;
+    bool is_txn_finished_hit = false;
+    bool abort_timeout_txn_hit = false;
+
+    auto sp = SyncPoint::get_instance();
+
+    sp->set_call_back("commit_txn_eventually::txn_lazy_committer_submit", [&](auto&& args) {
+        commit_txn_eventullay_hit = true;
+        bool* pred = try_any_cast<bool*>(args.back());
+        *pred = true;
+    });
+
+    TxnInfoPB txn_info_pb;
+    sp->set_call_back("is_txn_finished::txn_not_finished", [&](auto&& args) {
+        is_txn_finished_hit = true;
+        txn_info_pb = *try_any_cast<TxnInfoPB*>(args[0]);
+        {
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            check_txn_committed(txn, db_id, txn_info_pb.txn_id(), label);
+        }
+    });
+
+    txn_info_pb.Clear();
+    sp->set_call_back("abort_timeout_txn::advance_last_pending_txn_id", [&](auto&& args) {
+        abort_timeout_txn_hit = true;
+        txn_info_pb = *try_any_cast<TxnInfoPB*>(args[0]);
+        {
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            check_txn_committed(txn, db_id, txn_info_pb.txn_id(), label);
+        }
+    });
+
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service(txn_kv, true);
+    // mock rowset and tablet
+    int64_t tablet_id_base = 2313324;
+    for (int i = 0; i < 10; ++i) {
+        create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                                 tablet_id_base + i);
+    }
+    int txn_id = 0;
+    {
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label(label);
+            txn_info_pb.add_table_ids(table_id);
+            txn_info_pb.set_timeout_ms(36000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+            ASSERT_GT(txn_id, 0);
+        }
+
+        {
+            for (int i = 0; i < 10; ++i) {
+                auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+                CreateRowsetResponse res;
+                commit_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            }
+        }
+
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            req.set_is_2pc(false);
+            req.set_enable_txn_lazy_commit(true);
+            CommitTxnResponse res;
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+    }
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    ASSERT_TRUE(is_txn_finished_hit);
+
+    ASSERT_EQ(recycler.abort_timeout_txn(), 0);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        check_txn_visible(txn, db_id, txn_id, label);
+    }
+    sleep(1);
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        check_txn_not_exist(txn, db_id, txn_id, label);
+    }
+    ASSERT_TRUE(abort_timeout_txn_hit);
+
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+    ASSERT_TRUE(commit_txn_eventullay_hit);
+}
+
+TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase2) {
+    // ===========================================================================
+    // threads concurrent execution flow:
+    //
+    //   meta-service             recycler
+    //         |                      |
+    //    begin txn                   |
+    //         |                      |
+    //    abort txn                   |
+    //         |                      |
+    //         |               recyle_tmp_rowsets
+    //         |                      |
+    //         v                      v
+
+    auto txn_kv = get_mem_txn_kv();
+
+    int64_t db_id = 41414;
+    int64_t table_id = 5454146;
+    int64_t index_id = 27656;
+    int64_t partition_id = 4423544;
+    std::string mock_instance = "test_instance";
+    const std::string label = "test_label_67ae2q1231";
+
+    bool txn_has_been_aborted = false;
+
+    auto sp = SyncPoint::get_instance();
+
+    TxnInfoPB txn_info_pb;
+    sp->set_call_back("is_txn_finished::txn_has_been_aborted", [&](auto&& args) {
+        txn_has_been_aborted = true;
+        txn_info_pb = *try_any_cast<TxnInfoPB*>(args[0]);
+        ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_ABORTED);
+    });
+
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service(txn_kv, true);
+    // mock rowset and tablet
+    int64_t tablet_id_base = 2313324;
+    for (int i = 0; i < 10; ++i) {
+        create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                                 tablet_id_base + i);
+    }
+    int txn_id = 0;
+    {
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label(label);
+            txn_info_pb.add_table_ids(table_id);
+            txn_info_pb.set_timeout_ms(36000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+            ASSERT_GT(txn_id, 0);
+        }
+
+        {
+            for (int i = 0; i < 10; ++i) {
+                auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+                CreateRowsetResponse res;
+                commit_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            }
+        }
+        {
+            brpc::Controller cntl;
+            AbortTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            ASSERT_GT(txn_id, 0);
+            req.set_txn_id(txn_id);
+            req.set_reason("test");
+            AbortTxnResponse res;
+            meta_service->abort_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_ABORTED);
+        }
+    }
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_FALSE(txn_has_been_aborted);
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    ASSERT_TRUE(txn_has_been_aborted);
+
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
+TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase3) {
+    // ===========================================================================
+    // threads concurrent execution flow:
+    //
+    //   meta-service             recycler
+    //         |                      |
+    //    begin txn                   |
+    //         |                      |
+    //    abort txn                   |
+    //         |                      |
+    // recycle_expired_txn_label      |
+    //         |                      |
+    //         |               recyle_tmp_rowsets
+    //         |                      |
+    //         v                      v
+
+    auto txn_kv = get_mem_txn_kv();
+
+    int64_t db_id = 42345236;
+    int64_t table_id = 3165524;
+    int64_t index_id = 89089;
+    int64_t partition_id = 434154;
+    std::string mock_instance = "test_instance";
+    const std::string label = "test_label_67ae2q1231";
+
+    bool txn_has_been_recycled = false;
+
+    auto sp = SyncPoint::get_instance();
+
+    TxnInfoPB txn_info_pb;
+    sp->set_call_back("is_txn_finished::txn_has_been_recycled",
+                      [&](auto&& args) { txn_has_been_recycled = true; });
+
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service(txn_kv, true);
+    // mock rowset and tablet
+    int64_t tablet_id_base = 2313324;
+    for (int i = 0; i < 10; ++i) {
+        create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                                 tablet_id_base + i);
+    }
+    int txn_id = 0;
+    {
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label(label);
+            txn_info_pb.add_table_ids(table_id);
+            txn_info_pb.set_timeout_ms(36000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+            ASSERT_GT(txn_id, 0);
+        }
+
+        {
+            for (int i = 0; i < 10; ++i) {
+                auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+                CreateRowsetResponse res;
+                commit_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            }
+        }
+        {
+            brpc::Controller cntl;
+            AbortTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            ASSERT_GT(txn_id, 0);
+            req.set_txn_id(txn_id);
+            req.set_reason("test");
+            AbortTxnResponse res;
+            meta_service->abort_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_ABORTED);
+        }
+    }
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+
+    ASSERT_EQ(recycler.init(), 0);
+
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        check_txn_not_exist(txn, db_id, txn_id, label);
+    }
+
+    ASSERT_FALSE(txn_has_been_recycled);
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    ASSERT_TRUE(txn_has_been_recycled);
+
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+TEST(TxnLazyCommitTest, RecyclePartitions) {
+    // ===========================================================================
+    // threads concurrent execution flow:
+    //
+    //   meta-service             recycler
+    //         |                      |
+    //       begin                    |
+    //         |                      |
+    // prepare/commit rowset          |
+    //         |                      |
+    //   lazy commit submit           |
+    //         |                      |
+    //       dead                     |
+    //         |                      |
+    //   drop partition               |
+    //         |                      |
+    //         |                recyle_partitions
+    //         |                      |
+    //         |                      |
+    //         |                      |
+    //         |                      |
+    //         v                      v
+
+    auto txn_kv = get_mem_txn_kv();
+
+    int64_t db_id = 988032131;
+    int64_t table_id = 5145043;
+    int64_t index_id = 273456;
+    int64_t partition_id = 44576544;
+    std::string mock_instance = "test_instance";
+    const std::string label = "test_label_67ae2q1231";
+
+    bool commit_txn_eventullay_hit = false;
+    bool txn_not_finished_hit = false;
+
+    auto sp = SyncPoint::get_instance();
+
+    sp->set_call_back("commit_txn_eventually::txn_lazy_committer_submit", [&](auto&& args) {
+        commit_txn_eventullay_hit = true;
+        bool* pred = try_any_cast<bool*>(args.back());
+        *pred = true;
+    });
+
+    sp->set_call_back("check_lazy_txn_finished::txn_not_finished",
+                      [&](auto&& args) { txn_not_finished_hit = true; });
+
+    sp->set_call_back("recycle_tablet::begin", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = 0;
+        ret->second = true;
+    });
+
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service(txn_kv, true);
+    // mock rowset and tablet
+    int64_t tablet_id_base = 2313324;
+    for (int i = 0; i < 10; ++i) {
+        create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                                 tablet_id_base + i);
+    }
+    int txn_id = 0;
+    {
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label(label);
+            txn_info_pb.add_table_ids(table_id);
+            txn_info_pb.set_timeout_ms(36000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+            ASSERT_GT(txn_id, 0);
+        }
+
+        {
+            for (int i = 0; i < 10; ++i) {
+                auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+                CreateRowsetResponse res;
+                commit_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            }
+        }
+
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            req.set_is_2pc(false);
+            req.set_enable_txn_lazy_commit(true);
+            CommitTxnResponse res;
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+
+        {
+            // drop partition
+            brpc::Controller cntl;
+            PartitionRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+
+            req.set_db_id(1);
+            req.set_table_id(table_id);
+            req.add_index_ids(index_id);
+            req.add_partition_ids(partition_id);
+            PartitionResponse res;
+            meta_service->drop_partition(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                    nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+    }
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_FALSE(txn_not_finished_hit);
+    ASSERT_EQ(recycler.recycle_partitions(), -1);
+    ASSERT_TRUE(txn_not_finished_hit);
+
+    ASSERT_EQ(recycler.abort_timeout_txn(), 0);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        check_txn_visible(txn, db_id, txn_id, label);
+    }
+
+    ASSERT_EQ(recycler.recycle_partitions(), 0);
+
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
+TEST(TxnLazyCommitTest, RecycleIndexes) {
+    // ===========================================================================
+    // threads concurrent execution flow:
+    //
+    //   meta-service             recycler
+    //         |                      |
+    //       begin                    |
+    //         |                      |
+    // prepare/commit rowset          |
+    //         |                      |
+    //   lazy commit submit           |
+    //         |                      |
+    //       dead                     |
+    //         |                      |
+    //   drop indexes                 |
+    //         |                      |
+    //         |                recycle_indexes
+    //         |                      |
+    //         |                      |
+    //         |                      |
+    //         |                      |
+    //         v                      v
+
+    auto txn_kv = get_mem_txn_kv();
+
+    int64_t db_id = 4524364;
+    int64_t table_id = 65354;
+    int64_t index_id = 658432;
+    int64_t partition_id = 76553;
+    std::string mock_instance = "test_instance";
+    const std::string label = "test_label_67a34e2q1231";
+
+    bool commit_txn_eventullay_hit = false;
+    bool txn_not_finished_hit = false;
+
+    auto sp = SyncPoint::get_instance();
+
+    sp->set_call_back("commit_txn_eventually::txn_lazy_committer_submit", [&](auto&& args) {
+        commit_txn_eventullay_hit = true;
+        bool* pred = try_any_cast<bool*>(args.back());
+        *pred = true;
+    });
+
+    sp->set_call_back("check_lazy_txn_finished::txn_not_finished",
+                      [&](auto&& args) { txn_not_finished_hit = true; });
+
+    sp->set_call_back("recycle_tablet::begin", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = 0;
+        ret->second = true;
+    });
+
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service(txn_kv, true);
+    // mock rowset and tablet
+    int64_t tablet_id_base = 2313324;
+    for (int i = 0; i < 10; ++i) {
+        create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                                 tablet_id_base + i);
+    }
+    int txn_id = 0;
+    {
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label(label);
+            txn_info_pb.add_table_ids(table_id);
+            txn_info_pb.set_timeout_ms(36000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+            ASSERT_GT(txn_id, 0);
+        }
+
+        {
+            for (int i = 0; i < 10; ++i) {
+                auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+                CreateRowsetResponse res;
+                commit_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            }
+        }
+
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            req.set_is_2pc(false);
+            req.set_enable_txn_lazy_commit(true);
+            CommitTxnResponse res;
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+
+        {
+            // drop partition
+            brpc::Controller cntl;
+            IndexRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+
+            req.set_db_id(1);
+            req.set_table_id(table_id);
+            req.add_index_ids(index_id);
+            IndexResponse res;
+            meta_service->drop_index(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+    }
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_FALSE(txn_not_finished_hit);
+    ASSERT_EQ(recycler.recycle_indexes(), -1);
+    ASSERT_TRUE(txn_not_finished_hit);
+
+    ASSERT_EQ(recycler.abort_timeout_txn(), 0);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        check_txn_visible(txn, db_id, txn_id, label);
+    }
+
+    ASSERT_EQ(recycler.recycle_indexes(), 0);
+
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
 }
 
 } // namespace doris::cloud

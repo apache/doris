@@ -65,6 +65,9 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
             return false;
         }
         OlapTable olapTable = olapScan.getTable();
+        if (olapTable.hasVariantColumns()) {
+            return false;
+        }
         return olapTable.getEnableLightSchemaChange() && olapTable.getEnableUniqueKeyMergeOnWrite()
                         && olapTable.storeRowColumn();
     }

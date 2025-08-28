@@ -35,8 +35,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/integral_types.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
@@ -61,14 +59,15 @@
 #include "runtime/memory/mem_tracker.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<int64_t> g_load_stream_writer_cnt("load_stream_writer_count");
@@ -110,15 +109,16 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
         if (segid >= file_writers.size()) {
             for (size_t i = file_writers.size(); i <= segid; i++) {
                 Status st;
-                io::FileWriterPtr file_writer;
-                st = _rowset_writer->create_file_writer(i, file_writer, file_type);
+                io::FileWriterPtr seg_file_writer;
+                st = _rowset_writer->create_file_writer(static_cast<uint32_t>(i), seg_file_writer,
+                                                        file_type);
                 DBUG_EXECUTE_IF("LoadStreamWriter.append_data.create_file_writer_failed",
                                 { st = Status::InternalError("fault injection"); });
                 if (!st.ok()) {
                     _is_canceled = true;
                     return st;
                 }
-                file_writers.push_back(std::move(file_writer));
+                file_writers.push_back(std::move(seg_file_writer));
                 g_load_stream_file_writer_cnt << 1;
             }
         }
@@ -151,7 +151,7 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
             return Status::Corruption("close_writer failed, LoadStreamWriter is not inited");
         }
         DBUG_EXECUTE_IF("LoadStreamWriter.close_writer.bad_segid",
-                        { segid = file_writers.size(); });
+                        { segid = static_cast<uint32_t>(file_writers.size()); });
         if (segid >= file_writers.size()) {
             return Status::Corruption(
                     "close_writer failed, file {} is never opened, file type is {}", segid,
@@ -174,7 +174,8 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
     LOG(INFO) << "file " << segid << " path " << file_writer->path().native() << " closed, written "
               << file_writer->bytes_appended() << " bytes"
               << ", file type is " << file_type;
-    if (file_writer->bytes_appended() == 0) {
+    // ‌Allow the index file to be empty when creating an index on a variant-type column.
+    if (file_writer->bytes_appended() == 0 && file_type != FileType::INVERTED_INDEX_FILE) {
         return Status::Corruption("file {} closed with 0 bytes, file type is {}",
                                   file_writer->path().native(), file_type);
     }
@@ -192,7 +193,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
             return Status::Corruption("add_segment failed, LoadStreamWriter is not inited");
         }
         DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.bad_segid",
-                        { segid = _segment_file_writers.size(); });
+                        { segid = static_cast<uint32_t>(_segment_file_writers.size()); });
         RETURN_IF_ERROR(_calc_file_size(segid, FileType::SEGMENT_FILE, &segment_file_size));
         if (_inverted_file_writers.size() > 0) {
             RETURN_IF_ERROR(
@@ -217,7 +218,7 @@ Status LoadStreamWriter::_calc_file_size(uint32_t segid, FileType file_type, siz
             (file_type == FileType::SEGMENT_FILE) ? _segment_file_writers : _inverted_file_writers;
 
     DBUG_EXECUTE_IF("LoadStreamWriter._calc_file_size.unknown_segment",
-                    { segid = file_writers.size(); });
+                    { segid = static_cast<uint32_t>(file_writers.size()); });
     if (segid >= file_writers.size()) {
         return Status::Corruption("calc file size failed, file {} is never opened, file type is {}",
                                   segid, file_type);
@@ -232,8 +233,8 @@ Status LoadStreamWriter::_calc_file_size(uint32_t segid, FileType file_type, siz
     }
     DBUG_EXECUTE_IF("LoadStreamWriter._calc_file_size.file_not_closed", {
         io::FileWriterPtr fwriter;
-        static_cast<void>(_rowset_writer->create_file_writer(file_writers.size(), fwriter,
-                                                             FileType::SEGMENT_FILE));
+        static_cast<void>(_rowset_writer->create_file_writer(
+                static_cast<uint32_t>(file_writers.size()), fwriter, FileType::SEGMENT_FILE));
         file_writers.push_back(std::move(fwriter));
         file_writer = file_writers.back().get();
     });
@@ -266,7 +267,8 @@ Status LoadStreamWriter::_pre_close() {
     DBUG_EXECUTE_IF("LoadStreamWriter.close.inverted_writers_size_not_match", {
         io::FileWriterPtr file_writer;
         static_cast<void>(_rowset_writer->create_file_writer(
-                _inverted_file_writers.size(), file_writer, FileType::INVERTED_INDEX_FILE));
+                static_cast<uint32_t>(_inverted_file_writers.size()), file_writer,
+                FileType::INVERTED_INDEX_FILE));
         _inverted_file_writers.push_back(std::move(file_writer));
     });
     if (_inverted_file_writers.size() > 0 &&
@@ -278,8 +280,9 @@ Status LoadStreamWriter::_pre_close() {
     }
     DBUG_EXECUTE_IF("LoadStreamWriter.close.file_not_closed", {
         io::FileWriterPtr file_writer;
-        static_cast<void>(_rowset_writer->create_file_writer(_segment_file_writers.size(),
-                                                             file_writer, FileType::SEGMENT_FILE));
+        static_cast<void>(_rowset_writer->create_file_writer(
+                static_cast<uint32_t>(_segment_file_writers.size()), file_writer,
+                FileType::SEGMENT_FILE));
         _segment_file_writers.push_back(std::move(file_writer));
     });
     for (const auto& writer : _segment_file_writers) {
@@ -292,7 +295,8 @@ Status LoadStreamWriter::_pre_close() {
     DBUG_EXECUTE_IF("LoadStreamWriter.close.inverted_file_not_closed", {
         io::FileWriterPtr file_writer;
         static_cast<void>(_rowset_writer->create_file_writer(
-                _inverted_file_writers.size(), file_writer, FileType::INVERTED_INDEX_FILE));
+                static_cast<uint32_t>(_inverted_file_writers.size()), file_writer,
+                FileType::INVERTED_INDEX_FILE));
         _inverted_file_writers.push_back(std::move(file_writer));
     });
     for (const auto& writer : _inverted_file_writers) {
@@ -321,4 +325,5 @@ Status LoadStreamWriter::close() {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

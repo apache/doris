@@ -23,6 +23,8 @@ suite("single_table_without_aggregate") {
     sql "set enable_materialized_view_rewrite=true"
     // TODO remove this variable after mv rewrite support defer materialized nodes
     sql 'set enable_two_phase_read_opt = false'
+    // Virtual column will make mv rewrite fail, so we disable the rule
+    sql """set disable_nereids_rules='PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN';"""
 
 
     sql """
@@ -55,7 +57,7 @@ suite("single_table_without_aggregate") {
     """
 
     sql "analyze table orders with sync;"
-    sql """alter table orders modify column o_comment set stats ('row_count'='2');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
     def check_rewrite = { mv_sql, query_sql, mv_name ->
@@ -68,7 +70,7 @@ suite("single_table_without_aggregate") {
     }
 
     // select + from
-    def mv1_0 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d from orders"
+    def mv1_0 = "select O_ORDERKEY as a1, abs(O_TOTALPRICE) as a2, O_ORDERDATE as a3 from orders"
     def query1_0 = "select O_ORDERKEY + 100, abs(O_TOTALPRICE) + 1 as abs_price, date_add(O_ORDERDATE, INTERVAL 2 DAY) " +
             "from orders"
     check_rewrite(mv1_0, query1_0, "mv1_0")
@@ -77,7 +79,7 @@ suite("single_table_without_aggregate") {
 
 
     def mv1_1 = "select " +
-            "O_ORDERKEY + 10, abs(O_TOTALPRICE + 100) + 10, date_add(O_ORDERDATE, INTERVAL 2 DAY) " +
+            "O_ORDERKEY + 10 as b1, abs(O_TOTALPRICE + 100) + 10, as b2 date_add(O_ORDERDATE, INTERVAL 2 DAY) as b3 " +
             "from orders"
     def query1_1 = "select O_ORDERKEY + 10, abs(O_TOTALPRICE + 100) + 10, " +
             "day(date_add(O_ORDERDATE, INTERVAL 2 DAY))" +
@@ -89,7 +91,7 @@ suite("single_table_without_aggregate") {
 
 
     // select + from + order by + limit
-    def mv2_0 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
+    def mv2_0 = "select O_ORDERKEY as cc1, abs(O_TOTALPRICE) as cc2, O_ORDERDATE as cc3 " +
             "from orders "
     def query2_0 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
             "from orders " +
@@ -99,7 +101,7 @@ suite("single_table_without_aggregate") {
     sql """DROP MATERIALIZED VIEW IF EXISTS mv2_0 ON orders"""
 
 
-    def mv2_1 = "select O_ORDERKEY + 10, abs(O_TOTALPRICE), O_ORDERDATE as d " +
+    def mv2_1 = "select O_ORDERKEY + 10 as d1, abs(O_TOTALPRICE) as d2, O_ORDERDATE as d3 " +
             "from orders "
     def query2_1 = "select O_ORDERKEY + 10, abs(O_TOTALPRICE) + 50, O_ORDERDATE as d " +
             "from orders " +
@@ -109,7 +111,7 @@ suite("single_table_without_aggregate") {
     sql """DROP MATERIALIZED VIEW IF EXISTS mv2_1 ON orders"""
 
 
-    def mv2_2 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
+    def mv2_2 = "select O_ORDERKEY as e1, abs(O_TOTALPRICE) as e2, O_ORDERDATE as e3 " +
             "from orders "
     def query2_2 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
             "from orders " +
@@ -121,7 +123,7 @@ suite("single_table_without_aggregate") {
 
 
     // select + from + filter
-    def mv3_0 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
+    def mv3_0 = "select O_ORDERKEY as x1, abs(O_TOTALPRICE) as  x2, O_ORDERDATE as x3 " +
             "from orders"
     def query3_0 = "select O_ORDERKEY, abs(O_TOTALPRICE), date_add(O_ORDERDATE, INTERVAL 2 DAY) " +
             "from orders " +
@@ -130,7 +132,7 @@ suite("single_table_without_aggregate") {
     order_qt_query3_0 "${query3_0}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv3_0 ON orders"""
 
-    def mv3_1 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
+    def mv3_1 = "select O_ORDERKEY as f1, abs(O_TOTALPRICE) as f2, O_ORDERDATE as f3 " +
             "from orders " +
             "where abs(O_TOTALPRICE) > 10 and O_ORDERKEY > 1"
     def query3_1 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
@@ -143,7 +145,7 @@ suite("single_table_without_aggregate") {
 
 
     // select + from + filter + order by + limit
-    def mv4_0 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
+    def mv4_0 = "select O_ORDERKEY as f4, abs(O_TOTALPRICE) as f5, O_ORDERDATE as f6 " +
             "from orders "
     def query4_0 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
             "from orders " +
@@ -154,7 +156,7 @@ suite("single_table_without_aggregate") {
     sql """DROP MATERIALIZED VIEW IF EXISTS mv4_0 ON orders"""
 
 
-    def mv4_1 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
+    def mv4_1 = "select O_ORDERKEY as a4, abs(O_TOTALPRICE) as a5, O_ORDERDATE as a6 " +
             "from orders "
     def query4_1 = "select O_ORDERKEY, abs(O_TOTALPRICE), O_ORDERDATE as d " +
             "from orders " +
@@ -167,7 +169,7 @@ suite("single_table_without_aggregate") {
 
 
     // select + from + sub query
-    def mv5_0 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
+    def mv5_0 = "select 1 as b4, O_ORDERKEY as b5, abs(O_TOTALPRICE) as b6 , O_ORDERDATE as b7 " +
             "from orders sub_query"
     def query5_0 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
             "from " +
@@ -179,7 +181,7 @@ suite("single_table_without_aggregate") {
     sql """DROP MATERIALIZED VIEW IF EXISTS mv5_0 ON orders"""
 
     // select + from + order by limit + sub query
-    def mv5_1 = "select O_ORDERKEY + 10, abs(O_TOTALPRICE), O_ORDERDATE as d " +
+    def mv5_1 = "select O_ORDERKEY + 10 as c4, abs(O_TOTALPRICE) as c5, O_ORDERDATE as c6 " +
             "from orders sub_query"
     def query5_1 = "select d from " +
             "(select O_ORDERKEY + 10, abs(O_TOTALPRICE) + 50, O_ORDERDATE as d " +
@@ -192,7 +194,7 @@ suite("single_table_without_aggregate") {
     
 
     // select + from + filter + sub query
-    def mv5_2 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
+    def mv5_2 = "select 1 as d4, O_ORDERKEY as d5, abs(O_TOTALPRICE) as d6 , O_ORDERDATE as d7 " +
             "from orders sub_query "
     def query5_2 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
             "from " +
@@ -206,7 +208,7 @@ suite("single_table_without_aggregate") {
 
 
     // select + from + filter + order by + limit + sub query
-    def mv5_3 = "select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
+    def mv5_3 = "select 1 as e4, O_ORDERKEY as e5, abs(O_TOTALPRICE) as e6 , O_ORDERDATE as e7 " +
             "from orders "
     def query5_3 = "select sub_query.O_ORDERKEY, sub_query.abs_price, sub_query.d " +
             "from " +

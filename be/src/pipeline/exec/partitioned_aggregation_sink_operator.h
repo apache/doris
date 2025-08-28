@@ -149,7 +149,7 @@ public:
                             const vectorized::AggregateDataPtr null_key_data, bool is_last) {
         vectorized::SpillStreamSPtr spill_stream;
         auto status = spill_partition->get_spill_stream(state, Base::_parent->node_id(),
-                                                        Base::profile(), spill_stream);
+                                                        Base::operator_profile(), spill_stream);
         RETURN_IF_ERROR(status);
 
         status = to_block(context, keys, values, null_key_data);
@@ -178,7 +178,7 @@ public:
                     std::vector<vectorized::AggregateDataPtr>& values,
                     const vectorized::AggregateDataPtr null_key_data) {
         SCOPED_TIMER(_spill_serialize_hash_table_timer);
-        context.insert_keys_into_columns(keys, key_columns_, keys.size());
+        context.insert_keys_into_columns(keys, key_columns_, (uint32_t)keys.size());
 
         if (null_key_data) {
             // only one key of group by support wrap null key
@@ -284,6 +284,8 @@ public:
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 
     RuntimeProfile::Counter* _spill_serialize_hash_table_timer = nullptr;
+
+    std::atomic<bool> _eos = false;
 };
 
 class PartitionedAggSinkOperatorX : public DataSinkOperatorX<PartitionedAggSinkLocalState> {
@@ -299,7 +301,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 

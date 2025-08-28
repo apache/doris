@@ -1220,6 +1220,14 @@ public class FunctionSet<T> {
                         null, null, null,
                         "",
                         false, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("stddev",
+                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        "",
+                        "",
+                        "",
+                        null, null, null,
+                        "",
+                         false, true, false, true));
                 addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
                         "",
@@ -1476,6 +1484,15 @@ public class FunctionSet<T> {
 
         //vec percentile and percentile_approx
         addBuiltin(AggregateFunction.createBuiltin("percentile",
+                        Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        false, true, false, true));
+
+        addBuiltin(AggregateFunction.createBuiltin("percentile_cont",
                         Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
                         "",
                         "",

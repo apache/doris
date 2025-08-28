@@ -17,6 +17,11 @@
 
 #pragma once
 
+#include <hs/hs.h>
+#include <re2/re2.h>
+
+#include <optional>
+
 #include "olap/rowset/segment_v2/inverted_index/query/disjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
@@ -31,14 +36,23 @@ public:
                 const TQueryOptions& query_options, const io::IOContext* io_ctx);
     ~RegexpQuery() override = default;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& patterns) override;
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
+    static std::optional<std::string> get_regex_prefix(const std::string& pattern);
+
+    void collect_matching_terms(const std::wstring& field_name, std::vector<std::string>& terms,
+                                hs_database_t* database, hs_scratch_t* scratch,
+                                const std::optional<std::string>& prefix);
+
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    const io::IOContext* _io_ctx = nullptr;
 
     int32_t _max_expansions = 50;
     DisjunctionQuery _query;
+
+    friend class RegexpQueryTest;
 };
 
 } // namespace doris::segment_v2

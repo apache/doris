@@ -36,10 +36,10 @@ namespace pipeline {
 class DataQueue;
 
 class CacheSourceOperatorX;
-class CacheSourceLocalState final : public PipelineXLocalState<CacheSharedState> {
+class CacheSourceLocalState final : public PipelineXLocalState<DataQueueSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(CacheSourceLocalState);
-    using Base = PipelineXLocalState<CacheSharedState>;
+    using Base = PipelineXLocalState<DataQueueSharedState>;
     using Parent = CacheSourceOperatorX;
     CacheSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
@@ -76,15 +76,15 @@ public:
             : Base(pool, plan_node_id, operator_id), _cache_param(cache_param) {
         _op_name = "CACHE_SOURCE_OPERATOR";
     };
+
+#ifdef BE_TEST
+    CacheSourceOperatorX() = default;
+#endif
+
     ~CacheSourceOperatorX() override = default;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
-
-    Status open(RuntimeState* state) override {
-        static_cast<void>(Base::open(state));
-        return Status::OK();
-    }
 
     const RowDescriptor& intermediate_row_desc() const override {
         return _child->intermediate_row_desc();

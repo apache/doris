@@ -90,7 +90,7 @@ class BitmapIndexReader;
 class BloomFilterIndexReader;
 class IndexPageReader;
 class IndexedColumnReader;
-class InvertedIndexReader;
+class IndexReader;
 class OrdinalIndexReader;
 class ZoneMapIndexReader;
 }; // namespace segment_v2
@@ -146,13 +146,35 @@ public:
 protected:
     MetadataAdder(const MetadataAdder& other);
 
+    MetadataAdder(MetadataAdder&& other);
+
     virtual ~MetadataAdder();
 
     virtual int64_t get_metadata_size() const { return sizeof(T); }
 
     void update_metadata_size();
 
-    MetadataAdder<T>& operator=(const MetadataAdder<T>& other) = default;
+    MetadataAdder<T>& operator=(const MetadataAdder<T>& other) {
+        int64_t old_size = this->_current_meta_size;
+        this->_current_meta_size = other._current_meta_size;
+        int64_t size_diff = this->_current_meta_size - old_size;
+        add_mem_size(size_diff);
+
+        return *this;
+    }
+
+    MetadataAdder<T>& operator=(MetadataAdder<T>&& other) {
+        int64_t old_size = this->_current_meta_size;
+        this->_current_meta_size = other._current_meta_size;
+        int64_t size_diff = this->_current_meta_size - old_size;
+        add_mem_size(size_diff);
+
+        other.clear_memory();
+
+        return *this;
+    }
+
+    void clear_memory();
 
     int64_t _current_meta_size {0};
 
@@ -169,6 +191,15 @@ MetadataAdder<T>::MetadataAdder(const MetadataAdder<T>& other) {
 }
 
 template <typename T>
+MetadataAdder<T>::MetadataAdder(MetadataAdder&& other) {
+    this->_current_meta_size = other._current_meta_size;
+    add_num(1);
+    add_mem_size(this->_current_meta_size);
+
+    other.clear_memory();
+}
+
+template <typename T>
 MetadataAdder<T>::MetadataAdder() {
     this->_current_meta_size = sizeof(T);
     add_mem_size(this->_current_meta_size);
@@ -179,6 +210,13 @@ template <typename T>
 MetadataAdder<T>::~MetadataAdder() {
     add_mem_size(-_current_meta_size);
     add_num(-1);
+}
+
+template <typename T>
+void MetadataAdder<T>::clear_memory() {
+    int64_t old_size = _current_meta_size;
+    _current_meta_size = sizeof(T);
+    add_mem_size(_current_meta_size - old_size);
 }
 
 template <typename T>
@@ -219,7 +257,7 @@ void MetadataAdder<T>::add_mem_size(int64_t val) {
         g_index_page_reader_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::IndexedColumnReader>) {
         g_indexed_column_reader_mem_bytes << val;
-    } else if constexpr (std::is_same_v<T, segment_v2::InvertedIndexReader>) {
+    } else if constexpr (std::is_same_v<T, segment_v2::IndexReader>) {
         g_inverted_index_reader_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::OrdinalIndexReader>) {
         g_ordinal_index_reader_mem_bytes << val;
@@ -260,7 +298,7 @@ void MetadataAdder<T>::add_num(int64_t val) {
         g_index_page_reader_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::IndexedColumnReader>) {
         g_indexed_column_reader_num << val;
-    } else if constexpr (std::is_same_v<T, segment_v2::InvertedIndexReader>) {
+    } else if constexpr (std::is_same_v<T, segment_v2::IndexReader>) {
         g_inverted_index_reader_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::OrdinalIndexReader>) {
         g_ordinal_index_reader_num << val;

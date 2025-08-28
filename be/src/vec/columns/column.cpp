@@ -52,8 +52,8 @@ void IColumn::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 }
 
 void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                               int direction, std::vector<uint8>& cmp_res,
-                               uint8* __restrict filter) const {
+                               int direction, std::vector<uint8_t>& cmp_res,
+                               uint8_t* __restrict filter) const {
     auto sz = this->size();
     DCHECK(cmp_res.size() == sz);
     size_t begin = simd::find_zero(cmp_res, 0);
@@ -73,11 +73,11 @@ void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_di
 }
 
 bool is_column_nullable(const IColumn& column) {
-    return check_column<ColumnNullable>(column);
+    return is_column<ColumnNullable>(column);
 }
 
 bool is_column_const(const IColumn& column) {
-    return check_column<ColumnConst>(column);
+    return is_column<ColumnConst>(column);
 }
 
 } // namespace doris::vectorized

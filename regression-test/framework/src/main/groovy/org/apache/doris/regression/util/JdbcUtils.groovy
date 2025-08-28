@@ -24,8 +24,21 @@ import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.ResultSetMetaData
+import java.sql.Types;
 
 class JdbcUtils {
+    static String replaceHostUrl(String originUri, String newHost) {
+        def prefix = originUri.substring(0, originUri.indexOf("://") + 3)
+        def postIndex = originUri.indexOf(":", originUri.indexOf("://") + 3)
+        if (postIndex == -1) {
+            postIndex = originUri.indexOf("/", originUri.indexOf("://") + 3)
+        }
+        if (postIndex == -1) {
+            postIndex = originUri.length()
+        }
+        return prefix + newHost + originUri.substring(postIndex)
+    }
+
     static Tuple2<List<List<Object>>, ResultSetMetaData> executeToList(Connection conn, String sql) {
         conn.prepareStatement(sql).withCloseable { stmt ->
             boolean hasResultSet = stmt.execute()
@@ -124,7 +137,22 @@ class JdbcUtils {
                 def row = new ArrayList<>()
                 for (int i = 1; i <= columnCount; ++i) {
                     try {
-                        row.add(resultSet.getObject(i))
+                        if (resultSet.metaData.getColumnType(i) == Types.TIME) {
+                            /*
+                             * For time types, there are three ways to save the results returned by Doris:
+                             *   1. Default behavior: row.add(resultSet.getObject(i))
+                             *      which will return a Time object.
+                             *      Use the Time type will lose the fractional precision of the time.
+                             *   2. Use LocalTime: row.add(resultSet.getColumn(i, LocalTime.class))
+                             *      which will lose the padding zeros of the fractional precision. 
+                             *      For example, 0:0:0.123000 can only retain 0:0:0.123.
+                             *   3. Use a string: row.add(new String(resultSet.getBytes(i)))
+                             *      This can preserve the full precision, so the third solution is preferred.
+                            */
+                            row.add(new String(resultSet.getBytes(i)))
+                        } else {
+                            row.add(resultSet.getObject(i))
+                        }
                     } catch (Throwable t) {
                         if(resultSet.getBytes(i) != null){
                             row.add(new String(resultSet.getBytes(i)))

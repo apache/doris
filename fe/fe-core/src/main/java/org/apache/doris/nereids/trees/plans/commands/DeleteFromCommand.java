@@ -81,6 +81,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -128,7 +129,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         updateSessionVariableForDelete(ctx.getSessionVariable());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        boolean originalIsSkipAuth = ctx.isSkipAuth();
+        // delete not need select priv
+        ctx.setSkipAuth(true);
+        try {
+            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        } finally {
+            ctx.setSkipAuth(originalIsSkipAuth);
+        }
         executor.setPlanner(planner);
         executor.checkBlockRules();
         // if fe could do fold constant to get delete will do nothing for table, just return.
@@ -290,10 +298,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     private void checkColumn(Set<String> tableColumns, SlotReference slotReference, OlapTable table) {
         // 0. must slot from table
-        if (!slotReference.getColumn().isPresent()) {
+        if (!slotReference.getOriginalColumn().isPresent()) {
             throw new AnalysisException("");
         }
-        Column column = slotReference.getColumn().get();
+        Column column = slotReference.getOriginalColumn().get();
 
         if (Column.DELETE_SIGN.equalsIgnoreCase(column.getName())) {
             return;
@@ -337,9 +345,9 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         for (String indexName : table.getIndexNameToId().keySet()) {
             MaterializedIndexMeta meta = table.getIndexMetaByIndexId(table.getIndexIdByName(indexName));
             Set<String> columns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            meta.getSchema().stream()
-                    .map(col -> org.apache.doris.analysis.CreateMaterializedViewStmt.mvColumnBreaker(col.getName()))
-                    .forEach(name -> columns.add(name));
+            for (Column col : meta.getSchema()) {
+                columns.add(col.tryGetBaseColumnName());
+            }
             if (!columns.contains(column.getName())) {
                 throw new AnalysisException("Column[" + column.getName() + "] not exist in index " + indexName
                         + ". maybe you need drop the corresponding materialized-view.");
@@ -443,7 +451,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     private OlapTable getTargetTable(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv());
+        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("table must be olapTable in delete command");
         }
@@ -499,7 +507,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         logicalQuery = handleCte(logicalQuery);
         // make UnboundTableSink
         return UnboundTableSinkCreator.createUnboundTableSink(nameParts, cols, ImmutableList.of(),
-                isTempPart, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
+                isTempPart, partitions, isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                        DMLCommandType.DELETE, logicalQuery);
     }
 
     protected LogicalPlan handleCte(LogicalPlan logicalPlan) {

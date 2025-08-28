@@ -124,6 +124,7 @@ class Config {
     public boolean withOutLoadData
     public boolean runNonConcurrent
     public String caseNamePrefix
+    public String validateBackupPrefix
     public boolean isSmokeTest
     public String multiClusterBes
     public String metaServiceToken
@@ -149,11 +150,29 @@ class Config {
 
     public String s3Source
 
+    // for aws role arn regression test
+    public String awsRoleArn
+    public String awsExternalId
+    public String awsEndpoint
+    public String awsRegion
+    public String awsBucket
+    public String awsPrefix
+    public String awsAccessKey
+    public String awsSecretKey
+
+    public String regressionAwsRoleArn
+    public String regressionAwsExternalId
+    public String regressionAwsEndpoint
+    public String regressionAwsRegion
+    public String regressionAwsBucket
+    public String regressionAwsPrefix
+
     Config() {}
 
     Config(
             String s3Source,
             String caseNamePrefix,
+            String validateBackupPrefix,
             String defaultDb, 
             String jdbcUrl, 
             String jdbcUser,
@@ -207,6 +226,7 @@ class Config {
             String cloudVersion) {
         this.s3Source = s3Source
         this.caseNamePrefix = caseNamePrefix
+        this.validateBackupPrefix = validateBackupPrefix
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -492,6 +512,7 @@ class Config {
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
         config.runNonConcurrent = Boolean.parseBoolean(cmd.getOptionValue(runNonConcurrentOpt, "True"))
         config.caseNamePrefix = cmd.getOptionValue(caseNamePrefixOpt, config.caseNamePrefix)
+        config.validateBackupPrefix = cmd.getOptionValue(validateBackupPrefixOpt, config.validateBackupPrefix)
         config.dryRun = cmd.hasOption(dryRunOpt)
         config.isSmokeTest = cmd.hasOption(isSmokeTestOpt)
 
@@ -500,6 +521,7 @@ class Config {
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
         log.info("runNonConcurrent is ${config.runNonConcurrent}".toString())
         log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
+        log.info("validateBackupPrefix is ${config.validateBackupPrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
         def s3SourceList = ["aliyun", "aliyun-internal", "tencent", "huawei", "azure", "gcp"]
         if (s3SourceList.contains(config.s3Source)) {
@@ -532,6 +554,7 @@ class Config {
         def config = new Config(
             configToString(obj.s3Source),
             configToString(obj.caseNamePrefix),
+            configToString(obj.validateBackupPrefix),
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
             configToString(obj.jdbcUser),
@@ -593,6 +616,23 @@ class Config {
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
         config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
+
+        config.awsRoleArn = configToString(obj.awsRoleArn)
+        config.awsExternalId = configToString(obj.awsExternalId)
+        config.awsPrefix = configToString(obj.awsPrefix)
+        config.awsEndpoint = configToString(obj.awsEndpoint)
+        config.awsRegion = configToString(obj.awsRegion)
+        config.awsBucket = configToString(obj.awsBucket)
+        config.awsAccessKey = configToString(obj.awsAccessKey)
+        config.awsSecretKey = configToString(obj.awsSecretKey)
+        config.awsPrefix = configToString(obj.awsPrefix)
+
+        config.regressionAwsRoleArn = configToString(obj.regressionAwsRoleArn)
+        config.regressionAwsExternalId = configToString(obj.regressionAwsExternalId)
+        config.regressionAwsEndpoint = configToString(obj.regressionAwsEndpoint)
+        config.regressionAwsRegion = configToString(obj.regressionAwsRegion)
+        config.regressionAwsBucket = configToString(obj.regressionAwsBucket)
+        config.regressionAwsPrefix = configToString(obj.regressionAwsPrefix)
 
         def declareFileNames = config.getClass()
                 .getDeclaredFields()
@@ -722,6 +762,11 @@ class Config {
         if (config.caseNamePrefix == null) {
             config.caseNamePrefix = ""
             log.info("set caseNamePrefix to '' because not specify.".toString())
+        }
+
+        if (config.validateBackupPrefix == null) {
+            config.validateBackupPrefix = "doris_validate_backup"
+            log.info("set validateBackupPrefix to 'doris_validate_backup' because not specify.".toString())
         }
 
         if (config.defaultDb == null) {
@@ -1041,7 +1086,7 @@ class Config {
                 , "partial_update", "nereids_update_on_current_timestamp", "update_on_current_timestamp", "nereids_delete_mow_partial_update", "delete_mow_partial_update", "test_unique_table_auto_inc"
                 , "test_unique_table_auto_inc_partial_update_correct_insert", "partial_update_seq_col", "nereids_partial_update_native_insert_stmt_complex", "regression_test_variant_delete_and_update"
                 , "test_unique_table_auto_inc_partial_update_correct_stream_load", "test_update_mow", "test_new_update", "test_update_unique", "nereids_partial_update_native_insert_seq_col"
-                , "test_partial_update_rowset_not_found_fault_injection"]
+                , "test_partial_update_rowset_not_found_fault_injection", "test_primary_key_partial_update_broker_load"]
             for (def excludeCase in excludeCases) {
                 excludeSuiteWildcard.add(excludeCase)
             }
@@ -1056,17 +1101,6 @@ class Config {
 
     Connection getRootConnection() {
         return DriverManager.getConnection(jdbcUrl, 'root', '')
-    }
-
-    Connection getConnectionByDbName(String dbName) {
-        String dbUrl = getConnectionUrlByDbName(dbName)
-        tryCreateDbIfNotExist(dbName)
-        log.info("connect to ${dbUrl}".toString())
-        return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
-    }
-
-    String getConnectionUrlByDbName(String dbName) {
-        return buildUrlWithDb(jdbcUrl, dbName)
     }
 
     Connection getConnectionByArrowFlightSqlDbName(String dbName) {

@@ -41,6 +41,7 @@
 #include "olap/row_cursor.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "util/runtime_profile.h"
@@ -69,6 +70,8 @@ class BitmapIndexIterator;
 class ColumnIterator;
 class InvertedIndexIterator;
 class RowRanges;
+class IndexIterator;
+
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;
 
@@ -106,15 +109,6 @@ struct ColumnPredicateInfo {
     int32_t column_id;
 };
 
-class SegmentIterator;
-struct FuncExprParams {
-    ColumnId _column_id = 0;
-    uint32_t _unique_id = 0;
-    std::string _column_name;
-    SegmentIterator* _segment_iterator = nullptr;
-    std::shared_ptr<roaring::Roaring> result;
-};
-
 class SegmentIterator : public RowwiseIterator {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema);
@@ -138,26 +132,19 @@ public:
     RowsetId rowset_id() const { return _segment->rowset_id(); }
     int64_t tablet_id() const { return _tablet_id; }
 
-    bool update_profile(RuntimeProfile* profile) override {
-        bool updated = false;
-        updated |= _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
-        updated |= _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
+    void update_profile(RuntimeProfile* profile) override {
+        _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
+        _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
 
         if (_opts.delete_condition_predicates != nullptr) {
             std::set<const ColumnPredicate*> delete_predicate_set;
             _opts.delete_condition_predicates->get_all_column_predicate(delete_predicate_set);
-            updated |= _update_profile(profile, delete_predicate_set, "DeleteConditionPredicates");
+            _update_profile(profile, delete_predicate_set, "DeleteConditionPredicates");
         }
-
-        return updated;
     }
 
-    std::vector<std::unique_ptr<InvertedIndexIterator>>& inverted_index_iterators() {
-        return _inverted_index_iterators;
-    }
-
-    bool has_inverted_index_in_iterators() const {
-        return std::any_of(_inverted_index_iterators.begin(), _inverted_index_iterators.end(),
+    bool has_index_in_iterators() const {
+        return std::any_of(_index_iterators.begin(), _index_iterators.end(),
                            [](const auto& iterator) { return iterator != nullptr; });
     }
 
@@ -165,24 +152,23 @@ private:
     Status _next_batch_internal(vectorized::Block* block);
 
     template <typename Container>
-    bool _update_profile(RuntimeProfile* profile, const Container& predicates,
+    void _update_profile(RuntimeProfile* profile, const Container& predicates,
                          const std::string& title) {
         if (predicates.empty()) {
-            return false;
+            return;
         }
         std::string info;
         for (auto pred : predicates) {
             info += "\n" + pred->debug_string();
         }
         profile->add_info_string(title, info);
-        return true;
     }
 
     [[nodiscard]] Status _lazy_init();
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
-    [[nodiscard]] Status _init_inverted_index_iterators();
+    [[nodiscard]] Status _init_index_iterators();
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -226,8 +212,7 @@ private:
     // for vectorization implementation
     [[nodiscard]] Status _read_columns(const std::vector<ColumnId>& column_ids,
                                        vectorized::MutableColumns& column_block, size_t nrows);
-    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
-                                                bool set_block_rowid);
+    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read);
     void _replace_version_col(size_t num_rows);
     Status _init_current_block(vectorized::Block* block,
                                std::vector<vectorized::MutableColumnPtr>& non_pred_vector,
@@ -263,13 +248,8 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
-                    Segment::ColumnIdentifier {
-                            .unique_id = _schema->column(cid)->unique_id(),
-                            .parent_unique_id = _schema->column(cid)->parent_unique_id(),
-                            .path = _schema->column(cid)->path(),
-                            .is_nullable = _schema->column(cid)->is_nullable()},
-                    false);
+            vectorized::DataTypePtr storage_type =
+                    _segment->get_data_type_of(_schema->column(cid)->get_desc(), false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();
@@ -316,18 +296,13 @@ private:
     Status _construct_compound_expr_context();
 
     // todo(wb) remove this method after RowCursor is removed
-    void _convert_rowcursor_to_short_key(const RowCursor& key, size_t num_keys) {
+    void NO_SANITIZE_UNDEFINED _convert_rowcursor_to_short_key(const RowCursor& key,
+                                                               size_t num_keys) {
         if (_short_key.size() == 0) {
             _short_key.resize(num_keys);
             for (auto cid = 0; cid < num_keys; cid++) {
                 auto* field = key.schema()->column(cid);
                 _short_key[cid] = Schema::get_column_by_field(*field);
-
-                if (field->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
-                    _short_key[cid]->set_date_type();
-                } else if (field->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
-                    _short_key[cid]->set_datetime_type();
-                }
             }
         } else {
             for (int i = 0; i < num_keys; i++) {
@@ -385,6 +360,11 @@ private:
 
     void _clear_iterators();
 
+    // Initialize virtual columns in the block, set all virtual columns in the block to ColumnNothing
+    void _init_virtual_columns(vectorized::Block* block);
+    // Fallback logic for virtual column materialization, materializing all unmaterialized virtual columns through expressions
+    Status _materialization_of_virtual_column(vectorized::Block* block);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -396,7 +376,7 @@ private:
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
-    std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
+    std::vector<std::unique_ptr<IndexIterator>> _index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
@@ -436,8 +416,10 @@ private:
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _predicate_column_ids;
     std::vector<ColumnId> _non_predicate_column_ids;
+    // TODO: Should use std::vector<size_t>
     std::vector<ColumnId> _columns_to_filter;
     std::vector<ColumnId> _converted_column_ids;
+    // TODO: Should use std::vector<size_t>
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
@@ -485,11 +467,23 @@ private:
 
     std::vector<uint8_t> _ret_flags;
 
+    /*
+    * column and column_predicates on it.
+    * a boolean value to indicate whether the column has been read by the index.
+    */
     std::unordered_map<ColumnId, std::unordered_map<ColumnPredicate*, bool>>
             _column_predicate_inverted_index_status;
 
+    /*
+    * column and common expr on it.
+    * a boolean value to indicate whether the column has been read by the index.
+    */
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
+
+    // cid to virtual column expr
+    std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;
+    std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
 };
 
 } // namespace segment_v2

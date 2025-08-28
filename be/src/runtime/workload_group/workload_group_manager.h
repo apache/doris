@@ -21,6 +21,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include "common/be_mock_util.h"
 #include "workload_group.h"
 
 namespace doris {
@@ -29,7 +30,6 @@ class CgroupCpuCtl;
 
 namespace vectorized {
 class Block;
-class QueryContext;
 } // namespace vectorized
 
 namespace pipeline {
@@ -37,18 +37,19 @@ class TaskScheduler;
 class MultiCoreTaskQueue;
 } // namespace pipeline
 
+// In doris, query includes all tasks such as query, load, compaction, schemachange, etc.
 class PausedQuery {
 public:
-    // Use weak ptr to save query ctx, to make sure if the query is cancelled
+    // Use weak ptr to save resource ctx, to make sure if the query is cancelled
     // the resource will be released
-    std::weak_ptr<QueryContext> query_ctx_;
+    std::weak_ptr<ResourceContext> resource_ctx_;
     std::chrono::system_clock::time_point enqueue_at;
     size_t last_mem_usage {0};
     double cache_ratio_ {0.0};
     bool any_wg_exceed_limit_ {false};
     int64_t reserve_size_ {0};
 
-    PausedQuery(std::shared_ptr<QueryContext> query_ctx, double cache_ratio,
+    PausedQuery(std::shared_ptr<ResourceContext> resource_ctx_, double cache_ratio,
                 bool any_wg_exceed_limit, int64_t reserve_size);
 
     int64_t elapsed_time() const {
@@ -68,27 +69,16 @@ private:
 
 class WorkloadGroupMgr {
 public:
-    WorkloadGroupMgr() = default;
-    ~WorkloadGroupMgr() = default;
-
-    WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
-
-    void get_related_workload_groups(const std::function<bool(const WorkloadGroupPtr& ptr)>& pred,
-                                     std::vector<WorkloadGroupPtr>* task_groups);
+    WorkloadGroupMgr();
+    MOCK_FUNCTION ~WorkloadGroupMgr();
 
     void delete_workload_group_by_ids(std::set<uint64_t> id_set);
 
-    WorkloadGroupPtr get_group(uint64_t wg_id);
+    WorkloadGroupPtr get_group(std::vector<uint64_t>& id_list);
 
     void do_sweep();
 
     void stop();
-
-    std::atomic<bool> _enable_cpu_hard_limit = false;
-
-    bool enable_cpu_soft_limit() { return !_enable_cpu_hard_limit.load(); }
-
-    bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
 
     void refresh_wg_weighted_memory_limit();
 
@@ -96,23 +86,24 @@ public:
 
     void refresh_workload_group_metrics();
 
-    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx, int64_t reserve_size,
-                          const Status& status);
+    MOCK_FUNCTION void add_paused_query(const std::shared_ptr<ResourceContext>& resource_ctx,
+                                        int64_t reserve_size, const Status& status);
 
     void handle_paused_queries();
 
+    friend class WorkloadGroupListener;
+    friend class ExecEnv;
+
 private:
-    int64_t cancel_top_query_in_overcommit_group_(int64_t need_free_mem, int64_t lower_bound,
-                                                  RuntimeProfile* profile);
-    int64_t flush_memtable_from_current_group_(WorkloadGroupPtr wg, int64_t need_free_mem);
-    bool handle_single_query_(const std::shared_ptr<QueryContext>& query_ctx,
+    Status create_internal_wg();
+
+    WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
+
+    int64_t flush_memtable_from_group_(WorkloadGroupPtr wg);
+    bool handle_single_query_(const std::shared_ptr<ResourceContext>& requestor,
                               size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
-    int64_t revoke_memory_from_other_group_(std::shared_ptr<QueryContext> requestor,
-                                            bool hard_limit, int64_t need_free_mem);
-    int64_t revoke_overcommited_memory_(std::shared_ptr<QueryContext> requestor,
-                                        int64_t need_free_mem, RuntimeProfile* profile);
-    int64_t revoke_memtable_from_overcommited_groups_(int64_t need_free_mem,
-                                                      RuntimeProfile* profile);
+    int64_t revoke_memory_from_other_overcommited_groups_(
+            std::shared_ptr<ResourceContext> requestor, int64_t need_free_mem);
     void update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit);
 
     std::shared_mutex _group_mutex;

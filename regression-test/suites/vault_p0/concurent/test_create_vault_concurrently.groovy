@@ -35,7 +35,7 @@ suite("test_create_vault_concurrently", "nonConcurrent") {
 
     def future1 = thread("threadName1") {
         for (int i = 0; i < 100; i++) {
-            sql """
+            try_sql """
                 CREATE STORAGE VAULT IF NOT EXISTS ${s3VaultName}
                 PROPERTIES (
                     "type"="S3",
@@ -55,7 +55,7 @@ suite("test_create_vault_concurrently", "nonConcurrent") {
 
     def future2 = thread("threadName2") {
         for (int i = 0; i < 100; i++) {
-            sql """
+            try_sql """
                 CREATE STORAGE VAULT IF NOT EXISTS ${s3VaultName}
                 PROPERTIES (
                     "type"="S3",
@@ -75,7 +75,7 @@ suite("test_create_vault_concurrently", "nonConcurrent") {
 
     def future3 = thread("threadName3") {
         for (int i = 0; i < 100; i++) {
-            sql """
+            try_sql """
                 CREATE STORAGE VAULT IF NOT EXISTS ${s3VaultName}
                 PROPERTIES (
                     "type"="S3",
@@ -95,7 +95,7 @@ suite("test_create_vault_concurrently", "nonConcurrent") {
 
     def future4 = thread("threadName4") {
         for (int i = 0; i < 100; i++) {
-            sql """
+            try_sql """
                 CREATE STORAGE VAULT IF NOT EXISTS ${s3VaultName}
                 PROPERTIES (
                     "type"="S3",

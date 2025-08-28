@@ -81,6 +81,11 @@ public class ShowCreateMaterializedViewCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return MATERIALIZED_VIEW_META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
 
@@ -102,7 +107,7 @@ public class ShowCreateMaterializedViewCommand extends ShowCommand {
                 }
             }
         }
-        return new ShowResultSet(MATERIALIZED_VIEW_META_DATA, resultRowSet);
+        return new ShowResultSet(getMetaData(), resultRowSet);
     }
 }
 

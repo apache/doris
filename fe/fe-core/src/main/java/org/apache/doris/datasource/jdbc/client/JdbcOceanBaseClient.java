@@ -65,8 +65,12 @@ public class JdbcOceanBaseClient extends JdbcClient {
         throw new UnsupportedOperationException("JdbcOceanBaseClient does not support jdbcTypeToDoris");
     }
 
-    private void setOracleMode() {
+    @Override
+    public String getTestQuery() {
+        return "SELECT 1 FROM DUAL";
+    }
+
+    void setOracleMode() {
         this.dbType = JdbcResource.OCEANBASE_ORACLE;
     }
 }
-

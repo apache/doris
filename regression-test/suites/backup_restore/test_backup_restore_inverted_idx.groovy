@@ -18,7 +18,7 @@
 suite("test_backup_restore_inverted_idx", "backup_restore") {
     String suiteName = "test_backup_restore_inverted_idx"
     String dbName = "${suiteName}_db"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableName = "${suiteName}_table"
 

@@ -29,6 +29,8 @@ import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableBiMap.Builder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,6 +46,7 @@ import java.util.Set;
  */
 public class RelationMapping extends Mapping {
 
+    private static final Logger LOG = LogManager.getLogger(RelationMapping.class);
     private final ImmutableBiMap<MappedRelation, MappedRelation> mappedRelationMap;
 
     public RelationMapping(ImmutableBiMap<MappedRelation, MappedRelation> mappedRelationMap) {
@@ -61,7 +64,8 @@ public class RelationMapping extends Mapping {
     /**
      * Generate mapping according to source and target relation
      */
-    public static List<RelationMapping> generate(List<CatalogRelation> sources, List<CatalogRelation> targets) {
+    public static List<RelationMapping> generate(List<CatalogRelation> sources, List<CatalogRelation> targets,
+            int relationMappingMaxCount) {
         // Construct tmp map, key is the table qualifier, value is the corresponding catalog relations
         HashMultimap<TableIdentifier, MappedRelation> sourceTableRelationIdMap = HashMultimap.create();
         for (CatalogRelation relation : sources) {
@@ -100,8 +104,8 @@ public class RelationMapping extends Mapping {
             // query is select * from tableA0, tableA1, tableA4
             List<BiMap<MappedRelation, MappedRelation>> relationMappingPowerList = new ArrayList<>();
             List<Pair<MappedRelation[], MappedRelation[]>> combinations = getUniquePermutation(
-                    sourceMappedRelations.toArray(sourceMappedRelations.toArray(new MappedRelation[0])),
-                    targetMappedRelations.toArray(new MappedRelation[0]));
+                    sourceMappedRelations.toArray(new MappedRelation[0]),
+                    targetMappedRelations.toArray(new MappedRelation[0]), relationMappingMaxCount);
             for (Pair<MappedRelation[], MappedRelation[]> combination : combinations) {
                 BiMap<MappedRelation, MappedRelation> combinationBiMap = HashBiMap.create();
                 MappedRelation[] key = combination.key();
@@ -168,8 +172,8 @@ public class RelationMapping extends Mapping {
      * [(1, 195) (4, 194) (5, 191)]
      * ]
      * */
-    private static List<Pair<MappedRelation[], MappedRelation[]>> getUniquePermutation(
-            MappedRelation[] left, MappedRelation[] right) {
+    public static List<Pair<MappedRelation[], MappedRelation[]>> getUniquePermutation(
+            MappedRelation[] left, MappedRelation[] right, int maxMappingCount) {
         boolean needSwap = left.length > right.length;
         if (needSwap) {
             MappedRelation[] temp = left;
@@ -180,7 +184,7 @@ public class RelationMapping extends Mapping {
         boolean[] used = new boolean[right.length];
         MappedRelation[] current = new MappedRelation[left.length];
         List<Pair<MappedRelation[], MappedRelation[]>> results = new ArrayList<>();
-        backtrack(left, right, 0, used, current, results);
+        backtrack(left, right, 0, used, current, results, maxMappingCount);
         if (needSwap) {
             List<Pair<MappedRelation[], MappedRelation[]>> tmpResults = results;
             results = new ArrayList<>();
@@ -192,9 +196,16 @@ public class RelationMapping extends Mapping {
     }
 
     private static void backtrack(MappedRelation[] left, MappedRelation[] right, int index,
-            boolean[] used, MappedRelation[] current, List<Pair<MappedRelation[], MappedRelation[]>> results) {
+            boolean[] used, MappedRelation[] current, List<Pair<MappedRelation[], MappedRelation[]>> results,
+            int maxMappingCount) {
+        if (results.size() >= maxMappingCount) {
+            LOG.warn("queryToViewTableMappings is over limit and be intercepted, "
+                            + "results size is {}, MappedRelation left is {}, MappedRelation right is {}",
+                    results.size(), Arrays.toString(left), Arrays.toString(right));
+            return;
+        }
         if (index == left.length) {
-            results.add(Pair.of(Arrays.copyOf(left, left.length), Arrays.copyOf(current, current.length)));
+            results.add(Pair.of(left, Arrays.copyOf(current, current.length)));
             return;
         }
 
@@ -202,7 +213,7 @@ public class RelationMapping extends Mapping {
             if (!used[i]) {
                 used[i] = true;
                 current[index] = right[i];
-                backtrack(left, right, index + 1, used, current, results);
+                backtrack(left, right, index + 1, used, current, results, maxMappingCount);
                 used[i] = false;
             }
         }

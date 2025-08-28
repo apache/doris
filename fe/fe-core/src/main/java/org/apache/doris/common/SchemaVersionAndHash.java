@@ -17,21 +17,13 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.annotations.SerializedName;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 
 /*
  * Currently just used for persisting schema version and schema hash pair
  * using GSON
  */
-public class SchemaVersionAndHash implements Writable {
+public class SchemaVersionAndHash {
 
     @SerializedName(value = "version")
     public int schemaVersion;
@@ -44,18 +36,7 @@ public class SchemaVersionAndHash implements Writable {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    @Override
     public String toString() {
         return schemaVersion + ":" + schemaHash;
-    }
-
-    public static SchemaVersionAndHash read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, SchemaVersionAndHash.class);
     }
 }

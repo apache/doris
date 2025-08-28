@@ -24,12 +24,12 @@ suite("fold_constant_numeric_arithmatic") {
     sql "set enable_fold_constant_by_be=false"
 
     //Abs function cases
-    testFoldConst("SELECT ABS(1)") 
-    testFoldConst("SELECT ABS(0)") 
-    testFoldConst("SELECT ABS(-1)") 
-    testFoldConst("SELECT ABS(1.5)") 
-    testFoldConst("SELECT ABS(-1.5)") 
-    testFoldConst("SELECT ABS(1E308)") 
+    testFoldConst("SELECT ABS(1)")
+    testFoldConst("SELECT ABS(0)")
+    testFoldConst("SELECT ABS(-1)")
+    testFoldConst("SELECT ABS(1.5)")
+    testFoldConst("SELECT ABS(-1.5)")
+    testFoldConst("SELECT ABS(1E308)")
     testFoldConst("SELECT ABS(-1E308)")
     testFoldConst("SELECT ABS(NULL)") // NULL handling
     testFoldConst("SELECT ABS('')") // Empty string handling
@@ -51,6 +51,17 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ACOS(1E308)")
     testFoldConst("SELECT ACOS(-1E308)")
 
+//Acosh function cases
+    testFoldConst("SELECT ACOSH(1) AS acosh_case_1"); // acosh(1) = 0
+    testFoldConst("SELECT ACOSH(2) AS acosh_case_2"); // acosh(2) ≈ 1.316957897
+    testFoldConst("SELECT ACOSH(10) AS acosh_case_3"); // acosh(10) ≈ 2.993222846
+    testFoldConst("SELECT ACOSH(0.5)"); // Invalid input (x < 1)
+    testFoldConst("SELECT ACOSH(-1)"); // Invalid input (x < 1)
+    testFoldConst("SELECT ACOSH(NULL)"); // NULL handling
+//    testFoldConst("SELECT ACOSH(1E308)"); // Large value
+//    testFoldConst("SELECT ACOSH(-1E308)"); // Invalid input (x < 1)
+    testFoldConst("SELECT ACOSH(1), ACOSH(2), ACOSH(10)"); // Multiple values
+
 //Asin function cases
     testFoldConst("SELECT ASIN(1) AS asin_case_1") //asin(1) = π/2
     testFoldConst("SELECT ASIN(0) AS asin_case_2") //asin(0) = 0
@@ -65,28 +76,54 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ASIN(1E308)")
     testFoldConst("SELECT ASIN(-1E308)")
 
+//Asinh function cases
+    testFoldConst("SELECT ASINH(0) AS asinh_case_1"); // asinh(0) = 0
+    testFoldConst("SELECT ASINH(1) AS asinh_case_2"); // asinh(1) ≈ 0.881373587
+    testFoldConst("SELECT ASINH(-1) AS asinh_case_3"); // asinh(-1) ≈ -0.881373587
+    testFoldConst("SELECT ASINH(0.5)"); // Common value
+    testFoldConst("SELECT ASINH(-0.5)"); // Negative common value
+    testFoldConst("SELECT ASINH(NULL)"); // NULL handling
+//    testFoldConst("SELECT ASINH(1E308)"); // Large value
+//    testFoldConst("SELECT ASINH(-1E308)"); // Large negative value
+    testFoldConst("SELECT ASINH(0), ASINH(1), ASINH(-1)"); // Multiple values
+
 //Atan function cases
     testFoldConst("SELECT ATAN(1) AS atan_case_1") //atan(1) = π/4
     testFoldConst("SELECT ATAN(0) AS atan_case_2") //atan(0) = 0
     testFoldConst("SELECT ATAN(-1) AS atan_case_3") //atan(-1)
-    testFoldConst("SELECT ATAN(1.5)") 
-    testFoldConst("SELECT ATAN(-1.5)") 
-    testFoldConst("SELECT ATAN(1E308)") 
+    testFoldConst("SELECT ATAN(1.5)")
+    testFoldConst("SELECT ATAN(-1.5)")
+    testFoldConst("SELECT ATAN(1E308)")
     testFoldConst("SELECT ATAN(-1E308)")
     testFoldConst("SELECT ATAN(NULL)") // NULL handling
     testFoldConst("SELECT ATAN(PI())") // PI input
     testFoldConst("SELECT ATAN(-PI())") // Negative PI input
     testFoldConst("SELECT ATAN(1E-308)") // Very small positive number
-    testFoldConst("SELECT ATAN(-1E-308)") // Very small negative number
+    testFoldConst("SELECT ATAN(-1E-308)") // Very small negative 
+    
+//Atanh function cases
+    testFoldConst("SELECT ATANH(0) AS atanh_case_1"); // atanh(0) = 0
+    testFoldConst("SELECT ATANH(0.5) AS atanh_case_2"); // atanh(0.5) ≈ 0.549306144
+    testFoldConst("SELECT ATANH(-0.5) AS atanh_case_3"); // atanh(-0.5) ≈ -0.549306144
+    testFoldConst("SELECT ATANH(0.9)"); // Common value
+    testFoldConst("SELECT ATANH(-0.9)"); // Negative common value
+    testFoldConst("SELECT ATANH(NULL)"); // NULL handling
+    testFoldConst("SELECT ATANH(1)"); // Boundary value (invalid)
+    testFoldConst("SELECT ATANH(-1)"); // Boundary value (invalid)
+    testFoldConst("SELECT ATANH(1.5)"); // Invalid input (x > 1)
+    testFoldConst("SELECT ATANH(-1.5)"); // Invalid input (x < -1)
+    testFoldConst("SELECT ATANH(1E-308)"); // Very small positive number
+    testFoldConst("SELECT ATANH(-1E-308)"); // Very small negative number
+    testFoldConst("SELECT ATANH(0), ATANH(0.5), ATANH(-0.5)"); // Multiple values
 
 //Atan2 function cases
     testFoldConst("SELECT ATAN2(1, 1) AS atan2_case_1") //atan2(1, 1) = π/4
     testFoldConst("SELECT ATAN2(0, 1) AS atan2_case_2") //atan2(0, 1) = 0
     testFoldConst("SELECT ATAN2(1, 0) AS atan2_case_3") //atan2(1, 0) = π/2
     testFoldConst("SELECT ATAN2(0, 0) AS atan2_case_exception") //undefined (returns NULL or error)
-    testFoldConst("SELECT ATAN2(1.5, 1.5)") 
-    testFoldConst("SELECT ATAN2(-1.5, 1.5)") 
-    testFoldConst("SELECT ATAN2(1E308, 1E308)") 
+    testFoldConst("SELECT ATAN2(1.5, 1.5)")
+    testFoldConst("SELECT ATAN2(-1.5, 1.5)")
+    testFoldConst("SELECT ATAN2(1E308, 1E308)")
     testFoldConst("SELECT ATAN2(-1E308, 1E308)")
     testFoldConst("SELECT ATAN2(NULL, 1)") // NULL y
     testFoldConst("SELECT ATAN2(1, NULL)") // NULL x
@@ -98,7 +135,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT BIN(16) AS bin_case_2") //bin(16) = 10000
     testFoldConst("SELECT BIN(255) AS bin_case_3") //bin(255)
     testFoldConst("SELECT BIN(-1) AS bin_case_exception") //returns NULL or error in some databases
-    testFoldConst("SELECT BIN(1E308)") 
+    testFoldConst("SELECT BIN(1E308)")
     testFoldConst("SELECT BIN(-1E308)")
     testFoldConst("SELECT BIN(0)") // Zero case
     testFoldConst("SELECT BIN(NULL)") // NULL handling
@@ -112,7 +149,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT BIT_COUNT(16) AS bitcount_case_2") //bitcount(16) = 1
     testFoldConst("SELECT BIT_COUNT(255) AS bitcount_case_3") //bitcount(255) = 8
     testFoldConst("SELECT BIT_COUNT(-1) AS bitcount_case_exception")
-    testFoldConst("SELECT BIT_COUNT(1E308)") 
+    testFoldConst("SELECT BIT_COUNT(1E308)")
     testFoldConst("SELECT BIT_COUNT(-1E308)")
     testFoldConst("SELECT BIT_COUNT(0)") // Zero case
     testFoldConst("SELECT BIT_COUNT(NULL)") // NULL handling
@@ -138,7 +175,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT CEIL(-3.4) AS ceil_case_2")
     testFoldConst("SELECT CEIL(5.0) AS ceil_case_3")
     testFoldConst("SELECT CEIL(1E308) AS ceil_case_overflow")
-    testFoldConst("SELECT CEIL(1E308)") 
+    testFoldConst("SELECT CEIL(1E308)")
     testFoldConst("SELECT CEIL(-1E308)")
     testFoldConst("SELECT CEIL(NULL)") // NULL handling
     testFoldConst("SELECT CEIL(0)") // Zero case
@@ -157,7 +194,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT COALESCE(NULL, NULL, 7) AS coalesce_case_2")
     testFoldConst("SELECT COALESCE(3, 5) AS coalesce_case_3")
     testFoldConst("SELECT COALESCE(NULL, NULL) AS coalesce_case_4")
-    testFoldConst("SELECT COALESCE(1E308)") 
+    testFoldConst("SELECT COALESCE(1E308)")
     testFoldConst("SELECT COALESCE(-1E308)")
     testFoldConst("SELECT COALESCE(NULL, NULL, NULL)") // All NULL
     testFoldConst("SELECT COALESCE('', NULL, 'test')") // Empty string
@@ -316,6 +353,21 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT LN(0.1)") // Small decimal
     testFoldConst("SELECT LN(100)") // Larger number
 
+//dlog1 function cases
+    testFoldConst("SELECT dlog1(1)")
+    testFoldConst("SELECT dlog1(2.71828)")
+    testFoldConst("SELECT dlog1(10)")
+    testFoldConst("SELECT dlog1(1e10)")
+    testFoldConst("SELECT dlog1(0.1)")
+    testFoldConst("SELECT dlog1(0.001)")
+    testFoldConst("SELECT dlog1(1e-10)")
+    testFoldConst("SELECT dlog1(1e308)")
+    testFoldConst("SELECT dlog1(1e-308)")
+    testFoldConst("SELECT dlog1(0)")
+    testFoldConst("SELECT dlog1(-1)")
+    testFoldConst("SELECT dlog1(-10)")
+    testFoldConst("SELECT dlog1(NULL)")
+
 //Log function cases
     testFoldConst("SELECT log(100, 10), log(8, 2), log(1000, 10)")
     testFoldConst("SELECT LOG(NULL, 10)") // NULL number
@@ -440,6 +492,15 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT SIN(1E308) AS sin_case_overflow")
     testFoldConst("SELECT sin(0), sin(pi()/2), sin(pi()), sin(3*pi()/2)")
 
+// Sinh function cases
+    testFoldConst("SELECT SINH(0) AS sinh_case_1"); // sinh(0) = 0
+    testFoldConst("SELECT SINH(1) AS sinh_case_2"); // sinh(1) ≈ 1.175201194
+    testFoldConst("SELECT SINH(-1) AS sinh_case_3"); // sinh(-1) ≈ -1.175201194
+    testFoldConst("SELECT SINH(2) AS sinh_case_4"); // sinh(2) ≈ 3.626860408
+    testFoldConst("SELECT SINH(NULL)"); // NULL handling
+    // testFoldConst("SELECT SINH(1E308) AS sinh_case_overflow"); // Error for input String "inf"
+    testFoldConst("SELECT SINH(0), SINH(1), SINH(-1), SINH(2)"); // Multi value
+
 //Sqrt function cases
     testFoldConst("SELECT SQRT(16) AS sqrt_case_1") //sqrt(16) = 4
     testFoldConst("SELECT SQRT(0) AS sqrt_case_2") //sqrt(0) = 0
@@ -455,6 +516,42 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT TANH(0) AS tanh_case_1") //tanh(0) = 0
     testFoldConst("SELECT TANH(1) AS tanh_case_2") //tanh(1)
     testFoldConst("SELECT TANH(-1) AS tanh_case_3") //tanh(-1)
+    testFoldConst("SELECT TANH(NULL)")
+    testFoldConst("SELECT TANH(-0.5), TANH(0.5), TANH(10), TANH(-10)")
+    testFoldConst("SELECT TANH(-20), TANH(20), TANH(1E-7), TANH(-1E-7)")
+
+//Cot function cases
+    testFoldConst("SELECT COT(PI() / 4)")
+    testFoldConst("SELECT COT(PI())")
+    testFoldConst("SELECT COT(PI() / 2)")
+    // testFoldConst("SELECT COT(0)") need rethink inf behavior
+    testFoldConst("SELECT COT(1)")
+    testFoldConst("SELECT COT(-1)")
+    testFoldConst("SELECT COT(NULL)")
+    testFoldConst("SELECT COT(-0.5), COT(0.5), COT(10), COT(-10)")
+    testFoldConst("SELECT COT(-20), COT(20), COT(1E-7), COT(-1E-7)")
+
+//Sec function cases
+    testFoldConst("SELECT SEC(PI() / 4)")
+    testFoldConst("SELECT SEC(PI())")
+    // testFoldConst("SELECT SEC(PI() / 2)") need rethink inf behavior
+    testFoldConst("SELECT SEC(0)")
+    testFoldConst("SELECT SEC(1)")
+    testFoldConst("SELECT SEC(-1)")
+    testFoldConst("SELECT SEC(NULL)")
+    testFoldConst("SELECT SEC(-0.5), SEC(0.5), SEC(10), SEC(-10)")
+    testFoldConst("SELECT SEC(-20), SEC(20), SEC(1E-7), SEC(-1E-7)")
+
+//CSC function cases
+    testFoldConst("SELECT CSC(PI() / 4)")
+    // testFoldConst("SELECT CSC(PI())") need rethink inf behavior
+    testFoldConst("SELECT CSC(PI() / 2)")
+    // testFoldConst("SELECT CSC(0)") need rethink inf behavior
+    testFoldConst("SELECT CSC(1)")
+    testFoldConst("SELECT CSC(-1)")
+    testFoldConst("SELECT CSC(NULL)")
+    testFoldConst("SELECT CSC(-0.5), CSC(0.5), CSC(10), CSC(-10)")
+    testFoldConst("SELECT CSC(-20), CSC(20), CSC(1E-7), CSC(-1E-7)")
 
 //Truncate function cases
     testFoldConst("SELECT TRUNCATE(123.456, 2) AS truncate_case_1") //truncate(123.456, 2) = 123.45
@@ -466,5 +563,54 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT 5 ^ 3 AS xor_case_1") //5 XOR 3 = 6
     testFoldConst("SELECT 0 ^ 1 AS xor_case_2") //0 XOR 1 = 1
     testFoldConst("SELECT 255 ^ 128 AS xor_case_3") //255 XOR 128
+
+//SignBit function cases
+    testFoldConst("SELECT signbit(2.5) AS signbit_case_1") //signbit(2.5) = false
+    testFoldConst("SELECT signbit(0.0) AS signbit_case_2") //signbit(0.0) = false
+    testFoldConst("SELECT signbit(2.5) AS signbit_case_3") //signbit(-2.5) = true
+    testFoldConst("SELECT signbit(NULL)"); // NULL handling
+    testFoldConst("SELECT signbit(-10), signbit(0), signbit(10), signbit(-3.14), signbit(3.14)")
+
+//Even function cases
+    testFoldConst("SELECT even(-2.5) AS even_case_1") //even(-2.5) = -4
+    testFoldConst("SELECT even(0.0) AS even_case_2") //even(0.0) = 0
+    testFoldConst("SELECT even(2.5) AS even_case_3") //even(2.5) = 4
+    testFoldConst("SELECT even(NULL)"); // NULL handling
+
+// Gcd function cases
+    testFoldConst("SELECT gcd(2, 4) AS gcd_case_1") //gcd(2, 4) = 2
+    testFoldConst("SELECT gcd(0, 2) AS gcd_case_2") //gcd(0, 2) = 2
+    testFoldConst("SELECT gcd(-2, 4) AS gcd_case_3") //gcd(-2, 4) = 2
+    testFoldConst("SELECT gcd(-2, -4)") //gcd(-2, -4) = 2
+    testFoldConst("SELECT gcd(9, 11)") //gcd(9, 11) = 1
+    testFoldConst("SELECT gcd(256, 256)") //gcd(256, 256) = 256
+    testFoldConst("SELECT gcd(32767, 32767), gcd(-32768, 16384)") // smallint_test
+    testFoldConst("SELECT gcd(2147483647, 2), gcd(-1000000000, 500000000)") // int_test
+    testFoldConst("SELECT gcd(9223372036854775807, 2), gcd(-9223372036854775808, 2)") //bigint_test
+    testFoldConst("SELECT gcd(-170141183460469231731687303715884105728, 85070591730234615865843651857942052864)") //largeint_test
+    testFoldConst("SELECT gcd(-170141183460469231731687303715884105727, -170141183460469231731687303715884105727)") //largeint_test
+    testFoldConst("SELECT gcd(NULL, 4)") // NULL handling
+
+//Lcm function cases
+    testFoldConst("SELECT lcm(2, 4) AS lcm_case_1") //lcm(2, 4) = 4
+    testFoldConst("SELECT lcm(0, 2) AS lcm_case_2") //lcm(0, 2) = 0
+    testFoldConst("SELECT lcm(-2, 4) AS lcm_case_3") //lcm(-2, 4) = 4
+    testFoldConst("SELECT lcm(-2, -4)") //lcm(-2, -4) = 4
+    testFoldConst("SELECT lcm(11, 9)") //lcm(11, 9) = 99
+    testFoldConst("SELECT lcm(256, 256), lcm(-128, 64)") // tinyint_test
+    testFoldConst("SELECT lcm(32767, 32767), lcm(-32768, 16384)") // smallint_test
+    testFoldConst("SELECT lcm(2147483647, 2), lcm(-1000000000, 500000000), lcm(-2147483648, 1073741824)") // int_test
+    testFoldConst("SELECT lcm(9223372036854775807, 200000000), lcm(-9223372036854775808, 20000000)") //bigint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105726, 2)") //largeint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105727, 170141183460469231731687303715884105727)") //largeint_test
+    testFoldConst("SELECT lcm(-170141183460469231731687303715884105727, -170141183460469231731687303715884105727)") //largeint_test
+    testFoldConst("SELECT lcm(127, 32767), lcm(127, 2147483647), lcm(127, 9223372036854775807), lcm(127, 9223372036854775808)") // tinyint_x_test
+    testFoldConst("SELECT lcm(32767, 2147483647), lcm(32767, 9223372036854775807), lcm(32767, 9223372036854775808)") // smallint_x_test
+    testFoldConst("SELECT lcm(2147483647, 9223372036854775807), lcm(2147483647, 9223372036854775808)") // int_x_test
+    testFoldConst("SELECT lcm(9223372036854775807, 9223372036854775807)") // bigint_x_test
+    testFoldConst("SELECT lcm(NULL, 4)") // NULL handling
+
+    // ensure divide for decimal v3 could return correct type when divider is 0
+    sql """ select if(random() > 0.5, cast(random() as decimal(38,10)), cast(0 as decimal(30, 10)) / cast(0 as decimal(30,10)))"""
 
 }

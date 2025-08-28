@@ -67,6 +67,8 @@ public class InternalSchema {
                 new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         TABLE_STATS_SCHEMA.add(
                 new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+        TABLE_STATS_SCHEMA.add(
+                new ColumnDef("hot_value", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
 
         // partition statistics table
         PARTITION_STATS_SCHEMA = new ArrayList<>();
@@ -120,55 +122,103 @@ public class InternalSchema {
         HISTO_STATS_SCHEMA.add(
                 new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
 
-        // audit table
+        // audit table must all nullable because maybe remove some columns in feature
         AUDIT_SCHEMA = new ArrayList<>();
-        AUDIT_SCHEMA.add(new ColumnDef("query_id", TypeDef.createVarchar(48), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("time", TypeDef.createDatetimeV2(3), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("client_ip", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("user", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("catalog", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("db", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("state", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("error_code", TypeDef.create(PrimitiveType.INT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA
-                .add(new ColumnDef("error_message", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA
-                .add(new ColumnDef("query_time", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA
-                .add(new ColumnDef("scan_bytes", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("scan_rows", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA
-                .add(new ColumnDef("return_rows", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA
-                .add(new ColumnDef("shuffle_send_rows", TypeDef.create(PrimitiveType.BIGINT),
-                        ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA
-                .add(new ColumnDef("shuffle_send_bytes", TypeDef.create(PrimitiveType.BIGINT),
-                        ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA
-                .add(new ColumnDef("scan_bytes_from_local_storage", TypeDef.create(PrimitiveType.BIGINT),
-                        ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA
-                .add(new ColumnDef("scan_bytes_from_remote_storage", TypeDef.create(PrimitiveType.BIGINT),
-                        ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("stmt_id", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("stmt_type", TypeDef.createVarchar(48), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("is_query", TypeDef.create(PrimitiveType.TINYINT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(
-                new ColumnDef("is_nereids", TypeDef.create(PrimitiveType.TINYINT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("frontend_ip", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA
-                .add(new ColumnDef("cpu_time_ms", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("sql_hash", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(new ColumnDef("sql_digest", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(
-                new ColumnDef("peak_memory_bytes", TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(
-                new ColumnDef("workload_group", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
-        AUDIT_SCHEMA.add(
-                new ColumnDef("compute_group", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        // uuid and time
+        AUDIT_SCHEMA.add(new ColumnDef("query_id",
+                TypeDef.createVarchar(48), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("time",
+                TypeDef.createDatetimeV2(3), ColumnNullableType.NULLABLE));
+        // cs info
+        AUDIT_SCHEMA.add(new ColumnDef("client_ip",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("user",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("frontend_ip",
+                TypeDef.createVarchar(1024), ColumnNullableType.NULLABLE));
+        // default ctl and db
+        AUDIT_SCHEMA.add(new ColumnDef("catalog",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("db",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        // query state
+        AUDIT_SCHEMA.add(new ColumnDef("state",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("error_code",
+                TypeDef.create(PrimitiveType.INT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("error_message",
+                TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        // execution info
+        AUDIT_SCHEMA.add(new ColumnDef("query_time",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("cpu_time_ms",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("peak_memory_bytes",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("scan_bytes",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("scan_rows",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("return_rows",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("shuffle_send_rows",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("shuffle_send_bytes",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("spill_write_bytes_from_local_storage",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("spill_read_bytes_from_local_storage",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("scan_bytes_from_local_storage",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("scan_bytes_from_remote_storage",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        // plan info
+        AUDIT_SCHEMA.add(new ColumnDef("parse_time_ms",
+                TypeDef.create(PrimitiveType.INT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("plan_times_ms",
+                new TypeDef(new MapType(ScalarType.STRING, ScalarType.INT)), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("get_meta_times_ms",
+                new TypeDef(new MapType(ScalarType.STRING, ScalarType.INT)), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("schedule_times_ms",
+                new TypeDef(new MapType(ScalarType.STRING, ScalarType.INT)), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("hit_sql_cache",
+                TypeDef.create(PrimitiveType.TINYINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("handled_in_fe",
+                TypeDef.create(PrimitiveType.TINYINT), ColumnNullableType.NULLABLE));
+        // queried tables, views and m-views
+        AUDIT_SCHEMA.add(new ColumnDef("queried_tables_and_views",
+                new TypeDef(new ArrayType(ScalarType.STRING)), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("chosen_m_views",
+                new TypeDef(new ArrayType(ScalarType.STRING)), ColumnNullableType.NULLABLE));
+        // variable and configs
+        AUDIT_SCHEMA.add(new ColumnDef("changed_variables",
+                new TypeDef(new MapType(ScalarType.STRING, ScalarType.STRING)), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("sql_mode",
+                TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        // type and digest
+        AUDIT_SCHEMA.add(new ColumnDef("stmt_type",
+                TypeDef.createVarchar(48), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("stmt_id",
+                TypeDef.create(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("sql_hash",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("sql_digest",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("is_query",
+                TypeDef.create(PrimitiveType.TINYINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("is_nereids",
+                TypeDef.create(PrimitiveType.TINYINT), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("is_internal",
+                TypeDef.create(PrimitiveType.TINYINT), ColumnNullableType.NULLABLE));
+        // resource
+        AUDIT_SCHEMA.add(new ColumnDef("workload_group",
+                TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("compute_group",
+                TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
-        AUDIT_SCHEMA.add(new ColumnDef("stmt", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("stmt",
+                TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
     }
 
     // Get copied schema for statistic table

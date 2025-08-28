@@ -24,8 +24,8 @@
 
 namespace doris {
 
-// TabletColumnObjectPool is a cache for TabletColumn objects. It is used to reduce memory consumption
-// when there are a large number of identical TabletColumns in the cluster, which usually occurs
+// TabletColumnObjectPool is a cache for TabletColumn/TabletIndex objects. It is used to reduce memory consumption
+// when there are a large number of identical TabletColumns/TabletIndex in the cluster, which usually occurs
 // when VARIANT type columns are modified and added, each Rowset has an individual TabletSchema.
 // Excessive TabletSchemas can lead to significant memory overhead. Reusing memory for identical
 // TabletColumns would greatly reduce this memory consumption.
@@ -47,12 +47,17 @@ public:
 
     std::pair<Cache::Handle*, TabletColumnPtr> insert(const std::string& key);
 
+    std::pair<Cache::Handle*, TabletIndexPtr> insert_index(const std::string& key);
+
 private:
-    class CacheValue : public LRUCacheValueBase {
-    public:
-        ~CacheValue() override;
-        TabletColumnPtr tablet_column;
+    template <typename T>
+    struct BaseCacheValue : public LRUCacheValueBase {
+        ~BaseCacheValue() override;
+        std::shared_ptr<T> value;
     };
+
+    using CacheValue = BaseCacheValue<TabletColumn>;
+    using IndexCacheValue = BaseCacheValue<TabletIndex>;
 };
 
 } // namespace doris

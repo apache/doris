@@ -23,7 +23,7 @@
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/result_sink_operator.h"
-#include "runtime/buffer_control_block.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "vec/sink/vdata_stream_sender.h"
 
@@ -36,7 +36,8 @@ ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(operator_id, 0, 0),
+        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
+                            std::numeric_limits<int>::max()),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr) {}
 
@@ -44,7 +45,8 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(
         int operator_id, const RowDescriptor& row_desc, const TResultFileSink& sink,
         const std::vector<TPlanFragmentDestination>& destinations,
         const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
-        : DataSinkOperatorX(operator_id, 0, 0),
+        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
+                            std::numeric_limits<int>::max()),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _dests(destinations),
@@ -71,12 +73,12 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ResultFileSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::open(state));
+Status ResultFileSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     if (state->query_options().enable_parallel_outfile) {
-        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->query_id(), _buf_size,
-                                                                       &_sender, state));
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+                state->query_id(), _buf_size, &_sender, state, false, nullptr));
     }
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
@@ -94,7 +96,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         _sender = _parent->cast<ResultFileSinkOperatorX>()._sender;
     } else {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), p._buf_size, &_sender, state));
+                state->fragment_instance_id(), p._buf_size, &_sender, state, false, nullptr));
     }
     _sender->set_dependency(state->fragment_instance_id(), _dependency->shared_from_this());
 
@@ -130,9 +132,8 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     // close sender, this is normal path end
     if (_sender) {
         int64_t written_rows = _writer == nullptr ? 0 : _writer->get_written_rows();
-        _sender->update_return_rows(written_rows);
         state->get_query_ctx()->resource_ctx()->io_context()->update_returned_rows(written_rows);
-        RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status));
+        RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status, written_rows));
     }
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,

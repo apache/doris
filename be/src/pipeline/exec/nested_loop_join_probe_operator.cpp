@@ -42,11 +42,11 @@ Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& 
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _loop_join_timer = ADD_TIMER(profile(), "LoopGenerateJoin");
-    _output_temp_blocks_timer = ADD_TIMER(profile(), "OutputTempBlocksTime");
-    _update_visited_flags_timer = ADD_TIMER(profile(), "UpdateVisitedFlagsTime");
-    _join_conjuncts_evaluation_timer = ADD_TIMER(profile(), "JoinConjunctsEvaluationTime");
-    _filtered_by_join_conjuncts_timer = ADD_TIMER(profile(), "FilteredByJoinConjunctsTime");
+    _loop_join_timer = ADD_TIMER(custom_profile(), "LoopGenerateJoin");
+    _output_temp_blocks_timer = ADD_TIMER(custom_profile(), "OutputTempBlocksTime");
+    _update_visited_flags_timer = ADD_TIMER(custom_profile(), "UpdateVisitedFlagsTime");
+    _join_conjuncts_evaluation_timer = ADD_TIMER(custom_profile(), "JoinConjunctsEvaluationTime");
+    _filtered_by_join_conjuncts_timer = ADD_TIMER(custom_profile(), "FilteredByJoinConjunctsTime");
     return Status::OK();
 }
 
@@ -177,6 +177,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
                     _join_block, state->batch_size());
         }
     }
+    COUNTER_UPDATE(_probe_rows_counter, _join_block.rows());
     return Status::OK();
 }
 
@@ -409,8 +410,8 @@ Status NestedLoopJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* 
     return Status::OK();
 }
 
-Status NestedLoopJoinProbeOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<NestedLoopJoinProbeLocalState>::open(state));
+Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinProbeOperatorX<NestedLoopJoinProbeLocalState>::prepare(state));
     for (auto& conjunct : _join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }

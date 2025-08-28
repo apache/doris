@@ -30,7 +30,7 @@
 #include "vec/columns/column_nullable.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 using level_t = int16_t;
 
 struct RowRange {
@@ -164,7 +164,7 @@ public:
                 } else if (_num_nulls == num_values) {
                     memset(map_data_column.data() + null_map_index, 1, num_read);
                 } else {
-                    for (size_t i = 0; i < num_values; ++i) {
+                    for (i = 0; i < num_values; ++i) {
                         if (_data_map[i] == CONTENT) {
                             map_data_column[null_map_index++] = (UInt8) false;
                         } else if (_data_map[i] == NULL_DATA) {
@@ -380,5 +380,6 @@ private:
     static const SemanticVersion CDH_5_PARQUET_251_FIXED_START;
     static const SemanticVersion CDH_5_PARQUET_251_FIXED_END;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

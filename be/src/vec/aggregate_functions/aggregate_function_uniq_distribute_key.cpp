@@ -26,40 +26,44 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <template <typename> class Data>
+template <template <PrimitiveType> class Data>
 AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 1) {
-        const IDataType& argument_type = *remove_nullable(argument_types[0]);
-        WhichDataType which(argument_type);
-
         AggregateFunctionPtr res(
                 creator_with_numeric_type::create<AggregateFunctionUniqDistributeKey, Data>(
-                        argument_types, result_is_nullable));
+                        argument_types, result_is_nullable, attr));
         if (res) {
             return res;
-        } else if (which.is_decimal32()) {
-            return creator_without_type::create<
-                    AggregateFunctionUniqDistributeKey<Decimal32, Data<Int32>>>(argument_types,
-                                                                                result_is_nullable);
-        } else if (which.is_decimal64()) {
-            return creator_without_type::create<
-                    AggregateFunctionUniqDistributeKey<Decimal64, Data<Int64>>>(argument_types,
-                                                                                result_is_nullable);
-        } else if (which.is_decimal128v3()) {
-            return creator_without_type::create<
-                    AggregateFunctionUniqDistributeKey<Decimal128V3, Data<Int128>>>(
-                    argument_types, result_is_nullable);
-        } else if (which.is_decimal128v2() || which.is_decimal128v3()) {
-            return creator_without_type::create<
-                    AggregateFunctionUniqDistributeKey<Decimal128V2, Data<Int128>>>(
-                    argument_types, result_is_nullable);
-        } else if (which.is_string_or_fixed_string()) {
-            return creator_without_type::create<
-                    AggregateFunctionUniqDistributeKey<String, Data<String>>>(argument_types,
-                                                                              result_is_nullable);
+        } else {
+            switch (argument_types[0]->get_primitive_type()) {
+            case PrimitiveType::TYPE_DECIMAL32:
+                return creator_without_type::create<
+                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL32>>>(
+                        argument_types, result_is_nullable, attr);
+            case PrimitiveType::TYPE_DECIMAL64:
+                return creator_without_type::create<
+                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL64>>>(
+                        argument_types, result_is_nullable, attr);
+            case PrimitiveType::TYPE_DECIMAL128I:
+                return creator_without_type::create<
+                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL128I>>>(
+                        argument_types, result_is_nullable, attr);
+            case PrimitiveType::TYPE_DECIMALV2:
+                return creator_without_type::create<
+                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMALV2>>>(
+                        argument_types, result_is_nullable, attr);
+            case PrimitiveType::TYPE_STRING:
+            case PrimitiveType::TYPE_CHAR:
+            case PrimitiveType::TYPE_VARCHAR:
+                return creator_without_type::create<
+                        AggregateFunctionUniqDistributeKey<TYPE_STRING, Data<TYPE_STRING>>>(
+                        argument_types, result_is_nullable, attr);
+            default:
+                break;
+            }
         }
     }
 

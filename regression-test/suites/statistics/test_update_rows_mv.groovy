@@ -37,6 +37,8 @@ suite("test_update_rows_mv", "p0") {
         DROP TABLE IF EXISTS `${tbl}`
     """
 
+    sql """set global enable_auto_analyze=false"""
+
     sql """
           CREATE TABLE IF NOT EXISTS `${tbl}` (
             `analyzetestlimitedk3` int(11) null comment "",
@@ -62,7 +64,7 @@ suite("test_update_rows_mv", "p0") {
         DISTRIBUTED BY HASH(`analyzetestlimitedk3`) BUCKETS 5 properties("replication_num" = "1")
     """
 
-    sql """create materialized view mv1 as select analyzetestlimitedk3, analyzetestlimitedk0, analyzetestlimitedk5 from `${tbl}`;"""
+    createMV("""create materialized view mv1 as select analyzetestlimitedk3 as a1, analyzetestlimitedk0 as a2, analyzetestlimitedk5 as a3 from `${tbl}`;""")
 
     sql """SET enable_nereids_planner=true;"""
 

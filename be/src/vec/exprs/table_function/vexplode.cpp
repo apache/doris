@@ -25,7 +25,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nothing.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -46,7 +46,8 @@ Status VExplodeTableFunction::_process_init_variant(Block* block, int value_colu
     // explode variant array
     auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
     auto column = column_without_nullable->convert_to_full_column_if_const();
-    const auto& variant_column = assert_cast<const ColumnObject&>(*column);
+    auto& variant_column = assert_cast<ColumnVariant&>(*(column->assume_mutable()));
+    variant_column.finalize();
     _detail.output_as_variant = true;
     if (!variant_column.is_null_root()) {
         _array_column = variant_column.get_root();
@@ -77,8 +78,7 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
     int value_column_idx = -1;
     RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
                                                                   &value_column_idx));
-    if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
-                .is_variant_type()) {
+    if (block->get_by_position(value_column_idx).type->get_primitive_type() == TYPE_VARIANT) {
         RETURN_IF_ERROR(_process_init_variant(block, value_column_idx));
     } else {
         _array_column =

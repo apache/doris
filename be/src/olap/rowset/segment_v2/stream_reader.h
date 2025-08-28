@@ -20,6 +20,9 @@
 #include <memory>
 
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "vec/columns/column.h"
+#include "vec/columns/subcolumn_tree.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::segment_v2 {
 
@@ -28,10 +31,14 @@ namespace doris::segment_v2 {
 // maintain the tree structure to get the full JSON structure for variants.
 
 // Wrapped ColumnIterator from execution phase, the type is from read schema
+class ColumnIterator;
+class ColumnReader;
+
 struct SubstreamIterator {
     vectorized::MutableColumnPtr column;
     std::unique_ptr<ColumnIterator> iterator;
     std::shared_ptr<const vectorized::IDataType> type;
+    std::shared_ptr<vectorized::DataTypeSerDe> serde;
     bool inited = false;
     size_t rows_read = 0;
     SubstreamIterator() = default;
@@ -40,14 +47,16 @@ struct SubstreamIterator {
             : column(std::move(col)), iterator(std::move(it)), type(t) {}
 };
 
-// path -> StreamReader
-using SubstreamReaderTree = vectorized::SubcolumnsTree<SubstreamIterator>;
+// path -> SubstreamIterator
+using SubstreamReaderTree = vectorized::SubcolumnsTree<SubstreamIterator, false>;
 
 // Reader for the storage layer, the file_column_type indicates the read type of the column in segment file
 struct SubcolumnReader {
     std::unique_ptr<ColumnReader> reader;
     std::shared_ptr<const vectorized::IDataType> file_column_type;
 };
-using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader>;
+
+// path -> SubcolumnReader
+using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader, true>;
 
 } // namespace doris::segment_v2

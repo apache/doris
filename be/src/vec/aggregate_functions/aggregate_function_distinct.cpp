@@ -30,15 +30,15 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 struct Reducer {
     template <bool stable>
     using Output = AggregateFunctionDistinctSingleNumericData<T, stable>;
     using AggregateFunctionDistinctNormal = AggregateFunctionDistinct<Output, false>;
 };
 
-template <typename T>
-using AggregateFunctionDistinctNumeric = Reducer<T>::AggregateFunctionDistinctNormal;
+template <PrimitiveType T>
+using AggregateFunctionDistinctNumeric = typename Reducer<T>::AggregateFunctionDistinctNormal;
 
 class AggregateFunctionCombinatorDistinct final : public IAggregateFunctionCombinator {
 public:
@@ -55,7 +55,7 @@ public:
 
     AggregateFunctionPtr transform_aggregate_function(
             const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
-            const bool result_is_nullable) const override {
+            const bool result_is_nullable, const AggregateFunctionAttr& attr) const override {
         DCHECK(nested_function != nullptr);
         if (nested_function == nullptr) {
             return nullptr;
@@ -64,19 +64,19 @@ public:
         if (arguments.size() == 1) {
             AggregateFunctionPtr res(
                     creator_with_numeric_type::create<AggregateFunctionDistinctNumeric>(
-                            arguments, result_is_nullable, nested_function));
+                            arguments, result_is_nullable, attr, nested_function));
             if (res) {
                 return res;
             }
 
             res = creator_without_type::create<
                     AggregateFunctionDistinct<AggregateFunctionDistinctSingleGenericData>>(
-                    arguments, result_is_nullable, nested_function);
+                    arguments, result_is_nullable, attr, nested_function);
             return res;
         }
         return creator_without_type::create<
                 AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
-                arguments, result_is_nullable, nested_function);
+                arguments, result_is_nullable, attr, nested_function);
     }
 };
 
@@ -96,7 +96,7 @@ void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFact
         auto nested_function = factory.get(nested_function_name, transform_arguments, false,
                                            BeExecVersionManager::get_newest_version(), attr);
         return function_combinator->transform_aggregate_function(nested_function, types,
-                                                                 result_is_nullable);
+                                                                 result_is_nullable, attr);
     };
     factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX);
     factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX, true);

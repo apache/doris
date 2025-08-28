@@ -18,10 +18,6 @@
 package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.annotation.DependsRules;
-import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.properties.OrderSpec;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -37,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
@@ -55,8 +52,6 @@ import java.util.stream.Collectors;
  * step 2: sort PartitionKeyGroup with increasing order of tupleSize
  * step 3: for every WindowFrameGroup of each SortGroup, generate one PhysicalWindow node, with common PartitionKeys,
  *  OrderKeys, unique WindowFrame and a function list.
- * step 4: for each PhysicalWindow, generate RequiredProperties, including PartitionKey for DistributionSpec,
- *  and (PartitionKey + OrderKey) for OrderSpec.
  */
 @DependsRules({
     CheckAndStandardizeWindowFunctionAndFrame.class,
@@ -68,7 +63,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
     public Rule build() {
 
         return RuleType.LOGICAL_WINDOW_TO_PHYSICAL_WINDOW_RULE.build(
-            logicalWindow().when(LogicalWindow::isChecked).then(this::implement)
+            logicalWindow().then(this::implement)
         );
     }
 
@@ -100,10 +95,15 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
 
         Plan newRoot = logicalWindow.child();
         for (PartitionKeyGroup partitionKeyGroup : partitionKeyGroupList) {
-            for (OrderKeyGroup orderKeyGroup : partitionKeyGroup.groups) {
+            boolean isSkew = partitionKeyGroup.isSkew();
+            for (int i = 0; i < partitionKeyGroup.groups.size(); ++i) {
+                OrderKeyGroup orderKeyGroup = partitionKeyGroup.groups.get(i);
                 // in OrderKeyGroup, create PhysicalWindow for each WindowFrameGroup;
                 // each PhysicalWindow contains the same windowExpressions as WindowFrameGroup.groups
-                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup);
+                // 0 == i && isSkew is because within a partitionKeyGroup, only the bottom-level PhysicalWindow(i=0)
+                // can use the window skew optimization (local sort + shuffle + merge sort). Others cannot because
+                // within the partitionKeyGroup, shuffle isn't needed as the group by keys are identical.
+                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, 0 == i && isSkew);
             }
         }
         return (PhysicalWindow) newRoot;
@@ -113,75 +113,29 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
      * create PhysicalWindow and PhysicalSort
      * ******************************************************************************************** */
 
-    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup) {
+    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup, boolean isSkew) {
         // PhysicalSort node for orderKeys; if there exists no orderKey, newRoot = root
         // Plan newRoot = createPhysicalSortNode(root, orderKeyGroup, ctx);
         Plan newRoot = root;
 
-        // we will not add PhysicalSort in this step, but generate it if necessary with the ability of enforcer by
-        // setting RequiredProperties for PhysicalWindow
-        List<OrderKey> requiredOrderKeys = generateKeysNeedToBeSorted(orderKeyGroup);
-
         // PhysicalWindow nodes for each different window frame, so at least one PhysicalWindow node will be added
         for (WindowFrameGroup windowFrameGroup : orderKeyGroup.groups) {
-            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, requiredOrderKeys);
+            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, isSkew);
         }
 
         return newRoot;
     }
 
-    private List<OrderKey> generateKeysNeedToBeSorted(OrderKeyGroup orderKeyGroup) {
-        // all keys that need to be sorted, which includes BOTH partitionKeys and orderKeys from this group
-        List<OrderKey> keysNeedToBeSorted = Lists.newArrayList();
-
-        // used as SortNode.isAnalyticSort, but it is unnecessary to add it in LogicalSort
-        if (!orderKeyGroup.partitionKeys.isEmpty()) {
-            keysNeedToBeSorted.addAll(orderKeyGroup.partitionKeys.stream().map(partitionKey -> {
-                // todo: haven't support isNullFirst, and its default value is false(see AnalyticPlanner,
-                //  but in LogicalPlanBuilder, its default value is true)
-                return new OrderKey(partitionKey, true, false);
-            }).collect(Collectors.toList()));
-        }
-
-        if (!orderKeyGroup.orderKeys.isEmpty()) {
-            keysNeedToBeSorted.addAll(orderKeyGroup.orderKeys.stream()
-                    .map(OrderExpression::getOrderKey)
-                    .collect(Collectors.toList())
-            );
-        }
-        return keysNeedToBeSorted;
-    }
-
-    private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup,
-                                                      List<OrderKey> requiredOrderKeys) {
-        // requiredProperties:
-        //  Distribution: partitionKeys
-        //  Order: requiredOrderKeys
+    private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup, boolean isSkew) {
         LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root);
         PhysicalWindow<Plan> physicalWindow = new PhysicalWindow<>(
                 windowFrameGroup,
                 RequireProperties.followParent(),
                 tempLogicalWindow.getWindowExpressions(),
+                isSkew,
                 tempLogicalWindow.getLogicalProperties(),
                 root);
-
-        if (windowFrameGroup.partitionKeys.isEmpty() && requiredOrderKeys.isEmpty()) {
-            return physicalWindow.withRequirePropertiesAndChild(RequireProperties.of(PhysicalProperties.GATHER), root);
-        }
-
-        // todo: WFGs in the same OKG only need same RequiredProperties
-        PhysicalProperties properties;
-        if (windowFrameGroup.partitionKeys.isEmpty()) {
-            properties = PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(requiredOrderKeys));
-        } else {
-            properties = PhysicalProperties.createHash(
-                windowFrameGroup.partitionKeys, ShuffleType.REQUIRE);
-            // requiredOrderKeys contain partitionKeys, so there is no need to check if requiredOrderKeys.isEmpty()
-            properties = properties.withOrderSpec(new OrderSpec(requiredOrderKeys));
-        }
-
-        RequireProperties requireProperties = RequireProperties.of(properties);
-        return physicalWindow.withRequirePropertiesAndChild(requireProperties, root);
+        return (PhysicalWindow) physicalWindow.withChildren(ImmutableList.of(root));
     }
 
     /* ********************************************************************************************
@@ -436,6 +390,17 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
             return windowFrame;
         }
 
+        /**isSkew*/
+        public boolean isSkew() {
+            for (NamedExpression windowAlias : groups) {
+                WindowExpression window = (WindowExpression) (windowAlias.child(0));
+                if (window.isSkew()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
     }
 
     /**
@@ -488,6 +453,14 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                 .sum());
         }
 
+        public boolean isSkew() {
+            for (WindowFrameGroup windowFrameGroup : groups) {
+                if (windowFrameGroup.isSkew()) {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
     /**
@@ -516,6 +489,15 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                     .filter(expression -> otherPkg.partitionKeys.contains(expression))
                     .collect(ImmutableSet.toImmutableSet());
             groups.addAll(otherPkg.groups);
+        }
+
+        public boolean isSkew() {
+            for (OrderKeyGroup orderKeyGroup : groups) {
+                if (orderKeyGroup.isSkew()) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 

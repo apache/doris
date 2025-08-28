@@ -86,9 +86,9 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
 
             String command = sb.toString()
             logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            out = process.getText()
+            def process = command.execute()
+            def code = process.waitFor()
+            def out = process.getText()
             logger.info("Get compaction status: code=" + code + ", out=" + out)
             assertEquals(code, 0)
             def compactionStatus = parseJson(out.trim())
@@ -107,9 +107,9 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
-        code = process.waitFor()
-        out = process.getText()
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.getText()
         logger.info("Get tablet status:  =" + code + ", out=" + out)
         assertEquals(code, 0)
         def tabletStatus = parseJson(out.trim())
@@ -131,10 +131,10 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
                 `name` varchar(255) NULL,
                 `score` int(11) NULL
             ) ENGINE=OLAP
-            UNIQUE KEY(`id`)
+            DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false", "compaction_policy" = "time_series");
+            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "compaction_policy" = "time_series");
         """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
@@ -247,7 +247,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     try {
         GetDebugPoint().enableDebugPointForAllBEs("single_compaction_failed_get_peer");
         for (String id in follower_backend_id) {
-            out = triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
+            def out = triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
             assertTrue(out.contains("compaction task is successfully triggered") || out.contains("tablet don't have peer replica"));
         }
         checkFailedCompactionResult.call()
@@ -258,7 +258,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     try {
         GetDebugPoint().enableDebugPointForAllBEs("single_compaction_failed_get_peer_versions");
         for (String id in follower_backend_id) {
-            out = triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
+            def out = triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
             assertTrue(out.contains("compaction task is successfully triggered") || out.contains("tablet failed get peer versions"));
         }
         checkFailedCompactionResult.call()
@@ -269,7 +269,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     try {
         GetDebugPoint().enableDebugPointForAllBEs("single_compaction_failed_make_snapshot");
         for (String id in follower_backend_id) {
-            out = triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
+            def out = triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
             assertTrue(out.contains("compaction task is successfully triggered") || out.contains("failed snapshot"));
         }
         checkFailedCompactionResult.call()
@@ -280,7 +280,7 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     try {
         GetDebugPoint().enableDebugPointForAllBEs("single_compaction_failed_download_file");
         for (String id in follower_backend_id) {
-            out = triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
+            def out = triggerSingleCompaction(backendId_to_backendIP[id], backendId_to_backendHttpPort[id], tablet_id)
             assertTrue(out.contains("compaction task is successfully triggered") || out.contains("failed to download file"));
         }
         checkFailedCompactionResult.call()
@@ -319,6 +319,6 @@ suite("test_single_compaction_fault_injection", "p2, nonConcurrent") {
     checkSucceedCompactionResult.call()
 
     qt_sql """
-    select * from  ${tableName} order by id
+    select * from  ${tableName} order by id, name, score
     """
 }

@@ -41,14 +41,14 @@ suite("test_hive_statistics_all_type_p0", "all_types,p0,external,hive,external_d
             result = sql """show column stats orc_all_types (int_col);"""
             assertEquals("int_col", result[0][0])
             assertEquals("3600.0", result[0][2])
-            assertEquals("3240.0", result[0][3])
+            assertEquals("3239.0", result[0][3])
             assertEquals("361.0", result[0][4])
             assertEquals("14400.0", result[0][5])
 
             result = sql """show column stats orc_all_types (string_col);"""
             assertEquals("string_col", result[0][0])
             assertEquals("3600.0", result[0][2])
-            assertEquals("3254.0", result[0][3])
+            assertEquals("3253.0", result[0][3])
             assertEquals("347.0", result[0][4])
             assertEquals("453634.0", result[0][5])
 

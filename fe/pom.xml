@@ -216,17 +216,17 @@ under the License.
     </build>
     <modules>
         <module>fe-common</module>
-        <module>spark-dpp</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>2.1.4</doris.hive.catalog.shade.version>
-        <avro.version>1.11.4</avro.version>
-        <parquet.version>1.13.1</parquet.version>
+        <doris.hive.catalog.shade.version>3.0.1</doris.hive.catalog.shade.version>
+        <!-- iceberg 1.9.1 depends avro on 1.12 -->
+        <avro.version>1.12.0</avro.version>
+        <parquet.version>1.15.2</parquet.version>
         <spark.version>3.4.3</spark.version>
-        <hudi.version>0.15.0</hudi.version>
+        <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
         <gcs.dependency.scope>compile</gcs.dependency.scope>
@@ -253,7 +253,8 @@ under the License.
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
         <commons-text.version>1.10.0</commons-text.version>
-        <commons-validator.version>1.7</commons-validator.version>
+        <commons-math3.version>3.6.1</commons-math3.version>
+        <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
         <guava.version>33.2.1-jre</guava.version>
         <jackson.version>2.16.0</jackson.version>
@@ -264,11 +265,12 @@ under the License.
         <jflex.version>1.4.3</jflex.version>
         <jmockit.version>1.49</jmockit.version>
         <commons-io.version>2.18.0</commons-io.version>
+        <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
-        <tomcat-embed-core.version>8.5.86</tomcat-embed-core.version>
+        <tomcat-embed.version>9.0.104</tomcat-embed.version>
         <log4j2.version>2.18.0</log4j2.version>
         <log4j-1.2.version>2.18.0</log4j-1.2.version>
         <slf4j.version>2.0.6</slf4j.version>
@@ -318,8 +320,10 @@ under the License.
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>1.6.1</iceberg.version>
+        <iceberg.version>1.9.1</iceberg.version>
         <maxcompute.version>0.49.0-public</maxcompute.version>
+        <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
+         https://github.com/apache/doris/pull/51217-->
         <arrow.version>17.0.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
@@ -339,6 +343,7 @@ under the License.
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <hadoop.version>3.3.6</hadoop.version>
+        <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_7.version>1.1.1</hadoop.thirdparty.protobuf_3_7.version>
         <hbase.version>2.4.9</hbase.version>
@@ -365,7 +370,7 @@ under the License.
         <quartz.version>2.3.2</quartz.version>
         <aircompressor.version>0.27</aircompressor.version>
         <!-- paimon -->
-        <paimon.version>1.0.1</paimon.version>
+        <paimon.version>1.1.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
@@ -376,12 +381,13 @@ under the License.
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
-        <azure.sdk.version>1.2.30</azure.sdk.version>
+        <azure.sdk.version>1.2.36</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
         <awssdk.version>2.29.26</awssdk.version>
         <s3tables.catalog.version>0.1.4</s3tables.catalog.version>
+        <mockito.version>4.11.0</mockito.version>
     </properties>
     <profiles>
         <profile>
@@ -628,6 +634,11 @@ under the License.
                 </exclusions>
             </dependency>
             <dependency>
+                <groupId>com.google.re2j</groupId>
+                <artifactId>re2j</artifactId>
+                <version>${re2j.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-client-api</artifactId>
                 <version>${hadoop.version}</version>
@@ -739,11 +750,6 @@ under the License.
                 <artifactId>fe-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>spark-dpp</artifactId>
-                <version>${project.version}</version>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/cglib/cglib -->
             <dependency>
                 <groupId>cglib</groupId>
@@ -762,7 +768,11 @@ under the License.
                 <artifactId>commons-cli</artifactId>
                 <version>${commons-cli.version}</version>
             </dependency>
-
+            <dependency>
+                <groupId>commons-beanutils</groupId>
+                <artifactId>commons-beanutils</artifactId>
+                <version>${commons-beanutils.version}</version>
+            </dependency>
             <dependency>
                 <groupId>commons-fileupload</groupId>
                 <artifactId>commons-fileupload</artifactId>
@@ -792,6 +802,12 @@ under the License.
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
                 <version>${commons-lang3.version}</version>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-math3 -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-math3</artifactId>
+                <version>${commons-math3.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-pool2 -->
             <dependency>
@@ -1161,58 +1177,6 @@ under the License.
                 <artifactId>RoaringBitmap</artifactId>
                 <version>${RoaringBitmap.version}</version>
             </dependency>
-            <!-- spark -->
-            <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-core_2.12 -->
-            <dependency>
-                <groupId>org.apache.spark</groupId>
-                <artifactId>spark-core_2.12</artifactId>
-                <version>${spark.version}</version>
-                <scope>provided</scope>
-                <exclusions>
-                    <exclusion>
-                        <groupId>log4j</groupId>
-                        <artifactId>log4j</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.slf4j</groupId>
-                        <artifactId>slf4j-log4j12</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.eclipse.jetty</groupId>
-                        <artifactId>jetty-util</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>io.netty</groupId>
-                        <artifactId>netty</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-launcher_2.12 -->
-            <dependency>
-                <groupId>org.apache.spark</groupId>
-                <artifactId>spark-launcher_2.12</artifactId>
-                <version>${spark.version}</version>
-                <scope>provided</scope>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
-            <dependency>
-                <groupId>org.apache.spark</groupId>
-                <artifactId>spark-sql_2.12</artifactId>
-                <version>${spark.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.apache.arrow</groupId>
-                        <artifactId>arrow-vector</artifactId>
-                    </exclusion>
-                </exclusions>
-                <scope>provided</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.spark</groupId>
-                <artifactId>spark-tags_2.12</artifactId>
-                <version>${spark.version}</version>
-                <scope>provided</scope>
-            </dependency>
 
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -1500,6 +1464,11 @@ under the License.
                 <version>${aws-java-sdk.version}</version>
             </dependency>
             <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-sts</artifactId>
+                <version>${aws-java-sdk.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.mariadb.jdbc</groupId>
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
@@ -1563,8 +1532,8 @@ under the License.
             <!--tomcat-->
             <dependency>
                 <groupId>org.apache.tomcat.embed</groupId>
-                <artifactId>tomcat-embed-core</artifactId>
-                <version>${tomcat-embed-core.version}</version>
+                <artifactId>tomcat-embed-el</artifactId>
+                <version>${tomcat-embed.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
@@ -1696,6 +1665,16 @@ under the License.
                 <groupId>org.semver4j</groupId>
                 <artifactId>semver4j</artifactId>
                 <version>${semver4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>${mockito.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-inline</artifactId>
+                <version>${mockito.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

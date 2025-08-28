@@ -22,11 +22,16 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -37,17 +42,26 @@ import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -649,7 +663,12 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testCreateRepository() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "create repository a with S3 on location 's3://xxx' properties('k'='v')";
+        String sql = "create repository a with S3 on location 's3://s3-repo' "
+                + "properties("
+                + "'AWS_ENDPOINT' = 'http://s3.us-east-1.amazonaws.com',"
+                + "'AWS_ACCESS_KEY' = 'akk',"
+                + "'AWS_SECRET_KEY'='skk',"
+                + "'AWS_REGION' = 'us-east-1')";
         nereidsParser.parseSingle(sql);
     }
 
@@ -704,6 +723,56 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    void testQueryOrganization() {
+        NereidsParser nereidsParser = new NereidsParser();
+        // legacy behavior
+        GlobalVariable.enable_ansi_query_organization_behavior = false;
+        checkQueryTopPlanClass("SELECT 1 ORDER BY 1",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT 1 LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("SELECT 1 UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("(SELECT 1 UNION ALL SELECT 1) LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("SELECT 1 UNION ALL (SELECT 1 LIMIT 1)",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("SELECT 1 ORDER BY 1 UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("(SELECT 1 ORDER BY 1) UNION ALL (SELECT 1 LIMIT 1)",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("(SELECT 1 ORDER BY 1) UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalUnion.class);
+
+        GlobalVariable.enable_ansi_query_organization_behavior = true;
+        checkQueryTopPlanClass("SELECT 1 ORDER BY 1",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT 1 LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("SELECT 1 UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("(SELECT 1 UNION ALL SELECT 1) LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+        checkQueryTopPlanClass("SELECT 1 UNION ALL (SELECT 1 LIMIT 1)",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("SELECT 1 ORDER BY 1 UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, null);
+        checkQueryTopPlanClass("(SELECT 1 ORDER BY 1) UNION ALL (SELECT 1 LIMIT 1)",
+                nereidsParser, LogicalUnion.class);
+        checkQueryTopPlanClass("(SELECT 1 ORDER BY 1) UNION ALL SELECT 1 LIMIT 1",
+                nereidsParser, LogicalLimit.class);
+    }
+
+    private void checkQueryTopPlanClass(String sql, NereidsParser parser, Class<?> clazz) {
+        if (clazz == null) {
+            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
+        } else {
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertInstanceOf(clazz, logicalPlan.child(0));
+        }
+    }
+
+    @Test
     public void testBlockSqlAst() {
         String sql = "plan replayer dump select `AD``D` from t1 where a = 1";
         NereidsParser nereidsParser = new NereidsParser();
@@ -735,5 +804,271 @@ public class NereidsParserTest extends ParserTestBase {
         } catch (Exception ex) {
             Assertions.fail(ex);
         }
+    }
+
+    @Test
+    public void testExpressionWithOrder() {
+        NereidsParser nereidsParser = new NereidsParser();
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b ASC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b ASC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b ASC",
+                nereidsParser, LogicalSort.class);
+
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b",
+                nereidsParser, LogicalAggregate.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b WITH ROLLUP",
+                nereidsParser, LogicalRepeat.class);
+    }
+
+    @Test
+    public void testGroupConcat() {
+        NereidsParser parser = new NereidsParser();
+        List<String> validSql = Lists.newArrayList(
+                "SELECT GROUP_CONCAT(ALL 'x', 'y' ORDER BY 'z' ASC, 'a' DESC, 'b')",
+                "SELECT GROUP_CONCAT(ALL 'x' ORDER BY 'z' ASC, 'a' DESC, 'b' SEPARATOR 'y')"
+        );
+
+        for (String sql : validSql) {
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertEquals(1, ((UnboundOneRowRelation) logicalPlan.child(0)).getProjects().size(), sql);
+            Expression expression = ((UnboundOneRowRelation) logicalPlan.child(0)).getProjects().get(0).child(0);
+            Assertions.assertInstanceOf(UnboundFunction.class, expression);
+            UnboundFunction unboundFunction = (UnboundFunction) expression;
+            Assertions.assertFalse(unboundFunction.isDistinct());
+            Assertions.assertEquals(5, unboundFunction.arity());
+            Assertions.assertEquals("x", ((StringLikeLiteral) unboundFunction.getArgument(0)).getStringValue());
+            Assertions.assertEquals("y", ((StringLikeLiteral) unboundFunction.getArgument(1)).getStringValue());
+            Assertions.assertEquals("z", ((StringLikeLiteral) ((OrderExpression) unboundFunction.getArgument(2)).getOrderKey().getExpr()).getStringValue());
+            Assertions.assertTrue(((OrderExpression) unboundFunction.getArgument(2)).getOrderKey().isAsc());
+            Assertions.assertEquals("a", ((StringLikeLiteral) ((OrderExpression) unboundFunction.getArgument(3)).getOrderKey().getExpr()).getStringValue());
+            Assertions.assertFalse(((OrderExpression) unboundFunction.getArgument(3)).getOrderKey().isAsc());
+            Assertions.assertEquals("b", ((StringLikeLiteral) ((OrderExpression) unboundFunction.getArgument(4)).getOrderKey().getExpr()).getStringValue());
+            Assertions.assertTrue(((OrderExpression) unboundFunction.getArgument(4)).getOrderKey().isAsc());
+        }
+    }
+
+    @Test
+    public void testTrim() {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        sql = "trim('1', '2')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("trim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim('2' from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("trim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim(both '2' from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("trim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim(leading '2' from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("ltrim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim(trailing '2' from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("rtrim", unboundFunction.getName());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("2", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        sql = "trim(both from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("trim", unboundFunction.getName());
+        Assertions.assertEquals(1, unboundFunction.arity());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+
+        sql = "trim(leading from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("ltrim", unboundFunction.getName());
+        Assertions.assertEquals(1, unboundFunction.arity());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+
+        sql = "trim(trailing from '1')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("rtrim", unboundFunction.getName());
+        Assertions.assertEquals(1, unboundFunction.arity());
+        Assertions.assertEquals("1", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(invalid '2' from '1')"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(invalid '2' '1')"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(from '1')"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(both '1')"));
+    }
+
+    @Test
+    public void testNoBackSlashEscapes() {
+        testNoBackSlashEscapes("''", "", "");
+        testNoBackSlashEscapes("\"\"", "", "");
+
+        testNoBackSlashEscapes("''''", "'", "'");
+        testNoBackSlashEscapes("\"\"\"\"", "\"", "\"");
+
+        testNoBackSlashEscapes("\"\\\\n\"", "\\\\n", "\\n");
+        testNoBackSlashEscapes("\"\\t\"", "\\t", "\t");
+
+        testNoBackSlashEscapes("'\\'''", "\\'", null);
+        testNoBackSlashEscapes("'\\''", null, "'");
+        testNoBackSlashEscapes("'\\\\''", null, null);
+
+        testNoBackSlashEscapes("'\\\"\"'", "\\\"\"", "\"\"");
+        testNoBackSlashEscapes("'\\\"'", "\\\"", "\"");
+        testNoBackSlashEscapes("'\\\\\"'", "\\\\\"", "\\\"");
+
+        testNoBackSlashEscapes("\"\\''\"", "\\''", "''");
+        testNoBackSlashEscapes("\"\\'\"", "\\'", "'");
+        testNoBackSlashEscapes("\"\\\\'\"", "\\\\'", "\\'");
+
+        testNoBackSlashEscapes("\"\\\"\"\"", "\\\"", null);
+        testNoBackSlashEscapes("\"\\\"\"", null, "\"");
+        testNoBackSlashEscapes("\"\\\\\"\"", null, null);
+    }
+
+    private void testNoBackSlashEscapes(String sql, String onResult, String offResult) {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // test on
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(true);
+            if (onResult == null) {
+                Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseExpression(sql),
+                        "should failed when NO_BACKSLASH_ESCAPES = 1: " + sql);
+            } else {
+                Assertions.assertEquals(onResult,
+                        ((StringLikeLiteral) nereidsParser.parseExpression(sql)).getStringValue());
+            }
+        }
+
+        // test off
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+            if (offResult == null) {
+                Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseExpression(sql),
+                        "should failed when NO_BACKSLASH_ESCAPES = 0: " + sql);
+            } else {
+                Assertions.assertEquals(offResult,
+                        ((StringLikeLiteral) nereidsParser.parseExpression(sql)).getStringValue());
+            }
+        }
+    }
+
+    @Test
+    public void testComment() {
+        NereidsParser parser = new NereidsParser();
+
+        List<String> validComments = Lists.newArrayList(
+                "SELECT 1 as a /* this is comment */, 1",
+                "SELECT 1 as a /* this is comment /* */ */, 1",
+                "SELECT 1 as a /* this is comment /* */, 1",
+                "SELECT 1 as a /* this is comment -- */, 1",
+                "SELECT 1 as a -- this is comment\n, 1",
+                "SELECT 1 as a, 1 -- this is comment\\n, 1"
+        );
+
+        for (String sql : validComments) {
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertEquals(2, ((UnboundOneRowRelation) logicalPlan.child(0)).getProjects().size(), sql);
+        }
+
+        List<String> invalidComments = Lists.newArrayList(
+                "SELECT 1 as a /* this is comment */*/, 1",
+                "SELECT 1 as a /* this is comment, 1"
+        );
+
+        for (String sql : invalidComments) {
+            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql), sql);
+        }
+    }
+
+    @Test
+    public void testLambdaSelect() {
+        parsePlan("SELECT  x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaGroupBy() {
+        parsePlan("SELECT 1 from ( select 2 ) t group by x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaSort() {
+        parsePlan("SELECT 1 from ( select 2 ) t order by x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaHaving() {
+        parsePlan("SELECT 1 from ( select 2 ) t having x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaJoin() {
+        parsePlan("SELECT 1 from ( select 2 as a1 ) t1 join ( select 2 as a2 ) as t2 on x -> x + 1 = t1.a1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
     }
 }

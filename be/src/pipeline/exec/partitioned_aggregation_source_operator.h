@@ -30,7 +30,8 @@ namespace pipeline {
 class PartitionedAggSourceOperatorX;
 class PartitionedAggLocalState;
 
-class PartitionedAggLocalState final : public PipelineXSpillLocalState<PartitionedAggSharedState> {
+class PartitionedAggLocalState MOCK_REMOVE(final)
+        : public PipelineXSpillLocalState<PartitionedAggSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(PartitionedAggLocalState);
     using Base = PipelineXSpillLocalState<PartitionedAggSharedState>;
@@ -58,7 +59,6 @@ protected:
     bool _current_partition_eos = true;
     bool _need_to_merge_data_for_current_partition = true;
 
-    std::shared_ptr<Dependency> _spill_dependency;
     std::vector<vectorized::Block> _blocks;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
@@ -74,7 +74,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
 

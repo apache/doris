@@ -26,32 +26,67 @@ namespace doris {
 
 bvar::Adder<int64_t> g_tablet_column_cache_count("tablet_column_cache_count");
 bvar::Adder<int64_t> g_tablet_column_cache_hit_count("tablet_column_cache_hit_count");
+bvar::Adder<int64_t> g_tablet_index_cache_count("tablet_index_cache_count");
+bvar::Adder<int64_t> g_tablet_index_cache_hit_count("tablet_index_cache_hit_count");
+
+template <typename T, typename CacheValueType>
+std::pair<Cache::Handle*, std::shared_ptr<T>> insert_impl(
+        TabletColumnObjectPool* pool, const std::string& key, const char* type_name,
+        bvar::Adder<int64_t>& cache_counter, bvar::Adder<int64_t>& hit_counter,
+        std::function<void(std::shared_ptr<T>, const std::string&)> init_from_pb) {
+    auto* lru_handle = pool->lookup(key);
+    std::shared_ptr<T> obj_ptr;
+
+    if (lru_handle) {
+        auto* value = reinterpret_cast<CacheValueType*>(pool->value(lru_handle));
+        obj_ptr = value->value;
+        VLOG_DEBUG << "reuse " << type_name;
+        hit_counter << 1;
+    } else {
+        auto* value = new CacheValueType;
+        obj_ptr = std::make_shared<T>();
+        init_from_pb(obj_ptr, key);
+        VLOG_DEBUG << "create " << type_name;
+        value->value = obj_ptr;
+        lru_handle = pool->LRUCachePolicy::insert(key, value, 1, 0, CachePriority::NORMAL);
+        cache_counter << 1;
+    }
+
+    DCHECK(lru_handle != nullptr);
+    return {lru_handle, obj_ptr};
+}
 
 std::pair<Cache::Handle*, TabletColumnPtr> TabletColumnObjectPool::insert(const std::string& key) {
-    auto* lru_handle = lookup(key);
-    TabletColumnPtr tablet_column_ptr;
-    if (lru_handle) {
-        auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
-        tablet_column_ptr = value->tablet_column;
-        VLOG_DEBUG << "reuse column ";
-        g_tablet_column_cache_hit_count << 1;
-    } else {
-        auto* value = new CacheValue;
-        tablet_column_ptr = std::make_shared<TabletColumn>();
-        ColumnPB pb;
-        pb.ParseFromString(key);
-        tablet_column_ptr->init_from_pb(pb);
-        VLOG_DEBUG << "create column ";
-        value->tablet_column = tablet_column_ptr;
-        lru_handle = LRUCachePolicy::insert(key, value, 1, 0, CachePriority::NORMAL);
-        g_tablet_column_cache_count << 1;
-    }
-    DCHECK(lru_handle != nullptr);
-    return {lru_handle, tablet_column_ptr};
+    return insert_impl<TabletColumn, CacheValue>(this, key, "column", g_tablet_column_cache_count,
+                                                 g_tablet_column_cache_hit_count,
+                                                 [](auto&& column, auto&& key) {
+                                                     ColumnPB pb;
+                                                     pb.ParseFromString(key);
+                                                     column->init_from_pb(pb);
+                                                 });
 }
 
-TabletColumnObjectPool::CacheValue::~CacheValue() {
-    g_tablet_column_cache_count << -1;
+std::pair<Cache::Handle*, TabletIndexPtr> TabletColumnObjectPool::insert_index(
+        const std::string& key) {
+    return insert_impl<TabletIndex, IndexCacheValue>(this, key, "index", g_tablet_index_cache_count,
+                                                     g_tablet_index_cache_hit_count,
+                                                     [](auto&& index, auto&& key) {
+                                                         TabletIndexPB index_pb;
+                                                         index_pb.ParseFromString(key);
+                                                         index->init_from_pb(index_pb);
+                                                     });
 }
+
+template <typename T>
+TabletColumnObjectPool::BaseCacheValue<T>::BaseCacheValue::~BaseCacheValue() {
+    if constexpr (std::is_same_v<T, TabletColumn>) {
+        g_tablet_column_cache_count << -1;
+    } else {
+        g_tablet_index_cache_count << -1;
+    }
+}
+
+template struct TabletColumnObjectPool::BaseCacheValue<TabletColumn>;
+template struct TabletColumnObjectPool::BaseCacheValue<TabletIndex>;
 
 } // namespace doris

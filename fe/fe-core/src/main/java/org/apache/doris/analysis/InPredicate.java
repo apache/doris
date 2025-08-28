@@ -25,9 +25,10 @@ import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Reference;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -165,83 +166,6 @@ public class InPredicate extends Predicate {
         return true;
     }
 
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        this.checkIncludeBitmap();
-
-        if (contains(Subquery.class)) {
-            // An [NOT] IN predicate with a subquery must contain two children, the second
-            // of
-            // which is a Subquery.
-            if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
-                throw new AnalysisException("Unsupported IN predicate with a subquery: " + toSql());
-            }
-            Subquery subquery = (Subquery) getChild(1);
-            if (!subquery.returnsScalarColumn()) {
-                throw new AnalysisException("Subquery must return a single column: " + subquery.toSql());
-            }
-
-            // Ensure that the column in the lhs of the IN predicate and the result of
-            // the subquery are type compatible. No need to perform any
-            // casting at this point. Any casting needed will be performed when the
-            // subquery is unnested.
-            ArrayList<Expr> subqueryExprs = subquery.getStatement().getResultExprs();
-            Expr compareExpr = children.get(0);
-            Expr subqueryExpr = subqueryExprs.get(0);
-            if (subqueryExpr.getType().isBitmapType()) {
-                if (!compareExpr.getType().isIntegerType()) {
-                    throw new AnalysisException(
-                            String.format("Incompatible return types '%s' and '%s' of exprs '%s' and '%s'.",
-                                    compareExpr.getType().toSql(), subqueryExpr.getType().toSql(), compareExpr.toSql(),
-                                    subqueryExpr.toSql()));
-                }
-                if (!compareExpr.getType().isBigIntType()) {
-                    children.set(0, compareExpr.castTo(Type.BIGINT));
-                }
-            } else {
-                analyzer.getCompatibleType(compareExpr.getType(), compareExpr, subqueryExpr);
-            }
-        } else {
-            analyzer.castAllToCompatibleType(children);
-        }
-
-        boolean allConstant = true;
-        for (int i = 1; i < children.size(); ++i) {
-            if (!children.get(i).isConstant()) {
-                allConstant = false;
-                break;
-            }
-        }
-        boolean useSetLookup = allConstant;
-        // Only lookup fn_ if all subqueries have been rewritten. If the second child is
-        // a
-        // subquery, it will have type ArrayType, which cannot be resolved to a builtin
-        // function and will fail analysis.
-        Type[] argTypes = { getChild(0).type, getChild(1).type };
-        if (useSetLookup) {
-            // fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_SET_LOOKUP :
-            // IN_SET_LOOKUP,
-            // argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
-        } else {
-            fn = getBuiltinFunction(isNotIn ? NOT_IN_ITERATE : IN_ITERATE,
-                    argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            opcode = isNotIn ? TExprOpcode.FILTER_NEW_NOT_IN : TExprOpcode.FILTER_NEW_IN;
-        }
-
-        Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
-        Reference<Integer> idxRef = new Reference<Integer>();
-        if (isSingleColumnPredicate(slotRefRef, idxRef)
-                && idxRef.getRef() == 0 && slotRefRef.getRef().getNumDistinctValues() > 0) {
-            selectivity = (double) (getChildren().size() - 1) / (double) slotRefRef.getRef()
-                    .getNumDistinctValues();
-            selectivity = Math.max(0.0, Math.min(1.0, selectivity));
-        } else {
-            selectivity = Expr.DEFAULT_SELECTIVITY;
-        }
-    }
-
     public InPredicate union(InPredicate inPredicate) {
         Preconditions.checkState(inPredicate.isLiteralChildren());
         Preconditions.checkState(this.isLiteralChildren());
@@ -265,8 +189,6 @@ public class InPredicate extends Predicate {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        // Can't serialize a predicate with a subquery
-        Preconditions.checkState(!contains(Subquery.class));
         msg.in_predicate = new TInPredicate(isNotIn);
         msg.node_type = TExprNodeType.IN_PRED;
         msg.setOpcode(opcode);
@@ -279,6 +201,21 @@ public class InPredicate extends Predicate {
         strBuilder.append(getChild(0).toSql() + " " + notStr + "IN (");
         for (int i = 1; i < children.size(); ++i) {
             strBuilder.append(getChild(i).toSql());
+            strBuilder.append((i + 1 != children.size()) ? ", " : "");
+        }
+        strBuilder.append(")");
+        return strBuilder.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        StringBuilder strBuilder = new StringBuilder();
+        String notStr = (isNotIn) ? "NOT " : "";
+        strBuilder.append(
+                getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "IN (");
+        for (int i = 1; i < children.size(); ++i) {
+            strBuilder.append(getChild(i).toSql(disableTableName, needExternalSql, tableType, table));
             strBuilder.append((i + 1 != children.size()) ? ", " : "");
         }
         strBuilder.append(")");

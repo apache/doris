@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "meta-service/keys.h"
+#include "meta-store/keys.h"
 
 #include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
@@ -29,6 +29,8 @@
 #include <vector>
 
 #include "common/util.h"
+#include "meta-store/codec.h"
+#include "meta-store/versionstamp.h"
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
@@ -42,6 +44,11 @@ static void remove_user_space_prefix(std::string_view* key_sv) {
 
 static void remove_system_space_prefix(std::string_view* key_sv) {
     ASSERT_EQ(key_sv->front(), 0x02);
+    key_sv->remove_prefix(1);
+}
+
+static void remove_versioned_space_prefix(std::string_view* key_sv) {
+    ASSERT_EQ(key_sv->front(), 0x03);
     key_sv->remove_prefix(1);
 }
 
@@ -1087,4 +1094,841 @@ TEST(KeysTest, MetaSchemaPBDictionaryTest) {
     EXPECT_EQ("tablet_schema_pb_dict", decoded_meta_prefix);
     EXPECT_EQ(instance_id, decoded_instance_id);
     EXPECT_EQ(index_id, decoded_index_id);
+}
+
+TEST(KeysTest, VersionedPartitionVersionKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t partition_id = 123456;
+
+    {
+        // test partition_version_key
+
+        // 0x03 "version" ${instance_id} "partition" ${partition_id} ${timestamp}   -> VersionPB
+        PartitionVersionKeyInfo partition_key {instance_id, partition_id};
+        std::string encoded_partition_key;
+        partition_version_key(partition_key, &encoded_partition_key);
+
+        std::string decoded_version_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_partition_prefix;
+        int64_t decoded_partition_id;
+
+        std::string_view key_sv(encoded_partition_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_version_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_partition_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_partition_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("version", decoded_version_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("partition", decoded_partition_prefix);
+        EXPECT_EQ(partition_id, decoded_partition_id);
+    }
+}
+
+TEST(KeysTest, VersionedTableVersionKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t table_id = 456;
+
+    {
+        // test table_version_key
+
+        // 0x03 "version" ${instance_id} "table" ${table_id} ${timestamp} -> ${empty_value}
+        TableVersionKeyInfo table_key {instance_id, table_id};
+        std::string encoded_table_key;
+        table_version_key(table_key, &encoded_table_key);
+
+        std::string decoded_version_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_table_prefix;
+        int64_t decoded_table_id;
+
+        std::string_view key_sv(encoded_table_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_version_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_table_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_table_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("version", decoded_version_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("table", decoded_table_prefix);
+        EXPECT_EQ(table_id, decoded_table_id);
+    }
+}
+
+TEST(KeysTest, VersionedPartitionIndexKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t partition_id = 789;
+
+    {
+        // test partition_index_key
+
+        // 0x03 "index" ${instance_id} "partition" ${partition_id} -> PartitionIndexPB
+        PartitionIndexKeyInfo partition_index_info {instance_id, partition_id};
+        std::string encoded_partition_index_key;
+        partition_index_key(partition_index_info, &encoded_partition_index_key);
+
+        std::string decoded_index_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_partition_prefix;
+        int64_t decoded_partition_id;
+
+        std::string_view key_sv(encoded_partition_index_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_index_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_partition_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_partition_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("index", decoded_index_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("partition", decoded_partition_prefix);
+        EXPECT_EQ(partition_id, decoded_partition_id);
+    }
+}
+
+TEST(KeysTest, VersionedPartitionInvertedIndexKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t db_id = 123;
+    int64_t table_id = 456;
+    int64_t partition_id = 999;
+
+    {
+        // test partition_inverted_index_key
+
+        // 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition} -> ${empty_value}
+        PartitionInvertedIndexKeyInfo partition_inverted_index_info {instance_id, db_id, table_id,
+                                                                     partition_id};
+        std::string encoded_partition_inverted_index_key;
+        partition_inverted_index_key(partition_inverted_index_info,
+                                     &encoded_partition_inverted_index_key);
+
+        std::string decoded_index_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_partition_inverted_prefix;
+        int64_t decoded_db_id;
+        int64_t decoded_table_id;
+        int64_t decoded_partition_id;
+
+        std::string_view key_sv(encoded_partition_inverted_index_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_index_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_partition_inverted_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_db_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_table_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_partition_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("index", decoded_index_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("partition_inverted", decoded_partition_inverted_prefix);
+        EXPECT_EQ(db_id, decoded_db_id);
+        EXPECT_EQ(table_id, decoded_table_id);
+        EXPECT_EQ(partition_id, decoded_partition_id);
+    }
+}
+
+TEST(KeysTest, VersionedTabletIndexKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t tablet_id = 789;
+
+    {
+        // test tablet_index_key
+
+        // 0x03 "index" ${instance_id} "tablet" ${tablet_id} -> TabletIndexPB
+        TabletIndexKeyInfo tablet_index_info {instance_id, tablet_id};
+        std::string encoded_tablet_index_key;
+        tablet_index_key(tablet_index_info, &encoded_tablet_index_key);
+
+        std::string decoded_index_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_tablet_prefix;
+        int64_t decoded_tablet_id;
+
+        std::string_view key_sv(encoded_tablet_index_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_index_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_tablet_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_tablet_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("index", decoded_index_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("tablet", decoded_tablet_prefix);
+        EXPECT_EQ(tablet_id, decoded_tablet_id);
+    }
+}
+
+TEST(KeysTest, VersionedTabletInvertedIndexKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t db_id = 123;
+    int64_t table_id = 456;
+    int64_t index_id = 789;
+    int64_t partition_id = 999;
+    int64_t tablet_id = 888;
+
+    {
+        // test tablet_inverted_index_key
+
+        // 0x03 "index" ${instance_id} "tablet_inverted" ${db_id} ${table_id} ${index_id} ${partition} ${tablet} -> ${empty_value}
+        TabletInvertedIndexKeyInfo tablet_inverted_index_info {
+                instance_id, db_id, table_id, index_id, partition_id, tablet_id};
+        std::string encoded_tablet_inverted_index_key;
+        tablet_inverted_index_key(tablet_inverted_index_info, &encoded_tablet_inverted_index_key);
+
+        std::string decoded_index_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_tablet_inverted_prefix;
+        int64_t decoded_db_id;
+        int64_t decoded_table_id;
+        int64_t decoded_index_id;
+        int64_t decoded_partition_id;
+        int64_t decoded_tablet_id;
+
+        std::string_view key_sv(encoded_tablet_inverted_index_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_index_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_tablet_inverted_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_db_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_table_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_index_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_partition_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_tablet_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("index", decoded_index_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("tablet_inverted", decoded_tablet_inverted_prefix);
+        EXPECT_EQ(db_id, decoded_db_id);
+        EXPECT_EQ(table_id, decoded_table_id);
+        EXPECT_EQ(index_id, decoded_index_id);
+        EXPECT_EQ(partition_id, decoded_partition_id);
+        EXPECT_EQ(tablet_id, decoded_tablet_id);
+    }
+}
+
+TEST(KeysTest, VersionedIndexIndexKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t index_id = 789;
+
+    {
+        // test index_index_key
+
+        // 0x03 "index" ${instance_id} "index" ${index_id} -> IndexIndexPB
+        IndexIndexKeyInfo index_index_info {instance_id, index_id};
+        std::string encoded_index_index_key;
+        index_index_key(index_index_info, &encoded_index_index_key);
+
+        std::string decoded_index_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_index_infix;
+        int64_t decoded_index_id;
+
+        std::string_view key_sv(encoded_index_index_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_index_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_index_infix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_index_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("index", decoded_index_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("index", decoded_index_infix);
+        EXPECT_EQ(index_id, decoded_index_id);
+    }
+}
+
+TEST(KeysTest, VersionedIndexInvertedKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t db_id = 123;
+    int64_t table_id = 456;
+    int64_t index_id = 789;
+
+    {
+        // test index_inverted_key
+
+        // 0x03 "index" ${instance_id} "index_inverted" ${db_id} ${table_id} ${index_id} -> ${empty_value}
+        IndexInvertedKeyInfo index_inverted_info {instance_id, db_id, table_id, index_id};
+        std::string encoded_index_inverted_key;
+        index_inverted_key(index_inverted_info, &encoded_index_inverted_key);
+
+        std::string decoded_index_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_index_inverted_prefix;
+        int64_t decoded_db_id;
+        int64_t decoded_table_id;
+        int64_t decoded_index_id;
+
+        std::string_view key_sv(encoded_index_inverted_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_index_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_index_inverted_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_db_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_table_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_index_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("index", decoded_index_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("index_inverted", decoded_index_inverted_prefix);
+        EXPECT_EQ(db_id, decoded_db_id);
+        EXPECT_EQ(table_id, decoded_table_id);
+        EXPECT_EQ(index_id, decoded_index_id);
+    }
+}
+
+TEST(KeysTest, VersionedTabletLoadStatsKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t tablet_id = 789;
+
+    {
+        // test tablet_load_stats_key
+
+        // 0x03 "stats" ${instance_id} "tablet_load" ${tablet_id} ${timestamp} -> TabletStatsPB
+        TabletLoadStatsKeyInfo tablet_load_stats_info {instance_id, tablet_id};
+        std::string encoded_tablet_load_stats_key;
+        tablet_load_stats_key(tablet_load_stats_info, &encoded_tablet_load_stats_key);
+
+        std::string decoded_stats_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_tablet_load_prefix;
+        int64_t decoded_tablet_id;
+
+        std::string_view key_sv(encoded_tablet_load_stats_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_stats_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_tablet_load_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_tablet_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("stats", decoded_stats_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("tablet_load", decoded_tablet_load_prefix);
+        EXPECT_EQ(tablet_id, decoded_tablet_id);
+    }
+}
+
+TEST(KeysTest, VersionedTabletCompactStatsKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t tablet_id = 789;
+
+    {
+        // test tablet_compact_stats_key
+
+        // 0x03 "stats" ${instance_id} "tablet_compact" ${tablet_id} ${timestamp} -> TabletStatsPB
+        TabletCompactStatsKeyInfo tablet_compact_stats_info {instance_id, tablet_id};
+        std::string encoded_tablet_compact_stats_key;
+        tablet_compact_stats_key(tablet_compact_stats_info, &encoded_tablet_compact_stats_key);
+
+        std::string decoded_stats_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_tablet_compact_prefix;
+        int64_t decoded_tablet_id;
+
+        std::string_view key_sv(encoded_tablet_compact_stats_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_stats_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_tablet_compact_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_tablet_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("stats", decoded_stats_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("tablet_compact", decoded_tablet_compact_prefix);
+        EXPECT_EQ(tablet_id, decoded_tablet_id);
+    }
+}
+
+TEST(KeysTest, VersionedMetaPartitionKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t partition_id = 789;
+
+    {
+        // test meta_partition_key
+
+        // 0x03 "meta" ${instance_id} "partition" ${partition_id} ${timestamp} -> ${empty_value}
+        MetaPartitionKeyInfo meta_partition_info {instance_id, partition_id};
+        std::string encoded_meta_partition_key;
+        meta_partition_key(meta_partition_info, &encoded_meta_partition_key);
+
+        std::string decoded_meta_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_partition_prefix;
+        int64_t decoded_partition_id;
+
+        std::string_view key_sv(encoded_meta_partition_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_meta_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_partition_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_partition_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("meta", decoded_meta_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("partition", decoded_partition_prefix);
+        EXPECT_EQ(partition_id, decoded_partition_id);
+    }
+}
+
+TEST(KeysTest, VersionedMetaIndexKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t index_id = 789;
+
+    {
+        // test meta_index_key
+
+        // 0x03 "meta" ${instance_id} "index" ${index_id} ${timestamp} -> ${empty_value}
+        MetaIndexKeyInfo meta_index_info {instance_id, index_id};
+        std::string encoded_meta_index_key;
+        meta_index_key(meta_index_info, &encoded_meta_index_key);
+
+        std::string decoded_meta_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_index_prefix;
+        int64_t decoded_index_id;
+
+        std::string_view key_sv(encoded_meta_index_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_meta_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_index_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_index_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("meta", decoded_meta_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("index", decoded_index_prefix);
+        EXPECT_EQ(index_id, decoded_index_id);
+    }
+}
+
+TEST(KeysTest, VersionedMetaTabletKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t tablet_id = 789;
+
+    {
+        // test meta_tablet_key
+
+        // 0x03 "meta" ${instance_id} "tablet" ${tablet_id} ${timestamp} -> TabletMetaPB
+        doris::cloud::versioned::MetaTabletKeyInfo meta_tablet_info {instance_id, tablet_id};
+        std::string encoded_meta_tablet_key;
+        meta_tablet_key(meta_tablet_info, &encoded_meta_tablet_key);
+
+        std::string decoded_meta_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_tablet_prefix;
+        int64_t decoded_tablet_id;
+
+        std::string_view key_sv(encoded_meta_tablet_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_meta_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_tablet_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_tablet_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("meta", decoded_meta_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("tablet", decoded_tablet_prefix);
+        EXPECT_EQ(tablet_id, decoded_tablet_id);
+    }
+}
+
+TEST(KeysTest, VersionedMetaSchemaKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t index_id = 789;
+    int64_t schema_version = 5;
+
+    {
+        // test meta_schema_key
+
+        // 0x03 "meta" ${instance_id} "schema" ${index_id} ${schema_version} -> TabletSchemaPB
+        doris::cloud::versioned::MetaSchemaKeyInfo meta_schema_info {instance_id, index_id,
+                                                                     schema_version};
+        std::string encoded_meta_schema_key;
+        meta_schema_key(meta_schema_info, &encoded_meta_schema_key);
+
+        std::string decoded_meta_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_schema_prefix;
+        int64_t decoded_index_id;
+        int64_t decoded_schema_version;
+
+        std::string_view key_sv(encoded_meta_schema_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_meta_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_schema_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_index_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_schema_version), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("meta", decoded_meta_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("schema", decoded_schema_prefix);
+        EXPECT_EQ(index_id, decoded_index_id);
+        EXPECT_EQ(schema_version, decoded_schema_version);
+    }
+}
+
+TEST(KeysTest, VersionedMetaRowsetLoadKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t tablet_id = 789;
+    int64_t version = 123;
+
+    {
+        // test meta_rowset_load_key
+
+        // 0x03 "meta" ${instance_id} "rowset_load" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
+        MetaRowsetLoadKeyInfo meta_rowset_load_info {instance_id, tablet_id, version};
+        std::string encoded_meta_rowset_load_key;
+        meta_rowset_load_key(meta_rowset_load_info, &encoded_meta_rowset_load_key);
+
+        std::string decoded_meta_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_rowset_load_prefix;
+        int64_t decoded_tablet_id;
+        int64_t decoded_version;
+
+        std::string_view key_sv(encoded_meta_rowset_load_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_meta_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_rowset_load_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_tablet_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_version), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("meta", decoded_meta_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("rowset_load", decoded_rowset_load_prefix);
+        EXPECT_EQ(tablet_id, decoded_tablet_id);
+        EXPECT_EQ(version, decoded_version);
+    }
+}
+
+TEST(KeysTest, VersionedMetaRowsetCompactKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t tablet_id = 789;
+    int64_t version = 123;
+
+    {
+        // test meta_rowset_compact_key
+
+        // 0x03 "meta" ${instance_id} "rowset_compact" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
+        MetaRowsetCompactKeyInfo meta_rowset_compact_info {instance_id, tablet_id, version};
+        std::string encoded_meta_rowset_compact_key;
+        meta_rowset_compact_key(meta_rowset_compact_info, &encoded_meta_rowset_compact_key);
+
+        std::string decoded_meta_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_rowset_compact_prefix;
+        int64_t decoded_tablet_id;
+        int64_t decoded_version;
+
+        std::string_view key_sv(encoded_meta_rowset_compact_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_meta_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_rowset_compact_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_tablet_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_version), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("meta", decoded_meta_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("rowset_compact", decoded_rowset_compact_prefix);
+        EXPECT_EQ(tablet_id, decoded_tablet_id);
+        EXPECT_EQ(version, decoded_version);
+    }
+}
+
+TEST(KeysTest, VersionedDataRowsetRefCountKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_int64;
+
+    std::string instance_id = "instance_id";
+    int64_t tablet_id = 789;
+    std::string rowset_id = "test_rowset_id";
+
+    {
+        // test data_rowset_key
+
+        // 0x03 "data" ${instance_id} "rowset" ${tablet_id} ${rowset_id} -> int64
+        DataRowsetRefCountKeyInfo data_rowset_info {instance_id, tablet_id, rowset_id};
+        std::string encoded_data_rowset_key;
+        data_rowset_ref_count_key(data_rowset_info, &encoded_data_rowset_key);
+
+        std::string decoded_data_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_rowset_prefix;
+        int64_t decoded_tablet_id;
+        std::string decoded_rowset_id;
+
+        std::string_view key_sv(encoded_data_rowset_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_data_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_rowset_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &decoded_tablet_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_rowset_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("data", decoded_data_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("rowset_ref_count", decoded_rowset_prefix);
+        EXPECT_EQ(tablet_id, decoded_tablet_id);
+        EXPECT_EQ(rowset_id, decoded_rowset_id);
+    }
+}
+
+TEST(KeysTest, VersionedSnapshotFullKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+
+    std::string instance_id = "instance_id";
+
+    {
+        // test snapshot_full_key
+
+        // 0x03 "snapshot" ${instance_id} "full" ${timestamp} -> SnapshotPB
+        SnapshotFullKeyInfo snapshot_full_info {instance_id};
+        std::string encoded_snapshot_full_key;
+        snapshot_full_key(snapshot_full_info, &encoded_snapshot_full_key);
+
+        std::string decoded_snapshot_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_full_prefix;
+
+        std::string_view key_sv(encoded_snapshot_full_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_snapshot_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_full_prefix), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("snapshot", decoded_snapshot_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("full", decoded_full_prefix);
+    }
+}
+
+TEST(KeysTest, VersionedSnapshotReferenceKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+    using doris::cloud::decode_versionstamp;
+    using doris::cloud::Versionstamp;
+
+    std::string instance_id = "instance_id";
+    Versionstamp timestamp(888, 99);
+    std::string ref_instance_id = "ref_instance_id";
+
+    {
+        // test snapshot_reference_key
+
+        // 0x03 "snapshot" ${instance_id} "reference" ${timestamp} ${instance_id} -> ${empty_value}
+        SnapshotReferenceKeyInfo snapshot_reference_info {instance_id, timestamp, ref_instance_id};
+        std::string encoded_snapshot_reference_key;
+        snapshot_reference_key(snapshot_reference_info, &encoded_snapshot_reference_key);
+
+        std::string decoded_snapshot_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_reference_prefix;
+        Versionstamp decoded_timestamp;
+        std::string decoded_ref_instance_id;
+
+        std::string_view key_sv(encoded_snapshot_reference_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_snapshot_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_reference_prefix), 0);
+        ASSERT_EQ(decode_versionstamp(&key_sv, &decoded_timestamp), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_ref_instance_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("snapshot", decoded_snapshot_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("reference", decoded_reference_prefix);
+        EXPECT_EQ(timestamp.version(), decoded_timestamp.version());
+        EXPECT_EQ(timestamp.order(), decoded_timestamp.order());
+        EXPECT_EQ(ref_instance_id, decoded_ref_instance_id);
+    }
+}
+
+TEST(KeysTest, VersionedLogKeyTest) {
+    using namespace doris::cloud::versioned;
+    using doris::cloud::decode_bytes;
+
+    std::string instance_id = "instance_id";
+
+    {
+        // test log_key
+
+        // 0x03 "log" ${instance_id} ${timestamp} -> OperationLogPB
+        LogKeyInfo log_info {instance_id};
+        std::string encoded_log_key;
+        log_key(log_info, &encoded_log_key);
+
+        std::string decoded_log_prefix;
+        std::string decoded_instance_id;
+
+        std::string_view key_sv(encoded_log_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_log_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("log", decoded_log_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+    }
+}
+
+TEST(KeysTest, RestoreJobKeysTest) {
+    using namespace doris::cloud;
+    std::string instance_id = "instance_id_deadbeef";
+
+    // 0x01 "job" ${instance_id} "restore_tablet" ${tablet_id}
+    {
+        int64_t tablet_id = 10086;
+        JobRestoreTabletKeyInfo tablet_key {instance_id, tablet_id};
+        std::string encoded_key;
+        job_restore_tablet_key(tablet_key, &encoded_key);
+        std::cout << hex(encoded_key) << std::endl;
+
+        std::string dec_job_prefix;
+        std::string dec_instance_id;
+        int64_t dec_tablet_id = 0;
+        std::string dec_restore_tablet_infix;
+
+        std::string_view key_sv(encoded_key);
+
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_job_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_restore_tablet_infix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_tablet_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("job", dec_job_prefix);
+        EXPECT_EQ("restore_tablet", dec_restore_tablet_infix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+        EXPECT_EQ(tablet_id, dec_tablet_id);
+    }
+
+    // 0x01 "job" ${instance_id} "restore_rowset" ${tablet_id} ${version}
+    {
+        int64_t tablet_id = 10086;
+        int64_t version = 100;
+        JobRestoreRowsetKeyInfo rowset_key {instance_id, tablet_id, version};
+        std::string encoded_key;
+        job_restore_rowset_key(rowset_key, &encoded_key);
+        std::cout << hex(encoded_key) << std::endl;
+
+        std::string dec_job_prefix;
+        std::string dec_instance_id;
+        std::string dec_restore_rowset_infix;
+        int64_t dec_tablet_id = 0;
+        int64_t dec_version = 0;
+
+        std::string_view key_sv(encoded_key);
+
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_job_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_restore_rowset_infix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_tablet_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_version), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("job", dec_job_prefix);
+        EXPECT_EQ("restore_rowset", dec_restore_rowset_infix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+        EXPECT_EQ(tablet_id, dec_tablet_id);
+        EXPECT_EQ(version, dec_version);
+
+        std::get<2>(rowset_key) = version + 1;
+        std::string encoded_key1;
+        job_restore_rowset_key(rowset_key, &encoded_key1);
+        std::cout << hex(encoded_key1) << std::endl;
+
+        ASSERT_GT(encoded_key1, encoded_key);
+    }
 }

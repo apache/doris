@@ -33,7 +33,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -51,6 +50,8 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+static constexpr int COMPRESS_STR_LENGTH = 4;
 
 class FunctionCompress : public IFunction {
 public:
@@ -103,17 +104,18 @@ public:
 
             // Z_MEM_ERROR and Z_BUF_ERROR are already handled in compress, making sure st is always Z_OK
             RETURN_IF_ERROR(compression_codec->compress(data, &compressed_str));
-            col_data.resize(col_data.size() + 4 + compressed_str.size());
+            col_data.resize(col_data.size() + COMPRESS_STR_LENGTH + compressed_str.size());
 
             std::memcpy(col_data.data() + idx, &length, sizeof(length));
-            idx += 4;
+            idx += COMPRESS_STR_LENGTH;
 
             // The length of compress_str is not known in advance, so it cannot be compressed directly into col_data
             unsigned char* src = compressed_str.data();
             for (size_t i = 0; i < compressed_str.size(); idx++, i++, src++) {
                 col_data[idx] = *src;
             }
-            col_offset[row] = col_offset[row - 1] + 10 + compressed_str.size();
+            col_offset[row] =
+                    col_offset[row - 1] + COMPRESS_STR_LENGTH + (int)compressed_str.size();
         }
 
         block.replace_by_position(result, std::move(result_column));
@@ -174,16 +176,16 @@ public:
             }
 
             union {
-                char bytes[4];
+                char bytes[COMPRESS_STR_LENGTH];
                 uint32_t value;
             } length;
-            std::memcpy(length.bytes, data.data, 4);
+            std::memcpy(length.bytes, data.data, COMPRESS_STR_LENGTH);
 
             size_t idx = col_data.size();
             col_data.resize(col_data.size() + length.value);
             uncompressed_slice = Slice(col_data.data() + idx, length.value);
 
-            Slice compressed_data(data.data + 4, data.size - 4);
+            Slice compressed_data(data.data + COMPRESS_STR_LENGTH, data.size - COMPRESS_STR_LENGTH);
             auto st = compression_codec->decompress(compressed_data, &uncompressed_slice);
 
             if (!st.ok()) {                                      // is not a legal compressed string
@@ -205,5 +207,5 @@ void register_function_compress(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCompress>();
     factory.register_function<FunctionUncompress>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

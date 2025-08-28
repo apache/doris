@@ -18,23 +18,24 @@
 package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergVendedCredentialsProvider;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -49,6 +50,7 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -56,6 +58,7 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
@@ -63,21 +66,21 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
-import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergScanNode extends FileQueryScanNode {
 
@@ -94,12 +97,20 @@ public class IcebergScanNode extends FileQueryScanNode {
     // But for part of splits which have no position/equality delete files, we can still do count push down opt.
     // And for split level count push down opt, the flag is set in each split.
     private boolean tableLevelPushDownCount = false;
+    private long countFromSnapshot;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private long targetSplitSize;
     private ConcurrentHashMap.KeySetView<Object, Boolean> partitionPathSet;
     private boolean isPartitionedTable;
     private int formatVersion;
-    private PreExecutionAuthenticator preExecutionAuthenticator;
+    private ExecutionAuthenticator preExecutionAuthenticator;
+    private TableScan icebergTableScan;
+
+    // for test
+    @VisibleForTesting
+    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
+        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, false, sv);
+    }
 
     /**
      * External file scan node for Query iceberg table
@@ -112,7 +123,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
-            source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange);
+            source = new IcebergHMSSource((HMSExternalTable) table, desc);
         } else if (table instanceof IcebergExternalTable) {
             String catalogType = ((IcebergExternalTable) table).getIcebergCatalogType();
             switch (catalogType) {
@@ -139,8 +150,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         partitionPathSet = ConcurrentHashMap.newKeySet();
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
-        preExecutionAuthenticator = source.getCatalog().getPreExecutionAuthenticator();
+        preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
         super.doInitialize();
+        ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
     }
 
     @Override
@@ -153,19 +165,19 @@ public class IcebergScanNode extends FileQueryScanNode {
     private void setIcebergParams(TFileRangeDesc rangeDesc, IcebergSplit icebergSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(icebergSplit.getTableFormatType().value());
+        if (tableLevelPushDownCount) {
+            tableFormatFileDesc.setTableLevelRowCount(icebergSplit.getTableLevelRowCount());
+        }
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         fileDesc.setFormatVersion(formatVersion);
         fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
-        if (tableLevelPushDownCount) {
-            fileDesc.setRowCount(icebergSplit.getTableLevelRowCount());
-        }
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
-                LocationPath locationPath = new LocationPath(deleteFilePath, icebergSplit.getConfig());
+                LocationPath locationPath = LocationPath.of(deleteFilePath, icebergSplit.getConfig());
                 deleteFileDesc.setPath(locationPath.toStorageLocation().toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
@@ -221,19 +233,21 @@ public class IcebergScanNode extends FileQueryScanNode {
     public void doStartSplit() throws UserException {
         TableScan scan = createTableScan();
         CompletableFuture.runAsync(() -> {
+            AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
             try {
                 preExecutionAuthenticator.execute(
                         () -> {
                             CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
+                            taskRef.set(fileScanTasks);
 
-                            // 1. this task should stop when all splits are assigned
-                            // 2. if we want to stop this plan, we can close the fileScanTasks to stop
-                            splitAssignment.addCloseable(fileScanTasks);
-
-                            fileScanTasks.forEach(fileScanTask ->
-                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(fileScanTask))));
-
-                            return null;
+                            CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
+                            while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
+                                try {
+                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(iterator.next())));
+                                } catch (UserException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            }
                         }
                 );
                 splitAssignment.finishSchedule();
@@ -244,17 +258,34 @@ public class IcebergScanNode extends FileQueryScanNode {
                 } else {
                     splitAssignment.setException(new UserException(e.getMessage(), e));
                 }
+            } finally {
+                if (taskRef.get() != null) {
+                    try {
+                        taskRef.get().close();
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                }
             }
-        });
+        }, Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
     }
 
-    private TableScan createTableScan() throws UserException {
+    @VisibleForTesting
+    public TableScan createTableScan() throws UserException {
+        if (icebergTableScan != null) {
+            return icebergTableScan;
+        }
+
         TableScan scan = icebergTable.newScan();
 
         // set snapshot
-        Long snapshotId = getSpecifiedSnapshot();
-        if (snapshotId != null) {
-            scan = scan.useSnapshot(snapshotId);
+        IcebergTableQueryInfo info = getSpecifiedSnapshot();
+        if (info != null) {
+            if (info.getRef() != null) {
+                scan = scan.useRef(info.getRef());
+            } else {
+                scan = scan.useSnapshot(info.getSnapshotId());
+            }
         }
 
         // set filter
@@ -270,9 +301,9 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
-        scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
 
-        return scan;
+        return icebergTableScan;
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
@@ -287,7 +318,8 @@ public class IcebergScanNode extends FileQueryScanNode {
             partitionPathSet.add(structLike.toString());
         }
         String originalPath = fileScanTask.file().path().toString();
-        LocationPath locationPath = new LocationPath(originalPath, source.getCatalog().getProperties());
+        LocationPath locationPath = LocationPath.of(originalPath,
+                source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
         IcebergSplit split = new IcebergSplit(
                 locationPath,
                 fileScanTask.start(),
@@ -295,7 +327,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 fileScanTask.file().fileSizeInBytes(),
                 new String[0],
                 formatVersion,
-                source.getCatalog().getProperties(),
+                source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
                 new ArrayList<>(),
                 originalPath);
         if (!fileScanTask.deletes().isEmpty()) {
@@ -312,58 +344,85 @@ public class IcebergScanNode extends FileQueryScanNode {
         List<Split> splits = new ArrayList<>();
 
         try (CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan)) {
-            fileScanTasks.forEach(taskGrp ->  {
-                Split split = createIcebergSplit(taskGrp);
-                splits.add(split);
-            });
+            if (tableLevelPushDownCount) {
+                int needSplitCnt = countFromSnapshot < COUNT_WITH_PARALLEL_SPLITS
+                        ? 1 : sessionVariable.getParallelExecInstanceNum() * numBackends;
+                for (FileScanTask next : fileScanTasks) {
+                    splits.add(createIcebergSplit(next));
+                    if (splits.size() >= needSplitCnt) {
+                        break;
+                    }
+                }
+                setPushDownCount(countFromSnapshot);
+                assignCountToSplits(splits, countFromSnapshot);
+                return splits;
+            } else {
+                fileScanTasks.forEach(taskGrp -> splits.add(createIcebergSplit(taskGrp)));
+            }
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
-        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT)) {
-            // we can create a special empty split and skip the plan process
-            if (splits.isEmpty()) {
-                return splits;
-            }
-            long countFromSnapshot = getCountFromSnapshot();
-            if (countFromSnapshot >= 0) {
-                tableLevelPushDownCount = true;
-                List<Split> pushDownCountSplits;
-                if (countFromSnapshot > COUNT_WITH_PARALLEL_SPLITS) {
-                    int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
-                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), minSplits));
-                } else {
-                    pushDownCountSplits = Collections.singletonList(splits.get(0));
-                }
-                assignCountToSplits(pushDownCountSplits, countFromSnapshot);
-                return pushDownCountSplits;
-            }
-        }
         selectedPartitionNum = partitionPathSet.size();
         return splits;
     }
 
     @Override
-    public boolean isBatchMode() {
-        // TODO Use a better judgment method to decide whether to use batch mode.
-        return sessionVariable.getNumPartitionsInBatchMode() > 1024;
+    public boolean isBatchMode() throws UserException {
+        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
+        if (aggOp.equals(TPushAggOp.COUNT)) {
+            countFromSnapshot = getCountFromSnapshot();
+            if (countFromSnapshot >= 0) {
+                tableLevelPushDownCount = true;
+                return false;
+            }
+        }
+
+        if (createTableScan().snapshot() == null) {
+            return false;
+        }
+
+        if (!sessionVariable.getEnableExternalTableBatchMode()) {
+            return false;
+        }
+
+        try {
+            return preExecutionAuthenticator.execute(() -> {
+                try (CloseableIterator<ManifestFile> matchingManifest =
+                        IcebergUtils.getMatchingManifest(
+                                createTableScan().snapshot().dataManifests(icebergTable.io()),
+                                icebergTable.specs(),
+                                createTableScan().filter()).iterator()) {
+                    int cnt = 0;
+                    while (matchingManifest.hasNext()) {
+                        ManifestFile next = matchingManifest.next();
+                        cnt += next.addedFilesCount() + next.existingFilesCount();
+                        if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            });
+        } catch (Exception e) {
+            Optional<NotSupportedException> opt = checkNotSupportedException(e);
+            if (opt.isPresent()) {
+                throw opt.get();
+            } else {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
+        }
     }
 
-    public Long getSpecifiedSnapshot() throws UserException {
+    public IcebergTableQueryInfo getSpecifiedSnapshot() throws UserException {
         TableSnapshot tableSnapshot = getQueryTableSnapshot();
-        if (tableSnapshot != null) {
-            TableSnapshot.VersionType type = tableSnapshot.getType();
-            try {
-                if (type == TableSnapshot.VersionType.VERSION) {
-                    return tableSnapshot.getVersion();
-                } else {
-                    long timestamp = TimeUtils.timeStringToLong(tableSnapshot.getTime(), TimeUtils.getTimeZone());
-                    return SnapshotUtil.snapshotIdAsOfTime(icebergTable, timestamp);
-                }
-            } catch (IllegalArgumentException e) {
-                throw new UserException(e);
-            }
+        TableScanParams scanParams = getScanParams();
+        Optional<TableScanParams> params = Optional.ofNullable(scanParams);
+        if (tableSnapshot != null || IcebergUtils.isIcebergBranchOrTag(params)) {
+            return IcebergUtils.getQuerySpecSnapshot(
+                icebergTable,
+                Optional.ofNullable(tableSnapshot),
+                params);
         }
         return null;
     }
@@ -430,30 +489,20 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() throws UserException {
-        return source.getCatalog().getCatalogProperty().getHadoopProperties();
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
+        return IcebergVendedCredentialsProvider.getBackendLocationProperties(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                icebergTable
+        );
     }
 
-    @Override
-    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
-        String aggFunctionName = aggExpr.getFnName().getFunction().toUpperCase();
-        return "COUNT".equals(aggFunctionName);
-    }
+    @VisibleForTesting
+    public long getCountFromSnapshot() throws UserException {
+        IcebergTableQueryInfo info = getSpecifiedSnapshot();
 
-    @Override
-    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
-        return !col.isAllowNull();
-    }
-
-    private long getCountFromSnapshot() {
-        Long specifiedSnapshot;
-        try {
-            specifiedSnapshot = getSpecifiedSnapshot();
-        } catch (UserException e) {
-            return -1;
-        }
-
-        Snapshot snapshot = specifiedSnapshot == null
-                ? icebergTable.currentSnapshot() : icebergTable.snapshot(specifiedSnapshot);
+        Snapshot snapshot = info == null
+                ? icebergTable.currentSnapshot() : icebergTable.snapshot(info.getSnapshotId());
 
         // empty table
         if (snapshot == null) {
@@ -474,11 +523,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     protected void toThrift(TPlanNode planNode) {
         super.toThrift(planNode);
-    }
-
-    @Override
-    public long getPushDownCount() {
-        return getCountFromSnapshot();
     }
 
     @Override

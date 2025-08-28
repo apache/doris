@@ -25,6 +25,8 @@ import org.apache.doris.thrift.TUnit;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -34,6 +36,7 @@ import java.util.HashMap;
 import java.util.Set;
 
 public class RuntimeProfileTest {
+    private static final Logger LOG = LogManager.getLogger(RuntimeProfileTest.class);
 
     @Test
     public void testSortChildren() {
@@ -110,9 +113,16 @@ public class RuntimeProfileTest {
     public void testUpdate() throws IOException {
         RuntimeProfile profile = new RuntimeProfile("REAL_ROOT");
         /*  the profile tree
-         *                      ROOT(time=5s info[key=value])
-         *                  A(time=2s)            B(time=1s info[BInfo1=BValu1;BInfo2=BValue2])
-         *       A_SON(time=10ms counter[counterA1=1; counterA2=2; counterA1Son=3])
+         REAL_ROOT:(ExecTime: 3sec0ms)
+                - key: value
+            A:(ExecTime: 1sec0ms)
+                ASON:(ExecTime: 10.0ms)
+                    - counterA1: 1
+                        - counterA1Son: 3
+                    - counterA2: 1.18 MB
+            B:(ExecTime: 1sec0ms)
+                - BInfo2: BValue2
+                - BInfo1: BValue1
          */
         TRuntimeProfileTree tprofileTree = new TRuntimeProfileTree();
         TRuntimeProfileNode tnodeRoot = new TRuntimeProfileNode();
@@ -171,5 +181,7 @@ public class RuntimeProfileTest {
         StringBuilder builder = new StringBuilder();
         profile.computeTimeInProfile();
         profile.prettyPrint(builder, "");
+
+        LOG.info("testUpdate profile:\n{}", builder.toString());
     }
 }

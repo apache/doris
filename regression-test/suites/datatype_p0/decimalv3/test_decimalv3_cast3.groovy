@@ -55,6 +55,10 @@ suite("test_decimalv3_cast3") {
     sql """
         insert into test_decimal32_to_integral_1 values (32768.123);
     """
+    def sessionVarOrigValue = sql("select @@enable_strict_cast")
+    sql """
+        set @@enable_strict_cast = true;
+    """
     test {
         sql """
         select cast(k1 as tinyint) from test_decimal32_to_integral_1 order by 1;
@@ -504,5 +508,13 @@ suite("test_decimalv3_cast3") {
         """
         exception "Arithmetic overflow"
     }
+    sql("set enable_strict_cast=${sessionVarOrigValue[0][0]}")
     sql "set enable_decimal256=false;"
+
+
+    sql """ set debug_skip_fold_constant = true;"""
+    qt_sql """ select -15687.000000000000000000 * 0.01100000000000000;  """
+    qt_sql """ select -15687.000000000000000000 * 0.011000000000000000;  """
+    qt_sql """ select -15687.000000000000000000 * 0.0110000000000000000;  """
+    sql """ set debug_skip_fold_constant = false;"""
 }

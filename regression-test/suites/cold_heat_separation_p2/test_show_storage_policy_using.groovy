@@ -120,7 +120,7 @@ suite("test_show_storage_policy_using") {
         );
     """
 
-    show_result = sql """
+    def show_result = sql """
         show storage policy using for ${policy_name}
     """
     assertEquals(show_result.size(), 2)
@@ -155,6 +155,17 @@ suite("test_show_storage_policy_using") {
         show storage policy using
     """
     assertTrue(show_result.size() >= 4)
+
+    // alter other property, will not cancel storage_policy
+    sql """ ALTER STORAGE POLICY ${policy_name} PROPERTIES("cooldown_ttl" = "1"); """
+    sql """
+        ALTER TABLE partition_with_multiple_storage_policy MODIFY PARTITION (`p201701`) SET ("replication_num"="1")
+    """
+    show_result = sql """
+        show storage policy using for ${policy_name}
+    """
+    assertEquals(show_result.size(), 2)
+    sql """ ALTER STORAGE POLICY ${policy_name} PROPERTIES("cooldown_ttl" = "300"); """
 
     // test cancel a partition's storage policy
     sql """

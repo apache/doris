@@ -100,6 +100,16 @@ public class FakeEditLog extends MockUp<EditLog> {
 
     }
 
+    @Mock
+    public void logAddBackend(Backend be) {
+        // do nothing for test
+    }
+
+    @Mock
+    public int getNumEditStreams() {
+        return 1; // fake that we have streams
+    }
+
     public TransactionState getTransaction(long transactionId) {
         return allTransactionState.get(transactionId);
     }

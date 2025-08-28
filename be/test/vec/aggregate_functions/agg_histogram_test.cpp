@@ -31,18 +31,17 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
 
 namespace doris::vectorized {
 
@@ -79,7 +78,7 @@ public:
 
             const IColumn* column[1] = {input_col.get()};
             for (int i = 0; i < input_col->size(); i++) {
-                agg_function->add(place, column, i, &_agg_arena_pool);
+                agg_function->add(place, column, i, _agg_arena_pool);
             }
 
             return;
@@ -105,7 +104,7 @@ public:
 
         const IColumn* column[2] = {columns[0].get(), columns[1].get()};
         for (int i = 0; i < input_rows; i++) {
-            agg_function->add(place, column, i, &_agg_arena_pool);
+            agg_function->add(place, column, i, _agg_arena_pool);
         }
     }
 
@@ -133,13 +132,13 @@ public:
         agg_function->serialize(place, buf_writer);
         buf_writer.commit();
         VectorBufferReader buf_reader(buf.get_data_at(0));
-        agg_function->deserialize(place, buf_reader, &_agg_arena_pool);
+        agg_function->deserialize(place, buf_reader, _agg_arena_pool);
 
         std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
         AggregateDataPtr place2 = memory2.get();
         agg_function->create(place2);
         agg_histogram_add_elements<DataType>(agg_function, place2, input_rows, max_num_buckets);
-        agg_function->merge(place, place2, &_agg_arena_pool);
+        agg_function->merge(place, place2, _agg_arena_pool);
 
         auto column_result1 = ColumnString::create();
         agg_function->insert_result_into(place, *column_result1);
@@ -218,7 +217,7 @@ TEST_F(VAggHistogramTest, test_empty) {
     test_agg_histogram<DataTypeDate>();
     test_agg_histogram<DataTypeDateTime>();
     test_agg_histogram<DataTypeString>();
-    test_agg_histogram<DataTypeDecimal<Decimal128V2>>();
+    test_agg_histogram<DataTypeDecimalV2>();
 }
 
 TEST_F(VAggHistogramTest, test_with_data) {
@@ -238,7 +237,7 @@ TEST_F(VAggHistogramTest, test_with_data) {
     test_agg_histogram<DataTypeDateTime>(100, 5);
     test_agg_histogram<DataTypeDateTimeV2>(100, 5);
 
-    test_agg_histogram<DataTypeDecimal<Decimal128V2>>(100, 5);
+    test_agg_histogram<DataTypeDecimalV2>(100, 5);
 }
 
 } // namespace doris::vectorized

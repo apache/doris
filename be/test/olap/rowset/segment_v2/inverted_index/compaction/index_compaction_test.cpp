@@ -59,7 +59,7 @@ protected:
 
         // set config
         config::inverted_index_dict_path =
-                _current_dir + "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
+                _current_dir + "/contrib/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
         config::enable_segcompaction = false;
         config::enable_ordered_data_compaction = false;
         config::total_permits_for_compaction_score = 200000;
@@ -1589,5 +1589,137 @@ TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_multiple_src_lucene_segments) {
     config::inverted_index_max_buffered_docs = 100;
     _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
     _run_normal_wiki_test();
+}
+
+TEST_F(IndexCompactionTest, test_inverted_index_ram_dir_disable) {
+    bool original_ram_dir_enable = config::inverted_index_ram_dir_enable;
+    config::inverted_index_ram_dir_enable = false;
+
+    _build_tablet();
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+    std::string data_file1 =
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+    std::string data_file2 =
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+    std::vector<std::string> data_files;
+    data_files.push_back(data_file1);
+    data_files.push_back(data_file2);
+
+    std::vector<RowsetSharedPtr> rowsets(data_files.size());
+    auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
+
+    auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
+        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 2);
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
+        EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
+    };
+
+    RowsetSharedPtr output_rowset_index;
+    auto st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                  output_rowset_index, custom_check_index);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    const auto& seg_path = output_rowset_index->segment_path(0);
+    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
+            output_rowset_index, seg_path.value(),
+            _tablet_schema->get_inverted_index_storage_format());
+
+    auto custom_check_normal = [](const BaseCompaction& compaction,
+                                  const RowsetWriterContext& ctx) {
+        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.empty());
+        EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
+    };
+
+    RowsetSharedPtr output_rowset_normal;
+    st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, false,
+                                             output_rowset_normal, custom_check_normal);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    const auto& seg_path_normal = output_rowset_normal->segment_path(0);
+    EXPECT_TRUE(seg_path_normal.has_value()) << seg_path_normal.error();
+    auto inverted_index_file_reader_normal = IndexCompactionUtils::init_index_file_reader(
+            output_rowset_normal, seg_path_normal.value(),
+            _tablet_schema->get_inverted_index_storage_format());
+
+    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
+    EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
+    auto dir_normal_compaction = inverted_index_file_reader_normal->_open(10001, "");
+    EXPECT_TRUE(dir_normal_compaction.has_value()) << dir_normal_compaction.error();
+    std::ostringstream oss;
+    IndexCompactionUtils::check_terms_stats(dir_idx_compaction->get(), oss);
+    std::string output = oss.str();
+    EXPECT_EQ(output, expected_output);
+    oss.str("");
+    oss.clear();
+    IndexCompactionUtils::check_terms_stats(dir_normal_compaction->get(), oss);
+    output = oss.str();
+    EXPECT_EQ(output, expected_output);
+
+    st = IndexCompactionUtils::check_idx_file_correctness(dir_idx_compaction->get(),
+                                                          dir_normal_compaction->get());
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    std::map<int, QueryData> query_map = {
+            {0, {{"99", "66", "56", "87", "85", "96", "20000"}, {21, 25, 22, 18, 14, 18, 0}}},
+            {3, {{"99", "66", "56", "87", "85", "96", "10000"}, {12, 20, 25, 23, 16, 24, 0}}},
+            {1, {{"good", "maybe", "great", "null"}, {197, 191, 194, 0}}},
+            {2, {{"musicstream.com", "http", "https", "null"}, {191, 799, 1201, 0}}}};
+    IndexCompactionUtils::check_meta_and_file(output_rowset_index, _tablet_schema, query_map);
+    IndexCompactionUtils::check_meta_and_file(output_rowset_normal, _tablet_schema, query_map);
+
+    config::inverted_index_ram_dir_enable = original_ram_dir_enable;
+}
+
+TEST_F(IndexCompactionTest, test_inverted_index_ram_dir_disable_with_debug_point) {
+    bool original_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    bool original_ram_dir_enable = config::inverted_index_ram_dir_enable;
+    config::inverted_index_ram_dir_enable = false;
+
+    _build_tablet();
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+    std::string data_file1 =
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+    std::string data_file2 =
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+    std::vector<std::string> data_files;
+    data_files.push_back(data_file1);
+    data_files.push_back(data_file2);
+
+    std::vector<RowsetSharedPtr> rowsets(data_files.size());
+    auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
+
+    DebugPoints::instance()->add("compact_column_delete_tmp_path_error");
+
+    auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
+        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 2);
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
+        EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
+    };
+
+    RowsetSharedPtr output_rowset_index;
+    auto st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                  output_rowset_index, custom_check_index);
+
+    EXPECT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), testing::HasSubstr("compact_column_delete_tmp_path_error"));
+
+    DebugPoints::instance()->remove("compact_column_delete_tmp_path_error");
+
+    config::inverted_index_ram_dir_enable = original_ram_dir_enable;
+    config::enable_debug_points = original_enable_debug_points;
 }
 } // namespace doris

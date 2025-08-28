@@ -17,12 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -73,23 +71,6 @@ public class VariableExpr extends Expr {
     @Override
     public Expr clone() {
         return new VariableExpr(this);
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (setType == SetType.USER) {
-            ConnectContext.get().fillValueForUserDefinedVar(this);
-        } else {
-            VariableMgr.fillValue(analyzer.getContext().getSessionVariable(), this);
-            if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
-                setType(Type.VARCHAR);
-                try {
-                    setStringValue(VariableVarConverters.decode(name, intValue));
-                } catch (DdlException e) {
-                    ErrorReport.reportAnalysisException(e.getMessage());
-                }
-            }
-        }
     }
 
     public String getName() {
@@ -190,6 +171,22 @@ public class VariableExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+        if (setType == SetType.USER) {
+            sb.append("@");
+        } else {
+            sb.append("@@");
+            if (setType == SetType.GLOBAL) {
+                sb.append("GLOBAL.");
+            }
+        }
+        sb.append(name);
+        return sb.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         StringBuilder sb = new StringBuilder();
         if (setType == SetType.USER) {
             sb.append("@");

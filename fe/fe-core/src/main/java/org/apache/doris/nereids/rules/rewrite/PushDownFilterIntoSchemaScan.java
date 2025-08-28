@@ -52,7 +52,7 @@ public class PushDownFilterIntoSchemaScan extends OneRewriteRuleFactory {
                 if (!(slot instanceof SlotReference)) {
                     continue;
                 }
-                Optional<Column> column = ((SlotReference) slot).getColumn();
+                Optional<Column> column = ((SlotReference) slot).getOriginalColumn();
                 if (!column.isPresent()) {
                     continue;
                 }

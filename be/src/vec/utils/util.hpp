@@ -51,7 +51,7 @@ public:
         return MutableBlock::build_mutable_block(block);
     }
     static MutableBlock build_mutable_mem_reuse_block(Block* block,
-                                                      std::vector<SlotDescriptor*>& slots) {
+                                                      const std::vector<SlotDescriptor*>& slots) {
         if (!block->mem_reuse()) {
             size_t column_size = slots.size();
             MutableColumns columns(column_size);
@@ -175,7 +175,7 @@ inline std::string remove_suffix(const std::string& name, const std::string& suf
 inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
     ColumnPtr res_data_column = ColumnUInt8::create(1, 1);
     if (is_nullable) {
-        auto null_map = ColumnVector<UInt8>::create(1, 0);
+        auto null_map = ColumnUInt8::create(1, 0);
         res_data_column = ColumnNullable::create(res_data_column, std::move(null_map));
     }
     return ColumnConst::create(std::move(res_data_column), size);

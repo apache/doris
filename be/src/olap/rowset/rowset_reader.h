@@ -83,7 +83,7 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
-    virtual bool update_profile(RuntimeProfile* profile) = 0;
+    virtual void update_profile(RuntimeProfile* profile) = 0;
 
     virtual RowsetReaderSharedPtr clone() = 0;
 

@@ -36,18 +36,20 @@ Usage: $0 <options>
      -c mysql,hive3     start MySQL and Hive3
      --stop             stop the specified components
      --reserve-ports    reserve host ports by setting 'net.ipv4.ip_local_reserved_ports' to avoid port already bind error
+     --no-load-data     do not load data into the components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul,ranger"
 COMPONENTS=$2
 HELP=0
 STOP=0
 NEED_RESERVE_PORTS=0
+export NEED_LOAD_DATA=1
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -55,6 +57,7 @@ if ! OPTS="$(getopt \
     -l 'help' \
     -l 'stop' \
     -l 'reserve-ports' \
+    -l 'no-load-data' \
     -o 'hc:' \
     -- "$@")"; then
     usage
@@ -86,6 +89,10 @@ else
             ;;
         --reserve-ports)
             NEED_RESERVE_PORTS=1
+            shift
+            ;;
+        --no-load-data)
+            export NEED_LOAD_DATA=0
             shift
             ;;
         --)
@@ -151,6 +158,7 @@ RUN_OCENABASE=0
 RUN_LAKESOUL=0
 RUN_KERBEROS=0
 RUN_MINIO=0
+RUN_RANGER=0
 
 RESERVED_PORTS="65535"
 
@@ -194,6 +202,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_KERBEROS=1
     elif [[ "${element}"x == "minio"x ]]; then
         RUN_MINIO=1
+    elif [[ "${element}"x == "ranger"x ]]; then
+        RUN_RANGER=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -450,11 +460,11 @@ start_iceberg() {
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
             cd "${ICEBERG_DIR}" \
-            && rm -f iceberg_data.zip \
-            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip \
-            && sudo unzip iceberg_data.zip \
+            && rm -f iceberg_data*.zip \
+            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data_paimon_101.zip \
+            && sudo unzip iceberg_data_paimon_101.zip \
             && sudo mv iceberg_data data \
-            && sudo rm -rf iceberg_data.zip
+            && sudo rm -rf iceberg_data_paimon_101.zip
             cd -
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
@@ -649,6 +659,19 @@ start_minio() {
     fi
 }
 
+start_ranger() {
+    echo "RUN_RANGER"
+    export CONTAINER_UID=${CONTAINER_UID}
+    find "${ROOT}/docker-compose/ranger/script" -type f -exec sed -i "s/s3Endpoint/${s3Endpoint}/g" {} \;
+    find "${ROOT}/docker-compose/ranger/script" -type f -exec sed -i "s/s3BucketName/${s3BucketName}/g" {} \;
+    . "${ROOT}/docker-compose/ranger/ranger_settings.env"
+    envsubst <"${ROOT}"/docker-compose/ranger/ranger.yaml.tpl >"${ROOT}"/docker-compose/ranger/ranger.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/ranger/ranger.yaml --env-file "${ROOT}"/docker-compose/ranger/ranger_settings.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -f "${ROOT}"/docker-compose/ranger/ranger.yaml --env-file "${ROOT}"/docker-compose/ranger/ranger_settings.env up -d --wait --remove-orphans
+    fi
+}
+
 echo "starting dockers in parallel"
 
 reserve_ports
@@ -716,7 +739,7 @@ if [[ "${RUN_SPARK}" -eq 1 ]]; then
 fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
-    start_iceberg > start_icerberg.log 2>&1 &
+    start_iceberg > start_iceberg.log 2>&1 &
     pids["iceberg"]=$!
 fi
 
@@ -750,6 +773,11 @@ if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     pids["kerberos"]=$!
 fi
 
+if [[ "${RUN_RANGER}" -eq 1 ]]; then
+    start_ranger > start_ranger.log 2>&1 &
+    pids["ranger"]=$!
+fi
+
 echo "waiting all dockers starting done"
 
 for compose in "${!pids[@]}"; do
@@ -763,12 +791,12 @@ for compose in "${!pids[@]}"; do
 
         echo ""
         echo "print last 100 logs of the latest unhealthy container"
-        docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
+        sudo docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
 
         exit 1
     fi
 done
 
 echo "docker started"
-docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
+sudo docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
 echo "all dockers started successfully"

@@ -41,6 +41,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(catalog_returns { customer_address { customer customer_demographics household_demographics } } date_dim call_center )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

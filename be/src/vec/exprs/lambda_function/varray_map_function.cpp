@@ -29,7 +29,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -77,17 +76,17 @@ public:
 
     std::string get_name() const override { return name; }
 
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id, const DataTypePtr& result_type,
-                          const VExprSPtrs& children) override {
-        LambdaArgs args;
+    Status execute(VExprContext* context, vectorized::Block* block, int* result_column_id,
+                   const DataTypePtr& result_type, const VExprSPtrs& children) override {
+        LambdaArgs args_info;
         // collect used slot ref in lambda function body
-        _collect_slot_ref_column_id(children[0], args);
+        std::vector<int>& output_slot_ref_indexs = args_info.output_slot_ref_indexs;
+        _collect_slot_ref_column_id(children[0], output_slot_ref_indexs);
 
         int gap = 0;
-        if (!args.output_slot_ref_indexs.empty()) {
-            auto max_id = std::max_element(args.output_slot_ref_indexs.begin(),
-                                           args.output_slot_ref_indexs.end());
+        if (!output_slot_ref_indexs.empty()) {
+            auto max_id =
+                    std::max_element(output_slot_ref_indexs.begin(), output_slot_ref_indexs.end());
             gap = *max_id + 1;
             _set_column_ref_column_id(children[0], gap);
         }
@@ -96,11 +95,11 @@ public:
         DataTypes data_types(gap);
 
         for (int i = 0; i < gap; ++i) {
-            if (_contains_column_id(args, i)) {
+            if (_contains_column_id(output_slot_ref_indexs, i)) {
                 names[i] = block->get_by_position(i).name;
                 data_types[i] = block->get_by_position(i).type;
             } else {
-                // padding some mock data
+                // padding some mock data to hold the position, like call block#rows function need
                 names[i] = "temp";
                 data_types[i] = std::make_shared<DataTypeUInt8>();
             }
@@ -134,8 +133,9 @@ public:
             auto type_array = array_column_type_name.type;
             if (type_array->is_nullable()) {
                 // get the nullmap of nullable column
-                const auto& column_array_nullmap =
-                        assert_cast<const ColumnNullable&>(*column_array).get_null_map_column();
+                // hold the null column instead of a reference 'cause `column_array` will be assigned and freed below.
+                auto column_array_nullmap =
+                        assert_cast<const ColumnNullable&>(*column_array).get_null_map_column_ptr();
 
                 // get the array column from nullable column
                 column_array = assert_cast<const ColumnNullable*>(column_array.get())
@@ -146,8 +146,9 @@ public:
                                      ->get_nested_type();
 
                 // need to union nullmap from all columns
-                VectorizedUtils::update_null_map(outside_null_map->get_data(),
-                                                 column_array_nullmap.get_data());
+                VectorizedUtils::update_null_map(
+                        outside_null_map->get_data(),
+                        assert_cast<const ColumnUInt8&>(*column_array_nullmap).get_data());
             }
 
             // here is the array column
@@ -160,7 +161,7 @@ public:
                 const auto& off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                         col_array.get_offsets_column());
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
-                args.offsets_ptr = &col_array.get_offsets();
+                args_info.offsets_ptr = &col_array.get_offsets();
             } else {
                 // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
                 // c_array1: [0,1,2,3,4,5,6,7,8,9]
@@ -184,57 +185,106 @@ public:
             data_types.push_back(col_type.get_nested_type());
         }
 
-        ColumnPtr result_col = nullptr;
+        ColumnWithTypeAndName result_arr;
+        // if column_array is NULL, we know the array_data_column will not write any data,
+        // so the column is empty. eg : (x) -> concat('|',x + "1"). if still execute the lambda function, will cause the bolck rows are not equal
+        // the x column is empty, but "|" is const literal, size of column is 1, so the block rows is 1, but the x column is empty, will be coredump.
+        if (std::any_of(lambda_datas.begin(), lambda_datas.end(),
+                        [](const auto& v) { return v->empty(); })) {
+            DataTypePtr nested_type;
+            bool is_nullable = result_type->is_nullable();
+            if (is_nullable) {
+                nested_type =
+                        assert_cast<const DataTypeNullable*>(result_type.get())->get_nested_type();
+            } else {
+                nested_type = result_type;
+            }
+            auto empty_nested_column = assert_cast<const DataTypeArray*>(nested_type.get())
+                                               ->get_nested_type()
+                                               ->create_column();
+            auto result_array_column = ColumnArray::create(std::move(empty_nested_column),
+                                                           std::move(array_column_offset));
+
+            if (is_nullable) {
+                result_arr = {ColumnNullable::create(std::move(result_array_column),
+                                                     std::move(outside_null_map)),
+                              result_type, "Result"};
+            } else {
+                result_arr = {std::move(result_array_column), result_type, "Result"};
+            }
+
+            block->insert(result_arr);
+            *result_column_id = block->columns() - 1;
+            return Status::OK();
+        }
+
+        MutableColumnPtr result_col = nullptr;
         DataTypePtr res_type;
         std::string res_name;
 
         //process first row
-        args.array_start = (*args.offsets_ptr)[args.current_row_idx - 1];
-        args.cur_size = (*args.offsets_ptr)[args.current_row_idx] - args.array_start;
+        args_info.array_start = (*args_info.offsets_ptr)[args_info.current_row_idx - 1];
+        args_info.cur_size =
+                (*args_info.offsets_ptr)[args_info.current_row_idx] - args_info.array_start;
 
-        while (args.current_row_idx < block->rows()) {
-            Block lambda_block;
-            for (int i = 0; i < names.size(); i++) {
-                ColumnWithTypeAndName data_column;
-                if (_contains_column_id(args, i) || i >= gap) {
-                    data_column = ColumnWithTypeAndName(data_types[i], names[i]);
+        // lambda block to exectute the lambda, and reuse the memory
+        Block lambda_block;
+        auto column_size = names.size();
+        MutableColumns columns(column_size);
+        do {
+            bool mem_reuse = lambda_block.mem_reuse();
+            for (int i = 0; i < column_size; i++) {
+                if (mem_reuse) {
+                    columns[i] = lambda_block.get_by_position(i).column->assume_mutable();
                 } else {
-                    data_column = ColumnWithTypeAndName(
-                            data_types[i]->create_column_const_with_default_value(0), data_types[i],
-                            names[i]);
+                    if (_contains_column_id(output_slot_ref_indexs, i) || i >= gap) {
+                        // TODO: maybe could create const column, so not insert_many_from when extand data
+                        // but now here handle batch_size of array nested data every time, so maybe have different rows
+                        columns[i] = data_types[i]->create_column();
+                    } else {
+                        columns[i] = data_types[i]
+                                             ->create_column_const_with_default_value(0)
+                                             ->assume_mutable();
+                    }
                 }
-                lambda_block.insert(std::move(data_column));
             }
-
-            MutableColumns columns = lambda_block.mutate_columns();
+            // batch_size of array nested data every time inorder to avoid memory overflow
             while (columns[gap]->size() < batch_size) {
                 long max_step = batch_size - columns[gap]->size();
-                long current_step =
-                        std::min(max_step, (long)(args.cur_size - args.current_offset_in_array));
-                size_t pos = args.array_start + args.current_offset_in_array;
-                for (int i = 0; i < arguments.size(); ++i) {
+                long current_step = std::min(
+                        max_step, (long)(args_info.cur_size - args_info.current_offset_in_array));
+                size_t pos = args_info.array_start + args_info.current_offset_in_array;
+                for (int i = 0; i < arguments.size() && current_step > 0; ++i) {
                     columns[gap + i]->insert_range_from(*lambda_datas[i], pos, current_step);
                 }
-                args.current_offset_in_array += current_step;
-                args.current_repeat_times += current_step;
-                if (args.current_offset_in_array >= args.cur_size) {
-                    args.current_row_eos = true;
+                args_info.current_offset_in_array += current_step;
+                args_info.current_repeat_times += current_step;
+                if (args_info.current_offset_in_array >= args_info.cur_size) {
+                    args_info.current_row_eos = true;
                 }
-                _extend_data(columns, block, args, gap);
-                if (args.current_row_eos) {
-                    args.current_row_idx++;
-                    args.current_offset_in_array = 0;
-                    if (args.current_row_idx >= block->rows()) {
+                _extend_data(columns, block, args_info.current_repeat_times, gap,
+                             args_info.current_row_idx, output_slot_ref_indexs);
+                args_info.current_repeat_times = 0;
+                if (args_info.current_row_eos) {
+                    //current row is end of array, move to next row
+                    args_info.current_row_idx++;
+                    args_info.current_offset_in_array = 0;
+                    if (args_info.current_row_idx >= block->rows()) {
                         break;
                     }
-                    args.current_row_eos = false;
-                    args.array_start = (*args.offsets_ptr)[args.current_row_idx - 1];
-                    args.cur_size = (*args.offsets_ptr)[args.current_row_idx] - args.array_start;
+                    args_info.current_row_eos = false;
+                    args_info.array_start = (*args_info.offsets_ptr)[args_info.current_row_idx - 1];
+                    args_info.cur_size = (*args_info.offsets_ptr)[args_info.current_row_idx] -
+                                         args_info.array_start;
                 }
             }
 
-            lambda_block.set_columns(std::move(columns));
-
+            if (!mem_reuse) {
+                for (int i = 0; i < column_size; ++i) {
+                    lambda_block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[i]),
+                                                                          data_types[i], names[i]));
+                }
+            }
             //3. child[0]->execute(new_block)
             RETURN_IF_ERROR(children[0]->execute(context, &lambda_block, result_column_id));
 
@@ -243,44 +293,44 @@ public:
             res_type = lambda_block.get_by_position(*result_column_id).type;
             res_name = lambda_block.get_by_position(*result_column_id).name;
             if (!result_col) {
-                result_col = std::move(res_col);
-            } else {
-                MutableColumnPtr column = (*std::move(result_col)).mutate();
-                column->insert_range_from(*res_col, 0, res_col->size());
+                result_col = res_col->clone_empty();
             }
-        }
+            result_col->insert_range_from(*res_col, 0, res_col->size());
+            lambda_block.clear_column_data(column_size);
+        } while (args_info.current_row_idx < block->rows());
 
         //4. get the result column after execution, reassemble it into a new array column, and return.
-        ColumnWithTypeAndName result_arr;
         if (result_type->is_nullable()) {
             if (res_type->is_nullable()) {
                 result_arr = {
-                        ColumnNullable::create(
-                                ColumnArray::create(result_col, std::move(array_column_offset)),
-                                std::move(outside_null_map)),
+                        ColumnNullable::create(ColumnArray::create(std::move(result_col),
+                                                                   std::move(array_column_offset)),
+                                               std::move(outside_null_map)),
                         result_type, res_name};
             } else {
                 // deal with eg: select array_map(x -> x is null, [null, 1, 2]);
                 // need to create the nested column null map for column array
                 auto nested_null_map = ColumnUInt8::create(result_col->size(), 0);
-                result_arr = {
-                        ColumnNullable::create(
-                                ColumnArray::create(ColumnNullable::create(
-                                                            result_col, std::move(nested_null_map)),
-                                                    std::move(array_column_offset)),
-                                std::move(outside_null_map)),
-                        result_type, res_name};
+                result_arr = {ColumnNullable::create(
+                                      ColumnArray::create(
+                                              ColumnNullable::create(std::move(result_col),
+                                                                     std::move(nested_null_map)),
+                                              std::move(array_column_offset)),
+                                      std::move(outside_null_map)),
+                              result_type, res_name};
             }
         } else {
             if (res_type->is_nullable()) {
-                result_arr = {ColumnArray::create(result_col, std::move(array_column_offset)),
-                              result_type, res_name};
+                result_arr = {
+                        ColumnArray::create(std::move(result_col), std::move(array_column_offset)),
+                        result_type, res_name};
             } else {
                 auto nested_null_map = ColumnUInt8::create(result_col->size(), 0);
-                result_arr = {ColumnArray::create(ColumnNullable::create(
-                                                          result_col, std::move(nested_null_map)),
-                                                  std::move(array_column_offset)),
-                              result_type, res_name};
+                result_arr = {
+                        ColumnArray::create(ColumnNullable::create(std::move(result_col),
+                                                                   std::move(nested_null_map)),
+                                            std::move(array_column_offset)),
+                        result_type, res_name};
             }
         }
         block->insert(std::move(result_arr));
@@ -290,10 +340,9 @@ public:
     }
 
 private:
-    bool _contains_column_id(LambdaArgs& args, int id) {
-        const auto it = std::find(args.output_slot_ref_indexs.begin(),
-                                  args.output_slot_ref_indexs.end(), id);
-        return it != args.output_slot_ref_indexs.end();
+    bool _contains_column_id(const std::vector<int>& output_slot_ref_indexs, int id) {
+        const auto it = std::find(output_slot_ref_indexs.begin(), output_slot_ref_indexs.end(), id);
+        return it != output_slot_ref_indexs.end();
     }
 
     void _set_column_ref_column_id(VExprSPtr expr, int gap) {
@@ -307,35 +356,34 @@ private:
         }
     }
 
-    void _collect_slot_ref_column_id(VExprSPtr expr, LambdaArgs& args) {
+    void _collect_slot_ref_column_id(VExprSPtr expr, std::vector<int>& output_slot_ref_indexs) {
         for (const auto& child : expr->children()) {
             if (child->is_slot_ref()) {
                 const auto* ref = static_cast<VSlotRef*>(child.get());
-                args.output_slot_ref_indexs.push_back(ref->column_id());
+                output_slot_ref_indexs.push_back(ref->column_id());
             } else {
-                _collect_slot_ref_column_id(child, args);
+                _collect_slot_ref_column_id(child, output_slot_ref_indexs);
             }
         }
     }
 
-    void _extend_data(std::vector<MutableColumnPtr>& columns, Block* block, LambdaArgs& args,
-                      int size) {
-        if (!args.current_repeat_times || !size) {
+    void _extend_data(std::vector<MutableColumnPtr>& columns, Block* block,
+                      int current_repeat_times, int size, int64_t current_row_idx,
+                      const std::vector<int>& output_slot_ref_indexs) {
+        if (!current_repeat_times || !size) {
             return;
         }
         for (int i = 0; i < size; i++) {
-            if (_contains_column_id(args, i)) {
+            if (_contains_column_id(output_slot_ref_indexs, i)) {
                 auto src_column =
                         block->get_by_position(i).column->convert_to_full_column_if_const();
-                columns[i]->insert_many_from(*src_column, args.current_row_idx,
-                                             args.current_repeat_times);
+                columns[i]->insert_many_from(*src_column, current_row_idx, current_repeat_times);
             } else {
                 // must be column const
                 DCHECK(is_column_const(*columns[i]));
-                columns[i]->resize(columns[i]->size() + args.current_repeat_times);
+                columns[i]->resize(columns[i]->size() + current_repeat_times);
             }
         }
-        args.current_repeat_times = 0;
     }
 };
 

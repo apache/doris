@@ -149,12 +149,6 @@ public:
         element.column = element.column->convert_to_full_column_if_const();
     }
 
-    void replace_if_overflow() {
-        for (auto& ele : data) {
-            ele.column = std::move(*ele.column).mutate()->convert_column_if_overflow();
-        }
-    }
-
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
@@ -189,8 +183,6 @@ public:
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
-    std::string each_col_size() const;
-
     // Cut the rows in block, use in LIMIT operation
     void set_num_rows(size_t length);
 
@@ -203,6 +195,8 @@ public:
 
     /// Checks that every column in block is not nullptr and has same number of elements.
     void check_number_of_rows(bool allow_null_columns = false) const;
+
+    Status check_type_and_column() const;
 
     /// Approximate number of bytes in memory - for profiling and limits.
     size_t bytes() const;
@@ -226,8 +220,6 @@ public:
     Columns get_columns() const;
     Columns get_columns_and_convert();
 
-    void set_columns(const Columns& columns);
-    Block clone_with_columns(const Columns& columns) const;
     Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
     /** Get empty columns with the same types as in block. */
@@ -239,9 +231,6 @@ public:
     /** Replace columns in a block */
     void set_columns(MutableColumns&& columns);
     Block clone_with_columns(MutableColumns&& columns) const;
-
-    /** Get a block with columns that have been rearranged in the order of their names. */
-    Block sort_columns() const;
 
     void clear();
     void swap(Block& other) noexcept;
@@ -275,17 +264,8 @@ public:
     std::string dump_data(size_t begin = 0, size_t row_limit = 100,
                           bool allow_null_mismatch = false) const;
 
-    static std::string dump_column(ColumnPtr col, DataTypePtr type) {
-        ColumnWithTypeAndName type_name {col, type, ""};
-        Block b {type_name};
-        return b.dump_data(0, b.rows());
-    }
-
     /** Get one line data from block, only use in load data */
     std::string dump_one_line(size_t row, int column_end) const;
-
-    // copy a new block by the offset column
-    Block copy_block(const std::vector<int>& column_offset) const;
 
     Status append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
@@ -399,10 +379,6 @@ public:
     }
 
     void clear_same_bit() { row_same_bit.clear(); }
-
-    // return string contains use_count() of each columns
-    // for debug purpose.
-    std::string print_use_count();
 
     // remove tmp columns in block
     // in inverted index apply logic, in order to optimize query performance,
@@ -530,7 +506,7 @@ public:
     std::string dump_types() const {
         std::string res;
         for (auto type : _data_types) {
-            if (res.size()) {
+            if (!res.empty()) {
                 res += ", ";
             }
             res += type->get_name();
@@ -577,7 +553,7 @@ public:
     template <typename T>
     [[nodiscard]] Status merge_impl(T&& block) {
         // merge is not supported in dynamic block
-        if (_columns.size() == 0 && _data_types.size() == 0) {
+        if (_columns.empty() && _data_types.empty()) {
             _data_types = block.get_data_types();
             _names = block.get_names();
             _columns.resize(block.columns());
@@ -630,8 +606,6 @@ public:
 
     void swap(MutableBlock& other) noexcept;
 
-    void swap(MutableBlock&& other) noexcept;
-
     void add_row(const Block* block, int row);
     // Batch add row should return error status if allocate memory failed.
     Status add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end,
@@ -652,8 +626,6 @@ public:
 
     // columns resist. columns' inner data removed.
     void clear_column_data() noexcept;
-    // reset columns by types and names.
-    void reset_column_data() noexcept;
 
     size_t allocated_bytes() const;
 

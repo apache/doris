@@ -27,15 +27,12 @@
 #include <thread>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "common/exception.h"
 #include "common/logging.h"
-#include "gutil/map-util.h"
-#include "gutil/port.h"
-#include "gutil/strings/substitute.h"
-#include "util/debug/sanitizer_scopes.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 
@@ -46,12 +43,15 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_threads, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_submit_failed, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(task_execution_time_ns_total, MetricUnit::NANOSECONDS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(task_wait_worker_time_ns_total, MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_execution_time_ns_total,
+                                     MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_execution_count_total, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_time_ns_total,
+                                     MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_count_total, MetricUnit::NOUNIT);
 using namespace ErrorCode;
 
 using std::string;
-using strings::Substitute;
 
 class FunctionRunnable : public Runnable {
 public:
@@ -266,7 +266,7 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
 
 ThreadPool::~ThreadPool() {
     // There should only be one live token: the one used in tokenless submission.
-    CHECK_EQ(1, _tokens.size()) << strings::Substitute(
+    CHECK_EQ(1, _tokens.size()) << absl::Substitute(
             "Threadpool $0 destroyed with $1 allocated tokens", _name, _tokens.size());
     shutdown();
 }
@@ -309,8 +309,10 @@ Status ThreadPool::init() {
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_threads);
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_queue_size);
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_queue_size);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, task_execution_time_ns_total);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, task_wait_worker_time_ns_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_execution_time_ns_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_execution_count_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_wait_worker_time_ns_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_wait_worker_count_total);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_submit_failed);
 
     _metric_entity->register_hook("update", [this]() {
@@ -335,7 +337,6 @@ void ThreadPool::shutdown() {
     // The shutdown/destroy of ThreadPool is guaranteed to take place before doris_main exits by
     // ExecEnv::destroy().
     DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     std::unique_lock<std::mutex> l(_lock);
     check_not_pool_thread_unlocked();
 
@@ -397,14 +398,16 @@ void ThreadPool::shutdown() {
 std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int max_concurrency) {
     std::lock_guard<std::mutex> l(_lock);
     std::unique_ptr<ThreadPoolToken> t(new ThreadPoolToken(this, mode, max_concurrency));
-    InsertOrDie(&_tokens, t.get());
+    if (!_tokens.insert(t.get()).second) {
+        throw Exception(Status::InternalError("duplicate token"));
+    }
     return t;
 }
 
 void ThreadPool::release_token(ThreadPoolToken* t) {
     std::lock_guard<std::mutex> l(_lock);
-    CHECK(!t->is_active()) << strings::Substitute("Token with state $0 may not be released",
-                                                  ThreadPoolToken::state_to_string(t->state()));
+    CHECK(!t->is_active()) << absl::Substitute("Token with state $0 may not be released",
+                                               ThreadPoolToken::state_to_string(t->state()));
     CHECK_EQ(1, _tokens.erase(t));
 }
 
@@ -420,11 +423,11 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     DCHECK(token);
 
     std::unique_lock<std::mutex> l(_lock);
-    if (PREDICT_FALSE(!_pool_status.ok())) {
+    if (!_pool_status.ok()) [[unlikely]] {
         return _pool_status;
     }
 
-    if (PREDICT_FALSE(!token->may_submit_new_tasks())) {
+    if (!token->may_submit_new_tasks()) [[unlikely]] {
         return Status::Error<SERVICE_UNAVAILABLE>("Thread pool({}) token was shut down", _name);
     }
 
@@ -532,8 +535,9 @@ void ThreadPool::wait() {
 
 void ThreadPool::dispatch_thread() {
     std::unique_lock<std::mutex> l(_lock);
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-    InsertOrDie(&_threads, Thread::current_thread());
+    if (!_threads.insert(Thread::current_thread()).second) {
+        throw Exception(Status::InternalError("duplicate token"));
+    }
     DCHECK_GT(_num_threads_pending_start, 0);
     _num_threads++;
     _num_threads_pending_start--;
@@ -561,14 +565,14 @@ void ThreadPool::dispatch_thread() {
             //
             // Note: if FIFO behavior is desired, it's as simple as changing this to push_back().
             _idle_threads.push_front(me);
-            SCOPED_CLEANUP({
+            Defer defer = [&] {
                 // For some wake ups (i.e. shutdown or do_submit) this thread is
                 // guaranteed to be unlinked after being awakened. In others (i.e.
                 // spurious wake-up or Wait timeout), it'll still be linked.
                 if (me.is_linked()) {
                     _idle_threads.erase(_idle_threads.iterator_to(me));
                 }
-            });
+            };
             if (me.not_empty.wait_for(l, _idle_timeout) == std::cv_status::timeout) {
                 // After much investigation, it appears that pthread condition variables have
                 // a weird behavior in which they can return ETIMEDOUT from timed_wait even if
@@ -596,7 +600,9 @@ void ThreadPool::dispatch_thread() {
         DCHECK_EQ(ThreadPoolToken::State::RUNNING, token->state());
         DCHECK(!token->_entries.empty());
         Task task = std::move(token->_entries.front());
-        task_wait_worker_time_ns_total->increment(task.submit_time_wather.elapsed_time());
+        thread_pool_task_wait_worker_time_ns_total->increment(
+                task.submit_time_wather.elapsed_time());
+        thread_pool_task_wait_worker_count_total->increment(1);
         token->_entries.pop_front();
         token->_active_threads++;
         --_total_queued_tasks;
@@ -614,7 +620,9 @@ void ThreadPool::dispatch_thread() {
         // with this threadpool, and produce a deadlock.
         task.runnable.reset();
         l.lock();
-        task_execution_time_ns_total->increment(task_execution_time_watch.elapsed_time());
+        thread_pool_task_execution_time_ns_total->increment(
+                task_execution_time_watch.elapsed_time());
+        thread_pool_task_execution_count_total->increment(1);
         // Possible states:
         // 1. The token was shut down while we ran its task. Transition to QUIESCED.
         // 2. The token has no more queued tasks. Transition back to IDLE.
@@ -672,13 +680,13 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
-    return Thread::create("thread pool", strings::Substitute("$0 [worker]", _name),
+    return Thread::create("thread pool", absl::Substitute("$0 [worker]", _name),
                           &ThreadPool::dispatch_thread, this, nullptr);
 }
 
 void ThreadPool::check_not_pool_thread_unlocked() {
     Thread* current = Thread::current_thread();
-    if (ContainsKey(_threads, current)) {
+    if (_threads.contains(current)) {
         throw Exception(
                 Status::FatalError("Thread belonging to thread pool {} with "
                                    "name {} called pool function that would result in deadlock",
@@ -702,6 +710,10 @@ Status ThreadPool::set_min_threads(int min_threads) {
 
 Status ThreadPool::set_max_threads(int max_threads) {
     std::lock_guard<std::mutex> l(_lock);
+    DBUG_EXECUTE_IF("ThreadPool.set_max_threads.force_set", {
+        _max_threads = max_threads;
+        return Status::OK();
+    })
     if (_min_threads > max_threads) {
         // max threads can not be set less than min threads
         return Status::InternalError("set thread pool {} max_threads failed", _name);

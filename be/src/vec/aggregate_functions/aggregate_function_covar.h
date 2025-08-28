@@ -31,36 +31,36 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 
-template <typename T>
+template <PrimitiveType T>
 struct BaseData {
     BaseData() = default;
     virtual ~BaseData() = default;
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
 
     void write(BufferWritable& buf) const {
-        write_binary(sum_x, buf);
-        write_binary(sum_y, buf);
-        write_binary(sum_xy, buf);
-        write_binary(count, buf);
+        buf.write_binary(sum_x);
+        buf.write_binary(sum_y);
+        buf.write_binary(sum_xy);
+        buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(sum_x, buf);
-        read_binary(sum_y, buf);
-        read_binary(sum_xy, buf);
-        read_binary(count, buf);
+        buf.read_binary(sum_x);
+        buf.read_binary(sum_y);
+        buf.read_binary(sum_xy);
+        buf.read_binary(count);
     }
 
     void reset() {
@@ -94,11 +94,11 @@ struct BaseData {
     }
 
     void add(const IColumn* column_x, const IColumn* column_y, size_t row_num) {
-        const auto& sources_x =
-                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
+        const auto& sources_x = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(*column_x);
         double source_data_x = double(sources_x.get_data()[row_num]);
-        const auto& sources_y =
-                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
+        const auto& sources_y = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(*column_y);
         double source_data_y = double(sources_y.get_data()[row_num]);
 
         sum_x += source_data_x;
@@ -113,7 +113,7 @@ struct BaseData {
     int64_t count {};
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct PopData : BaseData<T> {
     static const char* name() { return "covar"; }
 
@@ -123,7 +123,7 @@ struct PopData : BaseData<T> {
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct SampData : BaseData<T> {
     static const char* name() { return "covar_samp"; }
 
@@ -150,14 +150,14 @@ public:
     DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).add(columns[0], columns[1], row_num);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -166,7 +166,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 
@@ -175,4 +175,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

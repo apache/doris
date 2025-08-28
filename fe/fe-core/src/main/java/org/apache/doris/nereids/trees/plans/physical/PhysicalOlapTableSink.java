@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -59,6 +60,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     private final List<Long> partitionIds;
     private final boolean singleReplicaLoad;
     private final boolean isPartialUpdate;
+    private final TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy;
     private final DMLCommandType dmlCommandType;
     private final List<Expression> partitionExprList;
     private final Map<Long, Expression> syncMvWhereClauses;
@@ -69,12 +71,12 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
      */
     public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean singleReplicaLoad,
-            boolean isPartialUpdate, DMLCommandType dmlCommandType,
-            List<Expression> partitionExprList, Map<Long, Expression> syncMvWhereClauses,
-            List<Slot> targetTableSlots, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, CHILD_TYPE child) {
+            boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            DMLCommandType dmlCommandType, List<Expression> partitionExprList,
+            Map<Long, Expression> syncMvWhereClauses, List<Slot> targetTableSlots,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(database, targetTable, cols, partitionIds, outputExprs, singleReplicaLoad,
-                isPartialUpdate, dmlCommandType, partitionExprList, syncMvWhereClauses,
+                isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, partitionExprList, syncMvWhereClauses,
                 targetTableSlots, groupExpression, logicalProperties, PhysicalProperties.GATHER,
                 null, child);
     }
@@ -84,9 +86,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
      */
     public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean singleReplicaLoad,
-            boolean isPartialUpdate, DMLCommandType dmlCommandType,
-            List<Expression> partitionExprList, Map<Long, Expression> syncMvWhereClauses,
-            List<Slot> targetTableSlots, Optional<GroupExpression> groupExpression,
+            boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            DMLCommandType dmlCommandType, List<Expression> partitionExprList,
+            Map<Long, Expression> syncMvWhereClauses, List<Slot> targetTableSlots,
+            Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, outputExprs, groupExpression,
@@ -97,6 +100,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
         this.partitionIds = Utils.copyRequiredList(partitionIds);
         this.singleReplicaLoad = singleReplicaLoad;
         this.isPartialUpdate = isPartialUpdate;
+        this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.dmlCommandType = dmlCommandType;
         this.partitionExprList = partitionExprList;
         this.syncMvWhereClauses = syncMvWhereClauses;
@@ -107,6 +111,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
         return database;
     }
 
+    @Override
     public OlapTable getTargetTable() {
         return targetTable;
     }
@@ -125,6 +130,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
 
     public boolean isPartialUpdate() {
         return isPartialUpdate;
+    }
+
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return partialUpdateNewKeyPolicy;
     }
 
     public DMLCommandType getDmlCommandType() {
@@ -147,7 +156,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalOlapTableSink only accepts one child");
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
-                singleReplicaLoad, isPartialUpdate, dmlCommandType, partitionExprList,
+                singleReplicaLoad, isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, partitionExprList,
                 syncMvWhereClauses, targetTableSlots, groupExpression, getLogicalProperties(),
                 physicalProperties, statistics, children.get(0));
     }
@@ -163,6 +172,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
         PhysicalOlapTableSink<?> that = (PhysicalOlapTableSink<?>) o;
         return singleReplicaLoad == that.singleReplicaLoad
                 && isPartialUpdate == that.isPartialUpdate
+                && partialUpdateNewKeyPolicy == that.partialUpdateNewKeyPolicy
                 && dmlCommandType == that.dmlCommandType
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
@@ -173,7 +183,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     @Override
     public int hashCode() {
         return Objects.hash(database, targetTable, cols, partitionIds, singleReplicaLoad,
-                isPartialUpdate, dmlCommandType);
+                isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType);
     }
 
     @Override
@@ -186,6 +196,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
                 "partitionIds", partitionIds,
                 "singleReplicaLoad", singleReplicaLoad,
                 "isPartialUpdate", isPartialUpdate,
+                "partialUpdateNewKeyPolicy", partialUpdateNewKeyPolicy,
                 "dmlCommandType", dmlCommandType
         );
     }
@@ -203,7 +214,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
-                singleReplicaLoad, isPartialUpdate, dmlCommandType, partitionExprList,
+                singleReplicaLoad, isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, partitionExprList,
                 syncMvWhereClauses, targetTableSlots, groupExpression, getLogicalProperties(),
                 child());
     }
@@ -212,7 +223,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
-                singleReplicaLoad, isPartialUpdate, dmlCommandType, partitionExprList,
+                singleReplicaLoad, isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, partitionExprList,
                 syncMvWhereClauses, targetTableSlots, groupExpression, logicalProperties.get(),
                 children.get(0));
     }
@@ -221,7 +232,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
-                singleReplicaLoad, isPartialUpdate, dmlCommandType, partitionExprList,
+                singleReplicaLoad, isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, partitionExprList,
                 syncMvWhereClauses, targetTableSlots, groupExpression, getLogicalProperties(),
                 physicalProperties, statistics, child());
     }
@@ -229,6 +240,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     /**
      * get output physical properties
      */
+    @Override
     public PhysicalProperties getRequirePhysicalProperties() {
         if (targetTable.isPartitionDistributed()) {
             DistributionInfo distributionInfo = targetTable.getDefaultDistributionInfo();
@@ -255,7 +267,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     @Override
     public PhysicalOlapTableSink<Plan> resetLogicalProperties() {
         return new PhysicalOlapTableSink<>(database, targetTable, cols, partitionIds, outputExprs,
-                singleReplicaLoad, isPartialUpdate, dmlCommandType, partitionExprList,
+                singleReplicaLoad, isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, partitionExprList,
                 syncMvWhereClauses, targetTableSlots, groupExpression, null, physicalProperties,
                 statistics, child());
     }

@@ -148,10 +148,6 @@ suite("test_ddl_restore_auth","p0,auth_call") {
             sql """SHOW RESTORE FROM ${dbName};"""
             exception "denied"
         }
-        test {
-            sql """SHOW SYNC JOB FROM `${dbName}`;"""
-            exception "denied"
-        }
     }
     sql """grant LOAD_PRIV on ${dbName}.* to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
@@ -171,8 +167,6 @@ suite("test_ddl_restore_auth","p0,auth_call") {
         res = sql """SHOW RESTORE FROM ${dbName};"""
         logger.info("res: " + res)
         assertTrue(res[0][4] == "CANCELLED")
-
-        sql """SHOW SYNC JOB FROM `${dbName}`;"""
     }
 
     try_sql("""DROP REPOSITORY `${repositoryName}`;""")

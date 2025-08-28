@@ -138,9 +138,43 @@ suite('nereids_insert_into_values') {
         properties("replication_num" = "1");
     """
 
-    createMV("create materialized view k12s3m as select k1, sum(k2), max(k2) from agg_have_dup_base_value group by k1;")
+    createMV("create materialized view k12s3m as select k1 as a1, sum(k2), max(k2) from agg_have_dup_base_value group by k1;")
 
     sql "insert into agg_have_dup_base_value values (-4, -4, -4, 'd')"
     sql "sync"
     qt_mv "select * from agg_have_dup_base_value"
+
+    multi_sql """
+            DROP TABLE IF EXISTS test_insert_cast_interval;
+            CREATE TABLE test_insert_cast_interval (
+              `id` int NULL,
+              `dt` date NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`, `dt`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+            
+            INSERT INTO test_insert_cast_interval values(1, date_floor('2020-02-02', interval 1 second));
+        """
+
+    qt_select_test_insert_cast_interval "select * from test_insert_cast_interval"
+
+    multi_sql """
+        drop table if exists test_insert_more_string;
+        CREATE TABLE test_insert_more_string (
+            `r_regionkey` int NULL,
+            `r_name` varchar(25) NULL,
+            `r_comment` varchar(152) NULL
+        )
+        DUPLICATE KEY(`r_regionkey`)
+        DISTRIBUTED BY HASH(`r_regionkey`)
+        BUCKETS 1 PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        insert into test_insert_more_string values (3, "akljalkjbalkjsldkrjewokjfalksdjflaksjfdlaskjfalsdkfjalsdfjkasfdl", "aa")
+        """
+
+    qt_select_test_insert_more_string "select * from test_insert_more_string"
 }

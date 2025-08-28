@@ -30,19 +30,16 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.storage.HdfsProperties;
+import org.apache.doris.datasource.property.storage.HdfsPropertiesUtils;
 import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TParquetCompressionType;
 import org.apache.doris.thrift.TParquetDataType;
 import org.apache.doris.thrift.TParquetRepetitionType;
 import org.apache.doris.thrift.TParquetSchema;
-import org.apache.doris.thrift.TParquetVersion;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import com.google.common.base.Preconditions;
@@ -50,18 +47,15 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 // For syntax select * from tbl INTO OUTFILE xxxx
 public class OutFileClause {
@@ -71,24 +65,27 @@ public class OutFileClause {
     public static final List<Type> RESULT_COL_TYPES = Lists.newArrayList();
     public static final Map<String, TParquetRepetitionType> PARQUET_REPETITION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetDataType> PARQUET_DATA_TYPE_MAP = Maps.newHashMap();
-    public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
-    public static final Map<String, TFileCompressType> ORC_COMPRESSION_TYPE_MAP = Maps.newHashMap();
-    public static final Map<String, TParquetVersion> PARQUET_VERSION_MAP = Maps.newHashMap();
     public static final Set<String> ORC_DATA_TYPE = Sets.newHashSet();
     public static final String FILE_NUMBER = "FileNumber";
     public static final String TOTAL_ROWS = "TotalRows";
     public static final String FILE_SIZE = "FileSize";
     public static final String URL = "URL";
+    public static final String WRITE_TIME_SEC = "WriteTimeSec";
+    public static final String WRITE_SPEED_KB = "WriteSpeedKB";
 
     static {
         RESULT_COL_NAMES.add(FILE_NUMBER);
         RESULT_COL_NAMES.add(TOTAL_ROWS);
         RESULT_COL_NAMES.add(FILE_SIZE);
         RESULT_COL_NAMES.add(URL);
+        RESULT_COL_NAMES.add(WRITE_TIME_SEC);
+        RESULT_COL_NAMES.add(WRITE_SPEED_KB);
 
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.INT));
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
 
         PARQUET_REPETITION_TYPE_MAP.put("required", TParquetRepetitionType.REQUIRED);
@@ -104,24 +101,6 @@ public class OutFileClause {
         PARQUET_DATA_TYPE_MAP.put("double", TParquetDataType.DOUBLE);
         PARQUET_DATA_TYPE_MAP.put("fixed_len_byte_array", TParquetDataType.FIXED_LEN_BYTE_ARRAY);
 
-        PARQUET_COMPRESSION_TYPE_MAP.put("snappy", TParquetCompressionType.SNAPPY);
-        PARQUET_COMPRESSION_TYPE_MAP.put("gzip", TParquetCompressionType.GZIP);
-        PARQUET_COMPRESSION_TYPE_MAP.put("brotli", TParquetCompressionType.BROTLI);
-        PARQUET_COMPRESSION_TYPE_MAP.put("zstd", TParquetCompressionType.ZSTD);
-        PARQUET_COMPRESSION_TYPE_MAP.put("lz4", TParquetCompressionType.LZ4);
-        // arrow do not support lzo and bz2 compression type.
-        // PARQUET_COMPRESSION_TYPE_MAP.put("lzo", TParquetCompressionType.LZO);
-        // PARQUET_COMPRESSION_TYPE_MAP.put("bz2", TParquetCompressionType.BZ2);
-        PARQUET_COMPRESSION_TYPE_MAP.put("plain", TParquetCompressionType.UNCOMPRESSED);
-
-        ORC_COMPRESSION_TYPE_MAP.put("plain", TFileCompressType.PLAIN);
-        ORC_COMPRESSION_TYPE_MAP.put("snappy", TFileCompressType.SNAPPYBLOCK);
-        ORC_COMPRESSION_TYPE_MAP.put("zlib", TFileCompressType.ZLIB);
-        ORC_COMPRESSION_TYPE_MAP.put("zstd", TFileCompressType.ZSTD);
-
-        PARQUET_VERSION_MAP.put("v1", TParquetVersion.PARQUET_1_0);
-        PARQUET_VERSION_MAP.put("latest", TParquetVersion.PARQUET_2_LATEST);
-
         ORC_DATA_TYPE.add("bigint");
         ORC_DATA_TYPE.add("boolean");
         ORC_DATA_TYPE.add("double");
@@ -133,10 +112,7 @@ public class OutFileClause {
     }
 
     public static final String LOCAL_FILE_PREFIX = "file:///";
-    private static final String S3_FILE_PREFIX = "S3://";
     private static final String HDFS_FILE_PREFIX = "hdfs://";
-    private static final String HADOOP_FS_PROP_PREFIX = "dfs.";
-    private static final String HADOOP_PROP_PREFIX = "hadoop.";
     private static final String BROKER_PROP_PREFIX = "broker.";
     public static final String PROP_BROKER_NAME = "broker.name";
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -146,23 +122,15 @@ public class OutFileClause {
     public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     public static final String PROP_FILE_SUFFIX = "file_suffix";
     public static final String PROP_WITH_BOM = "with_bom";
-    public static final String COMPRESS_TYPE = "compress_type";
 
-    private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String SCHEMA = "schema";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
     private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
-    private static final long MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024L; // 2GB
 
     private String filePath;
-    private String format;
     private Map<String, String> properties;
 
-    // set following members after analyzing
-    private String columnSeparator = "\t";
-    private String lineDelimiter = "\n";
-    private TFileFormatType fileFormatType;
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
     private boolean deleteExistingFiles = false;
     private String fileSuffix = "";
@@ -178,43 +146,41 @@ public class OutFileClause {
     private List<Pair<String, String>> orcSchemas = new ArrayList<>();
 
     private boolean isAnalyzed = false;
-    private String headerType = "";
 
-    private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
-    private TFileCompressType orcCompressionType = TFileCompressType.ZLIB;
-    private static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
-    private boolean parquetDisableDictionary = false;
-    private static final String PARQUET_VERSION = "version";
-    private static TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
+    private FileFormatProperties fileFormatProperties;
 
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
-        this.format = Strings.isNullOrEmpty(format) ? "csv" : format.toLowerCase();
         this.properties = properties;
         this.isAnalyzed = false;
+        if (Strings.isNullOrEmpty(format)) {
+            fileFormatProperties = FileFormatProperties.createFileFormatProperties("csv");
+        } else {
+            fileFormatProperties = FileFormatProperties.createFileFormatProperties(format.toLowerCase());
+        }
     }
 
     public OutFileClause(OutFileClause other) {
         this.filePath = other.filePath;
-        this.format = other.format;
+        this.fileFormatProperties = other.fileFormatProperties;
         this.properties = other.properties == null ? null : Maps.newHashMap(other.properties);
         this.isAnalyzed = other.isAnalyzed;
     }
 
     public String getColumnSeparator() {
-        return columnSeparator;
+        return ((CsvFileFormatProperties) fileFormatProperties).getColumnSeparator();
     }
 
     public String getLineDelimiter() {
-        return lineDelimiter;
+        return ((CsvFileFormatProperties) fileFormatProperties).getLineDelimiter();
     }
 
     public String getHeaderType() {
-        return headerType;
+        return ((CsvFileFormatProperties) fileFormatProperties).getHeaderType();
     }
 
     public TFileFormatType getFileFormatType() {
-        return fileFormatType;
+        return fileFormatProperties.getFileFormatType();
     }
 
     public long getMaxFileSizeBytes() {
@@ -229,7 +195,7 @@ public class OutFileClause {
         return parquetSchemas;
     }
 
-    public void analyze(Analyzer analyzer, List<Expr> resultExprs, List<String> colLabels) throws UserException {
+    public void analyze(List<Expr> resultExprs, List<String> colLabels) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
             // But some of fields in this OutfileClause has been changed,
@@ -238,28 +204,6 @@ public class OutFileClause {
             return;
         }
         analyzeFilePath();
-
-        switch (this.format) {
-            case "csv":
-                fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-                break;
-            case "parquet":
-                fileFormatType = TFileFormatType.FORMAT_PARQUET;
-                break;
-            case "orc":
-                fileFormatType = TFileFormatType.FORMAT_ORC;
-                break;
-            case "csv_with_names":
-                headerType = FileFormatConstants.FORMAT_CSV_WITH_NAMES;
-                fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-                break;
-            case "csv_with_names_and_types":
-                headerType = FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES;
-                fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-                break;
-            default:
-                throw new AnalysisException("format:" + this.format + " is not supported.");
-        }
 
         analyzeProperties();
 
@@ -553,76 +497,50 @@ public class OutFileClause {
         if (properties == null || properties.isEmpty()) {
             return;
         }
+        // Copy the properties, because we will remove the key from properties.
+        Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        copiedProps.putAll(properties);
 
-        Set<String> processedPropKeys = Sets.newHashSet();
-        analyzeBrokerDesc(processedPropKeys);
+        analyzeBrokerDesc(copiedProps);
 
-        if (properties.containsKey(PROP_COLUMN_SEPARATOR)) {
-            if (!Util.isCsvFormat(fileFormatType)) {
-                throw new AnalysisException(PROP_COLUMN_SEPARATOR + " is only for CSV format");
+        fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
+
+        if (copiedProps.containsKey(PROP_MAX_FILE_SIZE)) {
+            maxFileSizeBytes = ParseUtil.analyzeDataVolume(copiedProps.get(PROP_MAX_FILE_SIZE));
+            if (maxFileSizeBytes < MIN_FILE_SIZE_BYTES) {
+                throw new AnalysisException("max file size should larger than 5MB. Given: " + maxFileSizeBytes);
             }
-            columnSeparator = Separator.convertSeparator(properties.get(PROP_COLUMN_SEPARATOR));
-            processedPropKeys.add(PROP_COLUMN_SEPARATOR);
+            copiedProps.remove(PROP_MAX_FILE_SIZE);
         }
 
-        if (properties.containsKey(PROP_LINE_DELIMITER)) {
-            if (!Util.isCsvFormat(fileFormatType)) {
-                throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
-            }
-            lineDelimiter = Separator.convertSeparator(properties.get(PROP_LINE_DELIMITER));
-            processedPropKeys.add(PROP_LINE_DELIMITER);
+        if (copiedProps.containsKey(PROP_DELETE_EXISTING_FILES)) {
+            deleteExistingFiles = Boolean.parseBoolean(copiedProps.get(PROP_DELETE_EXISTING_FILES))
+                    & Config.enable_delete_existing_files;
+            copiedProps.remove(PROP_DELETE_EXISTING_FILES);
         }
 
-        if (properties.containsKey(PROP_MAX_FILE_SIZE)) {
-            maxFileSizeBytes = ParseUtil.analyzeDataVolume(properties.get(PROP_MAX_FILE_SIZE));
-            if (maxFileSizeBytes > MAX_FILE_SIZE_BYTES || maxFileSizeBytes < MIN_FILE_SIZE_BYTES) {
-                throw new AnalysisException("max file size should between 5MB and 2GB. Given: " + maxFileSizeBytes);
-            }
-            processedPropKeys.add(PROP_MAX_FILE_SIZE);
+        if (copiedProps.containsKey(PROP_FILE_SUFFIX)) {
+            fileSuffix = copiedProps.get(PROP_FILE_SUFFIX);
+            copiedProps.remove(PROP_FILE_SUFFIX);
         }
 
-        if (properties.containsKey(PROP_DELETE_EXISTING_FILES)) {
-            deleteExistingFiles = Boolean.parseBoolean(properties.get(PROP_DELETE_EXISTING_FILES))
-                                    & Config.enable_delete_existing_files;
-            processedPropKeys.add(PROP_DELETE_EXISTING_FILES);
+        if (copiedProps.containsKey(PROP_WITH_BOM)) {
+            withBom = Boolean.valueOf(copiedProps.get(PROP_WITH_BOM)).booleanValue();
+            copiedProps.remove(PROP_WITH_BOM);
         }
 
-        if (properties.containsKey(PROP_FILE_SUFFIX)) {
-            fileSuffix = properties.get(PROP_FILE_SUFFIX);
-            processedPropKeys.add(PROP_FILE_SUFFIX);
-        }
-
-        if (properties.containsKey(PROP_WITH_BOM)) {
-            withBom = Boolean.valueOf(properties.get(PROP_WITH_BOM)).booleanValue();
-            processedPropKeys.add(PROP_WITH_BOM);
-        }
-
-        if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
-            successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
+        if (copiedProps.containsKey(PROP_SUCCESS_FILE_NAME)) {
+            successFileName = copiedProps.get(PROP_SUCCESS_FILE_NAME);
             FeNameFormat.checkOutfileSuccessFileName("file name", successFileName);
-            processedPropKeys.add(PROP_SUCCESS_FILE_NAME);
+            copiedProps.remove(PROP_SUCCESS_FILE_NAME);
         }
 
-        // For Azure compatibility, this is temporarily added to the map without further processing.
-        // The validity of each provider's value will be checked later in S3Properties' check.
-        if (properties.containsKey(S3Properties.PROVIDER)) {
-            processedPropKeys.add(S3Properties.PROVIDER);
+        if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_PARQUET) {
+            getParquetProperties(copiedProps);
         }
 
-        if (this.fileFormatType == TFileFormatType.FORMAT_PARQUET) {
-            getParquetProperties(processedPropKeys);
-        }
-
-        if (this.fileFormatType == TFileFormatType.FORMAT_ORC) {
-            getOrcProperties(processedPropKeys);
-        }
-
-        if (processedPropKeys.size() != properties.size()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("{} vs {}", processedPropKeys, properties);
-            }
-            throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
-                    .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
+        if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC) {
+            getOrcProperties(copiedProps);
         }
     }
 
@@ -631,68 +549,48 @@ public class OutFileClause {
      * 1. broker: with broker name
      * 2. s3: with s3 pattern path, without broker name
      */
-    private void analyzeBrokerDesc(Set<String> processedPropKeys) throws UserException {
-        String brokerName = properties.get(PROP_BROKER_NAME);
-        StorageBackend.StorageType storageType;
-        if (properties.containsKey(PROP_BROKER_NAME)) {
-            processedPropKeys.add(PROP_BROKER_NAME);
-            storageType = StorageBackend.StorageType.BROKER;
-        } else if (filePath.toUpperCase().startsWith(S3_FILE_PREFIX)) {
-            brokerName = StorageBackend.StorageType.S3.name();
-            storageType = StorageBackend.StorageType.S3;
-        } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
-            brokerName = StorageBackend.StorageType.HDFS.name();
-            storageType = StorageBackend.StorageType.HDFS;
-        } else {
+    private void analyzeBrokerDesc(Map<String, String> copiedProps) throws UserException {
+        /**
+         * If the output is intended to be written to the local file system, skip BrokerDesc analysis.
+         * This is because Broker properties are not required when writing files locally,
+         * and the upper layer logic ensures that brokerDesc must be null in this case.
+         */
+        if (isLocalOutput) {
             return;
         }
-
-        Map<String, String> brokerProps = Maps.newHashMap();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
-                brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
-                processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().toLowerCase().startsWith(S3Properties.S3_PREFIX)
-                    || entry.getKey().toUpperCase().startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().contains(HdfsResource.HADOOP_FS_NAME)
-                    && storageType == StorageBackend.StorageType.HDFS) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                processedPropKeys.add(entry.getKey());
-            } else if ((entry.getKey().startsWith(HADOOP_FS_PROP_PREFIX)
-                    || entry.getKey().startsWith(HADOOP_PROP_PREFIX))
-                    && storageType == StorageBackend.StorageType.HDFS) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                processedPropKeys.add(entry.getKey());
-            }
-        }
-        if (storageType == StorageBackend.StorageType.S3) {
-            if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
-                brokerProps.put(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
-                processedPropKeys.add(PropertyConverter.USE_PATH_STYLE);
-            }
-            S3Properties.requiredS3Properties(brokerProps);
-        } else if (storageType == StorageBackend.StorageType.HDFS) {
-            if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
-                brokerProps.put(HdfsResource.HADOOP_FS_NAME, getFsName(filePath));
-            }
-        }
-        brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
-    }
-
-    public static String getFsName(String path) {
-        Path hdfsPath = new Path(path);
-        String fullPath = hdfsPath.toUri().toString();
-        String filePath = hdfsPath.toUri().getPath();
-        return fullPath.replace(filePath, "");
-    }
-
-    void setParquetVersion(String propertyValue) {
-        if (PARQUET_VERSION_MAP.containsKey(propertyValue)) {
-            this.parquetVersion = PARQUET_VERSION_MAP.get(propertyValue);
-        } else {
-            LOG.debug("not set parquet version type or is invalid, set default to PARQUET_1.0 version.");
+        String brokerName = copiedProps.get(PROP_BROKER_NAME);
+        brokerDesc = new BrokerDesc(brokerName, copiedProps);
+        /*
+         * Note on HDFS export behavior and URI handling:
+         *
+         * 1. Currently, URI extraction from user input supports case-insensitive key matching
+         *    (e.g., "URI", "Uri", "uRI", etc.), to tolerate non-standard input from users.
+         *
+         * 2. In OUTFILE scenarios, if FE  fails to pass 'fs.defaultFS' to the BE ,
+         *    it may lead to data export failure *without* triggering an actual error (appears as success),
+         *    which is misleading and can cause silent data loss or inconsistencies.
+         *
+         * 3. As a temporary safeguard, the following logic forcibly extracts the default FS from the provided
+         *    file path and injects it into the broker descriptor config:
+         *
+         *      if (brokerDesc.getStorageType() == HDFS) {
+         *          extract default FS from file path
+         *          and put into BE config as 'fs.defaultFS'
+         *      }
+         *
+         * 4. Long-term solution: We should define and enforce a consistent parameter specification
+         *    across all user-facing entry points (including FE input validation, broker desc normalization, etc.),
+         *    to prevent missing critical configs like 'fs.defaultFS'.
+         *
+         * 5. Suggested improvements:
+         *    - Normalize all parameter keys (e.g., to lowercase)
+         *    - Centralize HDFS URI parsing logic
+         *    - Add validation in FE to reject incomplete or malformed configs
+         */
+        if (null != brokerDesc.getStorageType() && brokerDesc.getStorageType()
+                .equals(StorageBackend.StorageType.HDFS)) {
+            String defaultFs = HdfsPropertiesUtils.extractDefaultFsFromPath(filePath);
+            brokerDesc.getBackendConfigProperties().put(HdfsProperties.HDFS_DEFAULT_FS_NAME, defaultFs);
         }
     }
 
@@ -707,36 +605,10 @@ public class OutFileClause {
      * prefix with 'parquet.' defines the properties of parquet file,
      * currently only supports: compression, disable_dictionary, version
      */
-    private void getParquetProperties(Set<String> processedPropKeys) throws AnalysisException {
-        // save compress type
-        if (properties.containsKey(COMPRESS_TYPE)) {
-            if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE).toLowerCase())) {
-                this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(
-                        properties.get(COMPRESS_TYPE).toLowerCase());
-                processedPropKeys.add(COMPRESS_TYPE);
-            } else {
-                throw new AnalysisException("parquet compression type [" + properties.get(COMPRESS_TYPE)
-                        + "] is invalid, please choose one among SNAPPY, GZIP, BROTLI, ZSTD, LZ4, LZO, BZ2 or PLAIN");
-            }
-        }
-
-        // save all parquet prefix property
-        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<String, String> entry = iter.next();
-            if (entry.getKey().startsWith(PARQUET_PROP_PREFIX)) {
-                processedPropKeys.add(entry.getKey());
-                if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_DISABLE_DICTIONARY)) {
-                    this.parquetDisableDictionary = Boolean.valueOf(entry.getValue());
-                } else if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_VERSION)) {
-                    setParquetVersion(entry.getValue());
-                }
-            }
-        }
-
+    private void getParquetProperties(Map<String, String> copiedProps) throws AnalysisException {
         // check schema. if schema is not set, Doris will gen schema by select items
         // Note: These codes are useless and outdated.
-        String schema = properties.get(SCHEMA);
+        String schema = copiedProps.get(SCHEMA);
         if (schema == null) {
             return;
         }
@@ -747,43 +619,31 @@ public class OutFileClause {
         schema = schema.toLowerCase();
         String[] schemas = schema.split(";");
         for (String item : schemas) {
-            String[] properties = item.split(",");
-            if (properties.length != 3) {
+            String[] fields = item.split(",");
+            if (fields.length != 3) {
                 throw new AnalysisException("must only contains repetition type/column type/column name");
             }
-            if (!PARQUET_REPETITION_TYPE_MAP.containsKey(properties[0])) {
+            if (!PARQUET_REPETITION_TYPE_MAP.containsKey(fields[0])) {
                 throw new AnalysisException("unknown repetition type");
             }
-            if (!properties[0].equalsIgnoreCase("required")) {
+            if (!fields[0].equalsIgnoreCase("required")) {
                 throw new AnalysisException("currently only support required type");
             }
-            if (!PARQUET_DATA_TYPE_MAP.containsKey(properties[1])) {
-                throw new AnalysisException("data type is not supported:" + properties[1]);
+            if (!PARQUET_DATA_TYPE_MAP.containsKey(fields[1])) {
+                throw new AnalysisException("data type is not supported:" + fields[1]);
             }
             TParquetSchema parquetSchema = new TParquetSchema();
-            parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get(properties[0]);
-            parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get(properties[1]);
-            parquetSchema.schema_column_name = properties[2];
+            parquetSchema.schema_repetition_type = PARQUET_REPETITION_TYPE_MAP.get(fields[0]);
+            parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get(fields[1]);
+            parquetSchema.schema_column_name = fields[2];
             parquetSchemas.add(parquetSchema);
         }
-        processedPropKeys.add(SCHEMA);
+        copiedProps.remove(SCHEMA);
     }
 
-    private void getOrcProperties(Set<String> processedPropKeys) throws AnalysisException {
-        // get compression type
-        // save compress type
-        if (properties.containsKey(COMPRESS_TYPE)) {
-            if (ORC_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE).toLowerCase())) {
-                this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(COMPRESS_TYPE).toLowerCase());
-                processedPropKeys.add(COMPRESS_TYPE);
-            } else {
-                throw new AnalysisException("orc compression type [" + properties.get(COMPRESS_TYPE) + "] is invalid,"
-                        + " please choose one among ZLIB, SNAPPY, ZSTD or PLAIN");
-            }
-        }
-
+    private void getOrcProperties(Map<String, String> copiedProps) throws AnalysisException {
         // check schema. if schema is not set, Doris will gen schema by select items
-        String schema = properties.get(SCHEMA);
+        String schema = copiedProps.get(SCHEMA);
         if (schema == null) {
             return;
         }
@@ -794,15 +654,15 @@ public class OutFileClause {
         schema = schema.toLowerCase();
         String[] schemas = schema.split(";");
         for (String item : schemas) {
-            String[] properties = item.split(",");
-            if (properties.length != 2) {
+            String[] fields = item.split(",");
+            if (fields.length != 2) {
                 throw new AnalysisException("must only contains type and column name");
             }
-            if (!ORC_DATA_TYPE.contains(properties[1]) && !properties[1].startsWith("decimal")) {
-                throw new AnalysisException("data type is not supported:" + properties[1]);
-            } else if (!ORC_DATA_TYPE.contains(properties[1]) && properties[1].startsWith("decimal")) {
+            if (!ORC_DATA_TYPE.contains(fields[1]) && !fields[1].startsWith("decimal")) {
+                throw new AnalysisException("data type is not supported:" + fields[1]);
+            } else if (!ORC_DATA_TYPE.contains(fields[1]) && fields[1].startsWith("decimal")) {
                 String errorMsg = "Format of decimal type must be decimal(%d,%d)";
-                String precisionAndScale = properties[1].substring(0, "decimal".length()).trim();
+                String precisionAndScale = fields[1].substring(0, "decimal".length()).trim();
                 if (!precisionAndScale.startsWith("(") || !precisionAndScale.endsWith(")")) {
                     throw new AnalysisException(errorMsg);
                 }
@@ -811,17 +671,17 @@ public class OutFileClause {
                     throw new AnalysisException(errorMsg);
                 }
             }
-            orcSchemas.add(Pair.of(properties[0], properties[1]));
+            orcSchemas.add(Pair.of(fields[0], fields[1]));
         }
-        processedPropKeys.add(SCHEMA);
+        copiedProps.remove(SCHEMA);
     }
 
     private boolean isParquetFormat() {
-        return fileFormatType == TFileFormatType.FORMAT_PARQUET;
+        return fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_PARQUET;
     }
 
     private boolean isOrcFormat() {
-        return fileFormatType == TFileFormatType.FORMAT_ORC;
+        return fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC;
     }
 
     public String getFilePath() {
@@ -839,7 +699,8 @@ public class OutFileClause {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append(" INTO OUTFILE '").append(filePath).append(" FORMAT AS ").append(format);
+        sb.append(" INTO OUTFILE '").append(filePath).append(" FORMAT AS ")
+                .append(fileFormatProperties.getFormatName());
         if (properties != null && !properties.isEmpty()) {
             sb.append(" PROPERTIES(");
             sb.append(new PrintableMap<>(properties, " = ", true, false));
@@ -858,18 +719,17 @@ public class OutFileClause {
     }
 
     public TResultFileSinkOptions toSinkOptions() {
-        TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(filePath, fileFormatType);
-        if (Util.isCsvFormat(fileFormatType)) {
-            sinkOptions.setColumnSeparator(columnSeparator);
-            sinkOptions.setLineDelimiter(lineDelimiter);
-        }
+        TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(filePath,
+                fileFormatProperties.getFileFormatType());
+        fileFormatProperties.fullTResultFileSinkOptions(sinkOptions);
+
         sinkOptions.setMaxFileSizeBytes(maxFileSizeBytes);
         sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         sinkOptions.setFileSuffix(fileSuffix);
         sinkOptions.setWithBom(withBom);
 
         if (brokerDesc != null) {
-            sinkOptions.setBrokerProperties(brokerDesc.getProperties());
+            sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.
             // Because we need to choose the nearest broker with the result sink node.
         }
@@ -877,15 +737,10 @@ public class OutFileClause {
             sinkOptions.setSuccessFileName(successFileName);
         }
         if (isParquetFormat()) {
-            sinkOptions.setParquetCompressionType(parquetCompressionType);
-            sinkOptions.setParquetDisableDictionary(parquetDisableDictionary);
-            sinkOptions.setParquetVersion(parquetVersion);
             sinkOptions.setParquetSchemas(parquetSchemas);
         }
         if (isOrcFormat()) {
             sinkOptions.setOrcSchema(serializeOrcSchema());
-            sinkOptions.setOrcCompressionType(orcCompressionType);
-            sinkOptions.setOrcWriterVersion(1);
         }
         return sinkOptions;
     }

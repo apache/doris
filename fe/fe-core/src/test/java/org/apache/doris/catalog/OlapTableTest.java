@@ -18,12 +18,14 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TStorageType;
@@ -39,7 +41,6 @@ import org.junit.Test;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,7 +66,7 @@ public class OlapTableTest {
             }
             OlapTable tbl = (OlapTable) table;
             tbl.setIndexes(Lists.newArrayList(new Index(0, "index", Lists.newArrayList("col"),
-                    IndexDef.IndexType.BITMAP, null, "xxxxxx", Lists.newArrayList(1))));
+                    IndexDef.IndexType.BITMAP, null, "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
@@ -269,15 +270,14 @@ public class OlapTableTest {
         Env.getCurrentSystemInfo().addBackend(be1);
         Env.getCurrentSystemInfo().addBackend(be2);
 
+        ConnectContext connectContext = UtFrameUtils.createDefaultCtx();
+        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         OlapTable tab = new OlapTable();
         TFetchOption tfetchOption = tab.generateTwoPhaseReadOption(-1);
         Assert.assertTrue(tfetchOption.nodes_info.nodes.size() == 2);
 
-        ConnectContext connectContext = UtFrameUtils.createDefaultCtx();
-        Set<Tag> tagSet = new HashSet<>();
-        tagSet.add(taga);
+        connectContext.setComputeGroup(new ComputeGroup("taga", "taga", Env.getCurrentSystemInfo()));
 
-        connectContext.setResourceTags(tagSet);
         TFetchOption tfetchOption2 = tab.generateTwoPhaseReadOption(-1);
         Assert.assertTrue(tfetchOption2.nodes_info.nodes.size() == 1);
         ConnectContext.remove();

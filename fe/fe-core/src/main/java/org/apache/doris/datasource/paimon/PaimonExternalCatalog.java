@@ -18,36 +18,28 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.datasource.property.constants.PaimonProperties;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Catalog.TableNotExistException;
-import org.apache.paimon.catalog.CatalogContext;
-import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
-import org.apache.paimon.options.Options;
 import org.apache.paimon.partition.Partition;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public abstract class PaimonExternalCatalog extends ExternalCatalog {
+public class PaimonExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PaimonExternalCatalog.class);
     public static final String PAIMON_CATALOG_TYPE = "paimon.catalog.type";
     public static final String PAIMON_FILESYSTEM = "filesystem";
@@ -55,28 +47,33 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     public static final String PAIMON_DLF = "dlf";
     protected String catalogType;
     protected Catalog catalog;
-    protected AuthenticationConfig authConf;
-    protected HadoopAuthenticator hadoopAuthenticator;
 
-    private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
-            PaimonProperties.WAREHOUSE
-    );
+    private AbstractPaimonProperties paimonProperties;
 
-    public PaimonExternalCatalog(long catalogId, String name, String resource,
-                                 Map<String, String> props, String comment) {
+    public PaimonExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+                                 String comment) {
         super(catalogId, name, InitCatalogLog.Type.PAIMON, comment);
-        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
-        for (Map.Entry<String, String> propEntry : this.catalogProperty.getHadoopProperties().entrySet()) {
-            conf.set(propEntry.getKey(), propEntry.getValue());
+        try {
+            paimonProperties = (AbstractPaimonProperties) MetastoreProperties.create(catalogProperty.getProperties());
+        } catch (UserException e) {
+            throw new IllegalArgumentException("Failed to create Paimon properties from catalog properties,exception: "
+                    + ExceptionUtils.getRootCauseMessage(e), e);
         }
-        authConf = AuthenticationConfig.getKerberosConfig(conf);
-        hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authConf);
+        catalogType = paimonProperties.getPaimonCatalogType();
+        catalog = createCatalog();
+        initPreExecutionAuthenticator();
+    }
+
+    @Override
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (executionAuthenticator == null) {
+            executionAuthenticator = paimonProperties.getExecutionAuthenticator();
+        }
     }
 
     public String getCatalogType() {
@@ -86,8 +83,8 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
 
     protected List<String> listDatabaseNames() {
         try {
-            return hadoopAuthenticator.doAs(() -> new ArrayList<>(catalog.listDatabases()));
-        } catch (IOException e) {
+            return executionAuthenticator.execute(() -> new ArrayList<>(catalog.listDatabases()));
+        } catch (Exception e) {
             throw new RuntimeException("Failed to list databases names, catalog name: " + getName(), e);
         }
     }
@@ -96,7 +93,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> {
+            return executionAuthenticator.execute(() -> {
                 try {
                     catalog.getTable(Identifier.create(dbName, tblName));
                     return true;
@@ -105,8 +102,9 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
                 }
             });
 
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to check table existence, catalog name: " + getName(), e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to check table existence, catalog name: " + getName()
+                    + "error message is:" + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -114,7 +112,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> {
+            return executionAuthenticator.execute(() -> {
                 List<String> tableNames = null;
                 try {
                     tableNames = catalog.listTables(dbName);
@@ -123,99 +121,84 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
                 }
                 return tableNames;
             });
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException("Failed to list table names, catalog name: " + getName(), e);
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonTable(String dbName, String tblName) {
+    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> catalog.getTable(Identifier.create(dbName, tblName)));
+            return executionAuthenticator.execute(() -> catalog.getTable(Identifier.create(nameMapping
+                    .getRemoteDbName(), nameMapping.getRemoteTblName())));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
-                    + dbName + "." + tblName + ", because " + e.getMessage(), e);
+            throw new RuntimeException("Failed to get Paimon table:" + getName() + "." + nameMapping.getLocalDbName()
+                    + "." + nameMapping.getLocalTblName() + ", because " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
-    public List<Partition> getPaimonPartitions(String dbName, String tblName) {
+    public List<Partition> getPaimonPartitions(NameMapping nameMapping) {
         makeSureInitialized();
         try {
-            return hadoopAuthenticator.doAs(() -> {
+            return executionAuthenticator.execute(() -> {
                 List<Partition> partitions = new ArrayList<>();
                 try {
-                    partitions = catalog.listPartitions(Identifier.create(dbName, tblName));
+                    partitions = catalog.listPartitions(Identifier.create(nameMapping.getRemoteDbName(),
+                            nameMapping.getRemoteTblName()));
                 } catch (Catalog.TableNotExistException e) {
                     LOG.warn("TableNotExistException", e);
                 }
                 return partitions;
             });
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table partitions:" + getName() + "."
-                + dbName + "." + tblName + ", because " + e.getMessage(), e);
+                    + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + ", because "
+                    + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
-    protected String getPaimonCatalogType(String catalogType) {
-        if (PAIMON_HMS.equalsIgnoreCase(catalogType)) {
-            return PaimonProperties.PAIMON_HMS_CATALOG;
-        } else {
-            return PaimonProperties.PAIMON_FILESYSTEM_CATALOG;
+    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping, String queryType) {
+        return getPaimonSystemTable(nameMapping, null, queryType);
+    }
+
+    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping,
+                                                              String branch, String queryType) {
+        makeSureInitialized();
+        try {
+            return executionAuthenticator.execute(() -> catalog.getTable(new Identifier(nameMapping.getRemoteDbName(),
+                    nameMapping.getRemoteTblName(), branch, queryType)));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get Paimon system table:" + getName() + "."
+                    + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + "$" + queryType
+                    + ", because " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
+
 
     protected Catalog createCatalog() {
         try {
-            return hadoopAuthenticator.doAs(() -> {
-                Options options = new Options();
-                Map<String, String> paimonOptionsMap = getPaimonOptionsMap();
-                for (Map.Entry<String, String> kv : paimonOptionsMap.entrySet()) {
-                    options.set(kv.getKey(), kv.getValue());
-                }
-                CatalogContext context = CatalogContext.create(options, getConfiguration());
-                return createCatalogImpl(context);
-            });
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to create catalog, catalog name: " + getName(), e);
+            return paimonProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
+                    .getStoragePropertiesMap().values()));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create catalog, catalog name: " + getName() + ", exception: "
+                    + ExceptionUtils.getRootCauseMessage(e), e);
         }
-    }
-
-    protected Catalog createCatalogImpl(CatalogContext context) {
-        return CatalogFactory.createCatalog(context);
     }
 
     public Map<String, String> getPaimonOptionsMap() {
-        Map<String, String> properties = catalogProperty.getHadoopProperties();
-        Map<String, String> options = Maps.newHashMap();
-        options.put(PaimonProperties.WAREHOUSE, properties.get(PaimonProperties.WAREHOUSE));
-        setPaimonCatalogOptions(properties, options);
-        setPaimonExtraOptions(properties, options);
-        return options;
-    }
-
-    protected abstract void setPaimonCatalogOptions(Map<String, String> properties, Map<String, String> options);
-
-    protected void setPaimonExtraOptions(Map<String, String> properties, Map<String, String> options) {
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
-            if (kv.getKey().startsWith(PaimonProperties.PAIMON_PREFIX)) {
-                options.put(kv.getKey().substring(PaimonProperties.PAIMON_PREFIX.length()), kv.getValue());
-            }
-        }
-
-        // hive version.
-        // This property is used for both FE and BE, so it has no "paimon." prefix.
-        // We need to handle it separately.
-        if (properties.containsKey(HMSProperties.HIVE_VERSION)) {
-            options.put(HMSProperties.HIVE_VERSION, properties.get(HMSProperties.HIVE_VERSION));
-        }
+        makeSureInitialized();
+        return paimonProperties.getCatalogOptionsMap();
     }
 
     @Override
     public void checkProperties() throws DdlException {
-        super.checkProperties();
-        for (String requiredProperty : REQUIRED_PROPERTIES) {
-            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
-                throw new DdlException("Required property '" + requiredProperty + "' is missing");
+        if (null != paimonProperties) {
+            try {
+                this.paimonProperties = (AbstractPaimonProperties) MetastoreProperties
+                        .create(catalogProperty.getProperties());
+            } catch (UserException e) {
+                throw new DdlException("Failed to create Paimon properties from catalog properties, exception: "
+                        + ExceptionUtils.getRootCauseMessage(e), e);
             }
         }
     }

@@ -18,6 +18,7 @@
 package org.apache.doris.insertoverwrite;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -39,6 +40,9 @@ public class InsertOverwriteManagerTest {
 
     @Mocked
     private HMSExternalTable hmsExternalTable;
+
+    @Mocked
+    private MTMV mtmv;
 
     @Before
     public void setUp()
@@ -69,18 +73,26 @@ public class InsertOverwriteManagerTest {
                 hmsExternalTable.getName();
                 minTimes = 0;
                 result = "hmsTable";
+
+                mtmv.getId();
+                minTimes = 0;
+                result = 4L;
+
+                mtmv.getName();
+                minTimes = 0;
+                result = "mtmv1";
             }
         };
     }
 
     @Test
-    public void testParallel() {
+    public void testMTMVParallel() {
         InsertOverwriteManager manager = new InsertOverwriteManager();
-        manager.recordRunningTableOrException(db, table);
+        manager.recordRunningTableOrException(db, mtmv);
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> manager.recordRunningTableOrException(db, table));
-        manager.dropRunningRecord(db.getId(), table.getId());
-        Assertions.assertDoesNotThrow(() -> manager.recordRunningTableOrException(db, table));
+                () -> manager.recordRunningTableOrException(db, mtmv));
+        manager.dropRunningRecord(db.getId(), mtmv.getId());
+        Assertions.assertDoesNotThrow(() -> manager.recordRunningTableOrException(db, mtmv));
     }
 
     @Test
@@ -89,5 +101,13 @@ public class InsertOverwriteManagerTest {
         manager.recordRunningTableOrException(db, hmsExternalTable);
         Assertions.assertDoesNotThrow(() -> manager.recordRunningTableOrException(db, hmsExternalTable));
         manager.dropRunningRecord(db.getId(), hmsExternalTable.getId());
+    }
+
+    @Test
+    public void testOlapTableParallel() {
+        InsertOverwriteManager manager = new InsertOverwriteManager();
+        manager.recordRunningTableOrException(db, table);
+        Assertions.assertDoesNotThrow(() -> manager.recordRunningTableOrException(db, table));
+        manager.dropRunningRecord(db.getId(), table.getId());
     }
 }

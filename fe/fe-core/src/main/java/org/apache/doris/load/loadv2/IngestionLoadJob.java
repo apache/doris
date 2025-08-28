@@ -57,7 +57,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -100,8 +99,6 @@ import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -866,11 +863,15 @@ public class IngestionLoadJob extends LoadJob {
 
         List<TColumn> columnsDesc = new ArrayList<>();
         List<Column> columns = new ArrayList<>();
+        Map<String, TColumn> colNameToColDesc = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (Column column : olapTable.getSchemaByIndexId(indexId)) {
             Column col = new Column(column);
             col.setName(column.getName().toLowerCase(Locale.ROOT));
             columns.add(col);
-            columnsDesc.add(col.toThrift());
+            TColumn tCol = col.toThrift();
+            columnsDesc.add(tCol);
+            String colName = col.tryGetBaseColumnName();
+            colNameToColDesc.put(colName, tCol);
             // use index schema to fill the descriptor table
             SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
             destSlotDesc.setIsMaterialized(true);
@@ -900,7 +901,7 @@ public class IngestionLoadJob extends LoadJob {
         return new PushTask(backendId, dbId, olapTable.getId(),
                 partitionId, indexId, tabletId, replicaId, schemaHash, 0, id,
                 TPushType.LOAD_V2, TPriority.NORMAL, transactionId, taskSignature,
-                tBrokerScanRange, tDescriptorTable, columnsDesc,
+                tBrokerScanRange, tDescriptorTable, columnsDesc, colNameToColDesc,
                 olapTable.getStorageVaultId(), schemaVersion);
     }
 
@@ -960,7 +961,7 @@ public class IngestionLoadJob extends LoadJob {
                 Lists.newArrayList(tableToLoadPartitions.keySet()));
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
-            Env.getCurrentGlobalTransactionMgr().commitTransaction(
+            Env.getCurrentGlobalTransactionMgr().commitTransactionWithoutLock(
                     dbId, tableList, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                             finishTimestamp, state, failMsg));
@@ -1098,30 +1099,6 @@ public class IngestionLoadJob extends LoadJob {
                 LOG.warn("replay update load job state info failed. error: wrong state. job id: {}, state: {}", id,
                         state);
                 break;
-        }
-    }
-
-    @Override
-    protected void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        this.etlStartTimestamp = in.readLong();
-        this.etlStatus = new EtlStatus();
-        this.etlStatus.readFields(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String tabletMetaStr = Text.readString(in);
-            Pair<String, Long> fileInfo = Pair.of(Text.readString(in), in.readLong());
-            tabletMetaToFileInfo.put(tabletMetaStr, fileInfo);
-        }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String propKey = Text.readString(in);
-            String propValue = Text.readString(in);
-            hadoopProperties.put(propKey, propValue);
-        }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            indexToSchemaVersion.put(in.readLong(), in.readInt());
         }
     }
 

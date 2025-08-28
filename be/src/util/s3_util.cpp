@@ -24,12 +24,15 @@
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
+#include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
+#include <aws/sts/STSClient.h>
 #include <bvar/reducer.h>
 #include <util/string_util.h>
 
 #include <atomic>
 #ifdef USE_AZURE
+#include <azure/core/diagnostics/logger.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #endif
 #include <cstdlib>
@@ -42,6 +45,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/aws_logger.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #ifdef USE_AZURE
@@ -76,11 +80,19 @@ doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
     if (conf.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
     }
-    if (conf.ak.empty()) {
-        return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
-    }
-    if (conf.sk.empty()) {
-        return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
+
+    if (conf.role_arn.empty()) {
+        // Allow anonymous access when both ak and sk are empty
+        bool hasAk = !conf.ak.empty();
+        bool hasSk = !conf.sk.empty();
+
+        // Either both credentials are provided or both are empty (anonymous access)
+        if (hasAk && conf.sk.empty()) {
+            return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
+        }
+        if (hasSk && conf.ak.empty()) {
+            return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
+        }
     }
     return Status::OK();
 }
@@ -105,16 +117,8 @@ constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
 constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 
-auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
-    return [&](int64_t ns) {
-        if (ns > 0) {
-            ns_bvar << ns;
-        } else {
-            req_num_bvar << 1;
-        }
-    };
-}
-
+constexpr char S3_ROLE_ARN[] = "AWS_ROLE_ARN";
+constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
 } // namespace
 
 bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
@@ -134,54 +138,6 @@ int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_bur
     return S3ClientFactory::instance().rate_limiter(type)->reset(max_speed, max_burst, limit);
 }
 
-class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
-public:
-    DorisAWSLogger() : _log_level(Aws::Utils::Logging::LogLevel::Info) {}
-    DorisAWSLogger(Aws::Utils::Logging::LogLevel log_level) : _log_level(log_level) {}
-    ~DorisAWSLogger() final = default;
-    Aws::Utils::Logging::LogLevel GetLogLevel() const final { return _log_level; }
-    void Log(Aws::Utils::Logging::LogLevel log_level, const char* tag, const char* format_str,
-             ...) final {
-        _log_impl(log_level, tag, format_str);
-    }
-    void LogStream(Aws::Utils::Logging::LogLevel log_level, const char* tag,
-                   const Aws::OStringStream& message_stream) final {
-        _log_impl(log_level, tag, message_stream.str().c_str());
-    }
-
-    void Flush() final {}
-
-private:
-    void _log_impl(Aws::Utils::Logging::LogLevel log_level, const char* tag, const char* message) {
-        switch (log_level) {
-        case Aws::Utils::Logging::LogLevel::Off:
-            break;
-        case Aws::Utils::Logging::LogLevel::Fatal:
-            LOG(FATAL) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Error:
-            LOG(ERROR) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Warn:
-            LOG(WARNING) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Info:
-            LOG(INFO) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Debug:
-            LOG(INFO) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Trace:
-            LOG(INFO) << "[" << tag << "] " << message;
-            break;
-        default:
-            break;
-        }
-    }
-
-    std::atomic<Aws::Utils::Logging::LogLevel> _log_level;
-};
-
 S3ClientFactory::S3ClientFactory() {
     _aws_options = Aws::SDKOptions {};
     auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
@@ -190,27 +146,43 @@ S3ClientFactory::S3ClientFactory() {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
     Aws::InitAPI(_aws_options);
-    _ca_cert_file_path = get_valid_ca_cert_path();
+    _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
     _rate_limiters = {
             std::make_unique<S3RateLimiterHolder>(
-                    S3RateLimitType::GET, config::s3_get_token_per_second,
-                    config::s3_get_bucket_tokens, config::s3_get_token_limit,
+                    config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+                    config::s3_get_token_limit,
                     metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
             std::make_unique<S3RateLimiterHolder>(
-                    S3RateLimitType::PUT, config::s3_put_token_per_second,
-                    config::s3_put_bucket_tokens, config::s3_put_token_limit,
+                    config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+                    config::s3_put_token_limit,
                     metric_func_factory(put_rate_limit_ns, put_rate_limit_exceed_req_num))};
-}
 
-std::string S3ClientFactory::get_valid_ca_cert_path() {
-    auto vec_ca_file_path = doris::split(config::ca_cert_file_paths, ";");
-    auto it = vec_ca_file_path.begin();
-    for (; it != vec_ca_file_path.end(); ++it) {
-        if (std::filesystem::exists(*it)) {
-            return *it;
-        }
-    }
-    return "";
+#ifdef USE_AZURE
+    auto azureLogLevel =
+            static_cast<Azure::Core::Diagnostics::Logger::Level>(config::azure_log_level);
+    Azure::Core::Diagnostics::Logger::SetLevel(azureLogLevel);
+    Azure::Core::Diagnostics::Logger::SetListener(
+            [&](Azure::Core::Diagnostics::Logger::Level level, const std::string& message) {
+                switch (level) {
+                case Azure::Core::Diagnostics::Logger::Level::Verbose:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Informational:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Warning:
+                    LOG(WARNING) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Error:
+                    LOG(ERROR) << message;
+                    break;
+                default:
+                    LOG(WARNING) << "Unknown level: " << static_cast<int>(level)
+                                 << ", message: " << message;
+                    break;
+                }
+            });
+#endif
 }
 
 S3ClientFactory::~S3ClientFactory() {
@@ -255,16 +227,73 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
             std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
 
     const std::string container_name = s3_conf.bucket;
-    const std::string uri =
-            fmt::format("{}://{}.blob.core.windows.net/{}", "https", s3_conf.ak, container_name);
+    std::string uri;
+    if (config::force_azure_blob_global_endpoint) {
+        uri = fmt::format("https://{}.blob.core.windows.net/{}", s3_conf.ak, container_name);
+    } else {
+        uri = fmt::format("{}/{}", s3_conf.endpoint, container_name);
+        if (s3_conf.endpoint.find("://") == std::string::npos) {
+            uri = "https://" + uri;
+        }
+    }
 
-    auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
+    Azure::Storage::Blobs::BlobClientOptions options;
+    options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+    options.Retry.MaxRetries = config::max_s3_client_retry;
+    options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
+
+    auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+            uri, cred, std::move(options));
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
     return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
 #else
     LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
     return nullptr;
 #endif
+}
+
+std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_credentials_provider(
+        const S3ClientConf& s3_conf) {
+    if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
+        Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
+        DCHECK(!aws_cred.IsExpiredOrEmpty());
+        if (!s3_conf.token.empty()) {
+            aws_cred.SetSessionToken(s3_conf.token);
+        }
+        return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(aws_cred));
+    }
+
+    if (s3_conf.cred_provider_type == CredProviderType::InstanceProfile) {
+        if (s3_conf.role_arn.empty()) {
+            return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
+        }
+
+        Aws::Client::ClientConfiguration clientConfiguration =
+                S3ClientFactory::getClientConfiguration();
+
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            clientConfiguration.caFile = _ca_cert_file_path;
+        }
+
+        auto stsClient = std::make_shared<Aws::STS::STSClient>(
+                std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
+                clientConfiguration);
+
+        return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
+                s3_conf.role_arn, Aws::String(), s3_conf.external_id,
+                Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
+    }
+
+    // Support anonymous access for public datasets when no credentials are provided
+    if (s3_conf.ak.empty() && s3_conf.sk.empty()) {
+        return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
+    }
+
+    return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
 }
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
@@ -277,32 +306,27 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.endpointOverride = s3_conf.endpoint;
     }
     aws_config.region = s3_conf.region;
-    std::string ca_cert = get_valid_ca_cert_path();
-    if ("" != _ca_cert_file_path) {
-        aws_config.caFile = _ca_cert_file_path;
-    } else {
-        // config::ca_cert_file_paths is valmutable,get newest value if file path invaild
-        _ca_cert_file_path = get_valid_ca_cert_path();
-        if ("" != _ca_cert_file_path) {
-            aws_config.caFile = _ca_cert_file_path;
-        }
+
+    if (_ca_cert_file_path.empty()) {
+        _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
     }
+
+    if (!_ca_cert_file_path.empty()) {
+        aws_config.caFile = _ca_cert_file_path;
+    }
+
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {
-#ifdef BE_TEST
-        // the S3Client may shared by many threads.
-        // So need to set the number of connections large enough.
-        aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
-#else
-        aws_config.maxConnections =
-                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_thread_num();
-#endif
+        // AWS SDK max concurrent tcp connections for a single http client to use. Default 25.
+        aws_config.maxConnections = std::max(config::doris_scanner_thread_pool_thread_num, 25);
     }
 
+    aws_config.requestTimeoutMs = 30000;
     if (s3_conf.request_timeout_ms > 0) {
         aws_config.requestTimeoutMs = s3_conf.request_timeout_ms;
     }
+
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
@@ -313,25 +337,11 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
 
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
             config::max_s3_client_retry /*scaleFactor = 25*/);
-    std::shared_ptr<Aws::S3::S3Client> new_client;
-    if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
-        Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
-        DCHECK(!aws_cred.IsExpiredOrEmpty());
-        if (!s3_conf.token.empty()) {
-            aws_cred.SetSessionToken(s3_conf.token);
-        }
-        new_client = std::make_shared<Aws::S3::S3Client>(
-                std::move(aws_cred), std::move(aws_config),
-                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                s3_conf.use_virtual_addressing);
-    } else {
-        std::shared_ptr<Aws::Auth::AWSCredentialsProvider> aws_provider_chain =
-                std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
-        new_client = std::make_shared<Aws::S3::S3Client>(
-                std::move(aws_provider_chain), std::move(aws_config),
-                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                s3_conf.use_virtual_addressing);
-    }
+
+    std::shared_ptr<Aws::S3::S3Client> new_client = std::make_shared<Aws::S3::S3Client>(
+            get_aws_credentials_provider(s3_conf), std::move(aws_config),
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+            s3_conf.use_virtual_addressing);
 
     auto obj_client = std::make_shared<io::S3ObjStorageClient>(std::move(new_client));
     LOG_INFO("create one s3 client with {}", s3_conf.to_string());
@@ -398,27 +408,61 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         s3_conf->client_conf.use_virtual_addressing = it->second != "true";
     }
 
+    if (auto it = properties.find(S3_ROLE_ARN); it != properties.end()) {
+        s3_conf->client_conf.cred_provider_type = CredProviderType::InstanceProfile;
+        s3_conf->client_conf.role_arn = it->second;
+    }
+
+    if (auto it = properties.find(S3_EXTERNAL_ID); it != properties.end()) {
+        s3_conf->client_conf.external_id = it->second;
+    }
+
     if (auto st = is_s3_conf_valid(s3_conf->client_conf); !st.ok()) {
         return st;
     }
     return Status::OK();
 }
 
+static CredProviderType cred_provider_type_from_thrift(TCredProviderType::type cred_provider_type) {
+    switch (cred_provider_type) {
+    case TCredProviderType::DEFAULT:
+        return CredProviderType::Default;
+    case TCredProviderType::SIMPLE:
+        return CredProviderType::Simple;
+    case TCredProviderType::INSTANCE_PROFILE:
+        return CredProviderType::InstanceProfile;
+    default:
+        __builtin_unreachable();
+        LOG(WARNING) << "Invalid TCredProviderType value: " << cred_provider_type
+                     << ", use default instead.";
+        return CredProviderType::Default;
+    }
+}
+
 S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     S3Conf ret {
             .bucket = info.bucket(),
             .prefix = info.prefix(),
-            .client_conf {.endpoint = info.endpoint(),
-                          .region = info.region(),
-                          .ak = info.ak(),
-                          .sk = info.sk(),
-                          .token {},
-                          .bucket = info.bucket(),
-                          .provider = io::ObjStorageType::AWS,
-                          .use_virtual_addressing =
-                                  info.has_use_path_style() ? !info.use_path_style() : true},
+            .client_conf {
+                    .endpoint = info.endpoint(),
+                    .region = info.region(),
+                    .ak = info.ak(),
+                    .sk = info.sk(),
+                    .token {},
+                    .bucket = info.bucket(),
+                    .provider = io::ObjStorageType::AWS,
+                    .use_virtual_addressing =
+                            info.has_use_path_style() ? !info.use_path_style() : true,
+
+                    .role_arn = info.role_arn(),
+                    .external_id = info.external_id(),
+            },
             .sse_enabled = info.sse_enabled(),
     };
+
+    if (info.has_cred_provider_type()) {
+        ret.client_conf.cred_provider_type = cred_provider_type_from_pb(info.cred_provider_type());
+    }
 
     io::ObjStorageType type = io::ObjStorageType::AWS;
     switch (info.provider()) {
@@ -443,9 +487,12 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     case cloud::ObjectStoreInfoPB_Provider_AZURE:
         type = io::ObjStorageType::AZURE;
         break;
+    case cloud::ObjectStoreInfoPB_Provider_TOS:
+        type = io::ObjStorageType::TOS;
+        break;
     default:
-        LOG_FATAL("unknown provider type {}, info {}", info.provider(), ret.to_string());
         __builtin_unreachable();
+        LOG_FATAL("unknown provider type {}, info {}", info.provider(), ret.to_string());
     }
     ret.client_conf.provider = type;
     return ret;
@@ -469,7 +516,15 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
                     // When using cold heat separation in minio, user might use ip address directly,
                     // which needs enable use_virtual_addressing to true
                     .use_virtual_addressing = !param.use_path_style,
+                    .role_arn = param.role_arn,
+                    .external_id = param.external_id,
             }};
+
+    if (param.__isset.cred_provider_type) {
+        ret.client_conf.cred_provider_type =
+                cred_provider_type_from_thrift(param.cred_provider_type);
+    }
+
     io::ObjStorageType type = io::ObjStorageType::AWS;
     switch (param.provider) {
     case TObjStorageType::UNKNOWN:
@@ -497,6 +552,9 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
         break;
     case TObjStorageType::GCP:
         type = io::ObjStorageType::GCP;
+        break;
+    case TObjStorageType::TOS:
+        type = io::ObjStorageType::TOS;
         break;
     default:
         LOG_FATAL("unknown provider type {}, info {}", param.provider, ret.to_string());

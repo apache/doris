@@ -21,6 +21,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/types.h>
@@ -35,23 +36,29 @@
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
-#include "vec/columns/columns_number.h"
+#include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
 TEST(TEST_VEXPR, ABSTEST) {
     doris::ObjectPool object_pool;
     doris::DescriptorTblBuilder builder(&object_pool);
-    builder.declare_tuple() << doris::TYPE_INT << doris::TYPE_DOUBLE;
+    builder.declare_tuple() << doris::vectorized::DataTypeFactory::instance().create_data_type(
+                                       doris::TYPE_INT, false)
+                            << doris::vectorized::DataTypeFactory::instance().create_data_type(
+                                       doris::TYPE_DOUBLE, false);
     doris::DescriptorTbl* desc_tbl = builder.build();
 
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
@@ -91,14 +98,15 @@ static doris::TupleDescriptor* create_tuple_desc(
     for (int i = 0; i < column_descs.size(); ++i) {
         TSlotDescriptor t_slot_desc;
         if (column_descs[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+            t_slot_desc.__set_slotType(vectorized::DataTypeFactory::instance()
+                                               .create_data_type(TYPE_DECIMALV2, false, 27, 9)
+                                               ->to_thrift());
         } else {
-            TypeDescriptor descriptor(column_descs[i].type);
-            if (column_descs[i].precision >= 0 && column_descs[i].scale >= 0) {
-                descriptor.precision = column_descs[i].precision;
-                descriptor.scale = column_descs[i].scale;
-            }
-            t_slot_desc.__set_slotType(descriptor.to_thrift());
+            auto descriptor = vectorized::DataTypeFactory::instance().create_data_type(
+                    column_descs[i].type, false,
+                    column_descs[i].precision >= 0 ? column_descs[i].precision : 0,
+                    column_descs[i].scale >= 0 ? column_descs[i].scale : 0);
+            t_slot_desc.__set_slotType(descriptor->to_thrift());
         }
         t_slot_desc.__set_colName(column_descs[i].name);
         t_slot_desc.__set_columnPos(i);
@@ -263,6 +271,13 @@ struct literal_traits<TYPE_DECIMALV2> {
     using CXXType = std::string;
 };
 
+template <>
+struct literal_traits<TYPE_TIMEV2> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::TIMEV2;
+    const static TExprNodeType::type tnode_type = TExprNodeType::TIMEV2_LITERAL;
+    using CXXType = double;
+};
+
 //======================== set literal ===================================
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
     requires std::is_integral_v<U>
@@ -335,7 +350,7 @@ void set_literal(TExprNode& node, const U& value) {
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
-    requires std::numeric_limits<U>::is_iec559
+    requires(std::numeric_limits<U>::is_iec559 && T != TYPE_TIMEV2)
 void set_literal(TExprNode& node, const U& value) {
     TFloatLiteral floatLiteral;
     floatLiteral.__set_value(value);
@@ -348,6 +363,14 @@ void set_literal(TExprNode& node, const U& value) {
     TDecimalLiteral decimal_literal;
     decimal_literal.__set_value(value);
     node.__set_decimal_literal(decimal_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
+    requires(T == TYPE_TIMEV2)
+void set_literal(TExprNode& node, const U& value) {
+    TTimeV2Literal timev2_literal;
+    timev2_literal.__set_value(value);
+    node.__set_timev2_literal(timev2_literal);
 }
 
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType>
@@ -575,5 +598,16 @@ TEST(TEST_VEXPR, LITERALTEST) {
         auto v = (*ctn.column)[0].get<DecimalField<Decimal128V2>>();
         EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
+    }
+    // timev2
+    {
+        VLiteral literal(create_literal<TYPE_TIMEV2, double>(12123400, 4));
+        Block block;
+        int ret = -1;
+        EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<Float64>();
+        EXPECT_FLOAT_EQ(v / 1000000, 12.1234);
+        EXPECT_EQ("00:00:12.1234", literal.value());
     }
 }

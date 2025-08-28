@@ -26,8 +26,9 @@ if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else
 echo "#### stop doris and clean fdb ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
-stop_doris
 clean_fdb "cloud_instance_0"
 
 echo "#### docker-compose down ####"
 docker-compose down
+
+exit

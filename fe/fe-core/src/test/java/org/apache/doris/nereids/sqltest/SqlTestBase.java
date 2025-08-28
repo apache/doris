@@ -100,7 +100,11 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
     @Override
     protected void runBeforeEach() throws Exception {
         StatementScopeIdGenerator.clear();
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setDisableNereidsRules(getDisableNereidsRules());
+    }
+
+    protected String getDisableNereidsRules() {
+        return "PRUNE_EMPTY_PARTITION";
     }
 
     protected LogicalCompatibilityContext constructContext(Plan p1, Plan p2, CascadesContext context) {
@@ -108,7 +112,8 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
                 context, new BitSet()).get(0);
         StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2, p2,
                 context, new BitSet()).get(0);
-        RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
+        RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations(), 8)
+                .get(0);
         SlotMapping sm = SlotMapping.generate(rm);
         return LogicalCompatibilityContext.from(rm, sm, st1, st2);
     }

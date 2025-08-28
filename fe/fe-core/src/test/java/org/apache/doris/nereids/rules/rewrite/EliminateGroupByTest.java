@@ -93,8 +93,55 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .matches(
                         logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql()
-                                .equals("if(age IS NULL, 0, 1) AS `if(age IS NULL, 0, 1)`")
+                                .equals("if(age IS NULL, 0, 1) AS `count(age)`")
                                 && p.getProjects().get(1).getDataType().isBigIntType()
+                        )
+                );
+    }
+
+    @Test
+    void eliminateAvg() {
+        String sql = "select id, avg(age) from t group by id";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                                && p.getProjects().get(1).toSql().equals("cast(age as DOUBLE) AS `avg(age)`")
+                                && p.getProjects().get(1).getDataType().isDoubleType()
+                        )
+                );
+    }
+
+    @Test
+    void eliminateCountStar() {
+        String sql = "select id, count(*) from t group by id";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                                && p.getProjects().get(1).toSql().equals("1 AS `count(*)`")
+                                && p.getProjects().get(1).getDataType().isBigIntType()
+                        )
+                );
+    }
+
+    @Test
+    void eliminateExpr() {
+        String sql = "select id, avg(age+1), min(abs(age)) from t group by id";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                                && p.getProjects().get(1).toSql().equals("cast((cast(age as BIGINT) + 1) as DOUBLE) AS `avg(age+1)`")
+                                && p.getProjects().get(1).getDataType().isDoubleType()
+                                && p.getProjects().get(2).toSql().equals("abs(age) AS `min(abs(age))`")
+                                && p.getProjects().get(2).getDataType().isBigIntType()
                         )
                 );
     }

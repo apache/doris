@@ -155,7 +155,7 @@ suite("push_down_sum_through_join_one_side") {
     """
 
     qt_with_hint_groupby_pushdown_basic """
-        explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join_one_side) */  sum(t1.score) from sum_t_one_side t1, sum_t_one_side t2 where t1.id = t2.id group by t1.name;
+        explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join_one_side) */  sum(t1.score) from sum_t_one_side t1, sum_t_one_side t2 where t1.id = t2.id and t2.score < 100 group by t1.name;
     """
 
     qt_with_hint_groupby_pushdown_left_join """

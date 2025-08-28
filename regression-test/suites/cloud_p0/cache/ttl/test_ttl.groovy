@@ -18,7 +18,16 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_ttl") {
-    sql """ use @regression_cluster_name1 """
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    def clusters = sql " SHOW CLUSTERS; "
+    assertTrue(!clusters.isEmpty())
+    def validCluster = clusters[0][0]
+    sql """use @${validCluster};""";
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="180") """
     String[][] backends = sql """ show backends """
     String backendId;
@@ -26,7 +35,7 @@ suite("test_ttl") {
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
+        if (backend[9].equals("true") && backend[19].contains("${validCluster}")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -38,12 +47,17 @@ suite("test_ttl") {
     def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
     logger.info(url)
     def clearFileCache = { check_func ->
-        httpTest {
-            endpoint ""
-            uri url
-            op "get"
-            body ""
-            check check_func
+        try {
+            httpTest {
+                endpoint ""
+                uri url
+                op "get"
+                body ""
+                check check_func
+            }
+        } catch (Exception e) {
+            logger.error("Failed to clear file cache: ${e.message}")
+            throw e
         }
     }
 
@@ -58,46 +72,61 @@ suite("test_ttl") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     def load_customer_once =  { String table ->
-        def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
-        sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
-        def loadLabel = table + "_" + uniqueID
-        // load data from cos
-        def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
-        loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
-        sql loadSql
+        try {
+            def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
+            sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
+            def loadLabel = table + "_" + uniqueID
+            sql """ alter table ${table} set ("disable_auto_compaction" = "true") """ // no influence from compaction
+            // load data from cos
+            def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
+            loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
+            sql loadSql
 
-        // check load state
-        while (true) {
-            def stateResult = sql "show load where Label = '${loadLabel}'"
-            def loadState = stateResult[stateResult.size() - 1][2].toString()
-            if ("CANCELLED".equalsIgnoreCase(loadState)) {
-                throw new IllegalStateException("load ${loadLabel} failed.")
-            } else if ("FINISHED".equalsIgnoreCase(loadState)) {
-                break
+            // check load state
+            while (true) {
+                def stateResult = sql "show load where Label = '${loadLabel}'"
+                def loadState = stateResult[stateResult.size() - 1][2].toString()
+                if ("CANCELLED".equalsIgnoreCase(loadState)) {
+                    logger.error("Data load failed for label: ${loadLabel}")
+                    throw new IllegalStateException("load ${loadLabel} failed.")
+                } else if ("FINISHED".equalsIgnoreCase(loadState)) {
+                    logger.info("Data load completed successfully for label: ${loadLabel}")
+                    break
+                }
+                logger.info("Waiting for data load to complete. Current state: ${loadState}")
+                sleep(5000)
             }
-            sleep(5000)
+        } catch (Exception e) {
+            logger.error("Failed to load customer data: ${e.message}")
+            throw e
         }
     }
 
     def getMetricsMethod = { check_func ->
-        httpTest {
-            endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
-            uri "/brpc_metrics"
-            op "get"
-            check check_func
+        try {
+            httpTest {
+                endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
+                uri "/brpc_metrics"
+                op "get"
+                check check_func
+            }
+        } catch (Exception e) {
+            logger.error("Failed to get metrics: ${e.message}")
+            throw e
         }
     }
 
     clearFileCache.call() {
         respCode, body -> {}
     }
+    sleep(10000)
 
     load_customer_once("customer_ttl")
-    sleep(30000) // 30s
+    sleep(10000)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
@@ -138,5 +167,6 @@ suite("test_ttl") {
                 }
             }
             assertTrue(flag1)
+    }
     }
 }

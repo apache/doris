@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "common/cast_set.h"
+#include "runtime/jsonb_value.h"
 #include "util/jsonb_utils.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
@@ -70,8 +71,32 @@ Status DataTypeJsonb::from_string(ReadBuffer& rb, IColumn* column) const {
     return Status::OK();
 }
 
+Field DataTypeJsonb::get_default() const {
+    std::string default_json = "null";
+    // convert default_json to binary
+    JsonBinaryValue jsonb_value;
+    THROW_IF_ERROR(jsonb_value.from_json_string(default_json));
+    // Throw exception if default_json.size() is large than INT32_MAX
+    // JsonbField keeps its own memory
+    return Field::create_field<TYPE_JSONB>(
+            JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size())));
+}
+
+Field DataTypeJsonb::get_field(const TExprNode& node) const {
+    DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
+    DCHECK(node.__isset.json_literal);
+    JsonBinaryValue jsonb_value;
+    THROW_IF_ERROR(jsonb_value.from_json_string(node.json_literal.value));
+    return Field::create_field<TYPE_JSONB>(
+            JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size())));
+}
+
 MutableColumnPtr DataTypeJsonb::create_column() const {
     return ColumnString::create();
+}
+
+Status DataTypeJsonb::check_column(const IColumn& column) const {
+    return data_type_string.check_column(column);
 }
 
 bool DataTypeJsonb::equals(const IDataType& rhs) const {
@@ -90,6 +115,15 @@ char* DataTypeJsonb::serialize(const IColumn& column, char* buf, int data_versio
 const char* DataTypeJsonb::deserialize(const char* buf, MutableColumnPtr* column,
                                        int data_version) const {
     return data_type_string.deserialize(buf, column, data_version);
+}
+
+FieldWithDataType DataTypeJsonb::get_field_with_data_type(const IColumn& column,
+                                                          size_t row_num) const {
+    const auto& column_data = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    Field field = Field::create_field<TYPE_JSONB>(JsonbField(
+            column_data.get_data_at(row_num).data, column_data.get_data_at(row_num).size));
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type()};
 }
 
 } // namespace doris::vectorized

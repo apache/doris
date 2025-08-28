@@ -65,4 +65,10 @@ under the License.
     <suppress files="[\\/]com[\\/]amazonaws[\\/]glue[\\/]catalog[\\/]" checks="[a-zA-Z0-9]*"/>
     <suppress files="[\\/]com[\\/]aliyun[\\/]datalake[\\/]metastore[\\/]hive2[\\/]" checks="[a-zA-Z0-9]*"/>
     <suppress files="FSDataInputStreamWrapper\.java" checks="[a-zA-Z0-9]*"/>
+
+    <!-- ignore hudi disk map copied from hudi/common/util/collection/DiskMap.java -->
+    <suppress files="org[\\/]apache[\\/]hudi[\\/]common[\\/]util[\\/]collection[\\/]DiskMap\.java" checks="[a-zA-Z0-9]*"/>
+
+    <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
+    <suppress files=".*thrift/schema/external/.*" checks=".*"/>
 </suppressions>

@@ -18,14 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -43,6 +41,7 @@ import org.apache.doris.common.util.GeneratedColumnUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
@@ -115,7 +114,7 @@ public class CreateTableInfo {
             ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
 
     private static final Logger LOG = LogManager.getLogger(CreateTableInfo.class);
-
+    protected TableNameInfo tableNameInfo;
     private final boolean ifNotExists;
     private String ctlName;
     private String dbName;
@@ -135,14 +134,17 @@ public class CreateTableInfo {
     private boolean isEnableSkipBitmapColumn = false;
 
     private boolean isExternal = false;
+    private boolean isTemp = false;
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
     private PartitionTableInfo partitionTableInfo; // get when validate
+    private PartitionDesc partitionDesc;
+    private DistributionDesc distributionDesc;
 
     /**
      * constructor for create table
      */
-    public CreateTableInfo(boolean ifNotExists, boolean isExternal, String ctlName, String dbName,
+    public CreateTableInfo(boolean ifNotExists, boolean isExternal, boolean isTemp, String ctlName, String dbName,
             String tableName, List<ColumnDefinition> columns, List<IndexDefinition> indexes,
             String engineName, KeysType keysType, List<String> keys, String comment,
             PartitionTableInfo partitionTableInfo,
@@ -151,9 +153,11 @@ public class CreateTableInfo {
             List<String> clusterKeyColumnNames) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
+        this.isTemp = isTemp;
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
+        this.tableNameInfo = new TableNameInfo(ctlName, dbName, tableName);
         this.ctasColumns = null;
         this.columns = Utils.copyRequiredMutableList(columns);
         this.indexes = Utils.copyRequiredMutableList(indexes);
@@ -173,7 +177,7 @@ public class CreateTableInfo {
     /**
      * constructor for create table as select
      */
-    public CreateTableInfo(boolean ifNotExists, boolean isExternal, String ctlName, String dbName,
+    public CreateTableInfo(boolean ifNotExists, boolean isExternal, boolean isTemp, String ctlName, String dbName,
             String tableName, List<String> cols, String engineName, KeysType keysType,
             List<String> keys, String comment,
             PartitionTableInfo partitionTableInfo,
@@ -182,9 +186,11 @@ public class CreateTableInfo {
             List<String> clusterKeyColumnNames) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
+        this.isTemp = isTemp;
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
+        this.tableNameInfo = new TableNameInfo(ctlName, dbName, tableName);
         this.ctasColumns = cols;
         this.columns = null;
         this.indexes = Lists.newArrayList();
@@ -206,11 +212,11 @@ public class CreateTableInfo {
      */
     public CreateTableInfo withTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
         if (ctasColumns != null) {
-            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, ctasColumns, engineName,
-                    keysType, keys, comment, partitionTableInfo, distribution, rollups, properties, extProperties,
-                    clusterKeysColumnNames);
+            return new CreateTableInfo(ifNotExists, isExternal, isTemp, ctlName, dbName, tableName, ctasColumns,
+                    engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
+                    extProperties, clusterKeysColumnNames);
         } else {
-            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, columns, indexes,
+            return new CreateTableInfo(ifNotExists, isExternal, isTemp, ctlName, dbName, tableName, columns, indexes,
                     engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
                     extProperties, clusterKeysColumnNames);
         }
@@ -229,7 +235,7 @@ public class CreateTableInfo {
     }
 
     public String getTableName() {
-        return tableName;
+        return tableNameInfo.getTbl();
     }
 
     public String getEngineName() {
@@ -238,6 +244,10 @@ public class CreateTableInfo {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     /**
@@ -300,7 +310,8 @@ public class CreateTableInfo {
         }
 
         try {
-            FeNameFormat.checkTableName(tableName);
+            // check display name for temporary table, its inner name cannot pass validation
+            FeNameFormat.checkTableName(Util.getTempTableDisplayName(tableName));
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -668,13 +679,10 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
-            boolean disableInvertedIndexV1ForVariant = false;
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
                 invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
                         new HashMap<>(properties));
-                disableInvertedIndexV1ForVariant = invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
-                        && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
@@ -690,7 +698,7 @@ public class CreateTableInfo {
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
                             indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
-                                    invertedIndexFileStorageFormat, disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             break;
                         }
@@ -713,6 +721,7 @@ public class CreateTableInfo {
             }
         }
         generatedColumnCheck(ctx);
+        analyzeEngine();
     }
 
     private void paddingEngineName(String ctlName, ConnectContext ctx) {
@@ -773,13 +782,18 @@ public class CreateTableInfo {
             }
         }
 
-        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals(ENGINE_ODBC)
+        if (isTemp && !engineName.equals(ENGINE_OLAP)) {
+            throw new AnalysisException("Do not support temporary table with engine name = " + engineName);
+        }
+        if (isTemp && !rollups.isEmpty()) {
+            throw new AnalysisException("Do not support temporary table with rollup ");
+        }
+
+        if ((engineName.equals(ENGINE_ODBC)
                 || engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_BROKER))) {
             throw new AnalysisException("odbc, mysql and broker table is no longer supported."
                     + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
-                    + " For broker table, use table valued function instead."
-                    + ". Or you can temporarily set 'enable_odbc_mysql_broker_table=true'"
-                    + " in fe.conf to reopen this feature.");
+                    + " For broker table, use table valued function instead.");
         }
     }
 
@@ -912,26 +926,13 @@ public class CreateTableInfo {
     }
 
     /**
-     * translate to catalog create table stmt
+     * analyzeEngine
      */
-    public CreateTableStmt translateToLegacyStmt() {
-        PartitionDesc partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
-        List<AlterClause> addRollups = Lists.newArrayList();
-        if (!rollups.isEmpty()) {
-            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
-                    .collect(Collectors.toList()));
-        }
+    public void analyzeEngine() {
+        this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
+        this.distributionDesc =
+            distribution != null ? distribution.translateToCatalogStyle() : null;
 
-        List<Column> catalogColumns = columns.stream()
-                .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
-
-        List<Index> catalogIndexes = indexes.stream().map(IndexDefinition::translateToCatalogStyle)
-                .collect(Collectors.toList());
-        DistributionDesc distributionDesc =
-                distribution != null ? distribution.translateToCatalogStyle() : null;
-
-        // TODO should move this code to validate function
-        // EsUtil.analyzePartitionAndDistributionDesc only accept DistributionDesc and PartitionDesc
         if (engineName.equals(ENGINE_ELASTICSEARCH)) {
             try {
                 EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
@@ -945,16 +946,9 @@ public class CreateTableInfo {
             }
             if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG) && partitionDesc != null) {
                 throw new AnalysisException("Create " + engineName
-                        + " table should not contain partition desc");
+                    + " table should not contain partition desc");
             }
         }
-
-        return new CreateTableStmt(ifNotExists, isExternal,
-                new TableName(ctlName, dbName, tableName),
-                catalogColumns, catalogIndexes, engineName,
-                new KeysDesc(keysType, keys, clusterKeysColumnNames),
-                partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,
-                comment, addRollups, null);
     }
 
     public void setIsExternal(boolean isExternal) {
@@ -1171,5 +1165,54 @@ public class CreateTableInfo {
     public DistributionDescriptor getDistribution() {
         return distribution;
     }
-}
 
+    public boolean isTemp() {
+        return isTemp;
+    }
+
+    public PartitionDesc getPartitionDesc() {
+        return partitionDesc;
+    }
+
+    public List<Column> getColumns() {
+        return columns.stream()
+            .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public DistributionDesc getDistributionDesc() {
+        return distributionDesc;
+    }
+
+    public boolean isExternal() {
+        return isExternal;
+    }
+
+    public Map<String, String> getExtProperties() {
+        return extProperties;
+    }
+
+    public List<Index> getIndexes() {
+        return indexes.stream().map(IndexDefinition::translateToCatalogStyle)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * getRollupAlterClauseList
+     */
+    public List<AlterClause> getRollupAlterClauseList() {
+        List<AlterClause> addRollups = Lists.newArrayList();
+        if (!rollups.isEmpty()) {
+            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
+                    .collect(Collectors.toList()));
+        }
+        return addRollups;
+    }
+
+    public KeysDesc getKeysDesc() {
+        return new KeysDesc(keysType, keys, clusterKeysColumnNames);
+    }
+}

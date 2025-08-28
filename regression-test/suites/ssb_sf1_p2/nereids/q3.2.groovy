@@ -42,6 +42,6 @@ suite("ssb_sf1_q3_2_nereids") {
         ORDER BY d_year ASC,  REVENUE DESC;
         """
 
-        resultFile(file = "../sql/q3.2.out", tag = "q3.2")
+        resultFile("../sql/q3.2.out", "q3.2")
     }
 }

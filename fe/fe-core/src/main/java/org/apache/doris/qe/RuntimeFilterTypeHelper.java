@@ -55,6 +55,10 @@ public class RuntimeFilterTypeHelper {
         varValueSet.put("BITMAP_FILTER", (long) TRuntimeFilterType.BITMAP.getValue());
     }
 
+    public static boolean allowedRuntimeFilterType(long runtimeFilterType, TRuntimeFilterType type) {
+        return (runtimeFilterType & type.getValue()) != 0;
+    }
+
     // convert long type variable value to string type that user can read
     public static String decode(Long varValue) throws DdlException {
         // 0 parse to empty string
@@ -98,6 +102,20 @@ public class RuntimeFilterTypeHelper {
                 ErrorReport.reportDdlException(
                         ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.RUNTIME_FILTER_TYPE, key);
             }
+        }
+
+        int count = 0;
+        if (allowedRuntimeFilterType(resultCode, TRuntimeFilterType.IN_OR_BLOOM)) {
+            count++;
+        }
+        if (allowedRuntimeFilterType(resultCode, TRuntimeFilterType.BLOOM)) {
+            count++;
+        }
+        if (allowedRuntimeFilterType(resultCode, TRuntimeFilterType.IN)) {
+            count++;
+        }
+        if (count > 1) {
+            ErrorReport.reportDdlException("IN, BLOOM, IN_OR_BLOOM can not be enabled at the same time");
         }
         return resultCode;
     }

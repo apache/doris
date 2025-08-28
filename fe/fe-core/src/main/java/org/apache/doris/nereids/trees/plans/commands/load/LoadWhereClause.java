@@ -25,18 +25,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 public class LoadWhereClause implements LoadProperty {
     private final Expression expression;
 
-    private final boolean isPreceding;
-
-    public LoadWhereClause(Expression expression, boolean isPreceding) {
+    public LoadWhereClause(Expression expression) {
         this.expression = expression;
-        this.isPreceding = isPreceding;
     }
 
     public Expression getExpression() {
         return expression;
-    }
-
-    public boolean isPreceding() {
-        return isPreceding;
     }
 }

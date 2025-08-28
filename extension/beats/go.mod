@@ -4,6 +4,8 @@ go 1.20
 
 require (
 	github.com/elastic/beats/v7 v7.17.5
+	github.com/google/uuid v1.6.0
+	github.com/stretchr/testify v1.7.0
 	gotest.tools v2.2.0+incompatible
 )
 
@@ -65,7 +67,6 @@ require (
 	github.com/google/flatbuffers v1.12.1 // indirect
 	github.com/google/go-cmp v0.5.6 // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/gnostic v0.4.1 // indirect
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
@@ -114,7 +115,6 @@ require (
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/spf13/cobra v1.0.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/testify v1.7.0 // indirect
 	github.com/tsg/gopacket v0.0.0-20200626092518-2ab8e397a786 // indirect
 	github.com/urso/diag v0.0.0-20200210123136-21b3cc8eb797 // indirect
 	github.com/urso/go-bin v0.0.0-20180220135811-781c575c9f0e // indirect

@@ -33,12 +33,7 @@ suite("parse_sql_from_sql_cache") {
     }
 
     def dbName = (sql "select database()")[0][0].toString()
-    foreachFrontends { fe ->
-        def url = "jdbc:mysql://${fe.Host}:${fe.QueryPort}/${dbName}"
-        connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
-            sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
-        }
-    }
+    sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '10')"
 
     // make sure if the table has been dropped, the cache should invalidate,
     // so we should retry multiple times to check

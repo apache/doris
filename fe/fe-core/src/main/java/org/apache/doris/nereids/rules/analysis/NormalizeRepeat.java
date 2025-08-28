@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -58,6 +59,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /** NormalizeRepeat
@@ -177,12 +179,12 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         Set<Slot> groupingSetsUsedSlot = ImmutableSet.copyOf(
                 ExpressionUtils.flatExpressions(normalizedGroupingSets));
 
-        SetView<SlotReference> aggUsedSlotInAggFunction
+        SetView<SlotReference> aggUsedSlotNotInGroupBy
                 = Sets.difference(aggUsedNonVirtualSlots, groupingSetsUsedSlot);
 
         List<Slot> normalizedRepeatOutput = ImmutableList.<Slot>builder()
                 .addAll(groupingSetsUsedSlot)
-                .addAll(aggUsedSlotInAggFunction)
+                .addAll(aggUsedSlotNotInGroupBy)
                 .addAll(allVirtualSlots)
                 .build();
 
@@ -191,6 +193,16 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         Set<Expression> needToSlots = Sets.union(needToSlotsArgs, needToSlotsGroupingExpr);
         NormalizeToSlotContext fullContext = argsContext.mergeContext(groupingExprContext);
         Set<NamedExpression> pushedProject = fullContext.pushDownToNamedExpression(needToSlots);
+
+        if (!SqlModeHelper.hasOnlyFullGroupBy()) {
+            // in non-standard aggregate, we need to add all missing slot into pushed project
+            // we should not use aggUsedSlotNotInGroupBy directly to avoid duplicate materialization
+            // TODO: refactor NormalizeRepeat and NormalizeAggregate for reading friendly
+            SetView<SlotReference> missingSlots
+                    = Sets.difference(aggUsedSlotNotInGroupBy,
+                    pushedProject.stream().map(NamedExpression::toSlot).collect(Collectors.toSet()));
+            pushedProject = Sets.union(pushedProject, missingSlots);
+        }
 
         Plan normalizedChild = pushDownProject(pushedProject, repeat.child());
 

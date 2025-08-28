@@ -29,7 +29,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace vectorized {
-class NewOlapScanner;
+class OlapScanner;
 }
 } // namespace doris
 
@@ -44,11 +44,11 @@ public:
     MetaScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
 
 private:
-    friend class vectorized::NewOlapScanner;
+    friend class vectorized::OlapScanner;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
-    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
     Status _process_conjuncts(RuntimeState* state) override;
 
     std::vector<TScanRangeParams> _scan_ranges;

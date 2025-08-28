@@ -643,7 +643,6 @@ suite("test_decimalv3_overflow") {
             DISTRIBUTED BY HASH(`id`) BUCKETS 10
             PROPERTIES(
                 "replication_num"="1",
-                "compaction_policy" = "time_series",
                 "enable_unique_key_merge_on_write" = "true"
             ); """
     sql """ insert into test4 values(1, 62324, 0.00273) """

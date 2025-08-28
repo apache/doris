@@ -19,11 +19,14 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "common/cast_set.h"
+#include "common/config.h"
 #include "io/fs/file_system.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
@@ -33,6 +36,8 @@
 #include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
@@ -95,7 +100,7 @@ public:
 
     int32_t tablet_schema_hash() const { return _rowset_meta_pb.tablet_schema_hash(); }
 
-    void set_tablet_schema_hash(int64_t tablet_schema_hash) {
+    void set_tablet_schema_hash(int32_t tablet_schema_hash) {
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
@@ -270,7 +275,9 @@ public:
         if (!is_segments_overlapping()) {
             score = 1;
         } else {
-            score = num_segments();
+            auto num_seg = num_segments();
+            DCHECK_GT(num_seg, 0);
+            score = cast_set<uint32_t>(num_seg);
             CHECK(score > 0);
         }
         return score;
@@ -285,7 +292,10 @@ public:
                 way_num = 1;
             }
         } else {
-            way_num = num_segments();
+            auto num_seg = num_segments();
+            DCHECK_GT(num_seg, 0);
+
+            way_num = cast_set<uint32_t>(num_seg);
             CHECK(way_num > 0);
         }
         return way_num;
@@ -298,6 +308,15 @@ public:
     }
 
     auto& get_segments_key_bounds() const { return _rowset_meta_pb.segments_key_bounds(); }
+
+    bool is_segments_key_bounds_truncated() const {
+        return _rowset_meta_pb.has_segments_key_bounds_truncated() &&
+               _rowset_meta_pb.segments_key_bounds_truncated();
+    }
+
+    void set_segments_key_bounds_truncated(bool truncated) {
+        _rowset_meta_pb.set_segments_key_bounds_truncated(truncated);
+    }
 
     bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
@@ -316,12 +335,7 @@ public:
         return true;
     }
 
-    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
-        for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
-            KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
-            *new_key_bounds = key_bounds;
-        }
-    }
+    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds);
 
     void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
         *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);
@@ -351,7 +365,7 @@ public:
     void add_segments_file_size(const std::vector<size_t>& seg_file_size);
 
     // Return -1 if segment file size is unknown
-    int64_t segment_file_size(int seg_id);
+    int64_t segment_file_size(int seg_id) const;
 
     const auto& segments_file_size() const { return _rowset_meta_pb.segments_file_size(); }
 
@@ -392,6 +406,8 @@ private:
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
 

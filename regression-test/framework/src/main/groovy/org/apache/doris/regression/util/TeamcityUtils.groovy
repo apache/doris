@@ -74,6 +74,11 @@ class TeamcityUtils {
     }
 
     static String escape(String str) {
+        int maxCharLength = 3_000_000
+        if (str.size() > maxCharLength) {
+            str = str.substring(0, maxCharLength) + "...<skip long msg>"
+        }
+
         StringBuilder sb = new StringBuilder()
         char[] chars = str.toCharArray()
         for (int i = 0; i < chars.length; ++i) {

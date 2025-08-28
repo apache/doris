@@ -45,7 +45,7 @@ struct RowsetWriterContext {
 
     RowsetId rowset_id;
     int64_t tablet_id {0};
-    int64_t tablet_schema_hash {0};
+    int32_t tablet_schema_hash {0};
     int64_t index_id {0};
     int64_t partition_id {0};
     RowsetTypePB rowset_type {BETA_ROWSET};
@@ -82,6 +82,8 @@ struct RowsetWriterContext {
     // store column_unique_id to do index compaction
     std::set<int32_t> columns_to_do_index_compaction;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
+    // need to figure out the sub type of compaction
+    ReaderType compaction_type = ReaderType::UNKNOWN;
     BaseTabletSPtr tablet = nullptr;
 
     std::shared_ptr<MowContext> mow_context;
@@ -103,6 +105,11 @@ struct RowsetWriterContext {
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
 
     bool is_transient_rowset_writer = false;
+
+    // For collect segment statistics for compaction
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+
+    // TODO(lihangyu) remove this lock
     // In semi-structure senario tablet_schema will be updated concurrently,
     // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
     std::shared_ptr<std::mutex> schema_lock;

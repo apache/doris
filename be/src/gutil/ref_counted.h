@@ -8,39 +8,13 @@
 #include <cstddef>
 #include <utility> // IWYU pragma: keep
 
+#include "butil/macros.h"
 #include "gutil/atomicops.h"
-// IWYU pragma: no_include <butil/macros.h>
-#include "gutil/macros.h" // IWYU pragma: keep
-#include "gutil/threading/thread_collision_warner.h"
 
 namespace doris {
 namespace subtle {
 
 typedef Atomic32 AtomicRefCount;
-
-class RefCountedBase {
-public:
-    bool HasOneRef() const { return ref_count_ == 1; }
-
-protected:
-    RefCountedBase();
-    ~RefCountedBase();
-
-    void AddRef() const;
-
-    // Returns true if the object should self-delete.
-    bool Release() const;
-
-private:
-    mutable int ref_count_;
-#ifndef NDEBUG
-    mutable bool in_dtor_;
-#endif
-
-    DFAKE_MUTEX(add_release_);
-
-    DISALLOW_COPY_AND_ASSIGN(RefCountedBase);
-};
 
 class RefCountedThreadSafeBase {
 public:
@@ -65,37 +39,6 @@ private:
 };
 
 } // namespace subtle
-
-//
-// A base class for reference counted classes.  Otherwise, known as a cheap
-// knock-off of WebKit's RefCounted<T> class.  To use this guy just extend your
-// class from it like so:
-//
-//   class MyFoo : public RefCounted<MyFoo> {
-//    ...
-//    private:
-//     friend class RefCounted<MyFoo>;
-//     ~MyFoo();
-//   };
-//
-// You should always make your destructor private, to avoid any code deleting
-// the object accidentally while there are references to it.
-template <class T>
-class RefCounted : public subtle::RefCountedBase {
-public:
-    RefCounted() {}
-
-    void AddRef() const { subtle::RefCountedBase::AddRef(); }
-
-    void Release() const {
-        if (subtle::RefCountedBase::Release()) {
-            delete static_cast<const T*>(this);
-        }
-    }
-
-protected:
-    ~RefCounted() {}
-};
 
 // Forward declaration.
 template <class T, typename Traits>
@@ -146,23 +89,6 @@ private:
     static void DeleteInternal(const T* x) { delete x; }
 
     DISALLOW_COPY_AND_ASSIGN(RefCountedThreadSafe);
-};
-
-//
-// A thread-safe wrapper for some piece of data so we can place other
-// things in scoped_refptrs<>.
-//
-template <typename T>
-class RefCountedData : public doris::RefCountedThreadSafe<doris::RefCountedData<T>> {
-public:
-    RefCountedData() : data() {}
-    RefCountedData(const T& in_value) : data(in_value) {}
-
-    T data;
-
-private:
-    friend class doris::RefCountedThreadSafe<doris::RefCountedData<T>>;
-    ~RefCountedData() {}
 };
 
 } // namespace doris
@@ -255,17 +181,8 @@ public:
 
     T* get() const { return ptr_; }
 
-// The following is disabled in Kudu's version of this file since it's
-// relatively dangerous. Chromium is planning on doing the same in their
-// tree, but hasn't done so yet. See http://code.google.com/p/chromium/issues/detail?id=110610
-#if SCOPED_REFPTR_ALLOW_IMPLICIT_CONVERSION_TO_PTR
-    // Allow scoped_refptr<C> to be used in boolean expression
-    // and comparison operations.
-    operator T*() const { return ptr_; }
-#else
-    typedef T* scoped_refptr::*Testable;
+    typedef T* scoped_refptr::* Testable;
     operator Testable() const { return ptr_ ? &scoped_refptr::ptr_ : NULL; }
-#endif
 
     T* operator->() const {
         assert(ptr_ != NULL);
@@ -317,25 +234,4 @@ protected:
 private:
     template <typename U>
     friend class scoped_refptr;
-};
-
-// Handy utility for creating a scoped_refptr<T> out of a T* explicitly without
-// having to retype all the template arguments
-template <typename T>
-scoped_refptr<T> make_scoped_refptr(T* t) {
-    return scoped_refptr<T>(t);
-}
-
-// equal_to and hash implementations for templated scoped_refptrs suitable for
-// use with STL unordered_* containers.
-template <class T>
-struct ScopedRefPtrEqualToFunctor {
-    bool operator()(const scoped_refptr<T>& x, const scoped_refptr<T>& y) const {
-        return x.get() == y.get();
-    }
-};
-
-template <class T>
-struct ScopedRefPtrHashFunctor {
-    size_t operator()(const scoped_refptr<T>& p) const { return reinterpret_cast<size_t>(p.get()); }
 };

@@ -184,6 +184,10 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
 
         DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
         Table table = (Table) db.getTableOrAnalysisException(tblName.getTbl());
+        if (table.isTemporary()) {
+            throw new AnalysisException("Table[" + tblName.getTbl() + "] is "
+                + "temporary table, do not support EXPORT.");
+        }
 
         if (this.partitionsNames.size() > Config.maximum_number_of_export_partitions) {
             throw new AnalysisException("The partitions number of this export job is larger than the maximum number"
@@ -198,10 +202,13 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
                 case ODBC:
                 case JDBC:
                 case OLAP:
+                    if (table.isTemporary()) {
+                        throw new AnalysisException("Do not support exporting temporary partitions");
+                    }
                     break;
                 case VIEW: // We support export view, so we do not need to check partition here.
                     if (this.partitionsNames.size() > 0) {
-                        throw new AnalysisException("Table[" + tblName.getTbl() + "] is VIEW type, "
+                        throw new AnalysisException("Table[" + tblName.getTbl() + "] is " + tblType + " type, "
                                 + "do not support export PARTITION.");
                     }
                     return;
@@ -250,6 +257,9 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
         DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
         TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
+        if (table.isTemporary()) {
+            throw new AnalysisException("Table[" + tblName.getTbl() + "] is temporary table, do not support export.");
+        }
 
         exportJob.setDbId(db.getId());
         exportJob.setTableName(tblName);
@@ -259,6 +269,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         exportJob.setPartitionNames(this.partitionsNames);
         // set where expression
         exportJob.setWhereExpression(this.expr);
+        exportJob.setWhereStr(this.expr.isPresent() ? this.expr.get().toSql() : "");
         // set path
         exportJob.setExportPath(this.path);
 
@@ -369,6 +380,10 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
 
     public List<String> getNameParts() {
         return this.nameParts;
+    }
+
+    public Optional<Expression> getExpr() {
+        return expr;
     }
 
     @Override

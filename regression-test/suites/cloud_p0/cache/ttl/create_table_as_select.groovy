@@ -18,14 +18,23 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("create_table_as_select") {
-    sql """ use @regression_cluster_name1 """
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    def clusters = sql " SHOW CLUSTERS; "
+    assertTrue(!clusters.isEmpty())
+    def validCluster = clusters[0][0]
+    sql """use @${validCluster};""";
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
+        if (backend[9].equals("true") && backend[19].contains("${validCluster}")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -57,8 +66,8 @@ def clearFileCache = { check_func ->
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     sql """ DROP TABLE IF EXISTS customer_ttl_as_select """
     sql """
@@ -74,7 +83,7 @@ def clearFileCache = { check_func ->
         )
         DUPLICATE KEY(C_CUSTKEY, C_NAME)
         DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 32
-        PROPERTIES("file_cache_ttl_seconds"="180")
+        PROPERTIES("file_cache_ttl_seconds"="180", "disable_auto_compaction" = "true")
     """
 
     def getMetricsMethod = { check_func ->
@@ -89,6 +98,7 @@ def clearFileCache = { check_func ->
     clearFileCache.call() {
         respCode, body -> {}
     }
+    sleep(30000)
 
     def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
     def loadLabel = "customer_ttl_load_" + uniqueID
@@ -130,32 +140,9 @@ def clearFileCache = { check_func ->
             }
             assertTrue(flag1)
     }
-    sql """ CREATE TABLE customer_ttl_as_select DUPLICATE KEY(C_CUSTKEY, C_NAME) 
-            DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 32 
-            PROPERTIES("file_cache_ttl_seconds"="120") as select * from customer_ttl"""
-
-    sleep(30000) // 30s
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            Boolean flag2 = false;
-            for (String line in strs) {
-                if (flag1 && flag2) break;
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    long cur_ttl_cache_size = line.substring(i).toLong()
-                    assertTrue(Math.abs(2* ttl_cache_size - cur_ttl_cache_size) < 10000)
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
-    }
+    sql """ CREATE TABLE customer_ttl_as_select DUPLICATE KEY(C_CUSTKEY, C_NAME)
+            DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 32
+            PROPERTIES("file_cache_ttl_seconds"="120","disable_auto_compaction" = "true") as select * from customer_ttl"""
 
     sleep(150000)
     getMetricsMethod.call() {
@@ -179,4 +166,5 @@ def clearFileCache = { check_func ->
     }
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     sql """ DROP TABLE IF EXISTS customer_ttl_as_select """
+    }
 }

@@ -52,7 +52,7 @@ public class DecimalLiteral extends FractionalLiteral {
     }
 
     @Override
-    protected BigDecimal getBigDecimalValue() {
+    public BigDecimal getBigDecimalValue() {
         return value;
     }
 

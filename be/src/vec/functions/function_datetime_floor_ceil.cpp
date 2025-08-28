@@ -15,10 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#if !defined(__APPLE__)
+#include <experimental/bits/simd.h>
+#endif
 #include <glog/logging.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <boost/preprocessor/repetition/repeat.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -26,6 +30,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/compiler_util.h"
 #include "common/status.h"
 #include "util/binary_cast.hpp"
 #include "util/datetype_cast.hpp"
@@ -35,17 +40,16 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/pod_array_fwd.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -53,8 +57,18 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 class FunctionContext;
+} // namespace doris
 
-namespace vectorized {
+// FIXME: This file contains widespread UB due to unsafe type-punning casts.
+//        These must be properly refactored to eliminate reliance on reinterpret-style behavior.
+//
+// Temporarily suppress GCC 15+ warnings on user-defined type casts to allow build to proceed.
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-user-defined"
+#endif
+
+namespace doris::vectorized {
 struct DayCeil;
 struct DayFloor;
 struct HourCeil;
@@ -69,24 +83,23 @@ struct WeekCeil;
 struct WeekFloor;
 struct YearCeil;
 struct YearFloor;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
+#if (defined(FLOOR) || defined(CEIL))
+#error "FLOOR or CEIL is already defined"
+#else
+#define FLOOR 0
+#define CEIL 1
+#endif
 
-template <typename Impl, typename DateValueType, int ArgNum, bool UseDelta>
+template <typename Flag, typename DateType, int ArgNum, bool UseDelta = false>
 class FunctionDateTimeFloorCeil : public IFunction {
 public:
-    using ReturnDataType = std::conditional_t<
-            date_cast::IsV1<DateValueType>(), DataTypeDateTime,
-            std::conditional_t<std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>,
-                               DataTypeDateV2, DataTypeDateTimeV2>>;
-    using NativeType = std::conditional_t<
-            std::is_same_v<DateValueType, VecDateTimeValue>, Int64,
-            std::conditional_t<std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>, UInt32,
-                               UInt64>>;
-    using DeltaDataType = DataTypeNumber<Int32>; // int32/64
-    static constexpr auto name = Impl::name;
+    using DateValueType = date_cast::TypeToValueTypeV<DateType>;
+    using NativeType = DateType::FieldType;
+    static constexpr PrimitiveType PType = DateType::PType;
+    using DeltaDataType = DataTypeInt32;
+    // return date type = DateType
+    static constexpr auto name = Flag::name;
 
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeFloorCeil>(); }
 
@@ -97,96 +110,69 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<ReturnDataType>());
+        // for V1 our argument is datetime. exactly equal to the return type we want.
+        return make_nullable(std::make_shared<DateType>());
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue> && ArgNum == 1) {
-            return {std::make_shared<DataTypeDateTime>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>> &&
-                             ArgNum == 1) {
-            return {std::make_shared<DataTypeDateV2>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>> &&
-                             ArgNum == 1) {
-            return {std::make_shared<DataTypeDateTimeV2>()};
-        } else if constexpr (std::is_same_v<DateValueType, VecDateTimeValue> && ArgNum == 2 &&
-                             UseDelta) {
-            return {std::make_shared<DataTypeDateTime>(), std::make_shared<DeltaDataType>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>> &&
-                             ArgNum == 2 && UseDelta) {
-            return {std::make_shared<DataTypeDateV2>(), std::make_shared<DeltaDataType>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>> &&
-                             ArgNum == 2 && UseDelta) {
-            return {std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DeltaDataType>()};
-        } else if constexpr (std::is_same_v<DateValueType, VecDateTimeValue> && ArgNum == 2 &&
-                             !UseDelta) {
-            return {std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeDateTime>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>> &&
-                             ArgNum == 2 && !UseDelta) {
-            return {std::make_shared<DataTypeDateV2>(), std::make_shared<DataTypeDateV2>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>> &&
-                             ArgNum == 2 && !UseDelta) {
-            return {std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeDateTimeV2>()};
-        } else if constexpr (std::is_same_v<DateValueType, VecDateTimeValue> && ArgNum == 3) {
-            return {std::make_shared<DataTypeDateTime>(), std::make_shared<DeltaDataType>(),
-                    std::make_shared<DataTypeDateTime>()};
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>> &&
-                             ArgNum == 3) {
-            return {std::make_shared<DataTypeDateV2>(), std::make_shared<DeltaDataType>(),
-                    std::make_shared<DataTypeDateV2>()};
-        } else {
-            return {std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DeltaDataType>(),
-                    std::make_shared<DataTypeDateTimeV2>()};
+        if constexpr (ArgNum == 1) {
+            return {std::make_shared<DateType>()};
+        } else if constexpr (ArgNum == 2) {
+            if constexpr (UseDelta) {
+                return {std::make_shared<DateType>(), std::make_shared<DeltaDataType>()};
+            } else {
+                return {std::make_shared<DateType>(), std::make_shared<DateType>()};
+            }
         }
+        // 3 args. both delta and origin.
+        return {std::make_shared<DateType>(), std::make_shared<DeltaDataType>(),
+                std::make_shared<DateType>()};
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (const auto* sources =
-                    check_and_get_column<ColumnVector<NativeType>>(source_col.get())) {
-            auto col_to = ColumnVector<NativeType>::create();
+        if (const auto* sources = check_and_get_column<ColumnVector<PType>>(source_col.get())) {
+            auto col_to = ColumnVector<PType>::create();
             col_to->resize(input_rows_count);
-            auto null_map = ColumnVector<UInt8>::create();
+            auto null_map = ColumnUInt8::create();
             null_map->get_data().resize_fill(input_rows_count, false);
 
             if constexpr (ArgNum == 1) {
-                Impl::template vector<NativeType>(sources->get_data(), col_to->get_data(),
-                                                  null_map->get_data());
+                vector(sources->get_data(), col_to->get_data(), null_map->get_data());
             } else if constexpr (ArgNum == 2) {
                 const IColumn& delta_column = *block.get_by_position(arguments[1]).column;
-                if (const auto* delta_const_column =
+                if (const auto* const_second_column =
                             check_and_get_column<ColumnConst>(delta_column)) {
-                    if (block.get_by_position(arguments[1]).type->get_type_id() !=
-                        TypeIndex::Int32) {
+                    if (block.get_by_position(arguments[1]).type->get_primitive_type() !=
+                        PrimitiveType::TYPE_INT) {
                         // time_round(datetime, const(origin))
-                        Impl::template vector_constant<NativeType>(
-                                sources->get_data(),
-                                delta_const_column->get_field().get<NativeType>(),
-                                col_to->get_data(), null_map->get_data());
+                        vector_const_anchor(sources->get_data(),
+                                            const_second_column->get_field().get<NativeType>(),
+                                            col_to->get_data(), null_map->get_data());
                     } else {
                         // time_round(datetime,const(period))
-                        Impl::template vector_constant_delta<NativeType>(
-                                sources->get_data(), delta_const_column->get_field().get<Int32>(),
-                                col_to->get_data(), null_map->get_data());
+                        vector_const_period(sources->get_data(),
+                                            const_second_column->get_field().get<Int32>(),
+                                            col_to->get_data(), null_map->get_data());
                     }
                 } else {
                     if (const auto* delta_vec_column0 =
-                                check_and_get_column<ColumnVector<NativeType>>(delta_column)) {
+                                check_and_get_column<ColumnVector<PType>>(delta_column)) {
                         // time_round(datetime, origin)
-                        Impl::vector_vector(sources->get_data(), delta_vec_column0->get_data(),
-                                            col_to->get_data(), null_map->get_data());
+                        vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),
+                                             col_to->get_data(), null_map->get_data());
                     } else {
                         const auto* delta_vec_column1 =
-                                check_and_get_column<ColumnVector<Int32>>(delta_column);
+                                check_and_get_column<ColumnInt32>(delta_column);
                         DCHECK(delta_vec_column1 != nullptr);
                         // time_round(datetime, period)
-                        Impl::vector_vector(sources->get_data(), delta_vec_column1->get_data(),
-                                            col_to->get_data(), null_map->get_data());
+                        vector_vector_period(sources->get_data(), delta_vec_column1->get_data(),
+                                             col_to->get_data(), null_map->get_data());
                     }
                 }
-            } else {
+            } else { // 3 arg, time_round(datetime, period, origin)
                 ColumnPtr arg1_col, arg2_col;
                 bool arg1_const, arg2_const;
                 std::tie(arg1_col, arg1_const) =
@@ -197,38 +183,35 @@ public:
                     Field arg1, arg2;
                     arg1_col->get(0, arg1);
                     arg2_col->get(0, arg2);
-                    // time_round(datetime,const(period) , const(origin))
-                    Impl::template vector_const_const<NativeType>(
-                            sources->get_data(), arg1.get<Int32>(), arg2.get<NativeType>(),
-                            col_to->get_data(), null_map->get_data());
-
+                    // time_round(datetime, const(period), const(origin))
+                    vector_const_const(sources->get_data(), arg1.get<Int32>(),
+                                       arg2.get<NativeType>(), col_to->get_data(),
+                                       null_map->get_data());
                 } else if (arg1_const && !arg2_const) {
                     Field arg1;
                     arg1_col->get(0, arg1);
-                    const auto arg2_column =
-                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
-                    // time_round(datetime,const(period) , origin)
-                    Impl::template vector_const_vector<NativeType>(
-                            sources->get_data(), arg1.get<Int32>(), arg2_column->get_data(),
-                            col_to->get_data(), null_map->get_data());
+                    const auto arg2_column = check_and_get_column<ColumnVector<PType>>(*arg2_col);
+                    // time_round(datetime, const(period), origin)
+                    vector_const_vector(sources->get_data(), arg1.get<Int32>(),
+                                        arg2_column->get_data(), col_to->get_data(),
+                                        null_map->get_data());
                 } else if (!arg1_const && arg2_const) {
                     Field arg2;
                     arg2_col->get(0, arg2);
-                    const auto arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
-                    // time_round(datetime, period , const(origin))
-                    Impl::template vector_vector_const<NativeType, Int32>(
-                            sources->get_data(), arg1_column->get_data(), arg2.get<NativeType>(),
-                            col_to->get_data(), null_map->get_data());
+                    const auto* arg1_column = check_and_get_column<ColumnInt32>(*arg1_col);
+                    // time_round(datetime, period, const(origin))
+                    vector_vector_const(sources->get_data(), arg1_column->get_data(),
+                                        arg2.get<NativeType>(), col_to->get_data(),
+                                        null_map->get_data());
                 } else {
-                    const auto arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
-                    const auto arg2_column =
-                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    const auto* arg1_column = check_and_get_column<ColumnInt32>(*arg1_col);
+                    const auto arg2_column = check_and_get_column<ColumnVector<PType>>(*arg2_col);
                     DCHECK(arg1_column != nullptr);
                     DCHECK(arg2_column != nullptr);
                     // time_round(datetime, period, origin)
-                    Impl::template vector_vector<NativeType>(
-                            sources->get_data(), arg1_column->get_data(), arg2_column->get_data(),
-                            col_to->get_data(), null_map->get_data());
+                    vector_vector_vector(sources->get_data(), arg1_column->get_data(),
+                                         arg2_column->get_data(), col_to->get_data(),
+                                         null_map->get_data());
                 }
             }
 
@@ -237,189 +220,99 @@ public:
         } else {
             return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                         block.get_by_position(arguments[0]).column->get_name(),
-                                        Impl::name);
+                                        Flag::name);
         }
         return Status::OK();
     }
-};
 
-template <typename Impl>
-struct FloorCeilImpl {
-    static constexpr auto name = Impl::name;
-
-    template <typename NativeType>
+private:
     static void vector(const PaddedPODArray<NativeType>& dates, PaddedPODArray<NativeType>& res,
                        NullMap& null_map) {
         // time_round(datetime)
         for (int i = 0; i < dates.size(); ++i) {
-            if constexpr (std::is_same_v<NativeType, UInt32>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(dates[i],
-                                                                                         res[i])));
-
-            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                dates[i], res[i])));
-            } else {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<Int64, VecDateTimeValue>(dates[i], res[i])));
-            }
+            SET_NULLMAP_IF_FALSE((time_round_reinterpret_one_arg(dates[i], res[i])));
         }
     }
 
-    template <typename NativeType>
-    static void vector_constant(const PaddedPODArray<NativeType>& dates, NativeType origin_date,
-                                PaddedPODArray<NativeType>& res, NullMap& null_map) {
+    static void vector_const_anchor(const PaddedPODArray<NativeType>& dates, NativeType origin_date,
+                                    PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, const(origin))
         for (int i = 0; i < dates.size(); ++i) {
-            if constexpr (std::is_same_v<NativeType, UInt32>) {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round_with_constant_optimization<
-                                      UInt32, DateV2Value<DateV2ValueType>, 1>(
-                        dates[i], origin_date, res[i])));
-            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round_with_constant_optimization<
-                                      UInt64, DateV2Value<DateTimeV2ValueType>, 1>(
-                        dates[i], origin_date, res[i])));
-            } else {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round_with_constant_optimization<
-                                      Int64, VecDateTimeValue, 1>(dates[i], origin_date, res[i])));
-            }
+            SET_NULLMAP_IF_FALSE(
+                    (time_round_reinterpret_three_args(dates[i], 1, origin_date, res[i])));
         }
     }
 
-    template <typename NativeType>
-    static void vector_constant_delta(const PaddedPODArray<NativeType>& dates, Int32 period,
-                                      PaddedPODArray<NativeType>& res, NullMap& null_map) {
+    static void vector_const_period(const PaddedPODArray<NativeType>& dates, Int32 period,
+                                    PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime,const(period))
-        if (period < 1) {
+        if (period < 1) [[unlikely]] {
             memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
-        for (int i = 0; i < dates.size(); ++i) {
-            if constexpr (std::is_same_v<NativeType, UInt32>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                                dates[i], period, res[i])));
-            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                dates[i], period, res[i])));
-            } else {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round<Int64, VecDateTimeValue>(
-                        dates[i], period, res[i])));
+
+        // expand codes for const input periods
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                            \
+    case X: {                                                                                     \
+        for (int i = 0; i < dates.size(); ++i) {                                                  \
+            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args<X>(dates[i], period, res[i]))); \
+        }                                                                                         \
+        return;                                                                                   \
+    }
+#define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
+        switch (period) {
+            // expand for some constant period
+            BOOST_PP_REPEAT(12, EXPANDER, ~)
+        default:
+            for (int i = 0; i < dates.size(); ++i) {
+                SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], period, res[i])));
             }
         }
+#undef EXPAND_CODE_FOR_CONST_INPUT
+#undef EXPANDER
     }
 
-    template <typename NativeType, UInt32 period>
-    static void vector_const_const_with_constant_optimization(
-            const PaddedPODArray<NativeType>& dates, NativeType origin_date,
-            PaddedPODArray<NativeType>& res, NullMap& null_map) {
-        for (int i = 0; i < dates.size(); ++i) {
-            if constexpr (std::is_same_v<NativeType, UInt32>) {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round_with_constant_optimization<
-                                      UInt32, DateV2Value<DateV2ValueType>, period>(
-                        dates[i], origin_date, res[i])));
-            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round_with_constant_optimization<
-                                      UInt64, DateV2Value<DateTimeV2ValueType>, period>(
-                        dates[i], origin_date, res[i])));
-            } else {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round_with_constant_optimization<
-                                Int64, VecDateTimeValue, period>(dates[i], origin_date, res[i])));
-            }
-        }
-    }
-    template <typename NativeType>
     static void vector_const_const(const PaddedPODArray<NativeType>& dates, const Int32 period,
                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
                                    NullMap& null_map) {
+        if (auto cast_date = binary_cast<NativeType, DateValueType>(origin_date);
+            cast_date == DateValueType::FIRST_DAY) {
+            vector_const_period(dates, period, res, null_map);
+            return;
+        }
+
         if (period < 1) {
             memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
+
+        // expand codes for const input periods
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                   \
+    case X: {                                                            \
+        for (int i = 0; i < dates.size(); ++i) {                         \
+            /* expand time_round_reinterpret_three_args*/                \
+            res[i] = origin_date;                                        \
+            auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]); \
+            auto& ts1 = (DateValueType&)(res[i]);                        \
+            SET_NULLMAP_IF_FALSE(time_round_two_args<X>(ts2, X, ts1))    \
+        }                                                                \
+        return;                                                          \
+    }
+#define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
         switch (period) {
-        case 1: {
-            vector_const_const_with_constant_optimization<NativeType, 1>(dates, origin_date, res,
-                                                                         null_map);
-            break;
-        }
-        case 2: {
-            vector_const_const_with_constant_optimization<NativeType, 2>(dates, origin_date, res,
-                                                                         null_map);
-            break;
-        }
-        case 3: {
-            vector_const_const_with_constant_optimization<NativeType, 3>(dates, origin_date, res,
-                                                                         null_map);
-            break;
-        }
-        case 4: {
-            vector_const_const_with_constant_optimization<NativeType, 4>(dates, origin_date, res,
-                                                                         null_map);
-            break;
-        }
-        case 5: {
-            vector_const_const_with_constant_optimization<NativeType, 5>(dates, origin_date, res,
-                                                                         null_map);
-            break;
-        }
-        case 6: {
-            vector_const_const_with_constant_optimization<NativeType, 6>(dates, origin_date, res,
-                                                                         null_map);
-            break;
-        }
-        case 7: {
-            vector_const_const_with_constant_optimization<NativeType, 7>(dates, origin_date, res,
-                                                                         null_map);
-            break;
-        }
-        case 8: {
-            vector_const_const_with_constant_optimization<NativeType, 8>(dates, origin_date, res,
-                                                                         null_map);
-            break;
-        }
-        case 9: {
-            vector_const_const_with_constant_optimization<NativeType, 9>(dates, origin_date, res,
-                                                                         null_map);
-            break;
-        }
-        case 10: {
-            vector_const_const_with_constant_optimization<NativeType, 10>(dates, origin_date, res,
-                                                                          null_map);
-            break;
-        }
-        case 11: {
-            vector_const_const_with_constant_optimization<NativeType, 11>(dates, origin_date, res,
-                                                                          null_map);
-            break;
-        }
-        case 12: {
-            vector_const_const_with_constant_optimization<NativeType, 12>(dates, origin_date, res,
-                                                                          null_map);
-            break;
-        }
+            // expand for some constant period
+            BOOST_PP_REPEAT(12, EXPANDER, ~)
         default:
             for (int i = 0; i < dates.size(); ++i) {
-                if constexpr (std::is_same_v<NativeType, UInt32>) {
-                    SET_NULLMAP_IF_FALSE(
-                            (Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                                    dates[i], period, origin_date, res[i])));
-                } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                    SET_NULLMAP_IF_FALSE(
-                            (Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                    dates[i], period, origin_date, res[i])));
-                } else {
-                    SET_NULLMAP_IF_FALSE((Impl::template time_round<Int64, VecDateTimeValue>(
-                            dates[i], period, origin_date, res[i])));
-                }
+                // always inline here
+                SET_NULLMAP_IF_FALSE(
+                        (time_round_reinterpret_three_args(dates[i], period, origin_date, res[i])))
             }
         }
+#undef EXPAND_CODE_FOR_CONST_INPUT
+#undef EXPANDER
     }
 
-    template <typename NativeType>
     static void vector_const_vector(const PaddedPODArray<NativeType>& dates, const Int32 period,
                                     const PaddedPODArray<NativeType>& origin_dates,
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
@@ -428,141 +321,341 @@ struct FloorCeilImpl {
             return;
         }
         for (int i = 0; i < dates.size(); ++i) {
-            if constexpr (std::is_same_v<NativeType, UInt32>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                                dates[i], period, origin_dates[i], res[i])));
-            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                dates[i], period, origin_dates[i], res[i])));
-            } else {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round<Int64, VecDateTimeValue>(
-                        dates[i], period, origin_dates[i], res[i])));
-            }
+            SET_NULLMAP_IF_FALSE(
+                    (time_round_reinterpret_three_args(dates[i], period, origin_dates[i], res[i])));
         }
     }
 
-    template <typename NativeType, typename DeltaType>
     static void vector_vector_const(const PaddedPODArray<NativeType>& dates,
-                                    const PaddedPODArray<DeltaType>& periods,
-                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
-                                    NullMap& null_map) {
+                                    const PaddedPODArray<Int32>& periods, NativeType origin_date,
+                                    PaddedPODArray<NativeType>& res, NullMap& null_map) {
         for (int i = 0; i < dates.size(); ++i) {
-            if (periods[i] < 1) {
+            if (periods[i] < 1) [[unlikely]] {
                 null_map[i] = true;
                 continue;
             }
-            if constexpr (std::is_same_v<NativeType, UInt32>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                                dates[i], periods[i], origin_date, res[i])));
-            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                dates[i], periods[i], origin_date, res[i])));
-            } else {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round<Int64, VecDateTimeValue>(
-                        dates[i], periods[i], origin_date, res[i])));
-            }
+            SET_NULLMAP_IF_FALSE(
+                    (time_round_reinterpret_three_args(dates[i], periods[i], origin_date, res[i])));
         }
     }
 
-    template <typename NativeType>
-    static void vector_vector(const PaddedPODArray<NativeType>& dates,
-                              const PaddedPODArray<NativeType>& origin_dates,
-                              PaddedPODArray<NativeType>& res, NullMap& null_map) {
+    static void vector_vector_anchor(const PaddedPODArray<NativeType>& dates,
+                                     const PaddedPODArray<NativeType>& origin_dates,
+                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, origin)
         for (int i = 0; i < dates.size(); ++i) {
-            if constexpr (std::is_same_v<NativeType, UInt32>) {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round_with_constant_optimization<
-                                      UInt32, DateV2Value<DateV2ValueType>, 1>(
-                        dates[i], origin_dates[i], res[i])));
-            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round_with_constant_optimization<
-                                      UInt64, DateV2Value<DateTimeV2ValueType>, 1>(
-                        dates[i], origin_dates[i], res[i])));
-            } else {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round_with_constant_optimization<Int64,
-                                                                              VecDateTimeValue, 1>(
-                                dates[i], origin_dates[i], res[i])));
-            }
+            SET_NULLMAP_IF_FALSE(
+                    (time_round_reinterpret_three_args(dates[i], 1, origin_dates[i], res[i])));
         }
     }
 
-    template <typename NativeType>
-    static void vector_vector(const PaddedPODArray<NativeType>& dates,
-                              const PaddedPODArray<Int32>& periods, PaddedPODArray<NativeType>& res,
-                              NullMap& null_map) {
+    static void vector_vector_period(const PaddedPODArray<NativeType>& dates,
+                                     const PaddedPODArray<Int32>& periods,
+                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, period)
         for (int i = 0; i < dates.size(); ++i) {
-            if (periods[i] < 1) {
+            if (periods[i] < 1) [[unlikely]] {
                 null_map[i] = true;
                 continue;
             }
-            if constexpr (std::is_same_v<NativeType, UInt32>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                                dates[i], periods[i], res[i])));
-            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                dates[i], periods[i], res[i])));
-            } else {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round<Int64, VecDateTimeValue>(
-                        dates[i], periods[i], res[i])));
-            }
+            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], periods[i], res[i])));
         }
     }
 
-    template <typename NativeType>
-    static void vector_vector(const PaddedPODArray<NativeType>& dates,
-                              const PaddedPODArray<Int32>& periods,
-                              const PaddedPODArray<NativeType>& origin_dates,
-                              PaddedPODArray<NativeType>& res, NullMap& null_map) {
+    static void vector_vector_vector(const PaddedPODArray<NativeType>& dates,
+                                     const PaddedPODArray<Int32>& periods,
+                                     const PaddedPODArray<NativeType>& origin_dates,
+                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, period, origin)
         for (int i = 0; i < dates.size(); ++i) {
-            if (periods[i] < 1) {
+            if (periods[i] < 1) [[unlikely]] {
                 null_map[i] = true;
                 continue;
             }
-            if constexpr (std::is_same_v<NativeType, UInt32>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
-                                dates[i], periods[i], origin_dates[i], res[i])));
-            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
-                SET_NULLMAP_IF_FALSE(
-                        (Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                dates[i], periods[i], origin_dates[i], res[i])));
+            SET_NULLMAP_IF_FALSE((time_round_reinterpret_three_args(dates[i], periods[i],
+                                                                    origin_dates[i], res[i])));
+        }
+    }
+
+    //// time rounds
+    static constexpr uint32_t MASK_YEAR_FOR_DATEV2 = ((uint32_t)-1) >> 23;
+    static constexpr uint32_t MASK_YEAR_MONTH_FOR_DATEV2 = ((uint32_t)-1) >> 27;
+    static constexpr uint64_t MASK_YEAR_FOR_DATETIMEV2 = ((uint64_t)-1) >> 18;
+    static constexpr uint64_t MASK_YEAR_MONTH_FOR_DATETIMEV2 = ((uint64_t)-1) >> 22;
+    static constexpr uint64_t MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2 = ((uint64_t)-1) >> 27;
+    static constexpr uint64_t MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2 = ((uint64_t)-1) >> 32;
+    static constexpr uint64_t MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2 = ((uint64_t)-1) >> 38;
+
+    /// time rounds interlayers
+    ALWAYS_INLINE static bool time_round_reinterpret_one_arg(NativeType date, NativeType& res) {
+        auto ts_arg = binary_cast<NativeType, DateValueType>(date);
+        auto& ts_res = (DateValueType&)(res);
+        if constexpr (Flag::Unit == WEEK) {
+            ts_res = DateValueType::FIRST_DAY;
+            return time_round_two_args(ts_arg, 1, ts_res);
+        } else {
+            return time_round_one_arg(ts_arg, ts_res);
+        }
+    }
+
+    template <int const_period = 0>
+    static bool time_round_reinterpret_two_args(NativeType date, Int32 period, NativeType& res) {
+        auto ts_arg = binary_cast<NativeType, DateValueType>(date);
+        auto& ts_res = (DateValueType&)(res);
+
+        if constexpr (const_period == 0) {
+            if (can_use_optimize(period)) {
+                floor_opt(ts_arg, ts_res, period);
+                return true;
             } else {
-                SET_NULLMAP_IF_FALSE((Impl::template time_round<Int64, VecDateTimeValue>(
-                        dates[i], periods[i], origin_dates[i], res[i])));
+                ts_res = DateValueType::FIRST_DAY;
+                return time_round_two_args(ts_arg, period, ts_res);
+            }
+        } else {
+            if (can_use_optimize(const_period)) {
+                floor_opt(ts_arg, ts_res, const_period);
+                return true;
+            } else {
+                ts_res = DateValueType::FIRST_DAY;
+                return time_round_two_args<const_period>(ts_arg, const_period, ts_res);
             }
         }
     }
-};
 
-#define FLOOR 0
-#define CEIL 1
+    ALWAYS_INLINE static bool time_round_reinterpret_three_args(NativeType date, Int32 period,
+                                                                NativeType origin_date,
+                                                                NativeType& res) {
+        res = origin_date;
+        auto ts2 = binary_cast<NativeType, DateValueType>(date);
+        auto& ts1 = (DateValueType&)(res);
+        return time_round_two_args(ts2, period, ts1);
+    }
 
-template <typename Impl, typename DateValueType>
-struct TimeRoundOpt {
+    /// time rounds real calculations
+    static bool time_round_one_arg(const DateValueType& ts_arg, DateValueType& ts_res) {
+        static_assert(Flag::Unit != WEEK);
+        if constexpr (can_use_optimize(1)) {
+            floor_opt_one_period(ts_arg, ts_res);
+            return true;
+        } else {
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                ts_res.reset_zero_by_type(ts_arg.type());
+            }
+            int64_t diff;
+            int64_t part;
+            if constexpr (Flag::Unit == YEAR) {
+                diff = ts_arg.year();
+                part = (ts_arg.month() - 1) + (ts_arg.day() - 1) + ts_arg.hour() + ts_arg.minute() +
+                       ts_arg.second();
+            }
+            if constexpr (Flag::Unit == MONTH) {
+                diff = ts_arg.year() * 12 + ts_arg.month() - 1;
+                part = (ts_arg.day() - 1) + ts_arg.hour() + ts_arg.minute() + ts_arg.second();
+            }
+            if constexpr (Flag::Unit == DAY) {
+                diff = ts_arg.daynr();
+                part = ts_arg.hour() + ts_arg.minute() + ts_arg.second();
+            }
+            if constexpr (Flag::Unit == HOUR) {
+                diff = ts_arg.daynr() * 24 + ts_arg.hour();
+                part = ts_arg.minute() + ts_arg.second();
+            }
+            if constexpr (Flag::Unit == MINUTE) {
+                diff = ts_arg.daynr() * 24L * 60 + ts_arg.hour() * 60 + ts_arg.minute();
+                part = ts_arg.second();
+            }
+            if constexpr (Flag::Unit == SECOND) {
+                diff = ts_arg.daynr() * 24L * 60 * 60 + ts_arg.hour() * 60L * 60 +
+                       ts_arg.minute() * 60L + ts_arg.second();
+                part = 0;
+                if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
+                    part = ts_arg.microsecond();
+                }
+            }
+
+            if constexpr (Flag::Type == CEIL) {
+                if (part) {
+                    diff++;
+                }
+            }
+            TimeInterval interval(Flag::Unit, diff, 1);
+            return ts_res.template date_set_interval<Flag::Unit>(interval);
+        }
+    }
+
+    template <Int32 const_period = 0>
+    static bool time_round_two_args(const DateValueType& ts_arg, const Int32 period,
+                                    DateValueType& ts_res) {
+        int64_t diff;
+        int64_t trivial_part_ts_res;
+        int64_t trivial_part_ts_arg;
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            if constexpr (Flag::Unit == YEAR) {
+                diff = (ts_arg.year() - ts_res.year());
+                trivial_part_ts_arg = ts_arg.to_int64() % 10000000000;
+                trivial_part_ts_res = ts_res.to_int64() % 10000000000;
+            }
+            if constexpr (Flag::Unit == MONTH) {
+                diff = (ts_arg.year() - ts_res.year()) * 12 + (ts_arg.month() - ts_res.month());
+                trivial_part_ts_arg = ts_arg.to_int64() % 100000000;
+                trivial_part_ts_res = ts_res.to_int64() % 100000000;
+            }
+            if constexpr (Flag::Unit == WEEK) {
+                diff = ts_arg.daynr() / 7 - ts_res.daynr() / 7;
+                trivial_part_ts_arg = ts_arg.daynr() % 7 * 24 * 3600 + ts_arg.hour() * 3600 +
+                                      ts_arg.minute() * 60 + ts_arg.second();
+                trivial_part_ts_res = ts_res.daynr() % 7 * 24 * 3600 + ts_res.hour() * 3600 +
+                                      ts_res.minute() * 60 + ts_res.second();
+            }
+            if constexpr (Flag::Unit == DAY) {
+                diff = ts_arg.daynr() - ts_res.daynr();
+                trivial_part_ts_arg = ts_arg.hour() * 3600 + ts_arg.minute() * 60 + ts_arg.second();
+                trivial_part_ts_res = ts_res.hour() * 3600 + ts_res.minute() * 60 + ts_res.second();
+            }
+            if constexpr (Flag::Unit == HOUR) {
+                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 + (ts_arg.hour() - ts_res.hour());
+                trivial_part_ts_arg = ts_arg.minute() * 60 + ts_arg.second();
+                trivial_part_ts_res = ts_res.minute() * 60 + ts_res.second();
+            }
+            if constexpr (Flag::Unit == MINUTE) {
+                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 * 60 +
+                       (ts_arg.hour() - ts_res.hour()) * 60 + (ts_arg.minute() - ts_res.minute());
+                trivial_part_ts_arg = ts_arg.second();
+                trivial_part_ts_res = ts_res.second();
+            }
+            if constexpr (Flag::Unit == SECOND) {
+                diff = ts_arg.datetime_diff_in_seconds(ts_res);
+                trivial_part_ts_res = 0;
+                trivial_part_ts_arg = 0;
+            }
+        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
+            if constexpr (Flag::Unit == YEAR) {
+                diff = (ts_arg.year() - ts_res.year());
+                trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
+                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
+            }
+            if constexpr (Flag::Unit == MONTH) {
+                diff = (ts_arg.year() - ts_res.year()) * 12 + (ts_arg.month() - ts_res.month());
+                trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
+                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
+            }
+            if constexpr (Flag::Unit == WEEK) {
+                diff = ts_arg.daynr() / 7 - ts_res.daynr() / 7;
+                trivial_part_ts_arg = ts_arg.daynr() % 7 * 24 * 3600 + ts_arg.hour() * 3600 +
+                                      ts_arg.minute() * 60 + ts_arg.second();
+                trivial_part_ts_res = ts_res.daynr() % 7 * 24 * 3600 + ts_res.hour() * 3600 +
+                                      ts_res.minute() * 60 + ts_res.second();
+            }
+            if constexpr (Flag::Unit == DAY) {
+                diff = ts_arg.daynr() - ts_res.daynr();
+                trivial_part_ts_arg = ts_arg.hour() * 3600 + ts_arg.minute() * 60 + ts_arg.second();
+                trivial_part_ts_res = ts_res.hour() * 3600 + ts_res.minute() * 60 + ts_res.second();
+            }
+            if constexpr (Flag::Unit == HOUR) {
+                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 + (ts_arg.hour() - ts_res.hour());
+                trivial_part_ts_arg = ts_arg.minute() * 60 + ts_arg.second();
+                trivial_part_ts_res = ts_res.minute() * 60 + ts_res.second();
+            }
+            if constexpr (Flag::Unit == MINUTE) {
+                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 * 60 +
+                       (ts_arg.hour() - ts_res.hour()) * 60 + (ts_arg.minute() - ts_res.minute());
+                trivial_part_ts_arg = ts_arg.second();
+                trivial_part_ts_res = ts_res.second();
+            }
+            if constexpr (Flag::Unit == SECOND) {
+                diff = ts_arg.datetime_diff_in_seconds(ts_res);
+                trivial_part_ts_res = 0;
+                trivial_part_ts_arg = 0;
+            }
+        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
+            if constexpr (Flag::Unit == YEAR) {
+                diff = (ts_arg.year() - ts_res.year());
+                trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
+                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
+            }
+            if constexpr (Flag::Unit == MONTH) {
+                diff = (ts_arg.year() - ts_res.year()) * 12 + (ts_arg.month() - ts_res.month());
+                trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
+                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
+            }
+            if constexpr (Flag::Unit == WEEK) {
+                diff = ts_arg.daynr() / 7 - ts_res.daynr() / 7;
+                trivial_part_ts_arg = ts_arg.daynr() % 7 * 24 * 3600 + ts_arg.hour() * 3600 +
+                                      ts_arg.minute() * 60 + ts_arg.second();
+                trivial_part_ts_res = ts_res.daynr() % 7 * 24 * 3600 + ts_res.hour() * 3600 +
+                                      ts_res.minute() * 60 + ts_res.second();
+            }
+            if constexpr (Flag::Unit == DAY) {
+                diff = ts_arg.daynr() - ts_res.daynr();
+                trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2;
+                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2;
+            }
+            if constexpr (Flag::Unit == HOUR) {
+                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 + (ts_arg.hour() - ts_res.hour());
+                trivial_part_ts_arg =
+                        ts_arg.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2;
+                trivial_part_ts_res =
+                        ts_res.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2;
+            }
+            if constexpr (Flag::Unit == MINUTE) {
+                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 * 60 +
+                       (ts_arg.hour() - ts_res.hour()) * 60 + (ts_arg.minute() - ts_res.minute());
+                trivial_part_ts_arg =
+                        ts_arg.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
+                trivial_part_ts_res =
+                        ts_res.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
+            }
+            if constexpr (Flag::Unit == SECOND) {
+                diff = ts_arg.datetime_diff_in_seconds(ts_res);
+                trivial_part_ts_arg = ts_arg.microsecond();
+                trivial_part_ts_res = ts_res.microsecond();
+            }
+        }
+
+        //round down/up to specific time-unit(HOUR/DAY/MONTH...) by increase/decrease diff variable
+        if constexpr (Flag::Type == CEIL) {
+            //e.g. hour_ceil(ts: 00:00:40, origin: 00:00:30), ts should be rounded to 01:00:30
+            diff += trivial_part_ts_arg > trivial_part_ts_res;
+        }
+        if constexpr (Flag::Type == FLOOR) {
+            //e.g. hour_floor(ts: 01:00:20, origin: 00:00:30), ts should be rounded to 00:00:30
+            diff -= trivial_part_ts_arg < trivial_part_ts_res;
+        }
+
+        //round down/up inside time period(several time-units)
+        int64_t delta_inside_period;
+        if constexpr (const_period != 0) {
+            delta_inside_period = diff >= 0 ? diff % const_period
+                                            : (diff % const_period + const_period) % const_period;
+        } else {
+            delta_inside_period = diff >= 0 ? diff % period : (diff % period + period) % period;
+        }
+
+        int64_t step = diff - delta_inside_period +
+                       (Flag::Type == FLOOR        ? 0
+                        : delta_inside_period == 0 ? 0
+                                                   : period);
+        bool is_neg = step < 0;
+        TimeInterval interval(Flag::Unit, is_neg ? -step : step, is_neg);
+        return ts_res.template date_add_interval<Flag::Unit>(interval);
+    }
+
+    /// optimized path
     constexpr static bool can_use_optimize(int period) {
-        if constexpr (!std::is_same_v<DateValueType, VecDateTimeValue> && Impl::Type == FLOOR) {
-            if constexpr (Impl::Unit == YEAR || Impl::Unit == DAY) {
+        if constexpr (!std::is_same_v<DateValueType, VecDateTimeValue> && Flag::Type == FLOOR) {
+            if constexpr (Flag::Unit == YEAR || Flag::Unit == DAY) {
                 return period == 1;
             }
-            if constexpr (Impl::Unit == MONTH) {
+            if constexpr (Flag::Unit == MONTH) {
                 return period <= 11 && 12 % period == 0;
             }
-            if constexpr (Impl::Unit == HOUR) {
+            if constexpr (Flag::Unit == HOUR) {
                 return period <= 23 && 24 % period == 0;
             }
-            if constexpr (Impl::Unit == MINUTE) {
+            if constexpr (Flag::Unit == MINUTE) {
                 return period <= 59 && 60 % period == 0;
             }
-            if constexpr (Impl::Unit == SECOND) {
+            if constexpr (Flag::Unit == SECOND) {
                 return period <= 59 && 60 % period == 0;
             }
         }
@@ -581,7 +674,7 @@ struct TimeRoundOpt {
                     0b1111111111111111111111111111111111111111111100000000000000000000;
             // Optimize the performance of the datetimev2 type on the floor operation.
             // Now supports unit month hour minute second. no need to check again when set value for ts
-            if constexpr (Impl::Unit == MONTH && !std::is_same_v<DateValueType, VecDateTimeValue>) {
+            if constexpr (Flag::Unit == MONTH && !std::is_same_v<DateValueType, VecDateTimeValue>) {
                 int month = ts2.month() - 1;
                 int new_month = month / period * period;
                 if (new_month >= 12) {
@@ -590,7 +683,7 @@ struct TimeRoundOpt {
                 ts1.unchecked_set_time(ts2.year(), ts2.month(), 1, 0, 0, 0);
                 ts1.template unchecked_set_time_unit<TimeUnit::MONTH>(new_month + 1);
             }
-            if constexpr (Impl::Unit == HOUR && !std::is_same_v<DateValueType, VecDateTimeValue>) {
+            if constexpr (Flag::Unit == HOUR && !std::is_same_v<DateValueType, VecDateTimeValue>) {
                 int hour = ts2.hour();
                 int new_hour = hour / period * period;
                 if (new_hour >= 24) {
@@ -599,7 +692,7 @@ struct TimeRoundOpt {
                 ts1.set_int_val(ts2.to_date_int_val() & MASK_HOUR_FLOOR);
                 ts1.template unchecked_set_time_unit<TimeUnit::HOUR>(new_hour);
             }
-            if constexpr (Impl::Unit == MINUTE &&
+            if constexpr (Flag::Unit == MINUTE &&
                           !std::is_same_v<DateValueType, VecDateTimeValue>) {
                 int minute = ts2.minute();
                 int new_minute = minute / period * period;
@@ -609,7 +702,7 @@ struct TimeRoundOpt {
                 ts1.set_int_val(ts2.to_date_int_val() & MASK_MINUTE_FLOOR);
                 ts1.template unchecked_set_time_unit<TimeUnit::MINUTE>(new_minute);
             }
-            if constexpr (Impl::Unit == SECOND &&
+            if constexpr (Flag::Unit == SECOND &&
                           !std::is_same_v<DateValueType, VecDateTimeValue>) {
                 int second = ts2.second();
                 int new_second = second / period * period;
@@ -623,13 +716,13 @@ struct TimeRoundOpt {
     }
 
     static void floor_opt_one_period(const DateValueType& ts2, DateValueType& ts1) {
-        if constexpr (Impl::Unit == YEAR) {
+        if constexpr (Flag::Unit == YEAR) {
             ts1.unchecked_set_time(ts2.year(), 1, 1, 0, 0, 0);
         }
-        if constexpr (Impl::Unit == MONTH) {
+        if constexpr (Flag::Unit == MONTH) {
             ts1.unchecked_set_time(ts2.year(), ts2.month(), 1, 0, 0, 0);
         }
-        if constexpr (Impl::Unit == DAY) {
+        if constexpr (Flag::Unit == DAY) {
             ts1.unchecked_set_time(ts2.year(), ts2.month(), ts2.day(), 0, 0, 0);
         }
 
@@ -644,337 +737,50 @@ struct TimeRoundOpt {
 
             // Optimize the performance of the datetimev2 type on the floor operation.
             // Now supports unit biger than SECOND
-            if constexpr (Impl::Unit == HOUR) {
+            if constexpr (Flag::Unit == HOUR) {
                 ts1.set_int_val(ts2.to_date_int_val() & MASK_HOUR_FLOOR);
             }
-            if constexpr (Impl::Unit == MINUTE) {
+            if constexpr (Flag::Unit == MINUTE) {
                 ts1.set_int_val(ts2.to_date_int_val() & MASK_MINUTE_FLOOR);
             }
-            if constexpr (Impl::Unit == SECOND) {
+            if constexpr (Flag::Unit == SECOND) {
                 ts1.set_int_val(ts2.to_date_int_val() & MASK_SECOND_FLOOR);
             }
         }
     }
 };
 
-template <typename Impl>
-struct TimeRound {
-    static constexpr auto name = Impl::name;
-    static constexpr uint64_t FIRST_DAY = 19700101000000;
-    static constexpr uint64_t FIRST_SUNDAY = 19700104000000;
+#define TIME_ROUND_WITH_DELTA_TYPE(IMPL, NAME, UNIT, TYPE, DELTA)                                 \
+    using FunctionOneArg##IMPL##DELTA =                                                           \
+            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTime,                                     \
+                                      1>; /*DateTime and Date is same here*/                      \
+    using FunctionTwoArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, DataTypeDateTime, 2>;     \
+    using FunctionThreeArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, DataTypeDateTime, 3>;   \
+    using FunctionDateV2OneArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, DataTypeDateV2, 1>; \
+    using FunctionDateV2TwoArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, DataTypeDateV2, 2>; \
+    using FunctionDateV2ThreeArg##IMPL##DELTA =                                                   \
+            FunctionDateTimeFloorCeil<IMPL, DataTypeDateV2, 3>;                                   \
+    using FunctionDateTimeV2OneArg##IMPL##DELTA =                                                 \
+            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTimeV2, 1>;                               \
+    using FunctionDateTimeV2TwoArg##IMPL##DELTA =                                                 \
+            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTimeV2, 2>;                               \
+    using FunctionDateTimeV2ThreeArg##IMPL##DELTA =                                               \
+            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTimeV2, 3>;
 
-    static constexpr uint32_t MASK_YEAR_FOR_DATEV2 = ((uint32_t)-1) >> 23;
-    static constexpr uint32_t MASK_YEAR_MONTH_FOR_DATEV2 = ((uint32_t)-1) >> 27;
-
-    static constexpr uint64_t MASK_YEAR_FOR_DATETIMEV2 = ((uint64_t)-1) >> 18;
-    static constexpr uint64_t MASK_YEAR_MONTH_FOR_DATETIMEV2 = ((uint64_t)-1) >> 22;
-    static constexpr uint64_t MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2 = ((uint64_t)-1) >> 27;
-    static constexpr uint64_t MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2 = ((uint64_t)-1) >> 32;
-    static constexpr uint64_t MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2 = ((uint64_t)-1) >> 38;
-
-    template <typename DateValueType>
-    static bool time_round(const DateValueType& ts2, const Int32 period, DateValueType& ts1) {
-        int64_t diff;
-        int64_t trivial_part_ts1;
-        int64_t trivial_part_ts2;
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            if constexpr (Impl::Unit == YEAR) {
-                diff = (ts2.year() - ts1.year());
-                trivial_part_ts2 = ts2.to_int64() % 10000000000;
-                trivial_part_ts1 = ts1.to_int64() % 10000000000;
-            }
-            if constexpr (Impl::Unit == MONTH) {
-                diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
-                trivial_part_ts2 = ts2.to_int64() % 100000000;
-                trivial_part_ts1 = ts1.to_int64() % 100000000;
-            }
-            if constexpr (Impl::Unit == WEEK) {
-                diff = ts2.daynr() / 7 - ts1.daynr() / 7;
-                trivial_part_ts2 = ts2.daynr() % 7 * 24 * 3600 + ts2.hour() * 3600 +
-                                   ts2.minute() * 60 + ts2.second();
-                trivial_part_ts1 = ts1.daynr() % 7 * 24 * 3600 + ts1.hour() * 3600 +
-                                   ts1.minute() * 60 + ts1.second();
-            }
-            if constexpr (Impl::Unit == DAY) {
-                diff = ts2.daynr() - ts1.daynr();
-                trivial_part_ts2 = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
-                trivial_part_ts1 = ts1.hour() * 3600 + ts1.minute() * 60 + ts1.second();
-            }
-            if constexpr (Impl::Unit == HOUR) {
-                diff = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
-                trivial_part_ts2 = ts2.minute() * 60 + ts2.second();
-                trivial_part_ts1 = ts1.minute() * 60 + ts1.second();
-            }
-            if constexpr (Impl::Unit == MINUTE) {
-                diff = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
-                       (ts2.minute() - ts1.minute());
-                trivial_part_ts2 = ts2.second();
-                trivial_part_ts1 = ts1.second();
-            }
-            if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.second_diff(ts1);
-                trivial_part_ts1 = 0;
-                trivial_part_ts2 = 0;
-            }
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
-            if constexpr (Impl::Unit == YEAR) {
-                diff = (ts2.year() - ts1.year());
-                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
-                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
-            }
-            if constexpr (Impl::Unit == MONTH) {
-                diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
-                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
-                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
-            }
-            if constexpr (Impl::Unit == WEEK) {
-                diff = ts2.daynr() / 7 - ts1.daynr() / 7;
-                trivial_part_ts2 = ts2.daynr() % 7 * 24 * 3600 + ts2.hour() * 3600 +
-                                   ts2.minute() * 60 + ts2.second();
-                trivial_part_ts1 = ts1.daynr() % 7 * 24 * 3600 + ts1.hour() * 3600 +
-                                   ts1.minute() * 60 + ts1.second();
-            }
-            if constexpr (Impl::Unit == DAY) {
-                diff = ts2.daynr() - ts1.daynr();
-                trivial_part_ts2 = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
-                trivial_part_ts1 = ts1.hour() * 3600 + ts1.minute() * 60 + ts1.second();
-            }
-            if constexpr (Impl::Unit == HOUR) {
-                diff = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
-                trivial_part_ts2 = ts2.minute() * 60 + ts2.second();
-                trivial_part_ts1 = ts1.minute() * 60 + ts1.second();
-            }
-            if constexpr (Impl::Unit == MINUTE) {
-                diff = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
-                       (ts2.minute() - ts1.minute());
-                trivial_part_ts2 = ts2.second();
-                trivial_part_ts1 = ts1.second();
-            }
-            if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.second_diff(ts1);
-                trivial_part_ts1 = 0;
-                trivial_part_ts2 = 0;
-            }
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
-            if constexpr (Impl::Unit == YEAR) {
-                diff = (ts2.year() - ts1.year());
-                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
-                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
-            }
-            if constexpr (Impl::Unit == MONTH) {
-                diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
-                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
-                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
-            }
-            if constexpr (Impl::Unit == WEEK) {
-                diff = ts2.daynr() / 7 - ts1.daynr() / 7;
-                trivial_part_ts2 = ts2.daynr() % 7 * 24 * 3600 + ts2.hour() * 3600 +
-                                   ts2.minute() * 60 + ts2.second();
-                trivial_part_ts1 = ts1.daynr() % 7 * 24 * 3600 + ts1.hour() * 3600 +
-                                   ts1.minute() * 60 + ts1.second();
-            }
-            if constexpr (Impl::Unit == DAY) {
-                diff = ts2.daynr() - ts1.daynr();
-                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2;
-                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2;
-            }
-            if constexpr (Impl::Unit == HOUR) {
-                diff = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
-                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2;
-                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2;
-            }
-            if constexpr (Impl::Unit == MINUTE) {
-                diff = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
-                       (ts2.minute() - ts1.minute());
-                trivial_part_ts2 =
-                        ts2.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
-                trivial_part_ts1 =
-                        ts1.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
-            }
-            if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.second_diff(ts1);
-                trivial_part_ts2 = ts2.microsecond();
-                trivial_part_ts1 = ts1.microsecond();
-            }
-        }
-
-        //round down/up to specific time-unit(HOUR/DAY/MONTH...) by increase/decrease diff variable
-        if constexpr (Impl::Type == CEIL) {
-            //e.g. hour_ceil(ts: 00:00:40, origin: 00:00:30), ts should be rounded to 01:00:30
-            diff += trivial_part_ts2 > trivial_part_ts1;
-        }
-        if constexpr (Impl::Type == FLOOR) {
-            //e.g. hour_floor(ts: 01:00:20, origin: 00:00:30), ts should be rounded to 00:00:30
-            diff -= trivial_part_ts2 < trivial_part_ts1;
-        }
-
-        //round down/up inside time period(several time-units)
-        int64_t count = period;
-        int64_t delta_inside_period = diff >= 0 ? diff % count : (diff % count + count) % count;
-        int64_t step = diff - delta_inside_period +
-                       (Impl::Type == FLOOR        ? 0
-                        : delta_inside_period == 0 ? 0
-                                                   : count);
-        bool is_neg = step < 0;
-        TimeInterval interval(Impl::Unit, is_neg ? -step : step, is_neg);
-        return ts1.template date_add_interval<Impl::Unit>(interval);
-    }
-
-    template <typename DateValueType, Int32 period>
-    static bool time_round_with_constant_optimization(const DateValueType& ts2,
-                                                      DateValueType& ts1) {
-        return time_round<DateValueType>(ts2, period, ts1);
-    }
-
-    template <typename DateValueType>
-    static bool time_round(const DateValueType& ts2, DateValueType& ts1) {
-        static_assert(Impl::Unit != WEEK);
-        if constexpr (TimeRoundOpt<Impl, DateValueType>::can_use_optimize(1)) {
-            TimeRoundOpt<Impl, DateValueType>::floor_opt_one_period(ts2, ts1);
-            return true;
-        } else {
-            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                ts1.reset_zero_by_type(ts2.type());
-            }
-            int64_t diff;
-            int64_t part;
-            if constexpr (Impl::Unit == YEAR) {
-                diff = ts2.year();
-                part = (ts2.month() - 1) + (ts2.day() - 1) + ts2.hour() + ts2.minute() +
-                       ts2.second();
-            }
-            if constexpr (Impl::Unit == MONTH) {
-                diff = ts2.year() * 12 + ts2.month() - 1;
-                part = (ts2.day() - 1) + ts2.hour() + ts2.minute() + ts2.second();
-            }
-            if constexpr (Impl::Unit == DAY) {
-                diff = ts2.daynr();
-                part = ts2.hour() + ts2.minute() + ts2.second();
-            }
-            if constexpr (Impl::Unit == HOUR) {
-                diff = ts2.daynr() * 24 + ts2.hour();
-                part = ts2.minute() + ts2.second();
-            }
-            if constexpr (Impl::Unit == MINUTE) {
-                diff = ts2.daynr() * 24L * 60 + ts2.hour() * 60 + ts2.minute();
-                part = ts2.second();
-            }
-            if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.daynr() * 24L * 60 * 60 + ts2.hour() * 60L * 60 + ts2.minute() * 60L +
-                       ts2.second();
-                part = 0;
-                if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
-                    part = ts2.microsecond();
-                }
-            }
-
-            if constexpr (Impl::Type == CEIL) {
-                if (part) {
-                    diff++;
-                }
-            }
-            TimeInterval interval(Impl::Unit, diff, 1);
-            return ts1.template date_set_interval<Impl::Unit>(interval);
-        }
-    }
-
-    template <typename NativeType, typename DateValueType>
-    static bool time_round(NativeType date, Int32 period, NativeType origin_date, NativeType& res) {
-        res = origin_date;
-        auto ts2 = binary_cast<NativeType, DateValueType>(date);
-        auto& ts1 = (DateValueType&)(res);
-        return TimeRound<Impl>::template time_round<DateValueType>(ts2, period, ts1);
-    }
-
-    template <typename NativeType, typename DateValueType, Int32 period>
-    static bool time_round_with_constant_optimization(NativeType date, NativeType origin_date,
-                                                      NativeType& res) {
-        res = origin_date;
-        auto ts2 = binary_cast<NativeType, DateValueType>(date);
-        auto& ts1 = (DateValueType&)(res);
-        return TimeRound<Impl>::template time_round_with_constant_optimization<DateValueType,
-                                                                               period>(ts2, ts1);
-    }
-
-    template <typename NativeType, typename DateValueType>
-    static bool time_round(NativeType date, Int32 period, NativeType& res) {
-        auto ts2 = binary_cast<NativeType, DateValueType>(date);
-        auto& ts1 = (DateValueType&)(res);
-
-        if (TimeRoundOpt<Impl, DateValueType>::can_use_optimize(period)) {
-            TimeRoundOpt<Impl, DateValueType>::floor_opt(ts2, ts1, period);
-            return true;
-        } else {
-            if constexpr (Impl::Unit != WEEK) {
-                ts1.from_olap_datetime(FIRST_DAY);
-            } else {
-                // Only week use the FIRST SUNDAY
-                ts1.from_olap_datetime(FIRST_SUNDAY);
-            }
-
-            return TimeRound<Impl>::template time_round<DateValueType>(ts2, period, ts1);
-        }
-    }
-
-    template <typename NativeType, typename DateValueType>
-    static bool time_round(NativeType date, NativeType& res) {
-        auto ts2 = binary_cast<NativeType, DateValueType>(date);
-        auto& ts1 = (DateValueType&)(res);
-        if constexpr (Impl::Unit != WEEK) {
-            return TimeRound<Impl>::template time_round<DateValueType>(ts2, ts1);
-        } else {
-            // Only week use the FIRST SUNDAY
-            ts1.from_olap_datetime(FIRST_SUNDAY);
-            return TimeRound<Impl>::template time_round<DateValueType>(ts2, 1, ts1);
-        }
-    }
-};
-
-#define TIME_ROUND_WITH_DELTA_TYPE(CLASS, NAME, UNIT, TYPE, DELTA)                          \
-    using FunctionOneArg##CLASS##DELTA =                                                    \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, 1, \
-                                      false>;                                               \
-    using FunctionTwoArg##CLASS##DELTA =                                                    \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, 2, \
-                                      false>;                                               \
-    using FunctionThreeArg##CLASS##DELTA =                                                  \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, 3, \
-                                      false>;                                               \
-    using FunctionDateV2OneArg##CLASS##DELTA =                                              \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
-                                      DateV2Value<DateV2ValueType>, 1, false>;              \
-    using FunctionDateV2TwoArg##CLASS##DELTA =                                              \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
-                                      DateV2Value<DateV2ValueType>, 2, false>;              \
-    using FunctionDateV2ThreeArg##CLASS##DELTA =                                            \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
-                                      DateV2Value<DateV2ValueType>, 3, false>;              \
-    using FunctionDateTimeV2OneArg##CLASS##DELTA =                                          \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
-                                      DateV2Value<DateTimeV2ValueType>, 1, false>;          \
-    using FunctionDateTimeV2TwoArg##CLASS##DELTA =                                          \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
-                                      DateV2Value<DateTimeV2ValueType>, 2, false>;          \
-    using FunctionDateTimeV2ThreeArg##CLASS##DELTA =                                        \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
-                                      DateV2Value<DateTimeV2ValueType>, 3, false>;
-
-#define TIME_ROUND(CLASS, NAME, UNIT, TYPE)                                       \
-    struct CLASS {                                                                \
-        static constexpr auto name = #NAME;                                       \
-        static constexpr TimeUnit Unit = UNIT;                                    \
-        static constexpr auto Type = TYPE;                                        \
-    };                                                                            \
-                                                                                  \
-    TIME_ROUND_WITH_DELTA_TYPE(CLASS, NAME, UNIT, TYPE, Int32)                    \
-    using FunctionDateTimeV2TwoArg##CLASS =                                       \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,            \
-                                      DateV2Value<DateTimeV2ValueType>, 2, true>; \
-    using FunctionDateV2TwoArg##CLASS =                                           \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,            \
-                                      DateV2Value<DateV2ValueType>, 2, true>;     \
-    using FunctionDateTimeTwoArg##CLASS =                                         \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, 2, true>;
+#define TIME_ROUND(IMPL, NAME, UNIT, TYPE)                                                       \
+    struct IMPL {                                                                                \
+        static constexpr auto name = #NAME;                                                      \
+        static constexpr TimeUnit Unit = UNIT;                                                   \
+        static constexpr auto Type = TYPE;                                                       \
+    };                                                                                           \
+                                                                                                 \
+    TIME_ROUND_WITH_DELTA_TYPE(IMPL, NAME, UNIT, TYPE, Int32)                                    \
+    using FunctionDateV2TwoArg##IMPL = FunctionDateTimeFloorCeil<IMPL, DataTypeDateV2, 2, true>; \
+    using FunctionDateTimeV2TwoArg##IMPL =                                                       \
+            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTimeV2, 2, true>;                        \
+    using FunctionDateTimeTwoArg##IMPL =                                                         \
+            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTime, 2,                                 \
+                                      true>; /*DateTime and Date is same here*/
 
 TIME_ROUND(YearFloor, year_floor, YEAR, FLOOR);
 TIME_ROUND(MonthFloor, month_floor, MONTH, FLOOR);
@@ -993,21 +799,21 @@ TIME_ROUND(MinuteCeil, minute_ceil, MINUTE, CEIL);
 TIME_ROUND(SecondCeil, second_ceil, SECOND, CEIL);
 
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
-#define REGISTER_FUNC_WITH_DELTA_TYPE(CLASS, DELTA)                        \
-    factory.register_function<FunctionOneArg##CLASS##DELTA>();             \
-    factory.register_function<FunctionTwoArg##CLASS##DELTA>();             \
-    factory.register_function<FunctionThreeArg##CLASS##DELTA>();           \
-    factory.register_function<FunctionDateV2OneArg##CLASS##DELTA>();       \
-    factory.register_function<FunctionDateV2TwoArg##CLASS##DELTA>();       \
-    factory.register_function<FunctionDateV2ThreeArg##CLASS##DELTA>();     \
-    factory.register_function<FunctionDateTimeV2OneArg##CLASS##DELTA>();   \
-    factory.register_function<FunctionDateTimeV2TwoArg##CLASS##DELTA>();   \
-    factory.register_function<FunctionDateTimeV2ThreeArg##CLASS##DELTA>(); \
-    factory.register_function<FunctionDateTimeV2TwoArg##CLASS>();          \
-    factory.register_function<FunctionDateTimeTwoArg##CLASS>();            \
-    factory.register_function<FunctionDateV2TwoArg##CLASS>();
+#define REGISTER_FUNC_WITH_DELTA_TYPE(IMPL, DELTA)                        \
+    factory.register_function<FunctionOneArg##IMPL##DELTA>();             \
+    factory.register_function<FunctionTwoArg##IMPL##DELTA>();             \
+    factory.register_function<FunctionThreeArg##IMPL##DELTA>();           \
+    factory.register_function<FunctionDateV2OneArg##IMPL##DELTA>();       \
+    factory.register_function<FunctionDateV2TwoArg##IMPL##DELTA>();       \
+    factory.register_function<FunctionDateV2ThreeArg##IMPL##DELTA>();     \
+    factory.register_function<FunctionDateTimeV2OneArg##IMPL##DELTA>();   \
+    factory.register_function<FunctionDateTimeV2TwoArg##IMPL##DELTA>();   \
+    factory.register_function<FunctionDateTimeV2ThreeArg##IMPL##DELTA>(); \
+    factory.register_function<FunctionDateTimeV2TwoArg##IMPL>();          \
+    factory.register_function<FunctionDateTimeTwoArg##IMPL>();            \
+    factory.register_function<FunctionDateV2TwoArg##IMPL>();
 
-#define REGISTER_FUNC(CLASS) REGISTER_FUNC_WITH_DELTA_TYPE(CLASS, Int32)
+#define REGISTER_FUNC(IMPL) REGISTER_FUNC_WITH_DELTA_TYPE(IMPL, Int32)
 
     REGISTER_FUNC(YearFloor);
     REGISTER_FUNC(MonthFloor);
@@ -1025,4 +831,10 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
     REGISTER_FUNC(MinuteCeil);
     REGISTER_FUNC(SecondCeil);
 }
+#undef FLOOR
+#undef CEIL
 } // namespace doris::vectorized
+
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic pop
+#endif

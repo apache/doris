@@ -24,6 +24,7 @@
 
 #include "util/bitmap_value.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
@@ -106,7 +107,7 @@ Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& 
 }
 
 void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena* mem_pool, int32_t col_id,
+                                                  Arena& arena, int32_t col_id,
                                                   int64_t row_num) const {
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
@@ -114,36 +115,37 @@ void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     // serialize the content of string
     auto size = bitmap_value.getSizeInBytes();
     // serialize the content of string
-    auto* ptr = mem_pool->alloc(size);
+    auto* ptr = arena.alloc(size);
     bitmap_value.write_to(const_cast<char*>(ptr));
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(ptr), size);
     result.writeEndBinary();
 }
 
-void DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int64_t start,
-                                                int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz) const {
     const auto& col = assert_cast<const ColumnBitmap&>(column);
     auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             auto& bitmap_value = const_cast<BitmapValue&>(col.get_element(string_i));
             std::string memory_buffer(bitmap_value.getSizeInBytes(), '0');
             bitmap_value.write_to(memory_buffer.data());
-            checkArrowStatus(
+            RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(memory_buffer.data(), static_cast<int>(memory_buffer.size())),
-                    column.get_name(), array_builder->type()->name());
+                    column.get_name(), array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
 void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    auto* blob = arg->unpack<JsonbBinaryVal>();
     BitmapValue bitmap_value(blob->getBlob());
     col.insert_value(bitmap_value);
 }
@@ -189,29 +191,50 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     auto& col_data = assert_cast<const ColumnBitmap&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
-
-    INIT_MEMORY_FOR_ORC_WRITER()
-
+    // First pass: calculate total memory needed and collect serialized values
+    size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             auto bitmap_value = const_cast<BitmapValue&>(col_data.get_element(row_id));
             size_t len = bitmap_value.getSizeInBytes();
-
-            REALLOC_MEMORY_FOR_ORC_WRITER()
-
-            bitmap_value.write_to(const_cast<char*>(bufferRef.data) + offset);
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+            total_size += len;
+        }
+    }
+    // Allocate continues memory based on calculated size
+    char* ptr = arena.alloc(total_size);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory {} error when write variant column data to orc file.", total_size);
+    }
+    // Second pass: copy data to allocated memory
+    size_t offset = 0;
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            auto bitmap_value = const_cast<BitmapValue&>(col_data.get_element(row_id));
+            size_t len = bitmap_value.getSizeInBytes();
+            if (offset + len > total_size) {
+                return Status::InternalError(
+                        "Buffer overflow when writing column data to ORC file. offset {} with len "
+                        "{} exceed total_size {} . ",
+                        offset, len, total_size);
+            }
+            bitmap_value.write_to(ptr + offset);
+            cur_batch->data[row_id] = ptr + offset;
             cur_batch->length[row_id] = len;
             offset += len;
         }
     }
-
     cur_batch->numElements = end - start;
     return Status::OK();
 }
 
+Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
+                                        const FormatOptions& options) const {
+    auto slice = str.to_slice();
+    return deserialize_one_cell_from_json(column, slice, options);
+}
 } // namespace vectorized
 } // namespace doris
