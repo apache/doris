@@ -24,6 +24,8 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
@@ -62,7 +64,7 @@ public class WarmUpSelectTest extends TestWithFeService implements PlanPatternMa
         connectContext.getSessionVariable().setEnableFileCache(true);
         connectContext.getSessionVariable().setDisableFileCache(false);
 
-        String sql = "warm up select * from T1";
+        String sql = "explain warm up select * from T1";
         Assertions.assertTrue(getOutputFragment(sql).getExplainString(TExplainLevel.BRIEF)
                 .contains("BLACKHOLE SINK"));
     }
@@ -73,7 +75,7 @@ public class WarmUpSelectTest extends TestWithFeService implements PlanPatternMa
         connectContext.getSessionVariable().setEnableFileCache(true);
         connectContext.getSessionVariable().setDisableFileCache(false);
 
-        String sql = "warm up select id, score from T1";
+        String sql = "explain warm up select id, score from T1";
         Assertions.assertTrue(getOutputFragment(sql).getExplainString(TExplainLevel.BRIEF)
                 .contains("BLACKHOLE SINK"));
     }
@@ -84,7 +86,7 @@ public class WarmUpSelectTest extends TestWithFeService implements PlanPatternMa
         connectContext.getSessionVariable().setEnableFileCache(true);
         connectContext.getSessionVariable().setDisableFileCache(false);
 
-        String sql = "warm up select id from T1 where id > 0";
+        String sql = "explain warm up select id from T1 where id > 0";
         Assertions.assertTrue(getOutputFragment(sql).getExplainString(TExplainLevel.BRIEF)
                 .contains("BLACKHOLE SINK"));
     }
@@ -95,7 +97,7 @@ public class WarmUpSelectTest extends TestWithFeService implements PlanPatternMa
         connectContext.getSessionVariable().setEnableFileCache(true);
         connectContext.getSessionVariable().setDisableFileCache(false);
 
-        String sql = "warm up select 1 from T1";
+        String sql = "explain warm up select 1 from T1";
         Assertions.assertThrows(Exception.class, () -> getOutputFragment(sql));
     }
 
@@ -105,7 +107,7 @@ public class WarmUpSelectTest extends TestWithFeService implements PlanPatternMa
         connectContext.getSessionVariable().setEnableFileCache(false);
         connectContext.getSessionVariable().setDisableFileCache(true);
 
-        String sql = "warm up select * from T1";
+        String sql = "explain warm up select * from T1";
         Assertions.assertThrows(Exception.class, () -> getOutputFragment(sql));
     }
 
@@ -116,7 +118,7 @@ public class WarmUpSelectTest extends TestWithFeService implements PlanPatternMa
         connectContext.getSessionVariable().setDisableFileCache(false);
 
         // This should fail because complex expressions are not allowed
-        String sql = "warm up select id + 1 from T1";
+        String sql = "explain warm up select id + 1 from T1";
         Assertions.assertThrows(Exception.class, () -> getOutputFragment(sql));
     }
 
@@ -127,7 +129,7 @@ public class WarmUpSelectTest extends TestWithFeService implements PlanPatternMa
         connectContext.getSessionVariable().setDisableFileCache(false);
 
         // This should fail because functions are not allowed
-        String sql = "warm up select upper(name) from T1";
+        String sql = "explain warm up select upper(name) from T1";
         Assertions.assertThrows(Exception.class, () -> getOutputFragment(sql));
     }
 
@@ -138,7 +140,7 @@ public class WarmUpSelectTest extends TestWithFeService implements PlanPatternMa
         connectContext.getSessionVariable().setDisableFileCache(false);
 
         // This tests that warm up select without table reference fails
-        String sql = "warm up select 1";
+        String sql = "explain warm up select 1";
         Assertions.assertThrows(Exception.class, () -> getOutputFragment(sql));
     }
 
@@ -146,10 +148,9 @@ public class WarmUpSelectTest extends TestWithFeService implements PlanPatternMa
         StatementScopeIdGenerator.clear();
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        PhysicalPlan plan = planner.planWithLock(
-                parser.parseSingle(sql),
-                PhysicalProperties.ANY
-        );
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(connectContext);
+        PhysicalPlan plan = planner.planWithLock(logicalPlan, PhysicalProperties.ANY);
         return new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
     }
 }

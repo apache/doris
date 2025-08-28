@@ -45,7 +45,6 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
-import org.apache.doris.planner.BlackholeSink;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -724,13 +723,10 @@ public class Coordinator implements CoordInterface {
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
-        if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink
-                || topDataSink instanceof BlackholeSink) {
+        if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             Boolean enableParallelResultSink = false;
             if (topDataSink instanceof ResultSink) {
                 enableParallelResultSink = queryOptions.isEnableParallelResultSink();
-            } else if (topDataSink instanceof BlackholeSink) {
-                enableParallelResultSink = true;
             } else {
                 enableParallelResultSink = queryOptions.isEnableParallelOutfile();
             }
