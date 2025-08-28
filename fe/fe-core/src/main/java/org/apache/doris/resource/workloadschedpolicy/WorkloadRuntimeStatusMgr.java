@@ -19,6 +19,7 @@ package org.apache.doris.resource.workloadschedpolicy;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.KeyValueMessageQueue;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.AuditEvent;
@@ -52,6 +53,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
     private volatile long lastWarnTime;
+    
+    // Message queue for handling query audit events with key-value semantics
+    private final KeyValueMessageQueue<String, AuditEvent> auditEventQueue = new KeyValueMessageQueue<>();
 
     private class BeReportInfo {
         volatile long beLastReportTime;
@@ -245,6 +249,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private void mergeQueryStatistics(TQueryStatistics dst, TQueryStatisticsResult src) {
         TQueryStatistics srcStats = src.getStatistics();
+        if (srcStats == null) {
+            return;
+        }
         dst.scan_rows += srcStats.scan_rows;
         dst.scan_bytes += srcStats.scan_bytes;
         dst.scan_bytes_from_local_storage += srcStats.scan_bytes_from_local_storage;

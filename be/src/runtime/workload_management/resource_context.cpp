@@ -38,6 +38,7 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
     statistics->__set_scan_bytes_from_remote_storage(
             io_context()->scan_bytes_from_remote_storage());
     statistics->__set_scan_bytes_from_local_storage(io_context()->scan_bytes_from_local_storage());
+    statistics->__set_bytes_write_into_cache(io_context()->bytes_write_into_cache());
 
     if (workload_group() != nullptr) {
         statistics->__set_workload_group_id(workload_group()->id());
