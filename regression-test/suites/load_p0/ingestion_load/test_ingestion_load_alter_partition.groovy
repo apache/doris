@@ -218,8 +218,9 @@ suite('test_ingestion_load_alter_partition', 'p0,external') {
             })
 
         } finally {
+//            sql "DROP TABLE ${tableName1}"
+//            sql "DROP TABLE ${tableName2}"
+//            sql "DROP TABLE ${tableName3}"
         }
-
     }
-
 }
