@@ -222,6 +222,9 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
             // Endpoint is not required, so we consider it valid if empty.
             return true;
         }
+        if (endpointPatterns().isEmpty()) {
+            return true;
+        }
         for (Pattern pattern : endpointPatterns()) {
             Matcher matcher = pattern.matcher(endpoint.toLowerCase());
             if (matcher.matches()) {
