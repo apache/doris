@@ -28,7 +28,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Between predicate expression.
@@ -38,6 +37,7 @@ public class Between extends Expression implements TernaryExpression, PropagateN
     private final Expression compareExpr;
     private final Expression lowerBound;
     private final Expression upperBound;
+
     /**
      * Constructor of ComparisonPredicate.
      *
@@ -45,12 +45,16 @@ public class Between extends Expression implements TernaryExpression, PropagateN
      * @param lowerBound     left child of between predicate
      * @param upperBound     right child of between predicate
      */
-
     public Between(Expression compareExpr, Expression lowerBound,
                    Expression upperBound) {
         this(ImmutableList.of(compareExpr, lowerBound, upperBound));
     }
 
+    /**
+     * Constructor of ComparisonPredicate.
+     *
+     * @param children 3 children: compareExpr, lowerBound, upperBound
+     */
     public Between(List<Expression> children) {
         super(children);
         this.compareExpr = children.get(0);
