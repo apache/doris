@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileAttributes;
@@ -27,26 +28,27 @@ import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.Set;
 
 public class CsvFileFormatProperties extends FileFormatProperties {
     public static final Logger LOG = LogManager.getLogger(
             org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties.class);
 
     // supported compression types for csv writer
-    public static final Map<String, TFileCompressType> CSV_COMPRESSION_TYPE_MAP = Maps.newHashMap();
+    public static final Set<TFileCompressType> SUPPORTED_CSV_WRITE_COMPRESSION_TYPES = Sets.newHashSet();
 
     static {
-        CSV_COMPRESSION_TYPE_MAP.put("plain", TFileCompressType.PLAIN);
-        CSV_COMPRESSION_TYPE_MAP.put("gzip", TFileCompressType.GZ);
-        CSV_COMPRESSION_TYPE_MAP.put("bzip2", TFileCompressType.BZ2);
-        CSV_COMPRESSION_TYPE_MAP.put("snappy", TFileCompressType.SNAPPYBLOCK);
-        CSV_COMPRESSION_TYPE_MAP.put("lz4", TFileCompressType.LZ4BLOCK);
-        CSV_COMPRESSION_TYPE_MAP.put("zstd", TFileCompressType.ZSTD);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.PLAIN);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.GZ);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.BZ2);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.SNAPPYBLOCK);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.LZ4BLOCK);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.ZSTD);
     }
 
     public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
@@ -130,9 +132,10 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                 throw new AnalysisException("skipLines should not be less than 0.");
             }
 
+            // This default value is "UNKNOWN", so that the caller may infer the compression type by suffix of file.
             String compressTypeStr = getOrDefault(formatProperties,
-                    PROP_COMPRESS_TYPE, "plain", isRemoveOriginProperty);
-            compressionType = analyzeCompressionType(compressTypeStr);
+                    PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
+            compressionType = Util.getFileCompressType(compressTypeStr);
 
             // get ENABLE_TEXT_VALIDATE_UTF8 from properties map first,
             // if not exist, try getting from session variable,
@@ -151,13 +154,16 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         }
     }
 
-    private TFileCompressType analyzeCompressionType(String compressTypeStr) throws AnalysisException {
-        if (CSV_COMPRESSION_TYPE_MAP.containsKey(compressTypeStr.toLowerCase())) {
-            return CSV_COMPRESSION_TYPE_MAP.get(compressTypeStr.toLowerCase());
-        } else {
-            throw new AnalysisException("csv compression type ["
-                    + compressTypeStr + "] is invalid,"
-                    + " please choose one among GZIP, BZIP2, SNAPPY, LZ4, ZSTD or PLAIN");
+    public void checkSupportedCompressionType(boolean isWrite) {
+        if (isWrite) {
+            // "UKNOWN" means use does not specify the compression type
+            if (this.compressionType == TFileCompressType.UNKNOWN) {
+                this.compressionType = TFileCompressType.PLAIN;
+            }
+            if (!SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.contains(this.compressionType)) {
+                throw new AnalysisException(
+                        "csv compression type [" + this.compressionType.name() + "] is invalid for writing");
+            }
         }
     }
 

@@ -132,17 +132,17 @@ public class CsvFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_COMPRESS_TYPE, "invalid");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "csv compression type [invalid] is invalid",
+                "Unknown compression type: invalid",
                 () -> csvFileFormatProperties.analyzeFileFormatProperties(properties, true));
     }
 
     @Test
     public void testAnalyzeFileFormatPropertiesValidCompressType() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(CsvFileFormatProperties.PROP_COMPRESS_TYPE, "gzip");
-
+        properties.put(CsvFileFormatProperties.PROP_COMPRESS_TYPE, "gz");
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(TFileCompressType.GZ, csvFileFormatProperties.getCompressionType());
+        ExceptionChecker.expectThrowsNoException(() -> csvFileFormatProperties.checkSupportedCompressionType(true));
     }
 
     @Test

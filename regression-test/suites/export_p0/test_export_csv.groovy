@@ -99,7 +99,7 @@ suite("test_export_csv", "p0") {
     logger.info("insert result: " + insert_res.toString())
     qt_select_export1 """ SELECT * FROM ${table_export_name} t ORDER BY user_id; """
 
-    def machine_user_name = "yy"
+    def machine_user_name = "root"
     def check_path_exists = { dir_path ->
         mkdirRemotePathOnAllBE(machine_user_name, dir_path)
     }
@@ -417,7 +417,7 @@ suite("test_export_csv", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
-                "compress_type"="gzip"
+                "compress_type"="gz"
             );
         """
         waiting_export.call(label)
@@ -459,7 +459,7 @@ suite("test_export_csv", "p0") {
                     "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
                     "backend_id" = "${beid}",
                     "format" = "csv",
-                    "compress_type" = "gzip");
+                    "compress_type" = "gz");
                 """ 
             insert_res = sql "show last insert;"
             logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
