@@ -1039,93 +1039,17 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
     int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
                                .count();
-    auto& queue = get_queue(context.cache_type);
-    size_t removed_size = 0;
-    size_t ghost_remove_size = 0;
-    size_t queue_size = queue.get_capacity(cache_lock);
-    size_t cur_cache_size = _cur_cache_size;
-    size_t query_context_cache_size = query_context->get_cache_size(cache_lock);
 
-    std::vector<LRUQueue::Iterator> ghost;
-    std::vector<FileBlockCell*> to_evict;
-
-    size_t max_size = queue.get_max_size();
-    auto is_overflow = [&] {
-        return _disk_resource_limit_mode ? removed_size < size
-                                         : cur_cache_size + size - removed_size > _capacity ||
-                                                   (queue_size + size - removed_size > max_size) ||
-                                                   (query_context_cache_size + size -
-                                                            (removed_size + ghost_remove_size) >
-                                                    query_context->get_max_cache_size());
-    };
-
-    VLOG_DEBUG << "Starting query context eviction scan: queue_size=" << queue_size
-               << ", max_queue_size=" << max_size
-               << ", query_cache_size=" << query_context_cache_size
-               << ", query_id=" << print_id(context.query_id);
-    /// Select the cache from the LRU queue held by query for expulsion.
-    for (auto iter = query_context->queue().begin(); iter != query_context->queue().end(); iter++) {
-        if (!is_overflow()) {
-            break;
-        }
-
-        auto* cell = get_cell(iter->hash, iter->offset, cache_lock);
-
-        if (!cell) {
-            /// The cache corresponding to this record may be swapped out by
-            /// other queries, so it has become invalid.
-            ghost.push_back(iter);
-            ghost_remove_size += iter->size;
-        } else {
-            size_t cell_size = cell->size();
-            DCHECK(iter->size == cell_size);
-
-            if (cell->releasable()) {
-                auto& file_block = cell->file_block;
-
-                std::lock_guard block_lock(file_block->_mutex);
-                DCHECK(file_block->_download_state == FileBlock::State::DOWNLOADED);
-                to_evict.push_back(cell);
-                removed_size += cell_size;
-            }
-        }
-    }
-
-    *_num_query_removed_blocks << to_evict.size();
-    *_total_query_evict_size_metrics << removed_size;
-
-    auto remove_file_block_if = [&](FileBlockCell* cell) {
-        FileBlockSPtr file_block = cell->file_block;
-        if (file_block) {
-            query_context->remove(file_block->get_hash_value(), file_block->offset(), cache_lock);
-            std::lock_guard block_lock(file_block->_mutex);
-            remove(file_block, cache_lock, block_lock);
-        }
-    };
-
-    for (auto& iter : ghost) {
-        query_context->remove(iter->hash, iter->offset, cache_lock);
-    }
-
-    std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
-
-    if (is_overflow()) {
-        VLOG_DEBUG << "Query context eviction insufficient, trying to evict from other queues: "
-                   << "removed_size=" << removed_size << ", ghost_remove_size=" << ghost_remove_size
-                   << ", needed=" << size;
-
-        bool other_queue_success = config::file_cache_query_limit_enable_evict_from_other_queue
-                                           ? try_reserve_from_other_queue(context.cache_type, size,
-                                                                          cur_time, cache_lock)
-                                           : false;
-        if (!other_queue_success) {
-            VLOG_DEBUG << "Failed to reserve space after exhausting all eviction strategies: "
-                       << "query_limit_enable_evict_from_other_queue="
-                       << config::file_cache_query_limit_enable_evict_from_other_queue
-                       << ", hash=" << hash.to_string() << ", offset=" << offset
-                       << ", size=" << size;
-            return false;
-        }
+    bool other_queue_success =
+            config::file_cache_query_limit_enable_evict_from_other_queue
+                    ? try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock)
+                    : false;
+    if (!other_queue_success) {
+        VLOG_DEBUG << "Failed to reserve space after exhausting all eviction strategies: "
+                   << "query_limit_enable_evict_from_other_queue="
+                   << config::file_cache_query_limit_enable_evict_from_other_queue
+                   << ", hash=" << hash.to_string() << ", offset=" << offset << ", size=" << size;
+        return false;
     }
 
     query_context->reserve(hash, offset, size, cache_lock);
