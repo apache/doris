@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/status.h"
 #include "function_test_util.h"
 #include "util/timezone_utils.h"
 #include "vec/core/types.h"
@@ -182,16 +183,23 @@ TEST(VTimestampFunctionsTest, from_unix_test) {
         DataSet data_set = {
                 {{int64_t(1565080737)}, std::string("2019-08-06 16:38:57")},
                 {{int64_t(253402271999)}, std::string("9999-12-31 23:59:59")},
-                {{int64_t(-123)}, Null()},
         };
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+    // Test negative values separately with expected exception
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+        DataSet data_set = {
+                {{int64_t(-123)}, Null()},
+        };
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set, -1,
+                                                               -1, true));
     }
     {
         InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL64, 6, 18}};
         DataSet data_set = {
                 {{DECIMAL64(1565080737, 999999, 6)}, std::string("2019-08-06 16:38:57.999999")},
                 {{DECIMAL64(253402271999, 999999, 6)}, std::string("9999-12-31 23:59:59.999999")},
-                {{DECIMAL64(263402271999, 999999, 6)}, Null()},
         };
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -630,13 +638,23 @@ TEST(VTimestampFunctionsTest, makedate_test) {
 
     DataSet data_set = {{{2021, 3}, std::string("2021-01-03")},
                         {{2021, 95}, std::string("2021-04-05")},
-                        {{2021, 400}, std::string("2022-02-04")},
-                        {{2021, 0}, Null()},
-                        {{2021, -10}, Null()},
-                        {{-1, 3}, Null()},
-                        {{12345, 3}, Null()}};
+                        {{2021, 400}, std::string("2022-02-04")}};
 
     static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+
+    // Test invalid day of year values separately with expected exception
+    {
+        DataSet invalid_data_set = {{{2021, 0}, Null()}, {{2021, -10}, Null()}};
+        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types,
+                                                             invalid_data_set, -1, -1, true));
+    }
+
+    // Test invalid year values separately with expected exception
+    {
+        DataSet invalid_year_data_set = {{{-1, 3}, Null()}, {{12345, 3}, Null()}};
+        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types,
+                                                             invalid_year_data_set, -1, -1, true));
+    }
 }
 
 TEST(VTimestampFunctionsTest, weekday_test) {

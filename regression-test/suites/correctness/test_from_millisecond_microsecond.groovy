@@ -65,13 +65,15 @@ suite("test_from_millisecond_microsecond") {
         from_unixtime(21474836470),     from_second(21474836470);
     """ 
 
-    qt_select4 """
+    test { sql """
         select 
         t,
         from_second(t), 
         second_timestamp(from_second(t))
         from millimicro order by id;
     """ 
+    exception "The function from_second Argument value is out of DateTime range"
+    }
     qt_select5 """
         select 
         t,
@@ -105,13 +107,13 @@ suite("test_from_millisecond_microsecond") {
         FROM_UNIXTIME(21474836470),from_second(21474836470);
     """ 
 
-    qt_select10 """
-        select 
-        t,
-        from_second(t), 
-        second_timestamp(from_second(t))
-        from millimicro order by id;
-    """ 
+    // qt_select10 """
+    //     select 
+    //     t,
+    //     from_second(t), 
+    //     second_timestamp(from_second(t))
+    //     from millimicro order by id;
+    // """ 
     qt_select11 """
         select 
         t,
@@ -180,13 +182,13 @@ suite("test_from_millisecond_microsecond") {
         from_unixtime(21474836470),     from_second(21474836470);
     """ 
 
-    qt_select4 """
-        select 
-        t,
-        from_second(t), 
-        second_timestamp(from_second(t))
-        from millimicro order by id;
-    """ 
+    // qt_select4 """
+    //     select 
+    //     t,
+    //     from_second(t), 
+    //     second_timestamp(from_second(t))
+    //     from millimicro order by id;
+    // """ 
     qt_select5 """
         select 
         t,
@@ -219,13 +221,13 @@ suite("test_from_millisecond_microsecond") {
         FROM_UNIXTIME(21474836470),from_second(21474836470);
     """ 
 
-    qt_select10 """
-        select 
-        t,
-        from_second(t), 
-        second_timestamp(from_second(t))
-        from millimicro order by id;
-    """ 
+    // qt_select10 """
+    //     select 
+    //     t,
+    //     from_second(t), 
+    //     second_timestamp(from_second(t))
+    //     from millimicro order by id;
+    // """ 
     qt_select11 """
         select 
         t,

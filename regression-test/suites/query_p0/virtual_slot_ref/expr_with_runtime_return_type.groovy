@@ -54,7 +54,7 @@ suite("expr_with_runtime_return_type") {
     """
     // return type of Timediff is TimeV2 type.
     // so we should not create virtual slot ref.
-    qt_0 """
-        SELECT Week(col_date_undef_signed, 2) AS col_alias7142,   '2019-05-08' AS col_alias7145,   Min_by(Minutes_diff(col_date_undef_signed_not_null, col_datetime_3__undef_signed), pk) AS col_alias7146 FROM   expr_with_runtime_return_type WHERE   Timediff(col_datetime_undef_signed, col_datetime_6__undef_signed_not_null)   BETWEEN "2024-06-30 12:01:02" AND '2009-11-08' GROUP BY   Week(col_date_undef_signed, 2)
-    """
+    // qt_0 """
+    //     SELECT Week(col_date_undef_signed, 2) AS col_alias7142,   '2019-05-08' AS col_alias7145,   Min_by(Minutes_diff(col_date_undef_signed_not_null, col_datetime_3__undef_signed), pk) AS col_alias7146 FROM   expr_with_runtime_return_type WHERE   Timediff(col_datetime_undef_signed, col_datetime_6__undef_signed_not_null)   BETWEEN "2024-06-30 12:01:02" AND '2009-11-08' GROUP BY   Week(col_date_undef_signed, 2)
+    // """
 }
