@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -44,6 +45,8 @@ import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Map;
@@ -140,6 +143,19 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                         throw new AnalysisException("user not exist: " + user);
                     }
                 }
+
+                if (!StringUtils.isEmpty(roleName)) {
+                    if (!Env.getCurrentEnv().getAuth().doesRoleExist(roleName)) {
+                        throw new AnalysisException("role not exist: " + roleName);
+                    }
+                }
+                TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrAnalysisException(tableNameInfo.getCtl())
+                        .getDbOrAnalysisException(tableNameInfo.getDb())
+                        .getTableOrAnalysisException(tableNameInfo.getTbl());
+                Expression expression = wherePredicate.get();
+                System.out.println(expression);
+                System.out.println(tableIf);
 
         }
     }
