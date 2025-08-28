@@ -205,7 +205,7 @@ public:
         return _memory_sufficient_dependency.get();
     }
 
-    doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
+    doris::pipeline::HybridTaskScheduler* get_pipe_exec_scheduler();
 
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
@@ -313,7 +313,7 @@ private:
     // to report the real message if failed.
     AtomicStatus _exec_status;
 
-    doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
+    doris::pipeline::HybridTaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     // This dependency indicates if the 2nd phase RPC received from FE.

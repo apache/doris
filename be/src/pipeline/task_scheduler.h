@@ -42,30 +42,58 @@ class ThreadPool;
 
 namespace doris::pipeline {
 
+class HybridTaskScheduler;
 class TaskScheduler {
 public:
-    TaskScheduler(int core_num, std::string name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : _task_queue(core_num), _name(std::move(name)), _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
+    virtual ~TaskScheduler();
 
-    ~TaskScheduler();
+    virtual Status submit(PipelineTaskSPtr task);
 
-    Status schedule_task(PipelineTaskSPtr task);
+    virtual Status start();
 
-    Status start();
+    virtual void stop();
 
-    void stop();
-
-    std::vector<int> thread_debug_info() { return _fix_thread_pool->debug_info(); }
+    virtual std::vector<std::pair<std::string, std::vector<int>>> thread_debug_info() {
+        return {{_name, _fix_thread_pool->debug_info()}};
+    }
 
 private:
+    friend class HybridTaskScheduler;
+
+    TaskScheduler(int core_num, std::string name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
+            : _name(std::move(name)), _task_queue(core_num), _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
+    TaskScheduler() : _task_queue(0) {}
+    std::string _name;
     std::unique_ptr<ThreadPool> _fix_thread_pool;
 
     MultiCoreTaskQueue _task_queue;
     bool _need_to_stop = false;
     bool _shutdown = false;
-    std::string _name;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
 
     void _do_work(int index);
+};
+
+class HybridTaskScheduler : public TaskScheduler {
+public:
+    HybridTaskScheduler(int core_num, std::string name,
+                        std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
+            : _blocking_scheduler(core_num * 2, name + "_blocking_scheduler", cgroup_cpu_ctl),
+              _simple_scheduler(core_num, name + "_simple_scheduler", cgroup_cpu_ctl) {}
+
+    Status submit(PipelineTaskSPtr task) override;
+
+    Status start() override;
+
+    void stop() override;
+
+    std::vector<std::pair<std::string, std::vector<int>>> thread_debug_info() override {
+        return {_blocking_scheduler.thread_debug_info()[0],
+                _simple_scheduler.thread_debug_info()[0]};
+    }
+
+private:
+    TaskScheduler _blocking_scheduler;
+    TaskScheduler _simple_scheduler;
 };
 } // namespace doris::pipeline

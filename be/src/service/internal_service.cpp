@@ -2121,7 +2121,7 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
         return;
     }
 
-    doris::pipeline::TaskScheduler* exec_sched = nullptr;
+    doris::pipeline::HybridTaskScheduler* exec_sched = nullptr;
     vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
     vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);

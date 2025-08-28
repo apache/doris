@@ -774,7 +774,7 @@ Status RowIdStorageReader::read_batch_external_row(
     std::vector<uint64_t> workload_group_ids;
     workload_group_ids.emplace_back(workload_group_id);
     auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(workload_group_ids);
-    doris::pipeline::TaskScheduler* exec_sched = nullptr;
+    doris::pipeline::HybridTaskScheduler* exec_sched = nullptr;
     vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
     vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);

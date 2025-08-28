@@ -368,7 +368,7 @@ void QueryContext::set_pipeline_context(
     _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
 }
 
-doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
+doris::pipeline::HybridTaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     if (!_task_scheduler) {
         throw Exception(Status::InternalError("task_scheduler is null"));
     }
