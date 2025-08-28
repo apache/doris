@@ -36,6 +36,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
@@ -66,6 +67,9 @@ public class BrokerFileGroup implements Writable {
     private static final Logger LOG = LogManager.getLogger(BrokerFileGroup.class);
 
     private long tableId;
+    // columnSeparator and lineDelimiter here are only for toString(),
+    // and may be null if format will be decided by file's suffix
+    // we should get them from fileFormatProperties
     private String columnSeparator;
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
@@ -176,11 +180,11 @@ public class BrokerFileGroup implements Writable {
         }
 
         fileFormatProperties = dataDescription.getFileFormatProperties();
-        // fileFormat = fileFormatProperties.getFormatName();
-        // if (fileFormatProperties instanceof CsvFileFormatProperties) {
-        //     columnSeparator = ((CsvFileFormatProperties) fileFormatProperties).getColumnSeparator();
-        //     lineDelimiter = ((CsvFileFormatProperties) fileFormatProperties).getLineDelimiter();
-        // }
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            fileFormat = fileFormatProperties.getFormatName();
+            columnSeparator = ((CsvFileFormatProperties) fileFormatProperties).getColumnSeparator();
+            lineDelimiter = ((CsvFileFormatProperties) fileFormatProperties).getLineDelimiter();
+        }
 
         isNegative = dataDescription.isNegative();
 

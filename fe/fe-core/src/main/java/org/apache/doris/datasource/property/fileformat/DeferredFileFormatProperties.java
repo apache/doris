@@ -24,7 +24,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 
 import java.util.Map;
 
