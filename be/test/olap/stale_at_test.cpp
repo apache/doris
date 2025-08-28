@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gtest/gtest.h>
+
 #include <ctime>
 
 #include "olap/rowset/rowset_meta.h"
@@ -61,8 +62,7 @@ TEST_F(StaleAtTest, TestTimestampedVersionWithStaleTime) {
 
     // Create a TimestampedVersion using stale_at
     Version version(1, 5);
-    TimestampedVersionSharedPtr tv_ptr(
-        new TimestampedVersion(version, rowset_meta->stale_at()));
+    TimestampedVersionSharedPtr tv_ptr(new TimestampedVersion(version, rowset_meta->stale_at()));
 
     EXPECT_EQ(tv_ptr->get_create_time(), stale_at_time);
     EXPECT_EQ(tv_ptr->version(), version);
@@ -77,8 +77,8 @@ TEST_F(StaleAtTest, TestStalePathVersionWithStaleAt) {
     // Create rowset metas with different creation and stale times
     for (int i = 0; i < 3; ++i) {
         RowsetMetaSharedPtr rs_meta = std::make_shared<RowsetMeta>();
-        rs_meta->set_creation_time(1000000 + i * 1000);  // Old creation time
-        rs_meta->set_stale_at(2000000);  // Recent stale time (same for all)
+        rs_meta->set_creation_time(1000000 + i * 1000);
+        rs_meta->set_stale_at(2000000);
         rs_meta->set_version(Version(i * 2 + 1, i * 2 + 2));
         stale_rs_metas.push_back(rs_meta);
     }
