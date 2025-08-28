@@ -46,9 +46,6 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
             if (key_type == "AGGREGATE") {
                 var_def = "variant <properties(\"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")> 'sala' : int, 'ddd' : double, 'z' : double> replace"
             }
-            def create_tbl_res = sql """ show create table ${tableName} """
-            logger.info("${create_tbl_res}")
-            assertTrue(create_tbl_res.toString().contains("variant_max_sparse_column_statistics_size"))
 
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -59,6 +56,9 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
                 properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
+            def create_tbl_res = sql """ show create table ${tableName} """
+            logger.info("${create_tbl_res}")
+            assertTrue(create_tbl_res.toString().contains("variant_max_sparse_column_statistics_size"))
         }
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]
