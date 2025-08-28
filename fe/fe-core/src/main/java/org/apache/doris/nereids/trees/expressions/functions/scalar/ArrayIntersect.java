@@ -65,6 +65,10 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
         DataType itemType = NullType.INSTANCE;
         for (Expression child : children()) {
             DataType argType = child.getDataType();
+            // nullsafe
+            if (argType == NullType.INSTANCE) {
+                continue;
+            }
             if (!argType.isArrayType() || ((ArrayType) argType).getItemType().isComplexType()) {
                 throw new AnalysisException("array_intersect does not support complex types: " + toSql());
             }
