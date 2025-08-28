@@ -37,7 +37,7 @@ suite("test_outfile_csv_compress", "p0") {
         """
         sql """ INSERT INTO ${table_name} values(1, 'zhangsan');"""
         for (int i = 0; i < 20; i++) {
-            sql """ insert into ${table_name} select * from ${table_name};"""
+            sql """ insert into ${table_name} select id + ${i}, concat(name, id + ${i}) from ${table_name};"""
         }
     }
 
@@ -107,7 +107,7 @@ suite("test_outfile_csv_compress", "p0") {
                     "s3.region" = "${region}",
                     "s3.secret_key"="${sk}",
                     "s3.access_key" = "${ak}",
-                    "compress_type" = "unknown"
+                    "compress_type" = "invalid"
                 );
             """
         exception """Unknown compression type"""
