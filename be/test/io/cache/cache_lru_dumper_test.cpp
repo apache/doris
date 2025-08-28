@@ -45,6 +45,16 @@ public:
     FileBlockCell* add_cell(const UInt128Wrapper& hash, const CacheContext& ctx, size_t offset,
                             size_t size, FileBlock::State state,
                             std::lock_guard<std::mutex>& lock) {
+        static std::unordered_set<std::string> added_entries;
+        std::string key = hash.to_string() + ":" + std::to_string(offset);
+
+        if (added_entries.find(key) != added_entries.end()) {
+            std::cerr << "Error: Duplicate entry detected for hash: " << key << std::endl;
+            EXPECT_TRUE(false);
+            return nullptr;
+        }
+
+        added_entries.insert(key);
         dst_queue->add(hash, offset, size, lock);
         return nullptr;
     }
