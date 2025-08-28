@@ -96,26 +96,22 @@ TxnErrorCode MetaReader::get_tablet_meta(Transaction* txn, int64_t tablet_id,
 }
 
 TxnErrorCode MetaReader::get_tablet_schema(int64_t index_id, int64_t schema_version,
-                                           TabletSchemaCloudPB* tablet_schema,
-                                           Versionstamp* versionstamp, bool snapshot) {
+                                           TabletSchemaCloudPB* tablet_schema, bool snapshot) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
 
-    return get_tablet_schema(txn.get(), index_id, schema_version, tablet_schema, versionstamp,
-                             snapshot);
+    return get_tablet_schema(txn.get(), index_id, schema_version, tablet_schema, snapshot);
 }
 
 TxnErrorCode MetaReader::get_tablet_schema(Transaction* txn, int64_t index_id,
                                            int64_t schema_version,
-                                           TabletSchemaCloudPB* tablet_schema,
-                                           Versionstamp* versionstamp, bool snapshot) {
+                                           TabletSchemaCloudPB* tablet_schema, bool snapshot) {
     std::string tablet_schema_key =
             versioned::meta_schema_key({instance_id_, index_id, schema_version});
-    return versioned::document_get(txn, tablet_schema_key, snapshot_version_, tablet_schema,
-                                   versionstamp, snapshot);
+    return document_get(txn, tablet_schema_key, tablet_schema, snapshot);
 }
 
 TxnErrorCode MetaReader::get_partition_version(int64_t partition_id, VersionPB* version,

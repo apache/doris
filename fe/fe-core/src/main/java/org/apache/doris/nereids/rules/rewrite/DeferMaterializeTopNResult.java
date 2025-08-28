@@ -261,7 +261,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
     private Plan deferMaterialize(LogicalResultSink<? extends Plan> logicalResultSink,
             LogicalTopN<? extends Plan> logicalTopN, Optional<LogicalProject<? extends Plan>> logicalProject,
             Optional<LogicalFilter<? extends Plan>> logicalFilter, LogicalOlapScan logicalOlapScan) {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableTopnLazyMaterialization) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableTopnLazyMaterialization()) {
             return null;
         }
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
