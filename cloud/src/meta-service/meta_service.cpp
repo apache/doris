@@ -4265,7 +4265,22 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
         }
 
         // 2. get tablet states
-        CHECK(false) << "versioned read is not supported yet";
+        for (const auto& tablet_idx : request->tablet_indexes()) {
+            doris::TabletMetaCloudPB tablet_meta;
+            err = reader.get_tablet_meta(txn.get(), tablet_idx.tablet_id(), &tablet_meta, nullptr);
+            if (err != TxnErrorCode::TXN_OK) {
+                ss << "failed to get versioned tablet meta"
+                   << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
+                   << " instance_id=" << instance_id << " tablet_id=" << tablet_idx.tablet_id()
+                   << " err=" << err;
+                msg = ss.str();
+                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                              : cast_as<ErrCategory::READ>(err);
+                return false;
+            }
+            response->add_tablet_states(
+                    static_cast<std::underlying_type_t<TabletStatePB>>(tablet_meta.tablet_state()));
+        }
     }
 
     read_stats_sw.pause();

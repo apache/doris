@@ -120,23 +120,11 @@ public:
     TxnErrorCode get_tablet_compact_stats(const std::vector<int64_t>& tablet_ids,
                                           std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
                                           std::unordered_map<int64_t, Versionstamp>* versionstamps,
-                                          bool snapshot);
+                                          bool snapshot = false);
     TxnErrorCode get_tablet_compact_stats(Transaction* txn, const std::vector<int64_t>& tablet_ids,
                                           std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
                                           std::unordered_map<int64_t, Versionstamp>* versionstamps,
-                                          bool snapshot);
-    TxnErrorCode get_tablet_compact_stats(
-            const std::vector<int64_t>& tablet_ids,
-            std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
-            std::unordered_map<int64_t, Versionstamp>* versionstamps) {
-        return get_tablet_compact_stats(tablet_ids, tablet_stats, versionstamps, snapshot_);
-    }
-    TxnErrorCode get_tablet_compact_stats(
-            Transaction* txn, const std::vector<int64_t>& tablet_ids,
-            std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
-            std::unordered_map<int64_t, Versionstamp>* versionstamps) {
-        return get_tablet_compact_stats(txn, tablet_ids, tablet_stats, versionstamps, snapshot_);
-    }
+                                          bool snapshot = false);
 
     // Get the merged (load, compact) tablet stats for the given tablet.
     //
