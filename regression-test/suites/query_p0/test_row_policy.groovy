@@ -88,7 +88,7 @@ suite("test_row_policy") {
 
     test {
           sql """
-              CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO admin USING(id=1)
+              CREATE ROW POLICY IF NOT EXISTS policy_01 ON ${tableName} AS restrictive TO `root` USING(id=1)
           """
           exception "system user"
     }
