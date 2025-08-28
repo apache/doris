@@ -78,7 +78,7 @@ TEST(DataTypeWritToJsonb, test_number) {
                 {1.1F, 2.2F, 3.3F, 4.4F, 5.5F});
         JsonbWriter writer;
         EXPECT_TRUE(data.type->get_serde()->serialize_column_to_jsonb(*data.column, 3, writer));
-        EXPECT_EQ(to_string(writer), "4.40000009536743");
+        EXPECT_EQ(to_string(writer), "4.4");
 
         auto data_to = ColumnFloat32::create();
         EXPECT_TRUE(data.type->get_serde()->deserialize_column_from_jsonb(

@@ -79,9 +79,7 @@ public class AnalyticEvalNode extends PlanNode {
             TupleDescriptor outputTupleDesc, Expr partitionByEq, Expr orderByEq,
             TupleDescriptor bufferedTupleDesc) {
         super(id,
-                (input.getOutputTupleDesc() != null
-                        ? Lists.newArrayList(input.getOutputTupleDesc().getId()) :
-                        input.getTupleIds()),
+                input.getOutputTupleIds(),
                 "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
         Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
         // we're materializing the input row augmented with the analytic output tuple

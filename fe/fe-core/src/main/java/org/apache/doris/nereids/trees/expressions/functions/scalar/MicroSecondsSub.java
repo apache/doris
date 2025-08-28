@@ -47,10 +47,15 @@ public class MicroSecondsSub extends ScalarFunction
         super("microseconds_sub", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MicroSecondsSub(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MicroSecondsSub withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MicroSecondsSub(children.get(0), children.get(1));
+        return new MicroSecondsSub(getFunctionParams(children));
     }
 
     @Override

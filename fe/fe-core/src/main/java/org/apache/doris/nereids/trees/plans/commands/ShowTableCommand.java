@@ -29,7 +29,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -153,9 +152,6 @@ public class ShowTableCommand extends ShowCommand {
         }
         for (TableIf tbl : dbIf.getTables()) {
             if (type.equals(PlanType.SHOW_VIEWS) && !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName())) {
-                continue;
-            }
-            if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
                 continue;
             }
             if (matcher != null && !matcher.match(tbl.getName())) {

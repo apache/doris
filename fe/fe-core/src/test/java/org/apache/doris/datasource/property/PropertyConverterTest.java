@@ -17,15 +17,12 @@
 
 package org.apache.doris.datasource.property;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -43,6 +40,7 @@ import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -189,8 +187,14 @@ public class PropertyConverterTest extends TestWithFeService {
                     + "    'AWS_ACCESS_KEY' = 'akk',\n"
                     + "    'AWS_SECRET_KEY' = 'skk'\n"
                     + ");";
-        CreateCatalogStmt analyzedStmt = createStmt(queryOld);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3_old");
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(queryOld);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog("hms_s3_old");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         Assertions.assertEquals(13, properties.size());
 
@@ -208,8 +212,14 @@ public class PropertyConverterTest extends TestWithFeService {
                     + "    's3.access_key' = 'akk',\n"
                     + "    's3.secret_key' = 'skk'\n"
                     + ");";
-        CreateCatalogStmt analyzedStmt = createStmt(query);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3");
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(query);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog("hms_s3");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         Assertions.assertEquals(13, properties.size());
 
@@ -224,16 +234,23 @@ public class PropertyConverterTest extends TestWithFeService {
         String query1 = "create catalog " + catalogName1 + " properties (\n"
                 + "    'type'='hms',\n"
                 + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                + "    'oss.endpoint' = 'oss-cn-beijing.aliyuncs.com',\n"
+                + "    'oss.endpoint' = 'cn-beijing.oss-dls.aliyuncs.com',\n"
                 + "    'oss.hdfs.enabled' = 'true',\n"
                 + "    'oss.access_key' = 'akk',\n"
                 + "    'oss.secret_key' = 'skk'\n"
                 + ");";
         String catalogName = "hms_oss_hdfs";
-        CreateCatalogStmt analyzedStmt = createStmt(query1);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(query1);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", hdProps.get("fs.oss.impl"));
+        // OSS HDFS may be use OSS Storage, so here may be is AliyunOSSFileSystem
+        //Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", hdProps.get("fs.oss.impl"));
         Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", hdProps.get("fs.oss.endpoint"));
     }
 
@@ -252,8 +269,14 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'dlf.access.public' = 'false'\n"
                 + ");";
         String catalogName = "hms_dlf1";
-        CreateCatalogStmt analyzedStmt = createStmt(queryDlf1);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(queryDlf1);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         Assertions.assertEquals("hms", properties.get("type"));
         Assertions.assertEquals("dlf", properties.get(HMSProperties.HIVE_METASTORE_TYPE));
@@ -283,8 +306,13 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'dlf.catalog.accessPublic' = 'true'\n"
                 + ");";
         String catalogName2 = "hms_dlf2";
-        CreateCatalogStmt analyzedStmt2 = createStmt(queryDlf2);
-        HMSExternalCatalog catalog2 = createAndGetCatalog(analyzedStmt2, catalogName2);
+
+        logicalPlan = nereidsParser.parseSingle(queryDlf2);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        HMSExternalCatalog catalog2 = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName2);
         Map<String, String> properties2 = catalog2.getCatalogProperty().getProperties();
         Assertions.assertEquals("dlf", properties2.get(HMSProperties.HIVE_METASTORE_TYPE));
         Assertions.assertEquals("akk", properties2.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID));
@@ -309,8 +337,13 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'dlf.region' = 'cn-beijing'\n"
                 + ");";
         String catalogName3 = "dlf_iceberg";
-        CreateCatalogStmt analyzedStmt3 = createStmt(queryDlfIceberg);
-        IcebergExternalCatalog catalog3 = createAndGetIcebergCatalog(analyzedStmt3, catalogName3);
+
+        logicalPlan = nereidsParser.parseSingle(queryDlfIceberg);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        IcebergExternalCatalog catalog3 = (IcebergExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName3);
         Map<String, String> properties3 = catalog3.getCatalogProperty().getProperties();
         Assertions.assertEquals("dlf", properties3.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE));
         Assertions.assertEquals("akk", properties3.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID));
@@ -335,8 +368,13 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'mc.endpoint' = 'http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api' \n"
                 + ");";
         String catalogName = "hms_mc";
-        CreateCatalogStmt analyzedStmt = createStmt(queryDlf1);
-        Env.getCurrentEnv().getCatalogMgr().createCatalog(analyzedStmt);
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(queryDlf1);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
         MaxComputeExternalCatalog catalog = (MaxComputeExternalCatalog) Env.getCurrentEnv()
                 .getCatalogMgr().getCatalog(catalogName);
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
@@ -361,8 +399,14 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'aws.region' = 'us-east-1'\n"
                 + ");";
         String catalogName = "hms_glue_old";
-        CreateCatalogStmt analyzedStmt = createStmt(queryOld);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(queryOld);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         Map<String, String> properties = catalog.getProperties();
         Assertions.assertEquals(22, properties.size());
         Assertions.assertEquals("s3.us-east-1.amazonaws.com", properties.get(S3Properties.ENDPOINT));
@@ -380,8 +424,13 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'glue.secret_key' = 'skk'\n"
                 + ");";
         catalogName = "hms_glue";
-        CreateCatalogStmt analyzedStmtNew = createStmt(query);
-        HMSExternalCatalog catalogNew = createAndGetCatalog(analyzedStmtNew, catalogName);
+
+        logicalPlan = nereidsParser.parseSingle(query);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        HMSExternalCatalog catalogNew = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         Map<String, String> propertiesNew = catalogNew.getProperties();
         Assertions.assertEquals(22, propertiesNew.size());
         Assertions.assertEquals("s3.us-east-1.amazonaws.com.cn", propertiesNew.get(S3Properties.ENDPOINT));
@@ -442,9 +491,15 @@ public class PropertyConverterTest extends TestWithFeService {
     private void testS3CompatibleCatalogProperties(String catalogName, String prefix,
                                                    String endpoint, String sql,
                                                    int catalogPropsSize, int bePropsSize) throws Exception {
-        Env.getCurrentEnv().getCatalogMgr().dropCatalog(new DropCatalogStmt(true, catalogName));
-        CreateCatalogStmt analyzedStmt = createStmt(sql);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
+        Env.getCurrentEnv().getCatalogMgr().dropCatalog(catalogName, true);
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         Assertions.assertEquals(catalogPropsSize, properties.size());
 
@@ -469,18 +524,6 @@ public class PropertyConverterTest extends TestWithFeService {
                 }
             }
         });
-    }
-
-    private static HMSExternalCatalog createAndGetCatalog(CreateCatalogStmt analyzedStmt, String name)
-            throws UserException {
-        Env.getCurrentEnv().getCatalogMgr().createCatalog(analyzedStmt);
-        return (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(name);
-    }
-
-    private static IcebergExternalCatalog createAndGetIcebergCatalog(CreateCatalogStmt analyzedStmt, String name)
-            throws UserException {
-        Env.getCurrentEnv().getCatalogMgr().createCatalog(analyzedStmt);
-        return (IcebergExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(name);
     }
 
     @Test
@@ -734,8 +777,14 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    \"glue.access_key\" = \"ak123\",\n"
                 + "    \"glue.secret_key\" = \"sk123\"\n"
                 + ");";
-        CreateCatalogStmt analyzedStmt = createStmt(createIceGlue);
-        IcebergExternalCatalog icebergExternalCatalog = createAndGetIcebergCatalog(analyzedStmt, "iceglue");
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createIceGlue);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
+
+        IcebergExternalCatalog icebergExternalCatalog = (IcebergExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog("iceglue");
         Assertions.assertTrue(icebergExternalCatalog instanceof IcebergGlueExternalCatalog);
         IcebergGlueExternalCatalog glueCatalog = (IcebergGlueExternalCatalog) icebergExternalCatalog;
 

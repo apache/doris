@@ -115,6 +115,14 @@ std::string Rowset::get_rowset_info_str() {
                        rowset_id().to_string(), disk_size);
 }
 
+const TabletSchemaSPtr& Rowset::tablet_schema() const {
+#ifdef BE_TEST
+    // for mocking tablet schema
+    return _schema;
+#endif
+    return _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : _schema;
+}
+
 void Rowset::clear_cache() {
     {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));

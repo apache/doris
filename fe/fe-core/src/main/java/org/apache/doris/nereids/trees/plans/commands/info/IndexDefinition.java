@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AnnIndexPropertiesChecker;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
@@ -80,6 +81,10 @@ public class IndexDefinition {
                     this.indexType = IndexType.NGRAM_BF;
                     break;
                 }
+                case "ANN": {
+                    this.indexType = IndexType.ANN;
+                    break;
+                }
                 default:
                     throw new AnalysisException("unknown index type " + indexTypeName);
             }
@@ -112,7 +117,7 @@ public class IndexDefinition {
     /**
      * Check if the column type is supported for inverted index
      */
-    public boolean isSupportIdxType(DataType columnType) {
+    public static boolean isSupportIdxType(DataType columnType) {
         if (columnType.isArrayType()) {
             DataType itemType = ((ArrayType) columnType).getItemType();
             if (itemType.isArrayType()) {
@@ -123,7 +128,7 @@ public class IndexDefinition {
         return columnType.isDateLikeType() || columnType.isDecimalLikeType()
                 || columnType.isIntegralType() || columnType.isStringLikeType()
                 || columnType.isBooleanType() || columnType.isVariantType()
-                || columnType.isIPType();
+                || columnType.isIPType() || columnType.isFloatLikeType();
     }
 
     /**
@@ -132,6 +137,26 @@ public class IndexDefinition {
     public void checkColumn(ColumnDefinition column, KeysType keysType,
             boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (indexType == IndexType.ANN) {
+            if (column.isNullable()) {
+                throw new AnalysisException("ANN index must be built on a column that is not nullable");
+            }
+            String indexColName = column.getName();
+            caseSensitivityCols.add(indexColName);
+            DataType colType = column.getType();
+            if (!colType.isArrayType()) {
+                throw new AnalysisException("ANN index column must be array type, invalid index: " + name);
+            }
+            DataType itemType = ((ArrayType) colType).getItemType();
+            if (!itemType.isFloatType()) {
+                throw new AnalysisException("ANN index column item type must be float type, invalid index: " + name);
+            }
+            if (keysType != KeysType.DUP_KEYS) {
+                throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
+            }
+            return;
+        }
+
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -217,6 +242,10 @@ public class IndexDefinition {
                         "index name too long, the index name length at most is 128.");
             }
             return;
+        }
+
+        if (indexType == IndexDef.IndexType.ANN) {
+            AnnIndexPropertiesChecker.checkProperties(this.properties);
         }
 
         if (indexType == IndexDef.IndexType.BITMAP || indexType == IndexDef.IndexType.INVERTED) {
@@ -322,5 +351,16 @@ public class IndexDefinition {
             sb.append(" COMMENT '" + comment + "'");
         }
         return sb.toString();
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexType.INVERTED
+                && properties != null
+                        && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

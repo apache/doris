@@ -31,7 +31,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
-#include "vec/io/reader_buffer.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
 // for example DataTypeIPv4 should test this function:
@@ -211,7 +210,7 @@ public:
             auto assert_column = data_type->create_column();
             for (int i = 0; i < col_to->size(); ++i) {
                 std::string s = col_to->get_data_at(i).to_string();
-                ReadBuffer rb(s.data(), s.size());
+                StringRef rb(s.data(), s.size());
                 ASSERT_EQ(Status::OK(), data_type->from_string(rb, assert_column.get()));
                 ASSERT_EQ(assert_column->operator[](i), mutableColumn->operator[](i))
                         << "i: " << i << " s: " << s << " datatype: " << data_type->get_name()
@@ -236,7 +235,7 @@ public:
             auto assert_column_1 = data_type->create_column();
             for (int i = 0; i < ser_col->size(); ++i) {
                 std::string s = ser_col->get_data_at(i).to_string();
-                ReadBuffer rb(s.data(), s.size());
+                StringRef rb(s.data(), s.size());
                 ASSERT_EQ(Status::OK(), data_type->from_string(rb, assert_column_1.get()));
                 ASSERT_EQ(assert_column_1->operator[](i), mutableColumn->operator[](i));
             }

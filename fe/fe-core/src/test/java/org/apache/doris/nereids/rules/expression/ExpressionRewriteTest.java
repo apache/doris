@@ -121,7 +121,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("a is null and not a is null", "FALSE");
         assertRewriteAfterTypeCoercion("a is null or not a is null", "TRUE");
 
-        // not rewrite non-foldable expression
+        // random is non-foldable expression, the two RANDOM are not equals
         assertRewriteAfterTypeCoercion("a > b and not(a > b) and c > random(1, 10) and not (c > random(1, 10))",
                 "(a > b) IS NULL AND NULL AND c > random(1, 10) AND NOT (c > random(1, 10))");
     }

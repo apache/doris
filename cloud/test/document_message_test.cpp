@@ -348,6 +348,163 @@ TEST(DocumentMessageTest, DocumentPutRowsetMetaWithoutSplit) {
     ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
 }
 
+TEST(DocumentMessageTest, DocumentPutTabletSchemaCloudPB) {
+    std::unique_lock lock(config_mutex);
+    config::enable_split_tablet_schema_pb = true;
+    config::split_tablet_schema_pb_size = 0; // Always split the tablet schema pb.
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    doris::TabletSchemaCloudPB schema;
+    schema.set_keys_type(doris::DUP_KEYS);
+    schema.set_num_short_key_columns(2);
+    schema.set_num_rows_per_row_block(1024);
+    schema.set_compress_kind(doris::COMPRESS_LZ4);
+    schema.set_next_column_unique_id(10);
+    schema.set_schema_version(1);
+
+    // Add multiple columns to test splitting
+    for (int i = 0; i < 3; ++i) {
+        doris::ColumnPB* column = schema.add_column();
+        column->set_name(fmt::format("col_{}", i));
+        column->set_unique_id(i + 1);
+        column->set_type("INT");
+        column->set_is_key(i < 2); // First 2 columns are key columns
+        column->set_is_nullable(false);
+    }
+
+    std::string schema_key = "tablet_schema_key_test";
+    {
+        // create a txn and put tablet schema
+        doris::TabletSchemaCloudPB schema_copy(schema);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(document_put(txn.get(), schema_key, std::move(schema_copy)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // create a txn and get tablet schema
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB saved_schema;
+        ASSERT_EQ(document_get(txn.get(), schema_key, &saved_schema), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(saved_schema.keys_type(), schema.keys_type());
+        ASSERT_EQ(saved_schema.num_short_key_columns(), schema.num_short_key_columns());
+        ASSERT_EQ(saved_schema.num_rows_per_row_block(), schema.num_rows_per_row_block());
+        ASSERT_EQ(saved_schema.compress_kind(), schema.compress_kind());
+        ASSERT_EQ(saved_schema.next_column_unique_id(), schema.next_column_unique_id());
+        ASSERT_EQ(saved_schema.schema_version(), schema.schema_version());
+        ASSERT_EQ(saved_schema.column_size(), 3);
+        for (int i = 0; i < 3; ++i) {
+            ASSERT_EQ(saved_schema.column(i).name(), fmt::format("col_{}", i));
+            ASSERT_EQ(saved_schema.column(i).unique_id(), i + 1);
+            ASSERT_EQ(saved_schema.column(i).type(), "INT");
+            ASSERT_EQ(saved_schema.column(i).is_key(), i < 2);
+            ASSERT_EQ(saved_schema.column(i).is_nullable(), false);
+        }
+    }
+
+    ASSERT_GE(txn_kv->total_kvs(), 2) << dump_range(txn_kv.get());
+
+    {
+        // create a txn and remove tablet schema
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        document_remove<doris::TabletSchemaCloudPB>(txn.get(), schema_key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
+}
+
+TEST(DocumentMessageTest, DocumentPutTabletSchemaCloudPBWithoutSplit) {
+    std::unique_lock lock(config_mutex);
+    config::enable_split_tablet_schema_pb = false;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    doris::TabletSchemaCloudPB schema;
+    schema.set_keys_type(doris::DUP_KEYS);
+    schema.set_num_short_key_columns(1);
+    schema.set_num_rows_per_row_block(1024);
+    schema.set_compress_kind(doris::COMPRESS_LZ4);
+    schema.set_next_column_unique_id(5);
+    schema.set_schema_version(1);
+
+    // Add one column
+    doris::ColumnPB* column = schema.add_column();
+    column->set_name("test_col");
+    column->set_unique_id(1);
+    column->set_type("VARCHAR");
+    column->set_is_key(true);
+    column->set_is_nullable(false);
+
+    std::string schema_key = "tablet_schema_key_no_split";
+    {
+        // create a txn and put tablet schema
+        doris::TabletSchemaCloudPB schema_copy(schema);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(document_put(txn.get(), schema_key, std::move(schema_copy)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // create a txn and get tablet schema
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB saved_schema;
+        ASSERT_EQ(document_get(txn.get(), schema_key, &saved_schema), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(saved_schema.keys_type(), schema.keys_type());
+        ASSERT_EQ(saved_schema.num_short_key_columns(), schema.num_short_key_columns());
+        ASSERT_EQ(saved_schema.column_size(), 1);
+        ASSERT_EQ(saved_schema.column(0).name(), "test_col");
+        ASSERT_EQ(saved_schema.column(0).unique_id(), 1);
+        ASSERT_EQ(saved_schema.column(0).type(), "VARCHAR");
+    }
+
+    ASSERT_EQ(txn_kv->total_kvs(), 1) << dump_range(txn_kv.get());
+
+    {
+        // create a txn and remove tablet schema
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        document_remove<doris::TabletSchemaCloudPB>(txn.get(), schema_key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
+
+    {
+        // Allow split but nothing to split, because the split fields is empty.
+        config::enable_split_tablet_schema_pb = true;
+        config::split_tablet_schema_pb_size = 0; // Always split
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB schema_copy(schema);
+        schema_copy.clear_column(); // Clear the columns to make it empty.
+        ASSERT_TRUE(document_put(txn.get(), schema_key, std::move(schema_copy)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // If you meet a failure here, it means the tablet schema pb is split into multiple keys,
+        // you should clear the split fields you added.
+        ASSERT_EQ(txn_kv->total_kvs(), 1) << dump_range(txn_kv.get());
+
+        // Read the message back.
+        std::unique_ptr<Transaction> read_txn;
+        ASSERT_EQ(txn_kv->create_txn(&read_txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB read_schema;
+        ASSERT_EQ(document_get(read_txn.get(), schema_key, &read_schema), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(read_schema.keys_type(), schema.keys_type());
+        ASSERT_EQ(read_schema.num_short_key_columns(), schema.num_short_key_columns());
+        ASSERT_EQ(read_schema.column_size(), 0); // No columns
+        // Remove the message.
+        document_remove<doris::TabletSchemaCloudPB>(read_txn.get(), schema_key);
+        ASSERT_EQ(read_txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
+}
+
 TEST(DocumentMessageTest, DocumentPutVersionPB) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     VersionPB version_pb;
@@ -436,6 +593,69 @@ TEST(DocumentMessageTest, DocumentGetAllRowsetMeta) {
             ASSERT_EQ(saved_meta.segments_key_bounds_size(), 1);
             ASSERT_EQ(saved_meta.segments_key_bounds(0).min_key(), "min_key");
             ASSERT_EQ(saved_meta.segments_key_bounds(0).max_key(), "max_key");
+            count += 1;
+        }
+        ASSERT_EQ(count, 10) << dump_range(txn_kv.get());
+    }
+}
+
+TEST(DocumentMessageTest, DocumentGetAllTabletSchemaCloudPB) {
+    std::unique_lock lock(config_mutex);
+    config::enable_split_tablet_schema_pb = true;
+    config::split_tablet_schema_pb_size = 0; // Always split the tablet schema pb.
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    doris::TabletSchemaCloudPB schema;
+    schema.set_keys_type(doris::DUP_KEYS);
+    schema.set_num_short_key_columns(1);
+    schema.set_num_rows_per_row_block(1024);
+    schema.set_compress_kind(doris::COMPRESS_LZ4);
+    schema.set_next_column_unique_id(5);
+    schema.set_schema_version(1);
+
+    doris::ColumnPB* column = schema.add_column();
+    column->set_name("test_col");
+    column->set_unique_id(1);
+    column->set_type("VARCHAR");
+    column->set_is_key(true);
+    column->set_is_nullable(false);
+
+    std::string schema_key_prefix = "tablet_schema_key_";
+    for (int i = 0; i < 10; ++i) {
+        // create a txn and put tablet schema
+        doris::TabletSchemaCloudPB schema_copy(schema);
+        schema_copy.set_schema_version(i + 1);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(document_put(txn.get(), schema_key_prefix + std::to_string(i),
+                                 std::move(schema_copy)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // scan all tablet schema keys
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        FullRangeGetOptions opts;
+        opts.txn = txn.get();
+        opts.batch_limit = 2;
+        auto iter = txn_kv->full_range_get(schema_key_prefix, schema_key_prefix + '\xFF',
+                                           std::move(opts));
+        int count = 0;
+        while (true) {
+            doris::TabletSchemaCloudPB saved_schema;
+            TxnErrorCode code = document_get(iter.get(), &saved_schema);
+            if (code == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                break;
+            }
+            ASSERT_EQ(code, TxnErrorCode::TXN_OK);
+            ASSERT_EQ(saved_schema.keys_type(), schema.keys_type());
+            ASSERT_EQ(saved_schema.num_short_key_columns(), schema.num_short_key_columns());
+            ASSERT_EQ(saved_schema.column_size(), 1);
+            ASSERT_EQ(saved_schema.column(0).name(), "test_col");
+            ASSERT_EQ(saved_schema.column(0).unique_id(), 1);
+            ASSERT_EQ(saved_schema.column(0).type(), "VARCHAR");
+            ASSERT_EQ(saved_schema.schema_version(), count + 1);
             count += 1;
         }
         ASSERT_EQ(count, 10) << dump_range(txn_kv.get());
@@ -730,6 +950,70 @@ TEST(DocumentMessageTest, VersionedDocumentPutAndGetWithVersionstamp) {
                   TxnErrorCode::TXN_KEY_NOT_FOUND)
                 << dump_range(txn_kv.get());
     }
+}
+
+TEST(DocumentMessageTest, VersionedDocumentPutTabletSchemaCloudPB) {
+    std::unique_lock lock(config_mutex);
+    config::enable_split_tablet_schema_pb = true;
+    config::split_tablet_schema_pb_size = 0; // Always split the tablet schema pb.
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    doris::TabletSchemaCloudPB schema;
+    schema.set_keys_type(doris::DUP_KEYS);
+    schema.set_num_short_key_columns(2);
+    schema.set_num_rows_per_row_block(1024);
+    schema.set_compress_kind(doris::COMPRESS_LZ4);
+    schema.set_next_column_unique_id(10);
+    schema.set_schema_version(1);
+
+    // Add multiple columns to test splitting
+    for (int i = 0; i < 3; ++i) {
+        doris::ColumnPB* column = schema.add_column();
+        column->set_name(fmt::format("col_{}", i));
+        column->set_unique_id(i + 1);
+        column->set_type("INT");
+        column->set_is_key(i < 2); // First 2 columns are key columns
+        column->set_is_nullable(false);
+    }
+
+    std::string key_prefix = "versioned_tablet_schema_key_";
+    {
+        // Create a txn and put versioned tablet schema with initial version
+        doris::TabletSchemaCloudPB schema_copy(schema);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(versioned::document_put(txn.get(), key_prefix, std::move(schema_copy)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    Versionstamp version;
+    {
+        // Get the tablet schema with version
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB read_schema;
+        ASSERT_EQ(versioned::document_get(txn.get(), key_prefix, &read_schema, &version),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(read_schema.keys_type(), schema.keys_type());
+        ASSERT_EQ(read_schema.num_short_key_columns(), schema.num_short_key_columns());
+        ASSERT_EQ(read_schema.column_size(), 3);
+        for (int i = 0; i < 3; ++i) {
+            ASSERT_EQ(read_schema.column(i).name(), fmt::format("col_{}", i));
+            ASSERT_EQ(read_schema.column(i).unique_id(), i + 1);
+            ASSERT_EQ(read_schema.column(i).type(), "INT");
+        }
+    }
+
+    // Remove the range
+    {
+        // Create a txn and remove the versioned tablet schema
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::document_remove<doris::TabletSchemaCloudPB>(txn.get(), key_prefix, version);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
 }
 
 TEST(DocumentMessageTest, VersionedDocumentPutVersionPB) {

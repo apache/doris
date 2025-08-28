@@ -50,13 +50,18 @@ public class FromDays extends ScalarFunction
         super("from_days", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FromDays(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public FromDays withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new FromDays(children.get(0));
+        return new FromDays(getFunctionParams(children));
     }
 
     @Override

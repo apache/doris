@@ -49,13 +49,18 @@ public class ArrayRangeMinuteUnit extends ScalarFunction
         super("array_range_minute_unit", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayRangeMinuteUnit(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayRangeMinuteUnit withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new ArrayRangeMinuteUnit(children.get(0), children.get(1), children.get(2));
+        return new ArrayRangeMinuteUnit(getFunctionParams(children));
     }
 
     @Override

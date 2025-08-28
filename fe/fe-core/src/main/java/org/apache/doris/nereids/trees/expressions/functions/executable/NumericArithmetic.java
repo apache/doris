@@ -132,7 +132,7 @@ public class NumericArithmetic {
     @ExecFunction(name = "add")
     public static Expression addDoubleDouble(DoubleLiteral first, DoubleLiteral second) {
         double result = first.getValue() + second.getValue();
-        return checkOutputBoundary(new DoubleLiteral(result));
+        return new DoubleLiteral(result);
     }
 
     @ExecFunction(name = "add")
@@ -183,7 +183,7 @@ public class NumericArithmetic {
     @ExecFunction(name = "subtract")
     public static Expression subtractDoubleDouble(DoubleLiteral first, DoubleLiteral second) {
         double result = first.getValue() - second.getValue();
-        return checkOutputBoundary(new DoubleLiteral(result));
+        return new DoubleLiteral(result);
     }
 
     @ExecFunction(name = "subtract")
@@ -234,7 +234,7 @@ public class NumericArithmetic {
     @ExecFunction(name = "multiply")
     public static Expression multiplyDoubleDouble(DoubleLiteral first, DoubleLiteral second) {
         double result = first.getValue() * second.getValue();
-        return checkOutputBoundary(new DoubleLiteral(result));
+        return new DoubleLiteral(result);
     }
 
     @ExecFunction(name = "multiply")
@@ -265,7 +265,7 @@ public class NumericArithmetic {
             return new NullLiteral(first.getDataType());
         }
         double result = first.getValue() / second.getValue();
-        return checkOutputBoundary(new DoubleLiteral(result));
+        return new DoubleLiteral(result);
     }
 
     /**
@@ -328,15 +328,6 @@ public class NumericArithmetic {
             }
         }
         return false;
-    }
-
-    private static Expression checkOutputBoundary(Literal input) {
-        if (input instanceof DoubleLiteral) {
-            if (((DoubleLiteral) input).getValue().isNaN() || ((DoubleLiteral) input).getValue().isInfinite()) {
-                return new NullLiteral(DoubleType.INSTANCE);
-            }
-        }
-        return input;
     }
 
     private static Expression castDecimalV3Literal(DecimalV3Literal literal, int precision) {
@@ -454,7 +445,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "exp")
     public static Expression exp(DoubleLiteral first) {
-        return checkOutputBoundary(new DoubleLiteral(Math.exp(first.getValue())));
+        return new DoubleLiteral(Math.exp(first.getValue()));
     }
 
     /**
@@ -462,10 +453,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ln")
     public static Expression ln(DoubleLiteral first) {
-        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+        if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, false, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.log(first.getValue())));
+        return new DoubleLiteral(Math.log(first.getValue()));
     }
 
     /**
@@ -473,11 +464,12 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log")
     public static Expression log(DoubleLiteral first, DoubleLiteral second) {
-        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)
-                || first.getValue().equals(1.0d)) {
+        if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, false, true)
+                || first.getValue().equals(1.0d)
+                || inputOutOfBound(second, 0.0d, Double.POSITIVE_INFINITY, false, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.log(second.getValue()) / Math.log(first.getValue())));
+        return new DoubleLiteral(Math.log(second.getValue()) / Math.log(first.getValue()));
     }
 
     /**
@@ -485,10 +477,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log2")
     public static Expression log2(DoubleLiteral first) {
-        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+        if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, false, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.log(first.getValue()) / Math.log(2.0)));
+        return new DoubleLiteral(Math.log(first.getValue()) / Math.log(2.0));
     }
 
     /**
@@ -496,10 +488,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log10")
     public static Expression log10(DoubleLiteral first) {
-        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+        if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, false, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.log10(first.getValue())));
+        return new DoubleLiteral(Math.log10(first.getValue()));
     }
 
     /**
@@ -507,10 +499,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "sqrt")
     public static Expression sqrt(DoubleLiteral first) {
-        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, true, true)) {
+        if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.sqrt(first.getValue())));
+        return new DoubleLiteral(Math.sqrt(first.getValue()));
     }
 
     /**
@@ -518,11 +510,19 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "power")
     public static Expression power(DoubleLiteral first, DoubleLiteral second) {
-        if (inputOutOfBound(second, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)
-                || (first.getValue() < 0 && second.getValue() % 1 != 0)) {
-            return new NullLiteral(DoubleType.INSTANCE);
+        if (first.getValue() == 1) {
+            return new DoubleLiteral(1);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.pow(first.getValue(), second.getValue())));
+        if (first.getValue() == 0 && second.getValue() > 0) {
+            return new DoubleLiteral(0);
+        }
+        if (inputOutOfBound(second, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            throw new IllegalArgumentException();
+        }
+        if (first.getValue() < 0 && second.getValue() % 1 != 0) {
+            return new DoubleLiteral(Double.NaN);
+        }
+        return new DoubleLiteral(Math.pow(first.getValue(), second.getValue()));
     }
 
     /**
@@ -531,9 +531,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "sin")
     public static Expression sin(DoubleLiteral first) {
         if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
+            return new DoubleLiteral(Double.NaN);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.sin(first.getValue())));
+        return new DoubleLiteral(Math.sin(first.getValue()));
     }
 
     /**
@@ -541,10 +541,14 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "sinh")
     public static Expression sinh(DoubleLiteral first) {
-        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
+        if (first.getValue().equals(Double.POSITIVE_INFINITY)) {
+            return new DoubleLiteral(Double.POSITIVE_INFINITY);
+        } else if (first.getValue().equals(Double.NEGATIVE_INFINITY)) {
+            return new DoubleLiteral(Double.NEGATIVE_INFINITY);
+        } else if (first.getValue().equals(Double.NaN)) {
+            return new DoubleLiteral(Double.NaN);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.sinh(first.getValue())));
+        return new DoubleLiteral(Math.sinh(first.getValue()));
     }
 
     /**
@@ -553,9 +557,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "cos")
     public static Expression cos(DoubleLiteral first) {
         if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
+            return new DoubleLiteral(Double.NaN);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.cos(first.getValue())));
+        return new DoubleLiteral(Math.cos(first.getValue()));
     }
 
     /**
@@ -564,9 +568,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "tan")
     public static Expression tan(DoubleLiteral first) {
         if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
+            return new DoubleLiteral(Double.NaN);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.tan(first.getValue())));
+        return new DoubleLiteral(Math.tan(first.getValue()));
     }
 
     /**
@@ -575,9 +579,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "cot")
     public static Expression cot(DoubleLiteral first) {
         if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
+            return new DoubleLiteral(Double.NaN);
         }
-        return checkOutputBoundary(new DoubleLiteral(1.0 / Math.tan(first.getValue())));
+        return new DoubleLiteral(1.0 / Math.tan(first.getValue()));
     }
 
     /**
@@ -586,9 +590,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "sec")
     public static Expression sec(DoubleLiteral first) {
         if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
+            return new DoubleLiteral(Double.NaN);
         }
-        return checkOutputBoundary(new DoubleLiteral(1.0 / Math.cos(first.getValue())));
+        return new DoubleLiteral(1.0 / Math.cos(first.getValue()));
     }
 
     /**
@@ -597,9 +601,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "csc")
     public static Expression csc(DoubleLiteral first) {
         if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
+            return new DoubleLiteral(Double.NaN);
         }
-        return checkOutputBoundary(new DoubleLiteral(1.0 / Math.sin(first.getValue())));
+        return new DoubleLiteral(1.0 / Math.sin(first.getValue()));
     }
 
     /**
@@ -610,7 +614,7 @@ public class NumericArithmetic {
         if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.asin(first.getValue())));
+        return new DoubleLiteral(Math.asin(first.getValue()));
     }
 
     /**
@@ -621,7 +625,7 @@ public class NumericArithmetic {
         if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.acos(first.getValue())));
+        return new DoubleLiteral(Math.acos(first.getValue()));
     }
 
     /**
@@ -629,10 +633,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "atan")
     public static Expression atan(DoubleLiteral first) {
-        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
-        }
-        return checkOutputBoundary(new DoubleLiteral(Math.atan(first.getValue())));
+        return new DoubleLiteral(Math.atan(first.getValue()));
     }
 
     /**
@@ -640,7 +641,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "asinh")
     public static Expression asinh(DoubleLiteral first) {
-        return checkOutputBoundary(new DoubleLiteral(FastMath.asinh(first.getValue())));
+        return new DoubleLiteral(FastMath.asinh(first.getValue()));
     }
 
     /**
@@ -648,10 +649,13 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "acosh")
     public static Expression acosh(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 1.0, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(FastMath.acosh(first.getValue())));
+        return new DoubleLiteral(FastMath.acosh(first.getValue()));
     }
 
     /**
@@ -659,10 +663,13 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "atanh")
     public static Expression atanh(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, -1.0, 1.0, false, false)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(FastMath.atanh(first.getValue())));
+        return new DoubleLiteral(FastMath.atanh(first.getValue()));
     }
 
     /**
@@ -670,7 +677,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "atan2")
     public static Expression atan2(DoubleLiteral first, DoubleLiteral second) {
-        return checkOutputBoundary(new DoubleLiteral(Math.atan2(first.getValue(), second.getValue())));
+        return new DoubleLiteral(Math.atan2(first.getValue(), second.getValue()));
     }
 
     /**
@@ -707,7 +714,7 @@ public class NumericArithmetic {
         double mag = Math.abs(first.getValue());
         double evenMag = 2 * Math.ceil(mag / 2);
         double value = Math.copySign(evenMag, first.getValue());
-        return checkOutputBoundary(new DoubleLiteral(value));
+        return new DoubleLiteral(value);
     }
 
     /**
@@ -867,7 +874,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "cbrt")
     public static Expression cbrt(DoubleLiteral first) {
-        return checkOutputBoundary(new DoubleLiteral(Math.cbrt(first.getValue())));
+        return new DoubleLiteral(Math.cbrt(first.getValue()));
     }
 
     /**
@@ -875,7 +882,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "cosh")
     public static Expression cosh(DoubleLiteral first) {
-        return checkOutputBoundary(new DoubleLiteral(Math.cosh(first.getValue())));
+        return new DoubleLiteral(Math.cosh(first.getValue()));
     }
 
     /**
@@ -883,7 +890,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "tanh")
     public static Expression tanh(DoubleLiteral first) {
-        return checkOutputBoundary(new DoubleLiteral(Math.tanh(first.getValue())));
+        return new DoubleLiteral(Math.tanh(first.getValue()));
     }
 
     /**
@@ -892,7 +899,7 @@ public class NumericArithmetic {
     @ExecFunction(name = "dexp")
     public static Expression dexp(DoubleLiteral first) {
         double exp = Math.exp(first.getValue());
-        return checkOutputBoundary(new DoubleLiteral(exp));
+        return new DoubleLiteral(exp);
     }
 
     /**
@@ -900,10 +907,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dlog10")
     public static Expression dlog10(DoubleLiteral first) {
-        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+        if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, false, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.log10(first.getValue())));
+        return new DoubleLiteral(Math.log10(first.getValue()));
     }
 
     /**
@@ -911,10 +918,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dsqrt")
     public static Expression dsqrt(DoubleLiteral first) {
-        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+        if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.sqrt(first.getValue())));
+        return new DoubleLiteral(Math.sqrt(first.getValue()));
     }
 
     /**
@@ -922,7 +929,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dpow")
     public static Expression dpow(DoubleLiteral first, DoubleLiteral second) {
-        return checkOutputBoundary(new DoubleLiteral(Math.pow(first.getValue(), second.getValue())));
+        return power(first, second);
     }
 
     /**
@@ -930,7 +937,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(DoubleLiteral first, DoubleLiteral second) {
-        return checkOutputBoundary(new DoubleLiteral(first.getValue() % second.getValue()));
+        return new DoubleLiteral(first.getValue() % second.getValue());
     }
 
     /**
@@ -946,7 +953,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fpow")
     public static Expression fpow(DoubleLiteral first, DoubleLiteral second) {
-        return checkOutputBoundary(new DoubleLiteral(Math.pow(first.getValue(), second.getValue())));
+        return power(first, second);
     }
 
     /**
@@ -954,7 +961,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "radians")
     public static Expression radians(DoubleLiteral first) {
-        return checkOutputBoundary(new DoubleLiteral(Math.toRadians(first.getValue())));
+        return new DoubleLiteral(Math.toRadians(first.getValue()));
     }
 
     /**
@@ -962,7 +969,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "degrees")
     public static Expression degrees(DoubleLiteral first) {
-        return checkOutputBoundary(new DoubleLiteral(Math.toDegrees(first.getValue())));
+        return new DoubleLiteral(Math.toDegrees(first.getValue()));
     }
 
     /**
@@ -1005,4 +1012,29 @@ public class NumericArithmetic {
         }
     }
 
+    /**
+     * isnan
+     */
+    @ExecFunction(name = "isnan")
+    public static Expression isnan(DoubleLiteral first) {
+        return BooleanLiteral.of(Double.isNaN(first.getValue()));
+    }
+
+    @ExecFunction(name = "isnan")
+    public static Expression isnan(FloatLiteral first) {
+        return BooleanLiteral.of(Float.isNaN(first.getValue()));
+    }
+
+    /**
+     * isinf
+     */
+    @ExecFunction(name = "isinf")
+    public static Expression isinf(DoubleLiteral first) {
+        return BooleanLiteral.of(Double.isInfinite(first.getValue()));
+    }
+
+    @ExecFunction(name = "isinf")
+    public static Expression isinf(FloatLiteral first) {
+        return BooleanLiteral.of(Float.isInfinite(first.getValue()));
+    }
 }

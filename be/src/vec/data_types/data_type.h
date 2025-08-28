@@ -40,6 +40,7 @@
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
@@ -52,7 +53,6 @@ namespace vectorized {
 class IDataType;
 class IColumn;
 class BufferWritable;
-class ReadBuffer;
 
 using ColumnPtr = COW<IColumn>::Ptr;
 using MutableColumnPtr = COW<IColumn>::MutablePtr;
@@ -94,9 +94,6 @@ public:
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
 
     virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
-    // only for compound type now.
-    virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
-
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 
@@ -228,6 +225,11 @@ public:
         to_protobuf(ptype, node, scalar_type);
     }
 #ifdef BE_TEST
+    // only used in beut
+    Status from_string(StringRef& str, IColumn* column) const {
+        return get_serde()->default_from_string(str, *column);
+    }
+
     TTypeDesc to_thrift() const {
         TTypeDesc thrift_type;
         to_thrift(thrift_type);

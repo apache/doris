@@ -82,6 +82,11 @@ public class Nvl extends ScalarFunction
         super("ifnull", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Nvl(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * custom compute nullable.
      */
@@ -96,7 +101,7 @@ public class Nvl extends ScalarFunction
     @Override
     public Nvl withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Nvl(children.get(0), children.get(1));
+        return new Nvl(getFunctionParams(children));
     }
 
     @Override

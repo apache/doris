@@ -108,6 +108,9 @@ DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
 
+// Skip writing empty rowset metadata to meta service
+DECLARE_mBool(skip_writing_empty_rowset_metadata);
+
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
 
@@ -126,6 +129,23 @@ DECLARE_mInt64(meta_service_rpc_reconnect_interval_ms);
 DECLARE_mInt32(meta_service_conflict_error_retry_times);
 
 DECLARE_Bool(enable_check_storage_vault);
+
+DECLARE_mInt64(warmup_tablet_replica_info_cache_ttl_sec);
+
+DECLARE_mInt64(warm_up_rowset_slow_log_ms);
+
+// When event driven warm-up is enabled by the user, turning on this option can help
+// avoid file cache misses in the read cluster caused by compaction.
+// If enabled, compaction will wait for the warm-up to complete before committing.
+//
+// ATTN: Enabling this option may slow down compaction due to the added wait.
+DECLARE_mBool(enable_compaction_delay_commit_for_warm_up);
+
+DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
+
+DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
+
+DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

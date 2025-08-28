@@ -62,6 +62,12 @@ enum TStorageFormat {
     V2 = 2
 }
 
+enum TEncryptionAlgorithm {
+    PLAINTEXT = 0,
+    AES256 = 1,
+    SM4 = 2
+}
+
 enum TTabletType {
     TABLET_TYPE_DISK = 0,
     TABLET_TYPE_MEMORY = 1
@@ -216,6 +222,7 @@ struct TCreateTabletReq {
     27: optional i64 time_series_compaction_level_threshold = 1
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
+    30: optional TEncryptionAlgorithm tde_algorithm
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -428,6 +435,8 @@ struct TSnapshotRequest {
 struct TReleaseSnapshotRequest {
     1: required string snapshot_path
     2: optional Types.TTabletId tablet_id
+    // indicates the job is completed or cancelled
+    3: optional bool is_job_completed
 }
 
 struct TClearRemoteFileReq {

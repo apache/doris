@@ -25,6 +25,10 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/runtime")
 
 file(GLOB_RECURSE RUNTIME_FILES CONFIGURE_DEPENDS *.cpp *.cc)
 
+if (NOT USE_JEMALLOC OR OS_MACOSX)
+    list(REMOVE_ITEM RUNTIME_FILES ${CMAKE_CURRENT_SOURCE_DIR}/memory/jemalloc_hook.cpp)
+endif()
+
 add_library(Runtime STATIC
     ${RUNTIME_FILES}
 )

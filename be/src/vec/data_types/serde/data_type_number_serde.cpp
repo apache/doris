@@ -21,6 +21,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
@@ -30,6 +31,7 @@
 #include "vec/core/types.h"
 #include "vec/functions/cast/cast_to_basic_number_common.h"
 #include "vec/functions/cast/cast_to_boolean.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -176,11 +178,9 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     if constexpr (T == TYPE_IPV6) {
         std::string hex = int128_to_string(data);
         bw.write(hex.data(), hex.size());
-    } else if constexpr (T == TYPE_FLOAT) {
-        // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
-        char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = to_buffer(data, MAX_FLOAT_STR_LENGTH + 2, buf);
-        bw.write(buf, len);
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        auto str = CastToString::from_number(data);
+        bw.write(str.data(), str.size());
     } else if constexpr (is_int_or_bool(T) ||
                          std::numeric_limits<
                                  typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {

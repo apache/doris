@@ -1468,7 +1468,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
 
     auto parse_datetimev2_str = [](const std::string& datetime_str) {
         UInt64 x = 0;
-        ReadBuffer buf((char*)datetime_str.data(), datetime_str.size());
+        StringRef buf((char*)datetime_str.data(), datetime_str.size());
         bool ok = read_datetime_v2_text_impl(x, buf, 6);
         CHECK(ok) << "parse_datetimev2_str failed for: " << datetime_str;
         return x;

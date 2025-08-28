@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testCountDistinctToBitmap") {
+
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS user_tags; """
 
@@ -34,7 +37,7 @@ suite ("testCountDistinctToBitmap") {
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view user_tags_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags group by user_id;")
+    createMV("create materialized view user_tags_mv as select user_id as a1, bitmap_union(to_bitmap(tag_id)) as a2 from user_tags group by user_id;")
 
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
@@ -44,17 +47,17 @@ suite ("testCountDistinctToBitmap") {
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
+
+    mv_rewrite_success_without_check_chosen("select user_id, count(distinct tag_id) a from user_tags group by user_id having a>1 order by a;",
+            "user_tags_mv")
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
     qt_select_star "select * from user_tags order by time_col,tag_id;"
 
     mv_rewrite_success("select user_id, count(distinct tag_id) a from user_tags group by user_id having a>1 order by a;",
             "user_tags_mv")
     qt_select_mv "select user_id, count(distinct tag_id) a from user_tags group by user_id having a>1 order by a;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
-
-    mv_rewrite_success("select user_id, count(distinct tag_id) a from user_tags group by user_id having a>1 order by a;",
-            "user_tags_mv")
 
 
     sql """ DROP TABLE IF EXISTS user_tags2; """
@@ -74,7 +77,7 @@ suite ("testCountDistinctToBitmap") {
     sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
     sql """alter table user_tags2 modify column time_col set stats ('row_count'='3');"""
 
-    createMV("create materialized view user_tags_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags2 group by user_id;")
+    createMV("create materialized view user_tags_mv as select user_id as a3, bitmap_union(to_bitmap(tag_id)) as a4 from user_tags2 group by user_id;")
 
     sql """insert into user_tags2 values("2020-01-01",1,"a",2);"""
 
@@ -88,6 +91,6 @@ suite ("testCountDistinctToBitmap") {
     sql """set enable_stats=false;"""
     mv_rewrite_fail("select * from user_tags2 order by time_col;", "user_tags_mv")
 
-    mv_rewrite_success("select user_id, count(distinct tag_id) a from user_tags2 group by user_id having a>1 order by a;",
+    mv_rewrite_success_without_check_chosen("select user_id, count(distinct tag_id) a from user_tags2 group by user_id having a>1 order by a;",
             "user_tags_mv")
 }

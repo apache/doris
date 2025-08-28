@@ -49,6 +49,7 @@ PathInData::PathInData(std::string_view path_, const Parts& parts_, bool is_type
     path = path_;
     is_typed = is_typed_;
     for (const auto& part : parts_) {
+        has_nested |= part.is_nested;
         parts.emplace_back(part);
     }
 }
@@ -88,7 +89,8 @@ PathInData& PathInData::operator=(const PathInData& other) {
     }
     return *this;
 }
-UInt128 PathInData::get_parts_hash(const Parts& parts_) {
+
+UInt128 PathInData::get_parts_hash(const Parts& parts_, bool is_typed_) {
     SipHash hash;
     hash.update(parts_.size());
     for (const auto& part : parts_) {
@@ -96,6 +98,7 @@ UInt128 PathInData::get_parts_hash(const Parts& parts_) {
         hash.update(part.is_nested);
         hash.update(part.anonymous_array_level);
     }
+    hash.update(is_typed_);
     UInt128 res;
     hash.get128(res);
     return res;
@@ -180,7 +183,7 @@ void PathInData::to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_
 }
 
 size_t PathInData::Hash::operator()(const PathInData& value) const {
-    auto hash = get_parts_hash(value.parts);
+    auto hash = get_parts_hash(value.parts, value.is_typed);
     return hash.low() ^ hash.high();
 }
 

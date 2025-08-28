@@ -50,13 +50,18 @@ public class TimeDiff extends ScalarFunction
         super("timediff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private TimeDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public TimeDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new TimeDiff(children.get(0), children.get(1));
+        return new TimeDiff(getFunctionParams(children));
     }
 
     @Override

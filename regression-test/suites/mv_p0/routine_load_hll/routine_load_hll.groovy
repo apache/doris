@@ -18,46 +18,47 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("routine_load_hll") {
-
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS test; """
 
     sql """
         CREATE TABLE `test` (
-            `event_id` varchar(50) NULL,
-            `time_stamp` datetime NULL,
-            `device_id` hll hll_union
+            `mv_event_id` varchar(50) NULL,
+            `mv_time_stamp` datetime NULL,
+            `mv_device_id` hll hll_union
             ) ENGINE=OLAP
-            AGGREGATE KEY(`event_id`,`time_stamp`)
-            DISTRIBUTED BY HASH(`event_id`) BUCKETS AUTO
+            AGGREGATE KEY(`mv_event_id`,`mv_time_stamp`)
+            DISTRIBUTED BY HASH(`mv_event_id`) BUCKETS AUTO
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
         ); 
         """
 
-    sql """insert into test(event_id,time_stamp,device_id) values('ad_sdk_request','2024-03-04 00:00:00',hll_hash('a'));"""
+    sql """insert into test(mv_event_id,mv_time_stamp,mv_device_id) values('ad_sdk_request','2024-03-04 00:00:00',hll_hash('a'));"""
 
-    createMV("""create materialized view m_view as select time_stamp, hll_union(device_id) from test group by time_stamp;""")
+    createMV("""create materialized view m_view as select mv_time_stamp as m_view_mv_time_stamp, hll_union(mv_device_id) from test group by mv_time_stamp;""")
 
-        sql """insert into test(event_id,time_stamp,device_id) values('ad_sdk_request','2024-03-04 00:00:00',hll_hash('b'));"""
+        sql """insert into test(mv_event_id,mv_time_stamp,mv_device_id) values('ad_sdk_request','2024-03-04 00:00:00',hll_hash('b'));"""
 
     streamLoad {
         table "test"
         set 'column_separator', ','
-        set 'columns', 'event_id,time_stamp,device_id,device_id=hll_hash(device_id)'
+        set 'columns', 'mv_event_id,mv_time_stamp,mv_device_id,mv_device_id=hll_hash(mv_device_id)'
 
         file './test'
         time 10000 // limit inflight 10s
     }
 
-    qt_select "select event_id,time_stamp,hll_cardinality(device_id) from test order by 1,2;"
+    qt_select "select mv_event_id,mv_time_stamp,hll_cardinality(mv_device_id) from test order by 1,2;"
 
     sql "analyze table test with sync;"
-    sql """alter table test modify column event_id set stats ('row_count'='2');"""
+    sql """alter table test modify column mv_event_id set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
-    mv_rewrite_success("select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;", "m_view")
-    qt_select_mv "select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;"
+    mv_rewrite_success("select mv_time_stamp, hll_union_agg(mv_device_id) from test group by mv_time_stamp order by 1;", "m_view")
+    qt_select_mv "select mv_time_stamp, hll_union_agg(mv_device_id) from test group by mv_time_stamp order by 1;"
 
     sql """set enable_stats=true;"""
-    mv_rewrite_success("select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;", "m_view")
+    mv_rewrite_success("select mv_time_stamp, hll_union_agg(mv_device_id) from test group by mv_time_stamp order by 1;", "m_view")
 }

@@ -22,7 +22,7 @@ suite("test_writer_fault_injection", "nonConcurrent") {
     sql """ set enable_memtable_on_sink_node=false """
     try {
         sql """
-            CREATE TABLE IF NOT EXISTS `baseall` (
+            CREATE TABLE IF NOT EXISTS `test_writer_fault_injection_source` (
                 `k0` boolean null comment "",
                 `k1` tinyint(4) null comment "",
                 `k2` smallint(6) null comment "",
@@ -41,7 +41,7 @@ suite("test_writer_fault_injection", "nonConcurrent") {
             DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
             """
         sql """
-            CREATE TABLE IF NOT EXISTS `test` (
+            CREATE TABLE IF NOT EXISTS `test_writer_fault_injection_dest` (
                 `k0` boolean null comment "",
                 `k1` tinyint(4) null comment "",
                 `k2` smallint(6) null comment "",
@@ -62,7 +62,7 @@ suite("test_writer_fault_injection", "nonConcurrent") {
 
         GetDebugPoint().clearDebugPointsForAllBEs()
         streamLoad {
-            table "baseall"
+            table "test_writer_fault_injection_source"
             db "regression_test_fault_injection_p0"
             set 'column_separator', ','
             file "baseall.txt"
@@ -71,7 +71,7 @@ suite("test_writer_fault_injection", "nonConcurrent") {
         def load_with_injection = { injection, error_msg="", success=false->
             try {
                 GetDebugPoint().enableDebugPointForAllBEs(injection)
-                sql "insert into test select * from baseall where k1 <= 3"
+                sql "insert into test_writer_fault_injection_dest select * from test_writer_fault_injection_source where k1 <= 3"
                 assertTrue(success, String.format("expected Exception '%s', actual success", error_msg))
             } catch(Exception e) {
                 logger.info(e.getMessage())

@@ -16,14 +16,17 @@
 // under the License.
 
 suite("regression_test_variant_agg"){
-        sql """
-        set debug_skip_fold_constant = true;
-        """
     sql """DROP TABLE IF EXISTS var_agg"""
+
+    int max_subcolumns_count = Math.floor(Math.random() * 10) + 1
+    def var = "variant<properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
+    if (max_subcolumns_count % 2 == 0) {
+        var = "variant <'d' : int, 'b.f' : int, 'xxxx' : string, 'point' : bigint, properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
+    }
     sql """
         CREATE TABLE IF NOT EXISTS var_agg (
                 k bigint,
-                v variant replace,
+                v ${var},
                 s bigint sum
             )
             AGGREGATE KEY(`k`)
@@ -40,7 +43,7 @@ suite("regression_test_variant_agg"){
     sql """insert into var_agg values (8,  '8.11111', 8),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}', 8);"""
     sql """insert into var_agg values (9,  '"9999"', 9),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}', 9);"""
     sql """insert into var_agg values (10,  '1000000', 10),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}', 10);"""
-    sql """insert into var_agg values (11,  '[123.1]', 11),(1999,  '{"a" : 1, "b" : {"c" : 1}}', 11),(19921,  '{"a" : 1, "d" : 10}', 11);"""
+    sql """insert into var_agg values (11,  '[123.0]', 11),(1999,  '{"a" : 1, "b" : {"c" : 1}}', 11),(19921,  '{"a" : 1, "d" : 10}', 11);"""
     sql """insert into var_agg values (12,  '[123.2]', 12),(1022,  '{"a" : 1, "b" : {"f" : 17034, "g"  :1.111 }}', 12),(1029,  '{"a" : 1, "b" : {"c" : 1}}', 12);"""
     qt_sql1 "select k, cast(v['a'] as array<int>) from  var_agg where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
     qt_sql2 "select k, cast(v as int), cast(v['b'] as string) from  var_agg where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
@@ -50,6 +53,7 @@ suite("regression_test_variant_agg"){
     qt_sql6 "select cast(v['b'] as string) from var_agg where cast(v['b'] as string) is not null and   length(v['b']) >4   order by k,  cast(v['b'] as string) "
     qt_sql7 "select * from var_agg where cast(v['b'] as string) is not null and   length(v['b']) >4   order by k,  cast(v['b'] as string) "
     qt_sql8 "select * from var_agg order by 1, cast(2 as string), 3"
+    trigger_and_wait_compaction("var_agg", "cumulative")
     sql "alter table var_agg drop column s"
     sql """insert into var_agg select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
             union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "x" : 42005}' as json_str from numbers("number" = "1024") limit 1024;"""
@@ -61,6 +65,7 @@ suite("regression_test_variant_agg"){
             union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "e" : [123456]}' as json_str from numbers("number" = "1024") limit 1024;"""
     sql """insert into var_agg select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
             union  all select 5, '{"a": 1123}' as json_str union all select *, '{"a": 11245, "f" : ["123456"]}' as json_str from numbers("number" = "1024") limit 1024;"""
+    trigger_and_wait_compaction("var_agg", "cumulative")
     qt_sql9 "select * from var_agg order by cast(2 as string), 3, 1 limit 10"
     qt_sql9 "select * from var_agg where k > 1024 order by cast(2 as string), 3, 1 limit 10"
 }

@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_mv_abs") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -37,7 +39,7 @@ suite ("test_dup_mv_abs") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view k12a as select k1,abs(k2) from d_table;")
+    createMV ("create materialized view k12a as select k1 as a1,abs(k2) from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 
@@ -47,19 +49,19 @@ suite ("test_dup_mv_abs") {
 
     qt_select_star "select * from d_table order by k1;"
 
-    mv_rewrite_success("select k1,abs(k2) from d_table order by k1;", "k12a")
+    mv_rewrite_success_without_check_chosen("select k1,abs(k2) from d_table order by k1;", "k12a")
     qt_select_mv "select k1,abs(k2) from d_table order by k1;"
 
-    mv_rewrite_success("select abs(k2) from d_table order by k1;", "k12a")
+    mv_rewrite_success_without_check_chosen("select abs(k2) from d_table order by k1;", "k12a")
     qt_select_mv_sub "select abs(k2) from d_table order by k1;"
 
-    mv_rewrite_success("select abs(k2)+1 from d_table order by k1;", "k12a")
+    mv_rewrite_success_without_check_chosen("select abs(k2)+1 from d_table order by k1;", "k12a")
     qt_select_mv_sub_add "select abs(k2)+1 from d_table order by k1;"
 
-    mv_rewrite_success("select sum(abs(k2)) from d_table group by k1 order by k1;", "k12a")
+    mv_rewrite_success_without_check_chosen("select sum(abs(k2)) from d_table group by k1 order by k1;", "k12a")
     qt_select_group_mv "select sum(abs(k2)) from d_table group by k1 order by k1;"
 
-    mv_rewrite_success("select sum(abs(k2)+1) from d_table group by k1 order by k1;", "k12a")
+    mv_rewrite_success_without_check_chosen("select sum(abs(k2)+1) from d_table group by k1 order by k1;", "k12a")
     qt_select_group_mv_add "select sum(abs(k2)+1) from d_table group by k1 order by k1;"
 
     mv_rewrite_fail("select sum(abs(k2)) from d_table group by k3;", "k12a")
@@ -72,9 +74,15 @@ suite ("test_dup_mv_abs") {
 
     mv_rewrite_success("select abs(k2)+1 from d_table order by k1;", "k12a")
 
-    mv_rewrite_success("select sum(abs(k2)) from d_table group by k1 order by k1;", "k12a")
+    mv_rewrite_success("select sum(abs(k2)) from d_table group by k1 order by k1;", "k12a",
+     true, [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("select sum(abs(k2)) from d_table group by k1 order by k1;", "k12a",
+             [FORCE_IN_RBO])
 
-    mv_rewrite_success("select sum(abs(k2)+1) from d_table group by k1 order by k1;", "k12a")
+    mv_rewrite_success("select sum(abs(k2)+1) from d_table group by k1 order by k1;", "k12a",
+     true, [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("select sum(abs(k2)+1) from d_table group by k1 order by k1;", "k12a",
+             [FORCE_IN_RBO])
 
     mv_rewrite_fail("select sum(abs(k2)) from d_table group by k3;", "k12a")
 }

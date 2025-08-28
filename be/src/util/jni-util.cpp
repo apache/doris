@@ -185,11 +185,15 @@ Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) 
     const char* utf_chars = env->GetStringUTFChars(jstr, &is_copy);
     bool exception_check = static_cast<bool>(env->ExceptionCheck());
     if (utf_chars == nullptr || exception_check) {
-        if (exception_check) env->ExceptionClear();
-        if (utf_chars != nullptr) env->ReleaseStringUTFChars(jstr, utf_chars);
-        auto fail_message = "GetStringUTFChars failed. Probable OOM on JVM side";
+        if (exception_check) {
+            env->ExceptionClear();
+        }
+        if (utf_chars != nullptr) {
+            env->ReleaseStringUTFChars(jstr, utf_chars);
+        }
+        const auto* fail_message = "GetStringUTFChars failed. Probable OOM on JVM side";
         LOG(WARNING) << fail_message;
-        return Status::InternalError(fail_message);
+        return Status::JniError(fail_message);
     }
     out->env = env;
     out->jstr = jstr;
@@ -202,7 +206,7 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
     DCHECK_GT(max_local_ref, 0);
     if (env->PushLocalFrame(max_local_ref) < 0) {
         env->ExceptionClear();
-        return Status::InternalError("failed to push frame");
+        return Status::JniError("failed to push frame");
     }
     env_ = env;
     return Status::OK();
@@ -266,7 +270,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
         rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
     }
     if (rc != 0 || tls_env_ == nullptr) {
-        return Status::InternalError("Unable to get JVM: {}", rc);
+        return Status::JniError("Unable to get JVM: {}", rc);
     }
 #else
     // the hadoop libhdfs will do all the stuff
@@ -293,7 +297,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
         env->ExceptionClear();
         string oom_msg = absl::Substitute(oom_msg_template, "throwableToString");
         LOG(WARNING) << oom_msg;
-        return Status::InternalError(oom_msg);
+        return Status::JniError(oom_msg);
     }
     JniUtfCharGuard msg_str_guard;
     RETURN_IF_ERROR(JniUtfCharGuard::create(env, msg, &msg_str_guard));
@@ -304,7 +308,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
             env->ExceptionClear();
             string oom_msg = absl::Substitute(oom_msg_template, "throwableToStackTrace");
             LOG(WARNING) << oom_msg;
-            return Status::RuntimeError(oom_msg);
+            return Status::JniError(oom_msg);
         }
         JniUtfCharGuard c_stack_guard;
         RETURN_IF_ERROR(JniUtfCharGuard::create(env, stack, &c_stack_guard));
@@ -312,7 +316,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
     }
 
     env->DeleteLocalRef(exc);
-    return Status::RuntimeError("{}{}", prefix, msg_str_guard.get());
+    return Status::JniError("{}{}", prefix, msg_str_guard.get());
 }
 
 Status JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map,
@@ -415,7 +419,7 @@ Status JniUtil::convert_to_cpp_map(JNIEnv* env, jobject map,
 }
 
 Status JniUtil::GetGlobalClassRef(JNIEnv* env, const char* class_str, jclass* class_ref) {
-    *class_ref = NULL;
+    *class_ref = nullptr;
     JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(jclass, local_cl, env, FindClass(class_str));
     RETURN_IF_ERROR(LocalToGlobalRef(env, local_cl, reinterpret_cast<jobject*>(class_ref)));
     return Status::OK();
@@ -430,8 +434,8 @@ Status JniUtil::LocalToGlobalRef(JNIEnv* env, jobject local_ref, jobject* global
     //  obj refers to null
     //  the system has run out of memory
     //  obj was a weak global reference and has already been garbage collected
-    if (*global_ref == NULL) {
-        return Status::InternalError(
+    if (*global_ref == nullptr) {
+        return Status::JniError(
                 "LocalToGlobalRef fail,global ref is NULL,maybe the system has run out of memory.");
     }
 
@@ -451,9 +455,11 @@ Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
     RETURN_ERROR_IF_EXC(env);
     jni_scanner_loader_method_ = env->GetMethodID(jni_scanner_loader_cls, "getLoadedClass",
                                                   "(Ljava/lang/String;)Ljava/lang/Class;");
-    if (jni_scanner_loader_method_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find ScannerLoader.getLoadedClass method.");
+    if (jni_scanner_loader_method_ == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to find ScannerLoader.getLoadedClass method.");
     }
     RETURN_ERROR_IF_EXC(env);
     jmethodID load_jni_scanner =
@@ -475,7 +481,7 @@ Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
         }
-        return Status::InternalError("Failed to find removeUdfClassLoader method.");
+        return Status::JniError("Failed to find removeUdfClassLoader method.");
     }
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();
@@ -521,38 +527,48 @@ Status JniUtil::Init() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
 
-    if (env == NULL) return Status::InternalError("Failed to get/create JVM");
+    if (env == nullptr) {
+        return Status::JniError("Failed to get/create JVM");
+    }
     // Find JniUtil class and create a global ref.
     jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
-    if (local_jni_util_cl == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil class.");
+    if (local_jni_util_cl == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to find JniUtil class.");
     }
     jni_util_cl_ = reinterpret_cast<jclass>(env->NewGlobalRef(local_jni_util_cl));
-    if (jni_util_cl_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to create global reference to JniUtil class.");
+    if (jni_util_cl_ == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to create global reference to JniUtil class.");
     }
     env->DeleteLocalRef(local_jni_util_cl);
     if (env->ExceptionOccurred()) {
-        return Status::InternalError("Failed to delete local reference to JniUtil class.");
+        return Status::JniError("Failed to delete local reference to JniUtil class.");
     }
 
     // Find InternalException class and create a global ref.
     jclass local_internal_exc_cl =
             env->FindClass("org/apache/doris/common/exception/InternalException");
-    if (local_internal_exc_cl == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil class.");
+    if (local_internal_exc_cl == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to find JniUtil class.");
     }
     internal_exc_cl_ = reinterpret_cast<jclass>(env->NewGlobalRef(local_internal_exc_cl));
-    if (internal_exc_cl_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to create global reference to JniUtil class.");
+    if (internal_exc_cl_ == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to create global reference to JniUtil class.");
     }
     env->DeleteLocalRef(local_internal_exc_cl);
     if (env->ExceptionOccurred()) {
-        return Status::InternalError("Failed to delete local reference to JniUtil class.");
+        return Status::JniError("Failed to delete local reference to JniUtil class.");
     }
 
     // Find JNINativeMethod class and create a global ref.
@@ -562,7 +578,7 @@ Status JniUtil::Init() {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
         }
-        return Status::InternalError("Failed to find JNINativeMethod class.");
+        return Status::JniError("Failed to find JNINativeMethod class.");
     }
     jni_native_method_exc_cl_ =
             reinterpret_cast<jclass>(env->NewGlobalRef(local_jni_native_exc_cl));
@@ -570,11 +586,11 @@ Status JniUtil::Init() {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
         }
-        return Status::InternalError("Failed to create global reference to JNINativeMethod class.");
+        return Status::JniError("Failed to create global reference to JNINativeMethod class.");
     }
     env->DeleteLocalRef(local_jni_native_exc_cl);
     if (env->ExceptionOccurred()) {
-        return Status::InternalError("Failed to delete local reference to JNINativeMethod class.");
+        return Status::JniError("Failed to delete local reference to JNINativeMethod class.");
     }
     std::string resize_column_name = "resizeStringColumn";
     std::string resize_column_sign = "(JI)J";
@@ -599,35 +615,45 @@ Status JniUtil::Init() {
     // Throwable toString()
     throwable_to_string_id_ = env->GetStaticMethodID(jni_util_cl_, "throwableToString",
                                                      "(Ljava/lang/Throwable;)Ljava/lang/String;");
-    if (throwable_to_string_id_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.throwableToString method.");
+    if (throwable_to_string_id_ == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to find JniUtil.throwableToString method.");
     }
 
     // throwableToStackTrace()
     throwable_to_stack_trace_id_ = env->GetStaticMethodID(
             jni_util_cl_, "throwableToStackTrace", "(Ljava/lang/Throwable;)Ljava/lang/String;");
-    if (throwable_to_stack_trace_id_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.throwableToFullStackTrace method.");
+    if (throwable_to_stack_trace_id_ == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to find JniUtil.throwableToFullStackTrace method.");
     }
 
     get_jvm_metrics_id_ = env->GetStaticMethodID(jni_util_cl_, "getJvmMemoryMetrics", "()[B");
-    if (get_jvm_metrics_id_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.getJvmMemoryMetrics method.");
+    if (get_jvm_metrics_id_ == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to find JniUtil.getJvmMemoryMetrics method.");
     }
 
     get_jvm_threads_id_ = env->GetStaticMethodID(jni_util_cl_, "getJvmThreadsInfo", "([B)[B");
-    if (get_jvm_threads_id_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.getJvmThreadsInfo method.");
+    if (get_jvm_threads_id_ == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to find JniUtil.getJvmThreadsInfo method.");
     }
 
     get_jmx_json_ = env->GetStaticMethodID(jni_util_cl_, "getJMXJson", "()[B");
-    if (get_jmx_json_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to find JniUtil.getJMXJson method.");
+    if (get_jmx_json_ == nullptr) {
+        if (env->ExceptionOccurred()) {
+            env->ExceptionDescribe();
+        }
+        return Status::JniError("Failed to find JniUtil.getJMXJson method.");
     }
     RETURN_IF_ERROR(init_jni_scanner_loader(env));
     jvm_inited_ = true;

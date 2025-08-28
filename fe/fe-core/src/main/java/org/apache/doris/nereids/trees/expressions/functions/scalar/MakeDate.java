@@ -50,13 +50,18 @@ public class MakeDate extends ScalarFunction
         super("makedate", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MakeDate(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MakeDate withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MakeDate(children.get(0), children.get(1));
+        return new MakeDate(getFunctionParams(children));
     }
 
     @Override

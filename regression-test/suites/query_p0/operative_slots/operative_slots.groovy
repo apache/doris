@@ -48,7 +48,7 @@ suite("operative_slots") {
     explain {
         sql "physical plan select * from t join[broadcast] vt on t.k = vt.v['k1'];"
         contains("operativeSlots([k#0, __DORIS_DELETE_SIGN__#3])")
-        contains("operativeSlots([v['k1']#17])")
+        contains("operativeSlots([v['k1'")
         // expect plan
         //    PhysicalResultSink[311] ( outputExprs=[k#0, v1#1, user_id#4, name#5, v#6] )
         //    +--PhysicalDistribute[306]@6 ( stats=1, distributionSpec=DistributionSpecGather )

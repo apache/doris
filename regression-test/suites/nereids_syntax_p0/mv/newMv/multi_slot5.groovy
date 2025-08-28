@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("multi_slot5") {
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS multi_slot5; """
 
     sql """
@@ -36,7 +38,7 @@ suite ("multi_slot5") {
     sql "insert into multi_slot5 select 2,2,2,'b';"
     sql "insert into multi_slot5 select 3,-3,null,'c';"
 
-    createMV ("create materialized view k123p as select k1,k2+k3 from multi_slot5;")
+    createMV ("create materialized view k123p as select k1 as a1,k2+k3 from multi_slot5;")
 
     sleep(3000)
 

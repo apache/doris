@@ -89,16 +89,22 @@ suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
         assert queryResult.size() == 10
     }
 
-
+    def getConfigOrDefault = { String key, String defaultValue ->
+        def value = context.config.otherConfigs.get(key)
+        if (value == null || value.isEmpty()) {
+            return defaultValue
+        }
+        return value
+    }
     /*******************************************************************************************************
      *****************************      TEST AWS      *****************************************************
      *******************************************************************************************************/
     try {
         ak = context.config.otherConfigs.get("AWSAK")
         sk = context.config.otherConfigs.get("AWSSK")
-        s3_endpoint = "s3.ap-northeast-1.amazonaws.com"
-        region = "ap-northeast-1"
-        bucket = "selectdb-qa-datalake-test"
+        s3_endpoint = getConfigOrDefault("AWSEndpoint","s3.ap-northeast-1.amazonaws.com")
+        region = getConfigOrDefault ("AWSRegion","ap-northeast-1")
+        bucket = getConfigOrDefault ("AWSS3Bucket","selectdb-qa-datalake-test")
 
         outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
 
@@ -129,9 +135,9 @@ suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
     try {
         ak = context.config.otherConfigs.get("txYunAk")
         sk = context.config.otherConfigs.get("txYunSk")
-        s3_endpoint = "cos.ap-beijing.myqcloud.com"
-        region = "ap-beijing"
-        bucket = "doris-build-1308700295";
+        s3_endpoint = getConfigOrDefault("txYunEndpoint","cos.ap-beijing.myqcloud.com")
+        region = getConfigOrDefault ("txYunRegion","ap-beijing");
+        bucket = getConfigOrDefault ("txYunBucket","doris-build-1308700295")
 
 
         outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
@@ -169,9 +175,9 @@ suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
     try {
         ak = context.config.otherConfigs.get("aliYunAk")
         sk = context.config.otherConfigs.get("aliYunSk")
-        s3_endpoint = "oss-cn-hongkong.aliyuncs.com"
-        region = "oss-cn-hongkong"
-        bucket = "doris-regression-hk";
+        s3_endpoint = getConfigOrDefault("aliYunEndpoint","oss-cn-hongkong.aliyuncs.com")
+        region = getConfigOrDefault ("aliYunRegion","oss-cn-hongkong")
+        bucket = getConfigOrDefault ("aliYunBucket","doris-regression-hk");
 
 
         outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
@@ -219,9 +225,9 @@ suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
     try {
         ak = context.config.otherConfigs.get("hwYunAk")
         sk = context.config.otherConfigs.get("hwYunSk")
-        s3_endpoint = "obs.cn-north-4.myhuaweicloud.com"
-        region = "cn-north-4"
-        bucket = "doris-build";
+        s3_endpoint = getConfigOrDefault("hwYunEndpoint","obs.cn-north-4.myhuaweicloud.com")
+        region = getConfigOrDefault("hwYunRegion","cn-north-4")
+        bucket = getConfigOrDefault("hwYunBucket","doris-build");
 
 
         outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
@@ -256,7 +262,7 @@ suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
             s3_tvf("s3://${bucket}", "cos.endpoint", "cos.access_key", "cos.secret_key", "cos.region", "false");
         }
         shouldFail{
-            s3_tvf("s3://${bucket}", "s3.endpoint", "cos.access_key", "s3.secret_key", "cos.region", "false");  
+            s3_tvf("s3://${bucket}", "s3.endpoint", "cos.access_key", "s3.secret_key", "cos.region", "false");
         }
         s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key", "s3.secret_key", "region", "false");
         s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key", "s3.secret_key", "region", "false");

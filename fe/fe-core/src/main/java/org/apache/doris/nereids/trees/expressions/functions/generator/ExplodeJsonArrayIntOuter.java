@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.JsonType;
-import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -34,11 +35,11 @@ import java.util.List;
 /**
  * explode_json_array_int_outer("[1, 2, 3]"), generate 3 lines include 1, 2 and 3.
  */
-public class ExplodeJsonArrayIntOuter extends TableGeneratingFunction implements UnaryExpression, AlwaysNullable {
+public class ExplodeJsonArrayIntOuter extends TableGeneratingFunction
+        implements UnaryExpression, AlwaysNullable, RewriteWhenAnalyze {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(JsonType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(JsonType.INSTANCE)
     );
 
     /**
@@ -48,13 +49,18 @@ public class ExplodeJsonArrayIntOuter extends TableGeneratingFunction implements
         super("explode_json_array_int_outer", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonArrayIntOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonArrayIntOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonArrayIntOuter(children.get(0));
+        return new ExplodeJsonArrayIntOuter(getFunctionParams(children));
     }
 
     @Override
@@ -65,5 +71,11 @@ public class ExplodeJsonArrayIntOuter extends TableGeneratingFunction implements
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExplodeJsonArrayIntOuter(this, context);
+    }
+
+    @Override
+    public TableGeneratingFunction rewrite() {
+        Expression[] args = {new Cast(children.get(0), ArrayType.of(BigIntType.INSTANCE))};
+        return new ExplodeOuter(args);
     }
 }

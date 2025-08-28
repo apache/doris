@@ -55,13 +55,18 @@ public class CountEqual extends ScalarFunction
         super("countequal", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CountEqual(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public CountEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new CountEqual(children.get(0), children.get(1));
+        return new CountEqual(getFunctionParams(children));
     }
 
     @Override

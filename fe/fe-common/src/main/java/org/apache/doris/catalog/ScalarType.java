@@ -546,10 +546,10 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVariantType() {
-        // length checked in analysis
-        ScalarType type = new ScalarType(PrimitiveType.VARIANT);
-        type.len = MAX_STRING_LENGTH;
-        return type;
+        // Not return ScalarType return VariantType instead for compatibility reason
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        return new VariantType();
     }
 
     public static ScalarType createVarchar(int len) {
@@ -720,8 +720,7 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
-            case JSONB:
-            case VARIANT: {
+            case JSONB: {
                 scalarType.setLen(getLength());
                 break;
             }
@@ -896,6 +895,9 @@ public class ScalarType extends Type {
             return precision == scalarType.precision && scale == scalarType.scale;
         }
         if (isDatetimeV2() && scalarType.isDatetimeV2()) {
+            return true;
+        }
+        if (isVariantType() && scalarType.isVariantType()) {
             return true;
         }
         return false;
@@ -1113,6 +1115,14 @@ public class ScalarType extends Type {
             return finalType;
         }
 
+        if (t1.isVariantType() && t2.isVariantType()) {
+            if (t1.equals(t2)) {
+                return t1;
+            } else {
+                return Type.UNSUPPORTED;
+            }
+        }
+
         PrimitiveType smallerType =
                 (t1.type.ordinal() < t2.type.ordinal() ? t1.type : t2.type);
         PrimitiveType largerType =
@@ -1197,5 +1207,23 @@ public class ScalarType extends Type {
         result = 31 * result + precision;
         result = 31 * result + scale;
         return result;
+    }
+
+    public int getVariantMaxSubcolumnsCount() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantMaxSubcolumnsCount();
+        }
+        return 0; // The old variant type had a default value of 0.
+    }
+
+    public boolean getVariantEnableTypedPathsToSparse() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getEnableTypedPathsToSparse();
+        }
+        return false; // The old variant type had a default value of false.
     }
 }

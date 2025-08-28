@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("aggHaveDupBase") {
 
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
+
     def tbName1 = "agg_have_dup_base"
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -43,7 +46,7 @@ suite ("aggHaveDupBase") {
     sql "insert into agg_have_dup_base select 3,-3,null,'c';"
     sql "insert into agg_have_dup_base select 3,-3,null,'c';"
 
-    createMV( "create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
+    createMV( "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
 
 
     sql "insert into agg_have_dup_base select -4,-4,-4,'d';"

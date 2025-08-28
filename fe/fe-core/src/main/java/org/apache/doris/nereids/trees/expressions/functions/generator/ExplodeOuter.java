@@ -50,13 +50,18 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
         super("explode_outer", args);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new ExplodeOuter(children.toArray(new Expression[0]));
+        return new ExplodeOuter(getFunctionParams(children));
     }
 
     @Override

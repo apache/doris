@@ -53,6 +53,11 @@ public class Sha2 extends ScalarFunction
         super("sha2", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sha2(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         checkLegalityAfterRewrite();
@@ -75,7 +80,7 @@ public class Sha2 extends ScalarFunction
     @Override
     public Sha2 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Sha2(children.get(0), children.get(1));
+        return new Sha2(getFunctionParams(children));
     }
 
     @Override

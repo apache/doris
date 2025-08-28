@@ -58,11 +58,11 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -570,7 +570,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     Rewriter.getCteChildrenRewriter(childContext,
                             ImmutableList.of(Rewriter.topDown(new EliminateGroupByKey()))).execute();
                     return childContext.getRewritePlan();
-                }, viewProject, viewProject);
+                }, viewProject, viewProject, false);
 
         Optional<LogicalAggregate<Plan>> viewAggreagateOptional =
                 rewrittenPlan.collectFirst(LogicalAggregate.class::isInstance);
@@ -649,15 +649,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Set<Expression> topFunctionExpressions = new HashSet<>();
         queryTopPlan.getOutput().forEach(expression -> {
             ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
-                    new ExpressionLineageReplacer.ExpressionReplaceContext(ImmutableList.of(expression),
-                            ImmutableSet.of(), ImmutableSet.of(), queryStructInfo.getTableBitSet());
+                    new ExpressionLineageReplacer.ExpressionReplaceContext(ImmutableList.of(expression));
             queryTopPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
-            if (!Sets.intersection(bottomAggregateFunctionExprIdSet,
-                    replaceContext.getExprIdExpressionMap().keySet()).isEmpty()) {
+            if (Collections.disjoint(bottomAggregateFunctionExprIdSet, replaceContext.getUsedExprIdSet())) {
+                topGroupByExpressions.add(expression);
+            } else {
                 // if query top plan expression use any aggregate function, then consider it is aggregate function
                 topFunctionExpressions.add(expression);
-            } else {
-                topGroupByExpressions.add(expression);
+
             }
         });
         return Pair.of(topGroupByExpressions, topFunctionExpressions);

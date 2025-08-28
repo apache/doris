@@ -207,12 +207,12 @@ if [[ -z "${USE_LIBCPP}" ]]; then
     fi
 fi
 
-if [[ -z "${USE_DWARF}" ]]; then
-    USE_DWARF='OFF'
-fi
-
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
+fi
+
+if [[ -z "${ARM_MARCH}" ]]; then
+    ARM_MARCH='armv8-a+crc'
 fi
 
 if [[ -z "${USE_UNWIND}" ]]; then
@@ -243,10 +243,10 @@ cd "${CMAKE_BUILD_DIR}"
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
     -DBUILD_FILE_CACHE_MICROBENCH_TOOL=OFF \
-    -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
     -DUSE_JEMALLOC=OFF \
     -DUSE_AVX2="${USE_AVX2}" \
+    -DARM_MARCH="${ARM_MARCH}" \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \

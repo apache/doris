@@ -71,6 +71,11 @@ public class Percentile extends NullableAggregateFunction
         super("percentile", distinct, alwaysNullable, arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Percentile(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant()) {
@@ -85,12 +90,12 @@ public class Percentile extends NullableAggregateFunction
     @Override
     public Percentile withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Percentile(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new Percentile(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Percentile(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new Percentile(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

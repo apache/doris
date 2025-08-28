@@ -40,6 +40,7 @@
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
 #include "olap/row_cursor_cell.h"
+#include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -52,6 +53,8 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/score_runtime.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
@@ -169,6 +172,8 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_index_iterators();
+
+    Status _apply_ann_topn_predicate();
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -364,6 +369,7 @@ private:
     void _init_virtual_columns(vectorized::Block* block);
     // Fallback logic for virtual column materialization, materializing all unmaterialized virtual columns through expressions
     Status _materialization_of_virtual_column(vectorized::Block* block);
+    void _prepare_score_column_materialization();
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
@@ -481,9 +487,15 @@ private:
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
 
+    vectorized::ScoreRuntimeSPtr _score_runtime;
+
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
+
     // cid to virtual column expr
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
+
+    IndexQueryContextPtr _index_query_context;
 };
 
 } // namespace segment_v2

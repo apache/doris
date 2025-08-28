@@ -65,6 +65,11 @@ public class LinearHistogram extends NotNullableAggregateFunction implements Exp
         super(FunctionSet.LINEAR_HISTOGRAM, distinct, arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private LinearHistogram(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!(child(0).getDataType() instanceof PrimitiveType)) {
@@ -74,7 +79,7 @@ public class LinearHistogram extends NotNullableAggregateFunction implements Exp
 
     @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new LinearHistogram(distinct, children);
+        return new LinearHistogram(getFunctionParams(distinct, children));
     }
 
     @Override

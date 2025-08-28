@@ -263,7 +263,9 @@ struct AggregateFunctionDistinctMultipleGenericData
 template <template <bool stable> typename Data, bool stable = false>
 class AggregateFunctionDistinct
         : public IAggregateFunctionDataHelper<Data<stable>,
-                                              AggregateFunctionDistinct<Data, stable>> {
+                                              AggregateFunctionDistinct<Data, stable>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 private:
     size_t prefix_size;
     AggregateFunctionPtr nested_func;

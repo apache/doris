@@ -225,7 +225,7 @@ TEST_F(JsonbParserTest, ParseJsonWithLongInt2) {
 
 TEST_F(JsonbParserTest, ParseJsonWithLongInt3) {
     std::string_view json_with_long_int = R"(12345678901234567890123456789012345678901234567890)";
-    std::string_view expected_json_with_long_int = R"(1.23456789012346e+49)";
+    std::string_view expected_json_with_long_int = R"(1.2345678901234567e+49)";
     EXPECT_EQ(parse_json_and_check(json_with_long_int, expected_json_with_long_int), Status::OK());
 }
 
@@ -314,7 +314,7 @@ TEST_F(JsonbParserTest, ParseJsonWithNestedObjectValue) {
 
 TEST_F(JsonbParserTest, ParseJsonWithLongDouble) {
     std::string_view json_with_long_double = R"({"long_double": 3.1982938928398232132})";
-    std::string_view excepted_json_with_long_double = R"({"long_double":3.19829389283982})";
+    std::string_view excepted_json_with_long_double = R"({"long_double":3.198293892839823})";
     EXPECT_EQ(parse_json_and_check(json_with_long_double, excepted_json_with_long_double),
               Status::OK());
 }
@@ -322,7 +322,7 @@ TEST_F(JsonbParserTest, ParseJsonWithLongDouble) {
 TEST_F(JsonbParserTest, ParseJsonWith50DigitDouble) {
     std::string_view json_with_50_digit_double =
             R"({"double_value": 1.2345678901234567890123456789012345678901234567890})";
-    std::string_view expected_json_with_50_digit_double = R"({"double_value":1.23456789012346})";
+    std::string_view expected_json_with_50_digit_double = R"({"double_value":1.2345678901234567})";
     EXPECT_EQ(parse_json_and_check(json_with_50_digit_double, expected_json_with_50_digit_double),
               Status::OK());
 }
@@ -331,7 +331,7 @@ TEST_F(JsonbParserTest, ParseJsonWithScientificNotationDouble) {
     std::string_view json_with_scientific_double =
             R"({"scientific_double": 1.234567890123456789e+50})";
     std::string_view expected_json_with_scientific_double =
-            R"({"scientific_double":1.23456789012346e+50})";
+            R"({"scientific_double":1.2345678901234569e+50})";
     EXPECT_EQ(
             parse_json_and_check(json_with_scientific_double, expected_json_with_scientific_double),
             Status::OK());
@@ -339,14 +339,14 @@ TEST_F(JsonbParserTest, ParseJsonWithScientificNotationDouble) {
 
 TEST_F(JsonbParserTest, ParseJsonWithMaxDouble) {
     std::string_view json_with_max_double = R"({"max_double": 1.7976931348623157e+308})";
-    std::string_view expected_json_with_max_double = R"({"max_double":1.79769313486232e+308})";
+    std::string_view expected_json_with_max_double = R"({"max_double":1.7976931348623157e+308})";
     EXPECT_EQ(parse_json_and_check(json_with_max_double, expected_json_with_max_double),
               Status::OK());
 }
 
 TEST_F(JsonbParserTest, ParseJsonWithMinDouble) {
     std::string_view json_with_min_double = R"({"min_double": 2.2250738585072014e-308})";
-    std::string_view expected_json_with_min_double = R"({"min_double":2.2250738585072e-308})";
+    std::string_view expected_json_with_min_double = R"({"min_double":2.2250738585072014e-308})";
     EXPECT_EQ(parse_json_and_check(json_with_min_double, expected_json_with_min_double),
               Status::OK());
 }
@@ -355,7 +355,7 @@ TEST_F(JsonbParserTest, ParseJsonWithNegativeDouble) {
     std::string_view json_with_negative_double =
             R"({"negative_double": -1.2345678901234567890123456789012345678901234567890})";
     std::string_view expected_json_with_negative_double =
-            R"({"negative_double":-1.23456789012346})";
+            R"({"negative_double":-1.2345678901234567})";
     EXPECT_EQ(parse_json_and_check(json_with_negative_double, expected_json_with_negative_double),
               Status::OK());
 }
@@ -364,7 +364,7 @@ TEST_F(JsonbParserTest, ParseJsonWithNegativeScientificDouble) {
     std::string_view json_with_negative_scientific_double =
             R"({"negative_scientific_double": -1.234567890123456789e-50})";
     std::string_view expected_json_with_negative_scientific_double =
-            R"({"negative_scientific_double":-1.23456789012346e-50})";
+            R"({"negative_scientific_double":-1.2345678901234569e-50})";
     EXPECT_EQ(parse_json_and_check(json_with_negative_scientific_double,
                                    expected_json_with_negative_scientific_double),
               Status::OK());
@@ -388,7 +388,7 @@ TEST_F(JsonbParserTest, ParseJsonWithZeroScientificDouble) {
 TEST_F(JsonbParserTest, ParseJsonWithNearMaxDouble) {
     std::string_view json_with_near_max_double = R"({"near_max_double": 1.7976931348623156e+308})";
     std::string_view expected_json_with_near_max_double =
-            R"({"near_max_double":1.79769313486232e+308})";
+            R"({"near_max_double":1.7976931348623155e+308})";
     EXPECT_EQ(parse_json_and_check(json_with_near_max_double, expected_json_with_near_max_double),
               Status::OK());
 }

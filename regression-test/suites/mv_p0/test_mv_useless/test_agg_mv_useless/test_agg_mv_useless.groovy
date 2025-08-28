@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("test_agg_mv_useless") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     def testTable = "test_agg_mv_useless_table"
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${testTable}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -38,8 +40,8 @@ suite ("test_agg_mv_useless") {
     sql "insert into ${testTable} select 2,2,2;"
     sql "insert into ${testTable} select 3,3,3;"
 
-    createMV("create materialized view k1_u1 as select k1 from ${testTable} group by k1;")
-    createMV("create materialized view k1_k2_u21 as select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
-    createMV("create materialized view k1_sumk3 as select k1,sum(k3) from ${testTable} group by k1;")
+    createMV("create materialized view k1_u1 as select k1 as a1 from ${testTable} group by k1;")
+    createMV("create materialized view k1_k2_u21 as select k2 as a2,k1 as a3 from ${testTable} group by k2,k1 order by k2,k1;")
+    createMV("create materialized view k1_sumk3 as select k1 as a4,sum(k3) from ${testTable} group by k1;")
     sql "insert into ${testTable} select 4,4,4;"
 }

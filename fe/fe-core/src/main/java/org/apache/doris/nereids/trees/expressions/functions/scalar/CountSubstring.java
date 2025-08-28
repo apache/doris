@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -35,11 +34,13 @@ import java.util.List;
  * ScalarFunction 'count_substrings'.
  */
 public class CountSubstring extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE)
-                    .args(StringType.INSTANCE, StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE, IntegerType.INSTANCE)
     );
 
     /**
@@ -49,13 +50,24 @@ public class CountSubstring extends ScalarFunction
         super("count_substrings", arg0, arg1);
     }
 
+    /** * constructor with 3 arguments.
+     */
+    public CountSubstring(Expression arg0, Expression arg1, Expression arg2) {
+        super("count_substrings", arg0, arg1, arg2);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private CountSubstring(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public CountSubstring withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new CountSubstring(children.get(0), children.get(1));
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
+        return new CountSubstring(getFunctionParams(children));
     }
 
     @Override

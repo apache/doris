@@ -58,13 +58,18 @@ public class Ipv6CIDRToRange extends ScalarFunction
         super("ipv6_cidr_to_range", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ipv6CIDRToRange(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public Ipv6CIDRToRange withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2,
                 "ipv6_cidr_to_range accept 2 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv6CIDRToRange(children.get(0), children.get(1));
+        return new Ipv6CIDRToRange(getFunctionParams(children));
     }
 
     @Override

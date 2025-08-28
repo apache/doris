@@ -36,7 +36,6 @@
 namespace doris {
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -81,12 +80,6 @@ std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                            "Data type {} to_string not implement.", get_name());
     return "";
-}
-Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Data type {} from_string not implement.", get_name());
-
-    return Status::OK();
 }
 
 void IDataType::to_string_batch(const IColumn& column, ColumnString& column_to) const {

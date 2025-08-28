@@ -64,6 +64,11 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
         if (ugi == null) {
             subject = getSubject(config.getKerberosKeytab(), config.getKerberosPrincipal(), config.isPrintDebugLog());
             ugi = Objects.requireNonNull(login(subject), "login result is null");
+            if (LOG.isDebugEnabled()) {
+                Date lastTicketEndTime = getTicketEndTime(subject);
+                LOG.debug("Kerberos principal: {}, last ticket end time: {}",
+                        config.getKerberosPrincipal(), lastTicketEndTime);
+            }
             return ugi;
         }
         if (nextRefreshTime < System.currentTimeMillis()) {
@@ -97,6 +102,11 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
                 LOG.debug("Refresh kerberos ticket succeeded, last time is {}, next time is {}",
                         lastRefreshTime, nextRefreshTime);
             }
+        }
+        if (LOG.isDebugEnabled()) {
+            Date lastTicketEndTime = getTicketEndTime(subject);
+            LOG.debug("Kerberos principal: {}, last ticket end time: {}",
+                    config.getKerberosPrincipal(), lastTicketEndTime);
         }
         return ugi;
     }

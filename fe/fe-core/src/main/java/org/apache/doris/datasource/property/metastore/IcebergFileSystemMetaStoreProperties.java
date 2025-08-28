@@ -17,16 +17,17 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -42,13 +43,22 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         Configuration configuration = buildConfiguration(storagePropertiesList);
-        Map<String, String> catalogProps = buildCatalogProps(storagePropertiesList);
-
         HadoopCatalog catalog = new HadoopCatalog();
+        buildCatalogProps(catalogProps, storagePropertiesList);
         catalog.setConf(configuration);
-        catalog.initialize(catalogName, catalogProps);
+        try {
+            this.executionAuthenticator.execute(() -> {
+                catalog.initialize(catalogName, catalogProps);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize iceberg filesystem catalog: "
+                    + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+
         return catalog;
     }
 
@@ -62,19 +72,15 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
         return configuration;
     }
 
-    private Map<String, String> buildCatalogProps(List<StorageProperties> storagePropertiesList) {
-        Map<String, String> props = new HashMap<>(origProps);
-
+    private void buildCatalogProps(Map<String, String> props, List<StorageProperties> storagePropertiesList) {
         if (storagePropertiesList.size() == 1 && storagePropertiesList.get(0) instanceof HdfsProperties) {
             HdfsProperties hdfsProps = (HdfsProperties) storagePropertiesList.get(0);
             if (hdfsProps.isKerberos()) {
                 props.put(CatalogProperties.FILE_IO_IMPL,
                         "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
+                this.executionAuthenticator = new HadoopExecutionAuthenticator(hdfsProps.getHadoopAuthenticator());
             }
         }
-
-        props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        return props;
     }
 
 }

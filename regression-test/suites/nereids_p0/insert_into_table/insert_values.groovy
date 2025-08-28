@@ -21,8 +21,6 @@ suite('nereids_insert_into_values') {
     sql 'set enable_nereids_dml=true'
     sql 'set enable_strict_consistency_dml=true'
 
-    sql 'use nereids_insert_into_table_test'
-
     def t1 = 'value_t1'
     def t2 = 'value_t2'
     def t3 = 'value_t3'
@@ -138,7 +136,7 @@ suite('nereids_insert_into_values') {
         properties("replication_num" = "1");
     """
 
-    createMV("create materialized view k12s3m as select k1, sum(k2), max(k2) from agg_have_dup_base_value group by k1;")
+    createMV("create materialized view k12s3m as select k1 as a1, sum(k2), max(k2) from agg_have_dup_base_value group by k1;")
 
     sql "insert into agg_have_dup_base_value values (-4, -4, -4, 'd')"
     sql "sync"
@@ -165,16 +163,32 @@ suite('nereids_insert_into_values') {
         drop table if exists test_insert_more_string;
         CREATE TABLE test_insert_more_string (
             `r_regionkey` int NULL,
-            `r_name` varchar(25) NULL,
-            `r_comment` varchar(152) NULL
+            `r_name` varchar(4) NULL
         )
         DUPLICATE KEY(`r_regionkey`)
         DISTRIBUTED BY HASH(`r_regionkey`)
         BUCKETS 1 PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
         );
-        insert into test_insert_more_string values (3, "akljalkjbalkjsldkrjewokjfalksdjflaksjfdlaskjfalsdkfjalsdfjkasfdl", "aa")
         """
 
-    qt_select_test_insert_more_string "select * from test_insert_more_string"
+    // shorter varchar is ok
+    sql "insert into test_insert_more_string values (1, 'ab')"
+
+    // set enable_insert_value_auto_cast = true
+    // longer varchar will truncate
+    sql "insert into test_insert_more_string values (2, 'abcdefg')"
+
+    // when disable string auto cast and in insert strict mode, insert will failed
+    sql 'set enable_insert_value_auto_cast = false'
+    test {
+        sql "insert into test_insert_more_string values (3, 'hi'), (4, 'jklmn')"
+        exception 'Insert has filtered data in strict mode'
+    }
+
+    // when disable insert strict, the longer varchar row will be filtered, other rows will succ
+    sql 'set enable_insert_strict = false'
+    sql "insert into test_insert_more_string values (5, 'o'), (6, 'pqrst')"
+
+    order_qt_select_test_insert_more_string "select * from test_insert_more_string"
 }

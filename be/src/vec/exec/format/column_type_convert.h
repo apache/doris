@@ -30,6 +30,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized::converter {
@@ -285,10 +286,8 @@ public:
                         (*null_map)[start_idx + i] = 1;
                     }
                 }
-                char buf[128];
-                int strlen;
-                strlen = fast_to_buffer(src_data[i], buf);
-                string_col.insert_data(buf, strlen);
+                auto str = CastToString::from_number(src_data[i]);
+                string_col.insert_data(str.data(), str.size());
             } else {
                 std::string value;
                 if constexpr (SrcPrimitiveType == TYPE_LARGEINT) {
@@ -485,7 +484,7 @@ struct SafeCastString<TYPE_DATETIME> {
     static bool safe_cast_string(
             const char* startptr, size_t buffer_size,
             PrimitiveTypeTraits<TYPE_DATETIME>::ColumnType::value_type* value) {
-        ReadBuffer buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
+        StringRef buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
         return read_datetime_text_impl<Int64>(*value, buffer);
     }
 };
@@ -495,7 +494,7 @@ struct SafeCastString<TYPE_DATETIMEV2> {
     static bool safe_cast_string(
             const char* startptr, size_t buffer_size,
             PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType::value_type* value, int scale) {
-        ReadBuffer buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
+        StringRef buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
         return read_datetime_v2_text_impl<UInt64>(*value, buffer, scale);
     }
 };
@@ -504,7 +503,7 @@ template <>
 struct SafeCastString<TYPE_DATE> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_DATE>::ColumnType::value_type* value) {
-        ReadBuffer buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
+        StringRef buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
         return read_date_text_impl<Int64>(*value, buffer);
     }
 };
@@ -513,7 +512,7 @@ template <>
 struct SafeCastString<TYPE_DATEV2> {
     static bool safe_cast_string(const char* startptr, size_t buffer_size,
                                  PrimitiveTypeTraits<TYPE_DATEV2>::ColumnType::value_type* value) {
-        ReadBuffer buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
+        StringRef buffer(reinterpret_cast<const unsigned char*>(startptr), buffer_size);
         return read_date_v2_text_impl<UInt32>(*value, buffer);
     }
 };

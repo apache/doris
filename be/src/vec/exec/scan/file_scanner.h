@@ -78,7 +78,7 @@ public:
 
     void try_stop() override;
 
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
+    Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
     std::string get_name() override { return FileScanner::NAME; }
 
@@ -169,6 +169,7 @@ protected:
     // owned by scan node
     ShardedKVCache* _kv_cache = nullptr;
 
+    std::set<TSlotId> _is_file_slot;
     bool _scanner_eof = false;
     int _rows = 0;
     int _num_of_columns_from_file;
@@ -188,8 +189,11 @@ protected:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::unique_ptr<io::IOContext> _io_ctx;
 
+    // Whether to fill partition columns from path, default is true.
+    bool _fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
+    std::unordered_map<std::string, bool> _partition_value_is_null;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
     // idx of skip_bitmap_col in _input_tuple_desc
@@ -241,7 +245,7 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
-    Status _generate_parititon_columns();
+    Status _generate_partition_columns();
     Status _generate_missing_columns();
     bool _check_partition_prune_expr(const VExprSPtr& expr);
     void _init_runtime_filter_partition_prune_ctxs();

@@ -890,6 +890,45 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode");
         olapScanNode.setNereidsId(olapScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(olapScan.getId(), olapScanNode.getId());
+
+        // translate score topn info
+        if (!olapScan.getScoreOrderKeys().isEmpty()) {
+            TupleDescriptor scoreSortTuple = olapScanNode.getTupleDesc();
+            List<Expr> orderingExprs = Lists.newArrayList();
+            List<Boolean> ascOrders = Lists.newArrayList();
+            List<Boolean> nullsFirstParams = Lists.newArrayList();
+            List<OrderKey> scoreOrderKeys = olapScan.getScoreOrderKeys();
+            scoreOrderKeys.forEach(k -> {
+                orderingExprs.add(ExpressionTranslator.translate(k.getExpr(), context));
+                ascOrders.add(k.isAsc());
+                nullsFirstParams.add(k.isNullFirst());
+            });
+            SortInfo scoreSortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, scoreSortTuple);
+            olapScanNode.setScoreSortInfo(scoreSortInfo);
+        }
+        if (olapScan.getScoreLimit().isPresent()) {
+            olapScanNode.setScoreSortLimit(olapScan.getScoreLimit().get());
+        }
+
+        // translate ann topn info
+        if (!olapScan.getAnnOrderKeys().isEmpty()) {
+            TupleDescriptor annSortTuple = olapScanNode.getTupleDesc();
+            List<Expr> orderingExprs = Lists.newArrayList();
+            List<Boolean> ascOrders = Lists.newArrayList();
+            List<Boolean> nullsFirstParams = Lists.newArrayList();
+            List<OrderKey> annOrderKeys = olapScan.getAnnOrderKeys();
+            annOrderKeys.forEach(k -> {
+                orderingExprs.add(ExpressionTranslator.translate(k.getExpr(), context));
+                ascOrders.add(k.isAsc());
+                nullsFirstParams.add(k.isNullFirst());
+            });
+            SortInfo annSortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, annSortTuple);
+            olapScanNode.setAnnSortInfo(annSortInfo);
+        }
+        if (olapScan.getAnnLimit().isPresent()) {
+            olapScanNode.setAnnSortLimit(olapScan.getAnnLimit().get());
+        }
+
         // TODO: move all node set cardinality into one place
         if (olapScan.getStats() != null) {
             // NOTICE: we should not set stats row count
@@ -1038,12 +1077,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
                 table.getName())) {
             scanNode = new BackendPartitionedSchemaScanNode(context.nextPlanNodeId(), table, tupleDescriptor,
-                schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
-                schemaScan.getSchemaTable().orElse(null));
+                    schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
+                    schemaScan.getSchemaTable().orElse(null),
+                    translateToExprs(schemaScan.getFrontendConjuncts(), context));
         } else {
             scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
-                schemaScan.getSchemaTable().orElse(null));
+                    schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
+                    schemaScan.getSchemaTable().orElse(null), translateToExprs(schemaScan.getFrontendConjuncts(),
+                    context));
         }
         scanNode.setNereidsId(schemaScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(schemaScan.getId(), scanNode.getId());
@@ -1067,6 +1108,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), schemaScan);
         return planFragment;
+    }
+
+    private List<Expr> translateToExprs(List<Expression> expressions, PlanTranslatorContext context) {
+        List<Expr> exprs = Lists.newArrayListWithCapacity(expressions.size());
+        for (Expression expression : expressions) {
+            exprs.add(ExpressionTranslator.translate(expression, context));
+        }
+        return exprs;
     }
 
     @Override
@@ -1470,7 +1519,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(generate.getGeneratorOutput(), null, context);
         List<TupleId> childOutputTupleIds = currentFragment.getPlanRoot().getOutputTupleIds();
         if (childOutputTupleIds == null || childOutputTupleIds.isEmpty()) {
-            childOutputTupleIds = currentFragment.getPlanRoot().getTupleIds();
+            childOutputTupleIds = currentFragment.getPlanRoot().getOutputTupleIds();
         }
         List<SlotId> outputSlotIds = Stream.concat(childOutputTupleIds.stream(),
                         Stream.of(tupleDescriptor.getId()))

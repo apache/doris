@@ -50,14 +50,18 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
         super("array_union", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayUnion(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayUnion withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new ArrayUnion(children.get(0), children.get(1),
-                children.subList(2, children.size()).toArray(new Expression[0]));
+        return new ArrayUnion(getFunctionParams(children));
     }
 
     @Override

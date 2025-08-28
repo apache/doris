@@ -340,8 +340,8 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
                 LOG_INFO("inject error when CloudTabletCalcDeleteBitmapTask::_handle_rowset");
                 return Status::MemoryLimitExceeded("injected MemoryLimitExceeded error");
             });
-            RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(),
-                                                                        segments, delete_bitmap));
+            RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
+                    rowset->tablet_schema(), rowset->rowset_id(), segments, delete_bitmap));
         }
 
         if (invisible_rowsets == nullptr) {

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.materialize.LazyMaterializeTopN;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2Generator;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterMode;
 
@@ -47,11 +48,13 @@ public class PlanPostProcessors {
      * @return physical plan
      */
     public PhysicalPlan process(PhysicalPlan physicalPlan) {
-        PhysicalPlan resultPlan = physicalPlan;
-        for (PlanPostProcessor processor : getProcessors()) {
-            resultPlan = (PhysicalPlan) processor.processRoot(resultPlan, cascadesContext);
-        }
-        return resultPlan;
+        return MoreFieldsThread.keepFunctionSignature(() -> {
+            PhysicalPlan resultPlan = physicalPlan;
+            for (PlanPostProcessor processor : getProcessors()) {
+                resultPlan = (PhysicalPlan) processor.processRoot(resultPlan, cascadesContext);
+            }
+            return resultPlan;
+        });
     }
 
     /**
@@ -62,7 +65,7 @@ public class PlanPostProcessors {
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         builder.add(new PushDownFilterThroughProject());
         builder.add(new RemoveUselessProjectPostProcessor());
-        if (cascadesContext.getConnectContext().getSessionVariable().enableTopnLazyMaterialization) {
+        if (cascadesContext.getConnectContext().getSessionVariable().enableTopnLazyMaterialization()) {
             // LazyMaterializeTopN should run before MergeProjectPostProcessor
             builder.add(new LazyMaterializeTopN());
         }

@@ -866,7 +866,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         using FromT = typename PrimitiveTypeTraits<FromPT>::CppType;
         static_assert(std::numeric_limits<FromT>::is_integer, "FromT must be an integer type");
         DataTypeNumber<FromPT> dt_from;
-        DataTypeDecimal<ToT::PType> dt_to(precision, scale);
+        DataTypeDecimal<ToT::PType> dt_to = get_decimal_data_type<ToT>(precision, scale);
         InputTypeSet input_types = {dt_from.get_primitive_type()};
         // std::cout << "test cast from int to Decimal(" << precision << ", " << scale << ")\n";
 
@@ -1672,7 +1672,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         auto max_from_int_digit_count = from_precision - from_scale;
         auto max_to_int_digit_count = to_precision - to_scale;
 
-        DataTypeDecimal<FromT::PType> dt_from(from_precision, from_scale);
+        DataTypeDecimal<FromT::PType> dt_from =
+                get_decimal_data_type<FromT>(from_precision, from_scale);
         DataTypeDecimal<ToT::PType> dt_to(to_precision, to_scale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), from_scale, from_precision}};
         auto from_decimal_ctor = get_decimal_ctor<FromT>();
@@ -1740,14 +1741,21 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         // std::cout << "to_min_fraction_will_round_to_int:\t"
         //           << fmt::format("{}", to_min_fraction_will_round_to_int) << std::endl;
         std::set<typename FromT::NativeType> from_integral_part = {0};
-        std::set<typename FromT::NativeType> from_fractional_part = {0, from_max_fractional};
+        std::set<typename FromT::NativeType> from_fractional_part = {0};
+        typename FromT::NativeType from_fractional_part_multiplier = 1;
+        if constexpr (IsDecimalV2<FromT>) {
+            from_fractional_part_multiplier =
+                    decimal_scale_multiplier<typename FromT::NativeType>(9 - from_scale);
+        }
+        from_fractional_part.emplace(from_max_fractional * from_fractional_part_multiplier);
         if (from_max_fractional > 0) {
-            from_fractional_part.emplace(1);
-            from_fractional_part.emplace(9);
-            from_fractional_part.emplace(from_max_fractional - 1);
-            from_fractional_part.emplace(from_large_fractional1);
-            from_fractional_part.emplace(from_large_fractional2);
-            from_fractional_part.emplace(from_large_fractional3);
+            from_fractional_part.emplace(1 * from_fractional_part_multiplier);
+            from_fractional_part.emplace(9 * from_fractional_part_multiplier);
+            from_fractional_part.emplace((from_max_fractional - 1) *
+                                         from_fractional_part_multiplier);
+            from_fractional_part.emplace(from_large_fractional1 * from_fractional_part_multiplier);
+            from_fractional_part.emplace(from_large_fractional2 * from_fractional_part_multiplier);
+            from_fractional_part.emplace(from_large_fractional3 * from_fractional_part_multiplier);
         }
         bool may_overflow =
                 (max_to_int_digit_count < max_from_int_digit_count) ||
@@ -1807,6 +1815,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         }
 
         std::vector<std::pair<std::string, std::string>> regression_test_data_set;
+        int from_calc_scale = IsDecimalV2<FromT> ? 9 : from_scale;
         for (const auto& i : from_integral_part) {
             std::string dbg_str = dbg_str0;
             DataSet data_set;
@@ -1822,11 +1831,11 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     from_decimal_num = from_decimal_ctor(i, f, from_scale);
                 }
                 if (may_overflow) {
-                    if (to_scale >= from_scale) {
+                    if (to_scale >= from_calc_scale) {
                         // no round
-                        if (to_scale != from_scale) {
+                        if (to_scale != from_calc_scale) {
                             to_frac = to_frac * decimal_scale_multiplier<typename ToT::NativeType>(
-                                                        to_scale - from_scale);
+                                                        to_scale - from_calc_scale);
                         }
                         to_decimal_num = to_decimal_ctor(to_int, to_frac, to_scale);
                         // dbg_str += fmt::format("({}, {})|", dt_from.to_string(from_decimal_num),
@@ -1835,8 +1844,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     } else {
                         // need handle round
                         auto scale_multiplier =
-                                decimal_scale_multiplier<typename FromT::NativeType>(from_scale -
-                                                                                     to_scale);
+                                decimal_scale_multiplier<typename FromT::NativeType>(
+                                        from_calc_scale - to_scale);
                         to_frac = f / scale_multiplier;
                         auto remaining = f % scale_multiplier;
                         if (remaining >= scale_multiplier / 2) {
@@ -1858,14 +1867,14 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     }
                 } else {
                     // won't overflow
-                    if (to_scale > from_scale) {
+                    if (to_scale > from_calc_scale) {
                         to_frac = to_frac * decimal_scale_multiplier<typename ToT::NativeType>(
-                                                    to_scale - from_scale);
-                    } else if (to_scale < from_scale) {
+                                                    to_scale - from_calc_scale);
+                    } else if (to_scale < from_calc_scale) {
                         // need handle round
                         auto scale_multiplier =
-                                decimal_scale_multiplier<typename FromT::NativeType>(from_scale -
-                                                                                     to_scale);
+                                decimal_scale_multiplier<typename FromT::NativeType>(
+                                        from_calc_scale - to_scale);
                         to_frac = f / scale_multiplier;
                         auto remaining = f % scale_multiplier;
                         if (remaining >= scale_multiplier / 2) {
@@ -1895,12 +1904,15 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                                  to_precision);
         }
         if (FLAGS_gen_regression_case) {
-            std::string from_sql_type_name =
-                    fmt::format("decimalv3({}, {})", from_precision, from_scale);
+            std::string from_decimal_sql_type_name =
+                    FromT::PType == TYPE_DECIMALV2 ? "decimalv2" : "decimalv3";
+            std::string from_sql_type_name = fmt::format("{}({}, {})", from_decimal_sql_type_name,
+                                                         from_precision, from_scale);
             std::string to_sql_type_name = fmt::format("decimalv3({}, {})", to_precision, to_scale);
             std::string regression_case_name =
-                    fmt::format("test_cast_to_decimal_{}_{}_from_decimal_{}_{}", to_precision,
-                                to_scale, from_precision, from_scale);
+                    fmt::format("test_cast_to_decimal_{}_{}_from_{}_{}_{}", to_precision, to_scale,
+                                FromT::PType == TYPE_DECIMALV2 ? "decimalv2" : "decimal",
+                                from_precision, from_scale);
             gen_normal_regression_case(regression_case_name, from_sql_type_name, true,
                                        to_sql_type_name, regression_test_data_set, table_index,
                                        test_data_index, ofs_case, ofs_expected_result,
@@ -1947,36 +1959,53 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 (*ofs_case) << "    sql \"set enable_decimal256 = true;\"\n";
             }
         }
-        auto test_func = [&](int test_from_precision) {
+        if constexpr (std::is_same_v<FromT, Decimal128V2>) {
             between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
-                    test_from_precision, 0, to_precision, to_scale, table_index++, test_data_index,
-                    ofs_case, ofs_expected_result, ofs_const_case, ofs_const_expected_result
+                    1, 0, to_precision, to_scale, table_index++, test_data_index, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
+                    1, 1, to_precision, to_scale, table_index++, test_data_index, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
+                    27, 9, to_precision, to_scale, table_index++, test_data_index, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
+                    20, 5, to_precision, to_scale, table_index++, test_data_index, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+        } else {
+            auto test_func = [&](int test_from_precision) {
+                between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
+                        test_from_precision, 0, to_precision, to_scale, table_index++,
+                        test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+                        ofs_const_expected_result
 
-            );
-            between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
-                    test_from_precision, 1, to_precision, to_scale, table_index++, test_data_index,
-                    ofs_case, ofs_expected_result, ofs_const_case, ofs_const_expected_result);
-            if (test_from_precision != 1) {
-                // between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
-                //         test_from_precision, test_from_precision / 2, to_precision, to_scale,
-                //         table_index++, test_data_index, ofs_case, ofs_expected_result,
-                //         ofs_const_case, ofs_const_expected_result);
+                );
                 between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
-                        test_from_precision, test_from_precision - 1, to_precision, to_scale,
-                        table_index++, test_data_index, ofs_case, ofs_expected_result,
-                        ofs_const_case, ofs_const_expected_result);
-                between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
-                        test_from_precision, test_from_precision, to_precision, to_scale,
-                        table_index++, test_data_index, ofs_case, ofs_expected_result,
-                        ofs_const_case, ofs_const_expected_result);
-            }
-        };
-        test_func(from_min_decimal_p);
-        // if constexpr ((from_max_decimal_p / 2) > from_min_decimal_p) {
-        //     test_func(from_max_decimal_p / 2);
-        // }
-        // test_func(from_max_decimal_p - 1);
-        test_func(from_max_decimal_p);
+                        test_from_precision, 1, to_precision, to_scale, table_index++,
+                        test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+                        ofs_const_expected_result);
+                if (test_from_precision != 1) {
+                    // between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
+                    //         test_from_precision, test_from_precision / 2, to_precision, to_scale,
+                    //         table_index++, test_data_index, ofs_case, ofs_expected_result,
+                    //         ofs_const_case, ofs_const_expected_result);
+                    between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
+                            test_from_precision, test_from_precision - 1, to_precision, to_scale,
+                            table_index++, test_data_index, ofs_case, ofs_expected_result,
+                            ofs_const_case, ofs_const_expected_result);
+                    between_decimal_with_precision_and_scale_test_func<FromT, ToT>(
+                            test_from_precision, test_from_precision, to_precision, to_scale,
+                            table_index++, test_data_index, ofs_case, ofs_expected_result,
+                            ofs_const_case, ofs_const_expected_result);
+                }
+            };
+            test_func(from_min_decimal_p);
+            // if constexpr ((from_max_decimal_p / 2) > from_min_decimal_p) {
+            //     test_func(from_max_decimal_p / 2);
+            // }
+            // test_func(from_max_decimal_p - 1);
+            test_func(from_max_decimal_p);
+        }
 
         if (FLAGS_gen_regression_case) {
             (*ofs_const_case) << "}";
@@ -2039,7 +2068,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         auto max_from_int_digit_count = from_precision - from_scale;
         auto max_to_int_digit_count = to_precision - to_scale;
 
-        DataTypeDecimal<FromT::PType> dt_from(from_precision, from_scale);
+        DataTypeDecimal<FromT::PType> dt_from =
+                get_decimal_data_type<FromT>(from_precision, from_scale);
         DataTypeDecimal<ToT::PType> dt_to(to_precision, to_scale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), from_scale, from_precision}};
         auto from_decimal_ctor = get_decimal_ctor<FromT>();
@@ -2052,6 +2082,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         // max_fractional:    99999999
         auto from_max_fractional =
                 decimal_scale_multiplier<typename FromT::NativeType>(from_scale) - 1;
+        if constexpr (IsDecimalV2<FromT>) {
+            from_max_fractional *=
+                    decimal_scale_multiplier<typename FromT::NativeType>(9 - from_scale);
+        }
 
         auto to_max_integral =
                 decimal_scale_multiplier<typename ToT::NativeType>(to_precision - to_scale) - 1;
@@ -2098,6 +2132,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             DataSet data_set;
             std::string dbg_str = dbg_str0;
             std::vector<std::string> test_input_vals;
+            int from_calc_scale = IsDecimalV2<FromT> ? 9 : from_scale;
             for (const auto& i : from_integral_part) {
                 FromT from_decimal_num {};
                 if (i == to_max_integral && to_scale >= from_scale) {
@@ -2120,11 +2155,12 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 }
                 if (from_scale > to_scale) {
                     auto scale_multiplier = decimal_scale_multiplier<typename FromT::NativeType>(
-                            from_scale - to_scale);
-                    typename ToT::NativeType to_frac = from_max_fractional / scale_multiplier;
-                    to_frac *= 10;
-                    to_frac += 5;
-                    from_decimal_num = from_decimal_ctor(i, from_max_fractional, from_scale);
+                            from_calc_scale - to_scale);
+                    typename FromT::NativeType from_frac = from_max_fractional / scale_multiplier;
+                    from_frac *= 10;
+                    from_frac += 5;
+                    from_frac *= (typename FromT::NativeType)(scale_multiplier / 10);
+                    from_decimal_num = from_decimal_ctor(i, from_frac, from_scale);
                     data_set.push_back({{from_decimal_num}, Null()});
                     test_input_vals.push_back(dt_from.to_string(from_decimal_num));
 
@@ -2143,13 +2179,16 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                                  to_precision);
 
             if (FLAGS_gen_regression_case) {
-                std::string from_sql_type_name =
-                        fmt::format("decimalv3({}, {})", from_precision, from_scale);
+                std::string from_decimal_sql_type_name =
+                        FromT::PType == TYPE_DECIMALV2 ? "decimalv2" : "decimalv3";
+                std::string from_sql_type_name = fmt::format(
+                        "{}({}, {})", from_decimal_sql_type_name, from_precision, from_scale);
                 std::string to_sql_type_name =
                         fmt::format("decimalv3({}, {})", to_precision, to_scale);
-                std::string regression_case_name =
-                        fmt::format("test_cast_to_decimal_{}_{}_from_decimal_{}_{}_overflow",
-                                    to_precision, to_scale, from_precision, from_scale);
+                std::string regression_case_name = fmt::format(
+                        "test_cast_to_decimal_{}_{}_from_{}_{}_{}_overflow", to_precision, to_scale,
+                        FromT::PType == TYPE_DECIMALV2 ? "decimalv2" : "decimal", from_precision,
+                        from_scale);
                 gen_overflow_and_invalid_regression_case(regression_case_name, from_sql_type_name,
                                                          true, to_sql_type_name, test_input_vals,
                                                          table_index, ofs_case, ofs_expected_result,
@@ -2176,28 +2215,43 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                          ? BeConsts::MAX_DECIMAL128_PRECISION + 1
                                                          : 1)));
         static_assert(from_min_decimal_p == 1 || from_min_decimal_p > 9);
-        std::vector<int> from_precisions;
-        from_precisions.emplace_back(from_min_decimal_p);
-        // if (from_max_decimal_p / 2 > from_min_decimal_p) {
-        //     from_precisions.emplace_back(from_max_decimal_p / 2);
-        // }
-        // from_precisions.emplace_back(from_max_decimal_p - 1);
-        from_precisions.emplace_back(from_max_decimal_p);
-        std::set<std::pair<int, int>> from_precision_scales;
-        for (auto p : from_precisions) {
-            from_precision_scales.emplace(p, 0);
-            from_precision_scales.emplace(p, 1);
-            if (p != 1) {
-                // from_precision_scales.emplace(p, p / 2);
-                from_precision_scales.emplace(p, p - 1);
-                from_precision_scales.emplace(p, p);
-            }
-        }
-        for (const auto& from_p_s : from_precision_scales) {
+        if constexpr (std::is_same_v<FromT, Decimal128V2>) {
             between_decimal_with_precision_and_scale_overflow_test_func<FromT, ToT>(
-                    from_p_s.first, from_p_s.second, to_precision, to_scale, table_index++,
-                    test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
-                    ofs_const_expected_result);
+                    1, 0, to_precision, to_scale, table_index++, test_data_index, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            between_decimal_with_precision_and_scale_overflow_test_func<FromT, ToT>(
+                    1, 1, to_precision, to_scale, table_index++, test_data_index, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            between_decimal_with_precision_and_scale_overflow_test_func<FromT, ToT>(
+                    27, 9, to_precision, to_scale, table_index++, test_data_index, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            between_decimal_with_precision_and_scale_overflow_test_func<FromT, ToT>(
+                    20, 6, to_precision, to_scale, table_index++, test_data_index, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+        } else {
+            std::vector<int> from_precisions;
+            from_precisions.emplace_back(from_min_decimal_p);
+            // if (from_max_decimal_p / 2 > from_min_decimal_p) {
+            //     from_precisions.emplace_back(from_max_decimal_p / 2);
+            // }
+            // from_precisions.emplace_back(from_max_decimal_p - 1);
+            from_precisions.emplace_back(from_max_decimal_p);
+            std::set<std::pair<int, int>> from_precision_scales;
+            for (auto p : from_precisions) {
+                from_precision_scales.emplace(p, 0);
+                from_precision_scales.emplace(p, 1);
+                if (p != 1) {
+                    // from_precision_scales.emplace(p, p / 2);
+                    from_precision_scales.emplace(p, p - 1);
+                    from_precision_scales.emplace(p, p);
+                }
+            }
+            for (const auto& from_p_s : from_precision_scales) {
+                between_decimal_with_precision_and_scale_overflow_test_func<FromT, ToT>(
+                        from_p_s.first, from_p_s.second, to_precision, to_scale, table_index++,
+                        test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+                        ofs_const_expected_result);
+            }
         }
     }
     template <typename FromT, typename ToT>

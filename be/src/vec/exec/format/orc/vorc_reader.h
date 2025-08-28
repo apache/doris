@@ -326,7 +326,7 @@ private:
                         std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _build_search_argument(const VExprSPtr& expr,
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
-    bool _init_search_argument(const VExprContextSPtrs& conjuncts);
+    bool _init_search_argument(const VExprSPtrs& exprs);
 
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
@@ -712,6 +712,8 @@ private:
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
             TableSchemaChangeHelper::ConstNode::get_instance();
+
+    VExprSPtrs _push_down_exprs;
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {

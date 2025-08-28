@@ -17,10 +17,6 @@
 
 package org.apache.doris.encryption;
 
-import org.apache.doris.thrift.TEncryptionAlgorithm;
-import org.apache.doris.thrift.TEncryptionKey;
-import org.apache.doris.thrift.TEncryptionKeyType;
-
 import com.google.gson.annotations.SerializedName;
 
 public class EncryptionKey {
@@ -76,39 +72,5 @@ public class EncryptionKey {
             + ", crc=" + crc
             + ", ctime=" + ctime
             + ", mtime=" + mtime + '}';
-    }
-
-    public TEncryptionKey toThrift() {
-        TEncryptionKey tKey = new TEncryptionKey();
-        tKey.setId(this.id);
-        tKey.setVersion(this.version);
-        tKey.setParentId(this.parentId);
-        tKey.setParentVersion(this.parentVersion);
-
-        // Convert algorithm enum
-        if (this.algorithm == EncryptionKey.Algorithm.AES256) {
-            tKey.setAlgorithm(TEncryptionAlgorithm.AES256);
-        } else if (this.algorithm == EncryptionKey.Algorithm.SM4) {
-            tKey.setAlgorithm(TEncryptionAlgorithm.SM4);
-        } else {
-            throw new IllegalArgumentException("Unknown algorithm: " + this.algorithm);
-        }
-
-        if (this.type == KeyType.MASTER_KEY) {
-            tKey.setType(TEncryptionKeyType.MASTER_KEY);
-        } else if (this.type == KeyType.DATA_KEY) {
-            tKey.setType(TEncryptionKeyType.DATA_KEY);
-        } else {
-            throw new IllegalArgumentException("Unknown key type: " + this.type);
-        }
-
-        tKey.setCiphertext(this.ciphertext);
-        tKey.setPlaintext(this.plaintext);
-        tKey.setIv(this.iv);
-        tKey.setCrc(this.crc);
-        tKey.setCtime(this.ctime);
-        tKey.setMtime(this.mtime);
-
-        return tKey;
     }
 }

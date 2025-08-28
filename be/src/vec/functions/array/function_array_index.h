@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "olap/column_predicate.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/define_primitive_type.h"
@@ -137,7 +138,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_reader()->is_fulltext_index()) {
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
             // parser is not none we can not make sure the result is correct in expr combination
             // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
             // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
@@ -166,11 +167,11 @@ public:
                                                                            query_param));
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
         param.query_value = query_param->get_value();
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
-        ;
         RETURN_IF_ERROR(iter->read_from_index(&param));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {
@@ -508,6 +509,17 @@ private:
                         right_nested_null_map, array_null_map);
             } else if (left_element_type->get_primitive_type() == TYPE_TIMEV2) {
                 return_column = _execute_number_expanded<ColumnTimeV2>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            }
+        } else if (is_ip(right_type->get_primitive_type()) &&
+                   is_ip(left_element_type->get_primitive_type())) {
+            if (left_element_type->get_primitive_type() == TYPE_IPV4) {
+                return_column = _execute_number_expanded<ColumnIPv4>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (left_element_type->get_primitive_type() == TYPE_IPV6) {
+                return_column = _execute_number_expanded<ColumnIPv6>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             }

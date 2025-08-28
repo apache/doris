@@ -56,6 +56,12 @@ public class MultiDistinctSum0 extends NotNullableAggregateFunction implements U
         this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MultiDistinctSum0(boolean mustUseMultiDistinctAgg, AggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -78,7 +84,7 @@ public class MultiDistinctSum0 extends NotNullableAggregateFunction implements U
     @Override
     public MultiDistinctSum0 withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum0(mustUseMultiDistinctAgg, distinct, children.get(0));
+        return new MultiDistinctSum0(mustUseMultiDistinctAgg, getFunctionParams(false, children));
     }
 
     @Override
@@ -93,7 +99,7 @@ public class MultiDistinctSum0 extends NotNullableAggregateFunction implements U
 
     @Override
     public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctSum0(mustUseMultiDistinctAgg, false, children.get(0));
+        return new MultiDistinctSum0(mustUseMultiDistinctAgg, getFunctionParams(children));
     }
 
     @Override

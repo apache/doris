@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -61,6 +59,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -251,15 +250,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     /**
-     * Create and hold the catalog instance and write the meta log.
-     */
-    public void createCatalog(CreateCatalogStmt stmt) throws UserException {
-        long id = Env.getCurrentEnv().getNextId();
-        CatalogIf catalog = CatalogFactory.createFromStmt(id, stmt);
-        createCatalogImpl(catalog, stmt.getCatalogName(), stmt.isSetIfNotExists());
-    }
-
-    /**
      * Remove the catalog instance by name and write the meta log.
      */
     public void dropCatalog(String catalogName, boolean ifExists) throws UserException {
@@ -286,13 +276,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Remove the catalog instance by name and write the meta log.
-     */
-    public void dropCatalog(DropCatalogStmt stmt) throws UserException {
-        dropCatalog(stmt.getCatalogName(), stmt.isSetIfExists());
     }
 
     /**
@@ -403,12 +386,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     row.add(createTime);
                     row.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
                     row.add(catalog.getComment());
+                    row.add(Strings.nullToEmpty(catalog.getErrorMsg()));
                     rows.add(row);
 
                     // sort by catalog name
-                    rows.sort((x, y) -> {
-                        return x.get(1).compareTo(y.get(1));
-                    });
+                    rows.sort(Comparator.comparing(x -> x.get(1)));
                 }
             } else {
                 if (!nameToCatalog.containsKey(catalogName)) {

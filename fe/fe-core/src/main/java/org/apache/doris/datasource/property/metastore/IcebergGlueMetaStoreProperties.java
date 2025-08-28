@@ -54,28 +54,23 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         glueProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
-        glueProperties.checkAndInit();
         s3Properties = S3Properties.of(origProps);
-        s3Properties.initNormalizeAndCheckProps();
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storageProperties) {
-        Map<String, String> props = prepareBaseCatalogProps();
-        appendS3Props(props);
-        appendGlueProps(props);
-
-        props.put("client.region", glueProperties.glueRegion);
-
-
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
+        appendS3Props(catalogProps);
+        appendGlueProps(catalogProps);
+        catalogProps.put("client.region", glueProperties.glueRegion);
         if (StringUtils.isNotBlank(warehouse)) {
-            props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
+            catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         } else {
-            props.put(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
+            catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
         }
 
         GlueCatalog catalog = new GlueCatalog();
-        catalog.initialize(catalogName, props);
+        catalog.initialize(catalogName, catalogProps);
         return catalog;
     }
 

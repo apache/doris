@@ -316,11 +316,11 @@ struct PrimitiveTypeTraits<TYPE_BIGINT> {
     using DataType = vectorized::DataTypeInt64;
     using ColumnType = vectorized::ColumnInt64;
     using NearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType256 = vectorized::Float64;
+    using AvgNearestFieldType = vectorized::Int128;
+    using AvgNearestFieldType256 = vectorized::Int128;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
+    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_LARGEINT;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_LARGEINT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_LARGEINT> {
@@ -631,7 +631,7 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
     using CppNativeType = CppType;
     using ColumnItemType = HyperLogLog;
     using DataType = vectorized::DataTypeHLL;
-    using ColumnType = vectorized::ColumnString;
+    using ColumnType = vectorized::ColumnHLL;
     using NearestFieldType = HyperLogLog;
     using AvgNearestFieldType = HyperLogLog;
     using AvgNearestFieldType256 = HyperLogLog;

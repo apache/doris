@@ -47,13 +47,18 @@ public class Sec extends ScalarFunction
         super("sec", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sec(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sec withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sec(children.get(0));
+        return new Sec(getFunctionParams(children));
     }
 
     @Override
