@@ -200,12 +200,9 @@ public class StmtExecutor {
     private Boolean isForwardedToMaster = null;
     // Flag for execute prepare statement, need to use binary protocol resultset
     private boolean isComStmtExecute = false;
-<<<<<<< HEAD
     // Set to true if there are more stmt need to execute.
     // Mainly for forward to master, so that master can set the mysql server status correctly.
     private boolean moreStmtExists = false;
-=======
->>>>>>> 7a800f1d198 (test)
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.

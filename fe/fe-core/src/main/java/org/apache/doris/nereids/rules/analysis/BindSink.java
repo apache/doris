@@ -28,6 +28,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -75,6 +76,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -522,7 +524,9 @@ public class BindSink implements AnalysisRuleFactory {
     private Plan bindBlackHoleSink(MatchingContext<UnboundBlackholeSink<Plan>> ctx) {
         UnboundBlackholeSink<?> sink = ctx.root;
         LogicalPlan child = ((LogicalPlan) sink.child());
-
+        if (sink.getContext().isForWarmUp() && Config.isNotCloudMode() && child.containsType(LogicalOlapScan.class)) {
+            throw new AnalysisException("WARM UP SELECT doesn't support olap table in non-cloud mode.");
+        }
         LogicalBlackholeSink<?> boundSink = new LogicalBlackholeSink<>(
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)
