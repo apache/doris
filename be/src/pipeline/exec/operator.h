@@ -215,7 +215,7 @@ public:
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
-    [[nodiscard]] virtual bool is_blockable() const { return false; }
+    [[nodiscard]] virtual bool is_blockable() const;
 
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
