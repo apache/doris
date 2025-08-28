@@ -57,6 +57,7 @@ bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3
 // record successfull request, and s3_get_request_qps will record all request.
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_get_request_qps("s3_file_reader", "s3_get_request",
                                                           &s3_file_reader_read_counter);
+bvar::LatencyRecorder g_s3_file_reader_latency("s3_file_reader_latency");
 
 Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolder> client,
                                             std::string bucket, std::string key, int64_t file_size,
@@ -136,6 +137,15 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                 .tag("key", _key);
         std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
     });
+    int64_t begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count();
+    Defer defer {[&]() {
+        int64_t end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+        g_s3_file_reader_latency << (end_ts - begin_ts);
+    }};
 
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {
