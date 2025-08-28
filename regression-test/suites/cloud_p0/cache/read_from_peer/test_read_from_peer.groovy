@@ -19,6 +19,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import org.apache.doris.regression.util.NodeType
 
 suite('test_read_from_peer', 'docker') {
     if (!isCloudMode()) {
@@ -45,10 +46,70 @@ suite('test_read_from_peer', 'docker') {
         clusterBes[0]
     }
 
+    def testCase = { String clusterName, String type ->
+        def startTime = System.currentTimeMillis()
+        
+        try {
+            sql """
+                use @$clusterName
+            """
+
+            def be = clusterBe(clusterName)
+            def haveCacheBe = clusterBe("compute_cluster")
+
+            switch (type) {
+                case "s3":
+                    // Read from S3: disable peer reads
+                    GetDebugPoint().enableDebugPoint(be.Host, be.HttpPort as int, NodeType.BE, "CachedRemoteFileReader.read_at_impl.peer_read_fn_failed")
+                    break
+
+                case "peer":
+                    // Read from peer: disable S3 reads and enable peer reads
+                    GetDebugPoint().enableDebugPoint(be.Host, be.HttpPort as int, NodeType.BE, "CachedRemoteFileReader.read_at_impl.s3_read_fn_failed")
+                    GetDebugPoint().enableDebugPoint(be.Host, be.HttpPort as int, NodeType.BE, "CachedRemoteFileReader::_fetch_from_peer_cache_blocks", 
+                        [host: haveCacheBe.Host, port: haveCacheBe.BrpcPort])
+                    break
+                    
+                case "winner":
+                    GetDebugPoint().enableDebugPoint(be.Host, be.HttpPort as int, NodeType.BE, "CachedRemoteFileReader::_fetch_from_peer_cache_blocks", 
+                        [host: haveCacheBe.Host, port: haveCacheBe.BrpcPort])
+                    break
+                    
+                default:
+                    throw new IllegalArgumentException("Invalid type: $type. Expected: peer, s3, or winner")
+            }
+            
+            // Execute the query and measure time
+            def queryStartTime = System.currentTimeMillis()
+            sql """
+                select * from $table
+            """
+            def queryEndTime = System.currentTimeMillis()
+            
+            def totalTime = System.currentTimeMillis() - startTime
+            def queryTime = queryEndTime - queryStartTime
+            
+            println "Test completed - Type: $type, Cluster: $clusterName"
+            println "Total execution time: ${totalTime}ms"
+            println "Query execution time: ${queryTime}ms"
+            
+        } catch (Exception e) {
+            def totalTime = System.currentTimeMillis() - startTime
+            println "Test failed after ${totalTime}ms - Type: $type, Cluster: $clusterName"
+            println "Error: ${e.message}"
+            throw e
+        }
+    }
+
     docker(options) {
-        def clusterName = "newcluster1"
-        // 添加一个新的cluster add_new_cluster
-        cluster.addBackend(1, clusterName)
+        // 添加一个新的cluster, 只从s3上读
+        cluster.addBackend(1, "readS3cluster")
+
+        // 添加一个新的cluster, 只从peer上读
+        cluster.addBackend(1, "readPeercluster")
+
+        // 添加一个新的cluster, 从s3 和 peer 并发读，采用winner
+        cluster.addBackend(1, "readWinnercluster")
 
         sql """CREATE TABLE $table (
             `k1` int(11) NULL,
@@ -75,19 +136,8 @@ suite('test_read_from_peer', 'docker') {
             select * from $table
         """
 
-        sql """
-            use @newcluster1
-        """
-
-        // read from newcluster1, use debug point disable newcluster1 be-2 read from s3, just read from peer
-        // 1. debug point set newcluster1 be-2 disable read from s3
-        GetDebugPoint().enableDebugPointForAllBEs("CachedRemoteFileReader.read_at_impl.s3_read_fn_failed");
-        def haveCacheBe = clusterBe("compute_cluster")
-        // 2. debug point set newcluster1 be-2 peer ip and port
-        GetDebugPoint().enableDebugPointForAllBEs("CachedRemoteFileReader::_fetch_from_peer_cache_blocks", [host:haveCacheBe.Host, port:haveCacheBe.BrpcPort]);
-
-        sql """
-            select * from $table
-        """
+        testCase("readS3cluster", "s3")
+        testCase("readPeercluster", "peer")
+        testCase("readWinnercluster", "winner")
     }
 }
