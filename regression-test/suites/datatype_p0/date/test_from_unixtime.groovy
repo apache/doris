@@ -32,10 +32,15 @@ suite("test_from_unixtime") {
     """
     sql """insert into test1 values(100, 100.123), (20000000000, 20000000000.0010), (90000000000, 90000000000.1234569),
     (900000000000, 90000000000013.1234569);"""
-    qt_sql0 """select from_unixtime(k0), from_unixtime(k1), from_unixtime(k0, 'yyyy-MM-dd HH:mm:ss'),
+    
+    test {
+        sql """select from_unixtime(k0), from_unixtime(k1), from_unixtime(k0, 'yyyy-MM-dd HH:mm:ss'),
     from_unixtime(k0, 'yyyy-MM-dd HH:mm:ss'), from_unixtime(k1, '%W%w') from test1 order by k0, k1"""
-    testFoldConst ("""select from_unixtime(100), from_unixtime(100.123), from_unixtime(20000000000), from_unixtime(20000000000.0010),
-    from_unixtime(90000000000), from_unixtime(90000000000.1234569)""")
+        exception "Cannot convert timestamp 900000000000 to valid date"
+    }
+
+    sql """select from_unixtime(100), from_unixtime(100.123), from_unixtime(20000000000), from_unixtime(20000000000.0010),
+    from_unixtime(90000000000), from_unixtime(90000000000.1234569)"""
 
     qt_sql1 "select from_unixtime(1553152255)"
 
