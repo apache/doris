@@ -215,34 +215,6 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     return Status::OK();
 }
 
-bool _has_char_type(const vectorized::DataTypePtr& type) {
-    switch (type->get_primitive_type()) {
-    case TYPE_CHAR: {
-        return true;
-    }
-    case TYPE_ARRAY: {
-        const auto* arr_type =
-                assert_cast<const vectorized::DataTypeArray*>(remove_nullable(type).get());
-        return _has_char_type(arr_type->get_nested_type());
-    }
-    case TYPE_MAP: {
-        const auto* map_type =
-                assert_cast<const vectorized::DataTypeMap*>(remove_nullable(type).get());
-        return _has_char_type(map_type->get_key_type()) ||
-               _has_char_type(map_type->get_value_type());
-    }
-    case TYPE_STRUCT: {
-        const auto* struct_type =
-                assert_cast<const vectorized::DataTypeStruct*>(remove_nullable(type).get());
-        return std::any_of(
-                struct_type->get_elements().begin(), struct_type->get_elements().end(),
-                [&](const vectorized::DataTypePtr& dt) -> bool { return _has_char_type(dt); });
-    }
-    default:
-        return false;
-    }
-}
-
 Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
                            vectorized::Block* res_block) {
     CHECK(!_stubs.empty());

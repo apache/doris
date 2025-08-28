@@ -56,7 +56,9 @@ public:
     PrimitiveType get_primitive_type() const override { return _primitive_type; }
 
     doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_STRING;
+        return _primitive_type == PrimitiveType::TYPE_CHAR
+                       ? doris::FieldType::OLAP_FIELD_TYPE_CHAR
+                       : doris::FieldType::OLAP_FIELD_TYPE_STRING;
     }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,

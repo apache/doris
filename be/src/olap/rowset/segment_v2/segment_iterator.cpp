@@ -1788,37 +1788,6 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     }
 }
 
-bool SegmentIterator::_has_char_type(const Field& column_desc) {
-    switch (column_desc.type()) {
-    case FieldType::OLAP_FIELD_TYPE_CHAR:
-        return true;
-    case FieldType::OLAP_FIELD_TYPE_ARRAY:
-        return _has_char_type(*column_desc.get_sub_field(0));
-    case FieldType::OLAP_FIELD_TYPE_MAP:
-        return _has_char_type(*column_desc.get_sub_field(0)) ||
-               _has_char_type(*column_desc.get_sub_field(1));
-    case FieldType::OLAP_FIELD_TYPE_STRUCT:
-        for (int idx = 0; idx < column_desc.get_sub_field_count(); ++idx) {
-            if (_has_char_type(*column_desc.get_sub_field(idx))) {
-                return true;
-            }
-        }
-        return false;
-    default:
-        return false;
-    }
-};
-
-void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
-    for (size_t i = 0; i < _schema->num_column_ids(); i++) {
-        auto cid = _schema->column_id(i);
-        const Field* column_desc = _schema->column(cid);
-        if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-            _is_char_type[cid] = true;
-        }
-    }
-}
-
 bool SegmentIterator::_prune_column(ColumnId cid, vectorized::MutableColumnPtr& column,
                                     bool fill_defaults, size_t num_of_defaults) {
     if (_need_read_data(cid)) {
@@ -2346,10 +2315,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
         _current_return_columns.resize(_schema->columns().size());
         _converted_column_ids.resize(_schema->columns().size(), 0);
-        if (_is_char_type.empty()) {
-            _is_char_type.resize(_schema->columns().size(), false);
-            _vec_init_char_column_id(block);
-        }
         for (size_t i = 0; i < _schema->column_ids().size(); i++) {
             ColumnId cid = _schema->column_ids()[i];
             auto column_desc = _schema->column(cid);
@@ -2362,8 +2327,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         // Here, cid will not go out of bounds
                         // because the size of _current_return_columns equals _schema->tablet_columns().size()
                         _current_return_columns[cid] = Schema::get_predicate_column_ptr(
-                                _is_char_type[cid] ? FieldType::OLAP_FIELD_TYPE_CHAR
-                                                   : storage_column_type->get_storage_field_type(),
+                                storage_column_type->get_storage_field_type(),
                                 storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
