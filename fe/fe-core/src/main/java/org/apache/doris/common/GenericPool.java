@@ -144,9 +144,9 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
                 TSSLTransportFactory.TSSLTransportParameters sslParam =
                         new TSSLTransportFactory.TSSLTransportParameters("TLSv1.2", null, false);
                 sslParam.setKeyStore(Config.tls_certificate_p12_path,
-                        Config.tls_private_key_password, "SunX509", "PKCS12");
+                        Config.tls_private_key_password, "SunX509", "JKS");
                 sslParam.setTrustStore(Config.tls_ca_certificate_p12_path,
-                        Config.tls_private_key_password, "SunX509", "PKCS12");
+                        Config.tls_private_key_password, "SunX509", "JKS");
                 try {
                     LOG.info("Create Client Socket" + key.hostname + ":" + key.port);
                     clientSocket = TSSLTransportFactory.getClientSocket(key.hostname, key.port, timeoutMs, sslParam);

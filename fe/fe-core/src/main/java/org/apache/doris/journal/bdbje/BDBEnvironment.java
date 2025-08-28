@@ -116,11 +116,11 @@ public class BDBEnvironment {
             ReplicationSSLConfig sslConfig = new ReplicationSSLConfig();
             sslConfig.setSSLKeyStore(Config.tls_certificate_p12_path);
             sslConfig.setSSLKeyStorePassword(Config.tls_private_key_password);
-            sslConfig.setSSLKeyStoreType("PKCS12");
+            sslConfig.setSSLKeyStoreType("JKS");
             sslConfig.setSSLTrustStore(Config.tls_ca_certificate_p12_path);
             sslConfig.setSSLCipherSuites("TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384");
             sslConfig.setSSLProtocols("TLSv1.2,TLSv1.3");
-            sslConfig.setSSLTrustStoreType("PKCS12");
+            sslConfig.setSSLTrustStoreType("JKS");
             sslConfig.setSSLTrustStorePassword(Config.tls_private_key_password);
             sslConfig.setSSLAuthenticator("mirror");
             sslConfig.setSSLHostVerifier("mirror");

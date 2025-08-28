@@ -154,7 +154,7 @@ public class HttpServer extends SpringBootServletInitializer {
             // properties.put("server.ssl.trust-certificate", Config.tls_ca_certificate_path);
             properties.put("server.ssl.trust-store", Config.tls_ca_certificate_p12_path);
             properties.put("server.ssl.trust-store-password", Config.tls_private_key_password);
-            properties.put("server.ssl.trust-store-type", "PKCS12");
+            properties.put("server.ssl.trust-store-type", keyStoreType);
         }
         properties.put("server.port", port);
         properties.put("server.ssl.enabled", enableHttps);

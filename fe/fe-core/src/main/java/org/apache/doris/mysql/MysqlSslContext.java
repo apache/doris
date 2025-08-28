@@ -52,7 +52,7 @@ public class MysqlSslContext {
     private static final String trustStoreFile = Config.tls_ca_certificate_p12_path;
     private static final String caCertificatePassword = Config.tls_private_key_password;
     private static final String serverCertificatePassword = Config.tls_private_key_password;
-    private static final String trustStoreType = "PKCS12";
+    private static final String trustStoreType = "JKS";
     private ByteBuffer serverNetData;
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;

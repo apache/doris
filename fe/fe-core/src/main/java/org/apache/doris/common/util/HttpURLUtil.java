@@ -64,8 +64,8 @@ public class HttpURLUtil {
                 KeyStore trustStore;
                 SSLContext sslContext;
                 try {
-                    keyStore = KeyStore.getInstance("PKCS12");
-                    trustStore = KeyStore.getInstance("PKCS12");
+                    keyStore = KeyStore.getInstance("JKS");
+                    trustStore = KeyStore.getInstance("JKS");
                     InputStream keyInput = new FileInputStream(Config.tls_certificate_p12_path);
                     keyStore.load(keyInput, Config.tls_private_key_password.toCharArray());
                     InputStream trustInput = new FileInputStream(Config.tls_ca_certificate_p12_path);
@@ -77,7 +77,7 @@ public class HttpURLUtil {
                 }
 
                 try {
-                    sslContext = SSLContexts.custom().setProtocol("TLSv1.2").setKeyStoreType("PKCS12")
+                    sslContext = SSLContexts.custom().setProtocol("TLSv1.2").setKeyStoreType("JKS")
                         .loadKeyMaterial(keyStore, Config.tls_private_key_password.toCharArray())
                         .loadTrustMaterial(trustStore, null)
                         .build();

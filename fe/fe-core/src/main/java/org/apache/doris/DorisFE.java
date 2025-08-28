@@ -225,7 +225,7 @@ public class DorisFE {
                 httpServer.setWorkers(Config.jetty_server_workers);
                 httpServer.setKeyStorePath(Config.tls_certificate_p12_path);
                 httpServer.setKeyStorePassword(Config.tls_private_key_password);
-                httpServer.setKeyStoreType("PKCS12");
+                httpServer.setKeyStoreType("JKS");
                 httpServer.setKeyStoreAlias(Config.key_store_alias);
                 httpServer.setEnableHttps(Config.enable_tls);
                 httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);

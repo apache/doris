@@ -112,13 +112,13 @@ public class ThriftServer {
         }
 
         TServerSocket serverTransport;
-        if (Config.enable_tls) { // new ImprovedTServerSocket(socketTransportArgs)
+        if (Config.enable_tls) {
             TSSLTransportFactory.TSSLTransportParameters sslParam =
                     new TSSLTransportFactory.TSSLTransportParameters("TLSv1.2", null, false);
             sslParam.setKeyStore(Config.tls_certificate_p12_path, Config.tls_private_key_password,
-                    "SunX509", "PKCS12");
+                    "SunX509", "JKS");
             sslParam.setTrustStore(Config.tls_ca_certificate_p12_path, Config.tls_private_key_password,
-                    "SunX509", "PKCS12");
+                    "SunX509", "JKS");
             if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
                 sslParam.requireClientAuth(true);
             } else if (Config.tls_verify_mode.equals("verify_peer")) {
@@ -184,14 +184,14 @@ public class ThriftServer {
         }
 
         TServerSocket serverTransport;
-        if (Config.enable_tls) { // new ImprovedTServerSocket(socketTransportArgs)
+        if (Config.enable_tls) {
             boolean clientAuth = true; // TODO: from config
             TSSLTransportFactory.TSSLTransportParameters sslParam =
                     new TSSLTransportFactory.TSSLTransportParameters("TLSv1.2", null, clientAuth);
             sslParam.setKeyStore(Config.tls_certificate_p12_path, Config.tls_private_key_password,
-                    "SunX509", "PKCS12");
+                    "SunX509", "JKS");
             sslParam.setTrustStore(Config.tls_ca_certificate_p12_path, Config.tls_private_key_password,
-                    "SunX509", "PKCS12");
+                    "SunX509", "JKS");
             try {
                 LOG.info("TThreadPoolServer Socket" + port);
                 serverTransport = TSSLTransportFactory.getServerSocket(port, 0,
