@@ -21,6 +21,8 @@ suite("limit_rewrite") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    // this maybe fail when set NOT_IN_RBO fuzzy in session variable, so set manually
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
     drop table if exists orders
