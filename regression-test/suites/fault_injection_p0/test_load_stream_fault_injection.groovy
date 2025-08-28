@@ -19,6 +19,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
 suite("load_stream_fault_injection", "nonConcurrent") {
+    if (isCloudMode()) {
+        logger.info("skip load_stream_fault_injection case, because cloud mode not support")
+        return
+    }
+
     // init query case data
     sql """
         CREATE TABLE IF NOT EXISTS `baseall` (
