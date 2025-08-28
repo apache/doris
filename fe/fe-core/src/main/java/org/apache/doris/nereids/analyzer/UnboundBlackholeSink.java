@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -50,7 +52,7 @@ public class UnboundBlackholeSink<CHILD_TYPE extends Plan> extends UnboundLogica
      * create unbound sink for blackhole sink
      */
     public UnboundBlackholeSink(CHILD_TYPE child) {
-        super(ImmutableList.of("information_schema", "blackhole"),
+        super(ImmutableList.of(InfoSchemaDb.DATABASE_NAME, SchemaTable.BLACKHOLE_TABLE_NAME),
                 PlanType.LOGICAL_UNBOUND_BLACKHOLE_SINK,
                 ImmutableList.of(),
                 Optional.empty(),
@@ -65,7 +67,7 @@ public class UnboundBlackholeSink<CHILD_TYPE extends Plan> extends UnboundLogica
      */
     public UnboundBlackholeSink(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(ImmutableList.of("information_schema", "blackhole"),
+        super(ImmutableList.of(InfoSchemaDb.DATABASE_NAME, SchemaTable.BLACKHOLE_TABLE_NAME),
                 PlanType.LOGICAL_UNBOUND_BLACKHOLE_SINK,
                 ImmutableList.of(),
                 groupExpression,
