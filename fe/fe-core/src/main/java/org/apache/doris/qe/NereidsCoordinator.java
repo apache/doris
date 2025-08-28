@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.BlackholeSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ResultFileSink;

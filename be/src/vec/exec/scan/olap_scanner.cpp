@@ -733,6 +733,8 @@ void OlapScanner::_collect_profile_before_close() {
     if (config::enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                stats.file_cache_stats->bytes_write_into_cache);
     }
     COUNTER_UPDATE(local_state->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

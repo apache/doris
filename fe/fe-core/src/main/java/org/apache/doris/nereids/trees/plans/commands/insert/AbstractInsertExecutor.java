@@ -70,8 +70,12 @@ public abstract class AbstractInsertExecutor {
     protected final boolean emptyInsert;
     protected long txnId = INVALID_TXN_ID;
 
+    /**
+     * Insert executor listener
+     */
     public interface InsertExecutorListener {
         void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId) throws Exception;
+
         void afterComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId) throws Exception;
     }
 
