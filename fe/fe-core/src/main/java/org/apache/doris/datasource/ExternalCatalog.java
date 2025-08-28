@@ -249,8 +249,10 @@ public abstract class ExternalCatalog
             catalogProperty.addProperty(USE_META_CACHE, isReplay ? "false"
                     : Config.max_meta_object_cache_num > 0 ? String.valueOf(DEFAULT_USE_META_CACHE) : "false");
         }
-        useMetaCache = Optional.of(
-                Boolean.valueOf(catalogProperty.getOrDefault(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE))));
+        // If max_meta_object_cache_num equals zero, force use_meta_cache to false.
+        // otherwise meta operations will use meta cache.
+        String configuredValue = catalogProperty.getOrDefault(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
+        useMetaCache = Optional.of(Boolean.parseBoolean(configuredValue) && (Config.max_meta_object_cache_num > 0));
     }
 
     // we need check auth fallback for kerberos or simple
