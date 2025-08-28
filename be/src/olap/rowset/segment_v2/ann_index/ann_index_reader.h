@@ -63,8 +63,7 @@ private:
     TabletIndex _index_meta;
     std::shared_ptr<IndexFileReader> _index_file_reader;
     std::unique_ptr<VectorIndex> _vector_index;
-    // TODO: Use integer.
-    std::string _index_type;
+    AnnIndexType _index_type;
     AnnIndexMetric _metric_type;
 
     DorisCallOnce<Status> _load_index_once;
