@@ -20,17 +20,26 @@ package org.apache.doris.mtmv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Map;
 
 /**
  * get all related partition descs
  */
 public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartitionDescGeneratorService {
+    private static final Logger LOG = LogManager.getLogger(MTMVRelatedPartitionDescInitGenerator.class);
+
 
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
             RelatedPartitionDescResult lastResult) throws AnalysisException {
         MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
         lastResult.setItems(relatedTable.getAndCopyPartitionItems(MvccUtil.getSnapshotFromContext(relatedTable)));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("related table: {}, partitions: {}",
+                    relatedTable.getName(), lastResult.getItems());
+        }
     }
 }
