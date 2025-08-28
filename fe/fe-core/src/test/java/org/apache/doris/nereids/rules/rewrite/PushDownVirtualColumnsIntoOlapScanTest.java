@@ -79,11 +79,11 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // SELECT a, b FROM table WHERE (x + y) > 10 AND (x + y) < 100 AND z = (x + y)
 
         DataType intType = IntegerType.INSTANCE;
-        SlotReference x = new SlotReference("x", intType);
-        SlotReference y = new SlotReference("y", intType);
-        SlotReference z = new SlotReference("z", intType);
-        SlotReference a = new SlotReference("a", intType);
-        SlotReference b = new SlotReference("b", intType);
+        SlotReference x = new SlotReference("x", intType, false);
+        SlotReference y = new SlotReference("y", intType, false);
+        SlotReference z = new SlotReference("z", intType, false);
+        SlotReference a = new SlotReference("a", intType, false);
+        SlotReference b = new SlotReference("b", intType, false);
 
         // Create repeated sub-expression: x + y
         Add xyAdd1 = new Add(x, y);
@@ -137,8 +137,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
     public void testExtractDistanceFunctions() {
         // Test the existing distance function extraction functionality
         DataType intType = IntegerType.INSTANCE;
-        SlotReference vector1 = new SlotReference("vector1", intType);
-        SlotReference vector2 = new SlotReference("vector2", intType);
+        SlotReference vector1 = new SlotReference("vector1", intType, false);
+        SlotReference vector2 = new SlotReference("vector2", intType, false);
 
         // Create distance function
         L2Distance distance = new L2Distance(vector1, vector2);
@@ -176,9 +176,9 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // SELECT * FROM table WHERE (x * y + z) > 10 AND (x * y + z) < 100
 
         DataType intType = IntegerType.INSTANCE;
-        SlotReference x = new SlotReference("x", intType);
-        SlotReference y = new SlotReference("y", intType);
-        SlotReference z = new SlotReference("z", intType);
+        SlotReference x = new SlotReference("x", intType, false);
+        SlotReference y = new SlotReference("y", intType, false);
+        SlotReference z = new SlotReference("z", intType, false);
 
         // Create complex repeated expression: x * y + z
         Multiply xy1 = new Multiply(x, y);
@@ -318,7 +318,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
         // Create a lambda expression
         Array arr = new Array(y);
-        ArrayItemReference refA = new ArrayItemReference("a", arr);
+        ArrayItemReference refA = new ArrayItemReference("a", arr, false);
         Add lambdaAdd = new Add(refA.toSlot(), xyAdd);
         Lambda lambda = new Lambda(ImmutableList.of("a"), lambdaAdd, ImmutableList.of(refA));
 
@@ -375,9 +375,9 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
         DataType intType = IntegerType.INSTANCE;
         DataType varcharType = VarcharType.SYSTEM_DEFAULT;
-        SlotReference x = new SlotReference("x", intType);
-        SlotReference y = new SlotReference("y", intType);
-        SlotReference z = new SlotReference("z", intType);
+        SlotReference x = new SlotReference("x", intType, false);
+        SlotReference y = new SlotReference("y", intType, false);
+        SlotReference z = new SlotReference("z", intType, false);
 
         // Create optimizable repeated expressions
         Add xyAdd1 = new Add(x, y);
@@ -430,9 +430,9 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // SELECT * FROM table WHERE x > 10 AND y < 100 AND z = 50
 
         DataType intType = IntegerType.INSTANCE;
-        SlotReference x = new SlotReference("x", intType);
-        SlotReference y = new SlotReference("y", intType);
-        SlotReference z = new SlotReference("z", intType);
+        SlotReference x = new SlotReference("x", intType, false);
+        SlotReference y = new SlotReference("y", intType, false);
+        SlotReference z = new SlotReference("z", intType, false);
 
         // Create unique expressions (no repetition)
         GreaterThan gt = new GreaterThan(x, new IntegerLiteral(10));
@@ -471,8 +471,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test that rules correctly match different plan patterns
 
         DataType intType = IntegerType.INSTANCE;
-        SlotReference x = new SlotReference("x", intType);
-        SlotReference a = new SlotReference("a", intType);
+        SlotReference x = new SlotReference("x", intType, false);
+        SlotReference a = new SlotReference("a", intType, false);
 
         // Create a simple expression
         Add expr = new Add(x, new IntegerLiteral(1));
@@ -518,7 +518,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test that comparison predicates can be converted to ColumnPredicate
 
         DataType intType = IntegerType.INSTANCE;
-        SlotReference x = new SlotReference("x", intType);
+        SlotReference x = new SlotReference("x", intType, false);
         IntegerLiteral ten = new IntegerLiteral(10);
 
         // Create comparison predicates
@@ -545,7 +545,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test IN and IS NULL predicates
 
         DataType intType = IntegerType.INSTANCE;
-        SlotReference x = new SlotReference("x", intType);
+        SlotReference x = new SlotReference("x", intType, false);
 
         // Create IN predicate
         InPredicate inPred = new InPredicate(x,
@@ -571,7 +571,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test IP address range function detection
 
         DataType varcharType = VarcharType.SYSTEM_DEFAULT;
-        SlotReference ipColumn = new SlotReference("ip_addr", varcharType);
+        SlotReference ipColumn = new SlotReference("ip_addr", varcharType, false);
         StringLiteral cidr = new StringLiteral("192.168.1.0/24");
 
         IsIpAddressInRange ipRangeFunc = new IsIpAddressInRange(ipColumn, cidr);
@@ -591,7 +591,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test multi-match function detection
 
         DataType varcharType = VarcharType.SYSTEM_DEFAULT;
-        SlotReference textColumn = new SlotReference("content", varcharType);
+        SlotReference textColumn = new SlotReference("content", varcharType, false);
         StringLiteral query = new StringLiteral("search query");
 
         MultiMatch multiMatchFunc = new MultiMatch(textColumn, query);
@@ -614,8 +614,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
         DataType varcharType = VarcharType.SYSTEM_DEFAULT;
         DataType intType = IntegerType.INSTANCE;
-        SlotReference ipColumn = new SlotReference("ip_addr", varcharType);
-        SlotReference countColumn = new SlotReference("count", intType);
+        SlotReference ipColumn = new SlotReference("ip_addr", varcharType, false);
+        SlotReference countColumn = new SlotReference("count", intType, false);
         StringLiteral cidr = new StringLiteral("192.168.1.0/24");
         IntegerLiteral threshold = new IntegerLiteral(100);
 
@@ -649,8 +649,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         DataType varcharType = VarcharType.createVarcharType(100);
 
         // Test supported types
-        SlotReference intSlot = new SlotReference("int_col", intType);
-        SlotReference varcharSlot = new SlotReference("varchar_col", varcharType);
+        SlotReference intSlot = new SlotReference("int_col", intType, false);
+        SlotReference varcharSlot = new SlotReference("varchar_col", varcharType, false);
         // Test basic arithmetic expression with supported types (should return integer)
         Add intAddition = new Add(intSlot, new IntegerLiteral(1));
         boolean intSupported = (boolean) method.invoke(rule, intAddition);
@@ -688,7 +688,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
             // Test expression that might return an unsupported type
             // Create a lambda function expression which should not be supported
             DataType intType = IntegerType.INSTANCE;
-            SlotReference intSlot = new SlotReference("int_col", intType);
+            SlotReference intSlot = new SlotReference("int_col", intType, false);
 
             // Test expressions that should fail type detection or return false
             // We create an expression that might fail during type determination
@@ -719,8 +719,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         extractMethod.setAccessible(true);
 
         DataType intType = IntegerType.INSTANCE;
-        SlotReference x = new SlotReference("x", intType);
-        SlotReference y = new SlotReference("y", intType);
+        SlotReference x = new SlotReference("x", intType, false);
+        SlotReference y = new SlotReference("y", intType, false);
 
         // Create expressions that should be supported (arithmetic operations return int)
         Add supportedAdd1 = new Add(x, y);
@@ -785,8 +785,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
             typeCheckMethod.setAccessible(true);
 
             DataType intType = IntegerType.INSTANCE;
-            SlotReference x = new SlotReference("x", intType);
-            SlotReference y = new SlotReference("y", intType);
+            SlotReference x = new SlotReference("x", intType, false);
+            SlotReference y = new SlotReference("y", intType, false);
 
             // Create supported repeated expressions (arithmetic operations)
             Add supportedExpr1 = new Add(x, y);

@@ -264,7 +264,7 @@ public class StatsCalculatorTest {
         ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
                 rowCount, "1", "10", 0, new String[]{"2", "3", "4"});
 
-        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE);
+        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE, false);
         ColumnStatistic icStats = StatsTestUtil.instance.createColumnStatistic("ic", 10,
                 rowCount, "1", "10", 0, new String[]{"6", "7", "8", "9", "10"});
 
@@ -332,7 +332,7 @@ public class StatsCalculatorTest {
         ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
                 rowCount, "1", "10", 0, new String[]{"2", "3", "4"});
 
-        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE);
+        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE, false);
         ColumnStatistic icStats = StatsTestUtil.instance.createColumnStatistic("ic", 10,
                 rowCount, "1", "10", 0, new String[]{"4", "5", "6", "7"});
 
@@ -372,7 +372,7 @@ public class StatsCalculatorTest {
         ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
                 rowCount, "1", "10", 0, new String[]{"2", "3", "4"});
 
-        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE);
+        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE, false);
         ColumnStatistic icStats = StatsTestUtil.instance.createColumnStatistic("ic", 10,
                 rowCount, "1", "10", 0, new String[]{"4", "5", "6", "7"});
 
@@ -412,7 +412,7 @@ public class StatsCalculatorTest {
         ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ib", 10,
                 rowCount, "1", "10", 0, new String[]{"2", "3", "4"});
 
-        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE);
+        SlotReference ic = new SlotReference("ic", IntegerType.INSTANCE, false);
         ColumnStatistic icStats = StatsTestUtil.instance.createColumnStatistic("ic", 10,
                 rowCount, "1", "10", 0, new String[]{"4", "5", "6", "7"});
 
