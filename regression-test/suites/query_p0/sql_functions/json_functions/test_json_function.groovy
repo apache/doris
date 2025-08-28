@@ -61,6 +61,11 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql "SELECT json_unquote('\"\\\\u0044\\\\u004F\\\\u0052\\\\u0049\\\\u0053\"');"
 
     qt_sql "SELECT json_extract('[1, 2, 3]', '\$.[1]');"
+    qt_array_last1 "SELECT json_extract('[1, 2, 3]', '\$[last]');"
+    qt_array_last2 "SELECT json_extract('[1, 2, 3]', '\$[last -1]');"
+    qt_array_last3 "SELECT json_extract('[1, 2, 3]', '\$[last- 2]');"
+    qt_array_last4 "SELECT json_extract('[1, 2, 3]', '\$[last - 2 ]');"
+    qt_array_last5 "SELECT json_extract('[1, 2, 3]', '\$[last - 3]');"
     qt_sql "SELECT json_extract('{\"id\": 123, \"name\": \"doris\"}', '\$.id', '\$.name');"
     qt_sql "SELECT json_extract('{\"id\": 123, \"name\": \"doris\"}', null, '\$.id');"
     qt_sql "SELECT json_extract(null, '\$.id');"
