@@ -103,21 +103,14 @@ public abstract class FileFormatProperties {
         }
     }
 
-    public static FileFormatProperties createFileFormatProperties(Map<String, String> formatProperties)
-            throws AnalysisException {
-        String formatString = formatProperties.getOrDefault(PROP_FORMAT, "csv");
-        return createFileFormatProperties(formatString);
-    }
-
     /**
-     * Create a FileFormatProperties that may be AUTO if format is not specified.
-     * The actual format should be inferred later by other business logic.
+     * Create a FileFormatProperties
+     * If the format property is not specified, return a DeferredFileFormatProperties
      */
-    public static FileFormatProperties createFileFormatPropertiesOrAuto(Map<String, String> formatProperties)
+    public static FileFormatProperties createFileFormatPropertiesOrDeferred(String formatString)
             throws AnalysisException {
-        String formatString = formatProperties.get(PROP_FORMAT);
         if (Strings.isNullOrEmpty(formatString)) {
-            return new DeferredFileFormatProperties(formatProperties)
+            return new DeferredFileFormatProperties();
         } else {
             return createFileFormatProperties(formatString);
         }

@@ -26,11 +26,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -100,6 +102,8 @@ public class DataDescriptionTest {
 
     @Test
     public void testNormal() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("format", "csv");
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                                                    null, null, null, false, null);
         desc.analyze("testDb");
@@ -118,7 +122,9 @@ public class DataDescriptionTest {
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                                                   Lists.newArrayList("col1", "col2"), null, null, true, null);
         desc.analyze("testDb");
-        CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) desc.getFileFormatProperties();
+        DeferredFileFormatProperties deferredFileFormatProperties = (DeferredFileFormatProperties) desc.getFileFormatProperties();
+        deferredFileFormatProperties.deferInit(TFileFormatType.FORMAT_CSV_PLAIN);
+        CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) deferredFileFormatProperties.getDelegate();
         Assert.assertEquals("APPEND DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable (col1, col2)", desc.toString());
         Assert.assertEquals("testTable", desc.getTableName());
         Assert.assertEquals("[col1, col2]", desc.getFileFieldNames().toString());
@@ -128,7 +134,7 @@ public class DataDescriptionTest {
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, false, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null, null);
+                Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, false, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null, properties);
         desc.analyze("testDb");
         csvFileFormatProperties = (CsvFileFormatProperties) desc.getFileFormatProperties();
         Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' FORMAT AS 'csv' (col1, col2) WHERE (1 = 1) DELETE ON (1 = 1)", desc.toString());
@@ -217,7 +223,7 @@ public class DataDescriptionTest {
         sql = "APPEND DATA FROM TABLE testHiveTable INTO TABLE testTable PARTITIONS (p1, p2) SET ((`k1` = bitmap_dict(`k2`)))";
         Assert.assertEquals(sql, desc.toSql());
 
-        Map<String, String> properties = Maps.newHashMap();
+        properties = Maps.newHashMap();
         properties.put("line_delimiter", "abc");
         properties.put("fuzzy_parse", "true");
         properties.put("strip_outer_array", "true");
@@ -387,6 +393,7 @@ public class DataDescriptionTest {
                 new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), new FunctionCallExpr("bitmap_dict", params));
         Map<String, String> properties = Maps.newHashMap();
         properties.put("line_delimiter", "abc");
+        properties.put("format", "csv");
         DataDescription desc =
                 new DataDescription(tbl, new PartitionNames(false, Lists.newArrayList("p1", "p2")), "abc.txt", true,
                         Lists.newArrayList("k1", "k2", "v1"), new Separator("010203"), new Separator("040506"), 0,
@@ -414,6 +421,7 @@ public class DataDescriptionTest {
                 + "PARTITIONS (p1, p2) "
                 + "COLUMNS TERMINATED BY '010203' "
                 + "LINES TERMINATED BY '040506' "
+                + "FORMAT AS 'csv' "
                 + "(k1, k2, v1) "
                 + "SET ((`k1` = bitmap_dict('day', `k2`)))";
         Assert.assertEquals(sql, desc.toSql());

@@ -35,11 +35,16 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileFormatType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -284,7 +289,17 @@ public class BrokerFileGroup implements Writable {
         this.fileSize = fileSize;
     }
 
+    public void initDeferredFileFormatPropertiesIfNecessary(List<TBrokerFileStatus> fileStatuses) {
+        if (fileFormatProperties instanceof DeferredFileFormatProperties) {
+            Preconditions.checkState(fileStatuses != null && !fileStatuses.isEmpty());
+            TBrokerFileStatus fileStatus = fileStatuses.get(0);
+            TFileFormatType formatType = Util.getFileFormatTypeFromPath(fileStatus.path);
+            ((DeferredFileFormatProperties) fileFormatProperties).deferInit(formatType);
+        }
+    }
+
     public boolean isBinaryFileFormat() {
+        // Must call initDeferredFileFormatPropertiesIfNecessary before
         return fileFormatProperties instanceof ParquetFileFormatProperties
                 || fileFormatProperties instanceof OrcFileFormatProperties;
     }

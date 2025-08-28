@@ -1010,7 +1010,8 @@ public class DataDescription implements InsertStmt.DataDesc {
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
 
-        fileFormatProperties = FileFormatProperties.createFileFormatPropertiesOrAuto(analysisMap);
+        fileFormatProperties = FileFormatProperties.createFileFormatPropertiesOrDeferred(
+                analysisMap.getOrDefault(FileFormatProperties.PROP_FORMAT, ""));
         fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
