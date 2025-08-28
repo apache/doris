@@ -112,6 +112,9 @@ public class CreateJobInfo {
         String jobName = labelNameOptional.get();
         checkJobName(jobName);
         String dbName = ctx.getDatabase();
+        if (Strings.isNullOrEmpty(dbName)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        }
 
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         // check its insert stmt,currently only support insert stmt
