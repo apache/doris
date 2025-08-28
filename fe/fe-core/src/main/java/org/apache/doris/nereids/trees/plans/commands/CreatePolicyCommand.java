@@ -124,20 +124,23 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 break;
             case ROW:
             default:
-                tableNameInfo.analyze(ctx);
-                if (user != null) {
-                    user.analyze();
-                    if (user.isRootUser() || user.isAdminUser()) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
-                                user.getQualifiedUser(), user.getHost(), tableNameInfo.getTbl());
-                    }
-                }
                 // check auth
                 if (!Env.getCurrentEnv().getAccessManager()
                         .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             PrivPredicate.GRANT.getPrivs().toString());
                 }
+                tableNameInfo.analyze(ctx);
+                if (user != null) {
+                    user.analyze();
+                    if (user.isRootUser() || user.isAdminUser()) {
+                        throw new AnalysisException("not allow add row policy for system user");
+                    }
+                    if (!Env.getCurrentEnv().getAuth().doesUserExist(user)) {
+                        throw new AnalysisException("user not exist: " + user);
+                    }
+                }
+
         }
     }
 
