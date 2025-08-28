@@ -721,8 +721,10 @@ void TxnLazyCommitTask::commit() {
                               << " version_pb=" << version_pb.ShortDebugString();
                     if (is_versioned_write) {
                         // Update the partition version with the specified versionstamp.
-                        versioned_put(txn.get(), ver_key, versionstamp, ver_val);
-                        LOG(INFO) << "put versioned ver_key=" << hex(ver_key)
+                        std::string versioned_key =
+                                versioned::partition_version_key({instance_id_, partition_id});
+                        versioned_put(txn.get(), versioned_key, versionstamp, ver_val);
+                        LOG(INFO) << "put versioned ver_key=" << hex(versioned_key)
                                   << " txn_id=" << txn_id_
                                   << " version_pb=" << version_pb.ShortDebugString();
                     }
