@@ -2003,7 +2003,7 @@ TEST(RecyclerTest, recycle_indexes) {
             auto tmp_rowset = create_rowset("recycle_tmp_rowsets", tablet_id, index_id, 5,
                                             schemas[j % 5], txn_id_base + j);
             tmp_rowset.set_resource_id("recycle_indexes");
-            create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, j & 1, j < 5);
+            create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, j & 1, false, j < 5);
         }
         for (int j = 0; j < 10; ++j) {
             create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_indexes", tablet_id, j,
@@ -2015,7 +2015,7 @@ TEST(RecyclerTest, recycle_indexes) {
     create_recycle_index(txn_kv.get(), table_id, index_id);
     for (int i = 0; i < 100; ++i) {
         int64_t tablet_id = tablet_id_base + i;
-        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 5);
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
     }
     ASSERT_EQ(recycler.recycle_indexes(), 0);
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0); // Recycle tmp rowsets too, since

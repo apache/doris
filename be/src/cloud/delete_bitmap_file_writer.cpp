@@ -64,6 +64,9 @@ Status DeleteBitmapFileWriter::close() {
 }
 
 Status DeleteBitmapFileWriter::write(const DeleteBitmapPB& delete_bitmap) {
+    if (delete_bitmap.rowset_ids_size() == 0) {
+        return Status::InternalError("empty delete bitmap for file={}", _path);
+    }
     if (!_file_writer) {
         return Status::InternalError("fail to write delete bitmap file={} because writer is null",
                                      _path);

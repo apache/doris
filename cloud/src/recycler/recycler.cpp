@@ -2080,14 +2080,7 @@ int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t
         return -1;
     }
     auto& accessor = it->second;
-    auto ret = accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
-    if (ret != 0) return ret;
-
-    auto dbm_path = delete_bitmap_path(tablet_id, rowset_id);
-    ret = accessor->exists(dbm_path);
-    if (ret == 0) return accessor->delete_file(dbm_path);
-    if (ret == 1) return 0;
-    return ret;
+    return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
 }
 
 int InstanceRecycler::scan_tablets_and_statistics(int64_t table_id, int64_t index_id,

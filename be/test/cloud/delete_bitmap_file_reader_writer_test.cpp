@@ -22,7 +22,6 @@
 #include "cloud/delete_bitmap_file_reader.h"
 #include "cloud/delete_bitmap_file_writer.h"
 #include "gmock/gmock.h"
-#include "io/fs/local_file_system.h"
 #include "testutil/test_util.h"
 #include "util/proto_util.h"
 
@@ -47,10 +46,14 @@ TEST_F(DeleteBitmapFileReaderWriterTest, TestWriteAndRead) {
         delete_bitmap_pb.add_segment_delete_bitmaps("bitmap.val_" + std::to_string(i));
     }
 
-    DeleteBitmapFileWriter file_writer(tablet_id, rowset_id, storage_resource_op);
-    EXPECT_TRUE(file_writer.init().ok());
-    EXPECT_TRUE(file_writer.write(delete_bitmap_pb).ok());
-    EXPECT_TRUE(file_writer.close().ok());
+    DeleteBitmapFileWriter writer(tablet_id, rowset_id, storage_resource_op);
+    EXPECT_TRUE(writer.init().ok());
+    // write empty delete bitmap
+    DeleteBitmapPB empty_delete_bitmap_pb;
+    EXPECT_FALSE(writer.write(empty_delete_bitmap_pb).ok());
+    // normal write
+    EXPECT_TRUE(writer.write(delete_bitmap_pb).ok());
+    EXPECT_TRUE(writer.close().ok());
 
     DeleteBitmapFileReader reader(tablet_id, rowset_id, storage_resource_op);
     EXPECT_TRUE(reader.init().ok());

@@ -1292,6 +1292,8 @@ message RestoreJobRequest {
     optional int64 expiration = 4;
     optional string request_ip = 5;
     optional Action action = 6;
+    // 50: used for delete bitmap storage v2
+    optional int64 store_version = 50;
 }
 
 message RestoreJobResponse {
