@@ -42,7 +42,7 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
         int max_sparse_column_statistics_size = 2
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
-            def var_def = "variant <properties(\"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\") 'sala' : int, 'ddd' : double, 'z' : double>"
+            def var_def = "variant <properties(\"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")> 'sala' : int, 'ddd' : double, 'z' : double>"
             if (key_type == "AGGREGATE") {
                 var_def = "variant <properties(\"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")> 'sala' : int, 'ddd' : double, 'z' : double> replace"
             }
