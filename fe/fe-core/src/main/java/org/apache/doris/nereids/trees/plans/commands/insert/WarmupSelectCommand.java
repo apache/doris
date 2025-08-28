@@ -64,7 +64,7 @@ import java.util.concurrent.Future;
 public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
     
     // Constants for query statistics polling
-    private static final long QUERY_STATISTICS_TIMEOUT_MS = 30000; // 30 seconds
+    private static final long QUERY_STATISTICS_TIMEOUT_MS = 5000; // 5 seconds
     private static final long QUERY_STATISTICS_INTERVAL_MS = 1000; // 1 second
 
     public WarmupSelectCommand(LogicalPlan logicalQuery) {
@@ -176,6 +176,7 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
                 .addColumn(new Column("ScanBytes", ScalarType.createVarchar(20)))
                 .addColumn(new Column("ScanBytesFromLocalStorage", ScalarType.createVarchar(20)))
                 .addColumn(new Column("ScanBytesFromRemoteStorage", ScalarType.createVarchar(20)))
+                .addColumn(new Column("GetBytesWriteIntoCache", ScalarType.createVarchar(20)))
                 .build();
 
         List<List<String>> rows = Lists.newArrayList();
@@ -183,6 +184,7 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
         long totalScanBytes = 0;
         long totalScanBytesFromLocalStorage = 0;
         long totalScanBytesFromRemoteStorage = 0;
+        long totalBytesWriteIntoCache = 0;
 
         // Add a row for each BE with its aggregated data
         for (Map.Entry<Long, TQueryStatistics> entry : statistics.entrySet()) {
@@ -194,7 +196,8 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
                     String.valueOf(data.getScanRows()),
                     String.valueOf(data.getScanBytes()),
                     String.valueOf(data.getScanBytesFromLocalStorage()),
-                    String.valueOf(data.getScanBytesFromRemoteStorage())
+                    String.valueOf(data.getScanBytesFromRemoteStorage()),
+                    String.valueOf(data.getBytesWriteIntoCache())
             );
 
             rows.add(row);
@@ -204,6 +207,7 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
             totalScanBytes += data.getScanBytes();
             totalScanBytesFromLocalStorage += data.getScanBytesFromLocalStorage();
             totalScanBytesFromRemoteStorage += data.getScanBytesFromRemoteStorage();
+            totalBytesWriteIntoCache += data.getBytesWriteIntoCache();
         }
 
         // Add a total row
@@ -212,7 +216,8 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
                 String.valueOf(totalScanRows),
                 String.valueOf(totalScanBytes),
                 String.valueOf(totalScanBytesFromLocalStorage),
-                String.valueOf(totalScanBytesFromRemoteStorage)
+                String.valueOf(totalScanBytesFromRemoteStorage),
+                String.valueOf(totalBytesWriteIntoCache)
         );
         rows.add(totalRow);
 

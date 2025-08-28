@@ -40,6 +40,8 @@ public:
         RuntimeProfile::Counter* scan_bytes_counter_;
         RuntimeProfile::Counter* scan_bytes_from_local_storage_counter_;
         RuntimeProfile::Counter* scan_bytes_from_remote_storage_counter_;
+        RuntimeProfile::Counter* bytes_write_into_cache_counter_;
+        
         // number rows returned by query.
         // only set once by result sink when closing.
         RuntimeProfile::Counter* returned_rows_counter_;
@@ -58,6 +60,7 @@ public:
                     ADD_COUNTER(profile_, "ScanBytesFromLocalStorage", TUnit::BYTES);
             scan_bytes_from_remote_storage_counter_ =
                     ADD_COUNTER(profile_, "ScanBytesFromRemoteStorage", TUnit::BYTES);
+            bytes_write_into_cache_counter_ = ADD_COUNTER(profile_, "BytesWriteIntoCache", TUnit::BYTES);
             returned_rows_counter_ = ADD_COUNTER(profile_, "ReturnedRows", TUnit::UNIT);
             shuffle_send_bytes_counter_ = ADD_COUNTER(profile_, "ShuffleSendBytes", TUnit::BYTES);
             shuffle_send_rows_counter_ =
@@ -86,6 +89,9 @@ public:
     int64_t scan_bytes_from_remote_storage() const {
         return stats_.scan_bytes_from_remote_storage_counter_->value();
     }
+    int64_t bytes_write_into_cache_counter_() const {
+        return stats_.bytes_write_into_cache_counter_->value();
+    }
     int64_t returned_rows() const { return stats_.returned_rows_counter_->value(); }
     int64_t shuffle_send_bytes() const { return stats_.shuffle_send_bytes_counter_->value(); }
     int64_t shuffle_send_rows() const { return stats_.shuffle_send_rows_counter_->value(); }
@@ -105,6 +111,9 @@ public:
     }
     void update_scan_bytes_from_remote_storage(int64_t delta) const {
         stats_.scan_bytes_from_remote_storage_counter_->update(delta);
+    }
+    void update_bytes_write_into_cache(int64_t delta) const {
+        stats_.bytes_write_into_cache_counter_->update(delta);
     }
     void update_returned_rows(int64_t delta) const { stats_.returned_rows_counter_->update(delta); }
     void update_shuffle_send_bytes(int64_t delta) const {
