@@ -708,7 +708,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public T getTableNullable(long tableId) {
         makeSureInitialized();
-        if (extCatalog.getUseMetaCache().get()) {
+        if (extCatalog.getUseMetaCache().get() && metaCache != null) {
             return metaCache.getMetaObjById(tableId).orElse(null);
         } else {
             return idToTbl.get(tableId);
