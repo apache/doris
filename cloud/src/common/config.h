@@ -118,6 +118,7 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 // **just for TEST**
 CONF_Bool(force_immediate_recycle, "false");
 
+CONF_mBool(enable_checker_for_meta_key_check, "false");
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
 CONF_String(test_s3_endpoint, "");

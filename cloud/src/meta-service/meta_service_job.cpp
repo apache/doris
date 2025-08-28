@@ -712,6 +712,15 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     //  with `config::split_tablet_stats = true` can meet the condition.
     internal_get_tablet_stats(code, msg, txn.get(), instance_id, request->job().idx(), *stats,
                               detached_stats, config::snapshot_get_tablet_stats);
+    if (code != MetaServiceCode::OK) {
+        LOG_WARNING("failed to get tablet stats")
+                .tag("instance_id", instance_id)
+                .tag("tablet_id", tablet_id)
+                .tag("code", code)
+                .tag("msg", msg);
+        return;
+    }
+
     if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) {
         stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
         stats->set_cumulative_point(compaction.output_cumulative_point());
@@ -1303,6 +1312,15 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     //  with `config::split_tablet_stats = true` can meet the condition.
     internal_get_tablet_stats(code, msg, txn.get(), instance_id, new_tablet_idx, *stats,
                               detached_stats, config::snapshot_get_tablet_stats);
+    if (code != MetaServiceCode::OK) {
+        LOG_WARNING("failed to get tablet stats")
+                .tag("instance_id", instance_id)
+                .tag("tablet_id", tablet_id)
+                .tag("code", code)
+                .tag("msg", msg);
+        return;
+    }
+
     // clang-format off
     // ATTN: cumu point in job is from base tablet which may be fetched long time ago
     //       since the new tablet may have done cumu compactions with alter_version as initial cumu point

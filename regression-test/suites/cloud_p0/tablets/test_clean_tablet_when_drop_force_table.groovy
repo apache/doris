@@ -40,66 +40,86 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
     options.cloudMode = true
     options.enableDebugPoints()
     
-    def testCase = { table, waitTime, useDp=false-> 
+    def testCase = { tableName, waitTime, useDp=false-> 
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
-        sql """CREATE TABLE $table (
-            `k1` int(11) NULL,
-            `k2` int(11) NULL,
-            `v1` VARCHAR(2048)
-            )
-            DUPLICATE KEY(`k1`, `k2`)
-            COMMENT 'OLAP'
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
-            PROPERTIES (
-            "replication_num"="1"
-            );
+        sql """CREATE TABLE IF NOT EXISTS ${tableName} (
+                  `k1` int(11) NULL,
+                  `k2` tinyint(4) NULL,
+                  `k3` smallint(6) NULL,
+                  `k4` bigint(20) NULL,
+                  `k5` largeint(40) NULL,
+                  `k6` float NULL,
+                  `k7` double NULL,
+                  `k8` decimal(9, 0) NULL,
+                  `k9` char(10) NULL,
+                  `k10` varchar(1024) NULL,
+                  `k11` text NULL,
+                  `k12` date NULL,
+                  `k13` datetime NULL
+                ) ENGINE=OLAP
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 3
         """
-        def random = new Random()
-        def generateRandomString = { int length ->
-            random.with {
-                def chars = ('A'..'Z').collect() + ('a'..'z').collect() + ('0'..'9').collect()
-                (1..length).collect { chars[nextInt(chars.size())] }.join('')
+        def txnId = -1;
+        // version 2
+        streamLoad {
+            table "${tableName}"
+
+            set 'column_separator', ','
+            set 'compress_type', 'gz'
+            file 'all_types.csv.gz'
+            time 10000 // limit inflight 10s
+            setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
+
+            check { loadResult, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${loadResult}".toString())
+                def json = parseJson(loadResult)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(80000, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+                txnId = json.TxnId
             }
         }
-        def valuesList = (1..30000).collect { i -> 
-            def randomStr = generateRandomString(2000)
-            "($i, $i, '$randomStr')"
-        }.join(", ")
-        sql """
-            set global max_allowed_packet = 1010241024
-        """
-
+     
         context.reconnectFe()
-        sql """
-            insert into $table values ${valuesList}
-        """
-
         for (int i = 0; i < 5; i++) {
             sql """
-                select count(*) from $table
+                select count(*) from $tableName
             """
         }
+        // version 3
+        streamLoad {
+            table "${tableName}"
 
-        valuesList = (30001..60000).collect { i -> 
-            def randomStr = generateRandomString(2000)
-            "($i, $i, '$randomStr')"
-        }.join(", ")
-        sql """
-            set global max_allowed_packet = 1010241024
-        """
-        context.reconnectFe()
-        sql """
-            insert into $table values ${valuesList}
-        """
+            set 'column_separator', ','
+            set 'compress_type', 'gz'
+            file 'all_types.csv.gz'
+            time 10000 // limit inflight 10s
+            setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
+
+            check { loadResult, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${loadResult}".toString())
+                def json = parseJson(loadResult)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(80000, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+                txnId = json.TxnId
+            }
+        }
 
         // before drop table force
-        def beforeGetFromFe = getTabletAndBeHostFromFe(table)
+        def beforeGetFromFe = getTabletAndBeHostFromFe(tableName)
         def beforeGetFromBe = getTabletAndBeHostFromBe(cluster.getAllBackends())
         // version 2
-        def cacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2)
+        def cacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, tableName, 2)
         // version 3
-        def cacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3)
+        def cacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, tableName, 3)
 
         def mergedCacheDir = cacheDirVersion2 + cacheDirVersion3.collectEntries { host, hashFiles ->
             [(host): cacheDirVersion2[host] ? (cacheDirVersion2[host] + hashFiles) : hashFiles]
@@ -116,7 +136,7 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
         // after drop table force
 
         sql """
-            DROP TABLE $table FORCE
+            DROP TABLE $tableName FORCE
         """
         def futrue
         if (useDp) {
@@ -132,7 +152,7 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             logger.info("before drop tablets {}, after tablets {}", beforeGetFromFe, beTablets)
             beforeGetFromFe.keySet().every { !getTabletAndBeHostFromBe(cluster.getAllBackends()).containsKey(it) }
         }
-        logger.info("table {}, cost {}s", table, System.currentTimeMillis() / 1000 - start)
+        logger.info("table {}, cost {}s", tableName, System.currentTimeMillis() / 1000 - start)
         assertTrue(System.currentTimeMillis() / 1000 - start > waitTime)
         if (useDp) {
             futrue.get()

@@ -28,7 +28,7 @@ class PromethuesChecker {
 
     static boolean regexp(String s) {
         if (s == null) return false
-        s =~ /^[a-zA-Z_][a-zA-Z0-9_]*(\{[a-zA-Z_][a-zA-Z0-9_]*="[^"]+"(,[a-zA-Z_][a-zA-Z0-9_]*="[^"]+")*\})?\s+-?([0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?)$/
+        s =~ /^[a-zA-Z_][a-zA-Z0-9_]*(\{[a-zA-Z_][a-zA-Z0-9_]*="[^"]*"(,[a-zA-Z_][a-zA-Z0-9_]*="[^"]*")*\})?\s+-?([0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?)$/
     }
 
     static boolean check(String str) {

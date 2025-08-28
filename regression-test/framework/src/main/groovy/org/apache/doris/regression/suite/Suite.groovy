@@ -297,6 +297,7 @@ class Suite implements GroovyInterceptable {
     // more explaination can see example file: demo_p0/docker_action.groovy
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
+            logger.info("do not run the docker suite {}, because regression config excludeDockerTest=true", name)
             return
         }
 
@@ -314,9 +315,13 @@ class Suite implements GroovyInterceptable {
             }
         } else {
             if (options.cloudMode == true && context.config.runMode == RunMode.NOT_CLOUD) {
+                logger.info("do not run the docker suite {}, because the suite's ClusterOptions.cloudMode=true "
+                    + "but regression test is local mode", name)
                 return
             }
             if (options.cloudMode == false && context.config.runMode == RunMode.CLOUD) {
+                logger.info("do not run the docker suite {}, because the suite's ClusterOptions.cloudMode=false "
+                    + "but regression test is cloud mode", name)
                 return
             }
             dockerImpl(options, options.cloudMode, actionSupplier)
@@ -1788,7 +1793,8 @@ class Suite implements GroovyInterceptable {
         String closeFoldConstant = "set debug_skip_fold_constant=true";
         sql(closeFoldConstant)
         logger.info(foldSql)
-        List<List<Object>> resultExpected = sql(foldSql)
+        Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult2 = JdbcUtils.executeToStringList(context.getConnection(), foldSql)
+        List<List<Object>> resultExpected = tupleResult2.first
         logger.info("result expected: " + resultExpected.toString())
 
         String errorMsg = null
