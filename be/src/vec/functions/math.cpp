@@ -118,8 +118,8 @@ struct SignImpl {
             return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
         } else if constexpr (IsSignedV<A>) {
             return static_cast<UInt8>(a < 0 ? -1 : a == 0 ? 0 : 1);
-        } else if constexpr (IsUnsignedV<A>) {
-            return static_cast<UInt8>(a == 0 ? 0 : 1);
+        } else {
+            static_assert(std::is_same_v<A, void>, "Unsupported type in SignImpl");
         }
     }
 };
@@ -136,16 +136,16 @@ struct AbsImpl {
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
         if constexpr (IsDecimalNumber<A>) {
             return a < A(0) ? A(-a) : a;
-        } else if constexpr (IsIntegralV<A> && IsSignedV<A>) {
+        } else if constexpr (IsIntegralV<A>) {
             return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                                       ~a) +
                                       1
                             : a;
-        } else if constexpr (IsIntegralV<A> && IsUnsignedV<A>) {
-            return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
         } else if constexpr (std::is_floating_point_v<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                     std::abs(a));
+        } else {
+            static_assert(std::is_same_v<A, void>, "Unsupported type in AbsImpl");
         }
     }
 };
@@ -228,7 +228,10 @@ template <typename A>
 struct NegativeImpl {
     static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) { return -a; }
+    NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType
+    apply(A a) {
+        return -a;
+    }
 };
 
 struct NameNegative {
@@ -442,9 +445,9 @@ public:
         bool is_const_right = is_column_const(*column_right);
 
         ColumnPtr column_result = nullptr;
-        if (is_const_left && is_const_right) {
-            column_result = constant_constant(column_left, column_right);
-        } else if (is_const_left) {
+
+        DCHECK(!(is_const_left && is_const_right)) << "both of column can not be const";
+        if (is_const_left) {
             column_result = constant_vector(column_left, column_right);
         } else if (is_const_right) {
             column_result = vector_constant(column_left, column_right);
@@ -457,27 +460,6 @@ public:
     }
 
 private:
-    ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right) const {
-        const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
-        const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
-        ColumnPtr column_result = nullptr;
-
-        auto res = column_type::create(1);
-        if constexpr (Impl::is_nullable) {
-            auto null_map = ColumnUInt8::create(1, 0);
-            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<cpp_type>(),
-                                              column_right_ptr->template get_value<cpp_type>(),
-                                              null_map->get_element(0));
-            column_result = ColumnNullable::create(std::move(res), std::move(null_map));
-        } else {
-            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<cpp_type>(),
-                                              column_right_ptr->template get_value<cpp_type>());
-            column_result = std::move(res);
-        }
-
-        return ColumnConst::create(std::move(column_result), column_left->size());
-    }
-
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
         const auto* column_left_ptr = assert_cast<const column_type*>(column_left.get());

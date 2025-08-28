@@ -28,7 +28,7 @@ struct PlusImpl {
     static constexpr auto name = "add";
     static constexpr PrimitiveType PType = Type;
     using Arg = typename PrimitiveTypeTraits<Type>::ColumnItemType;
-    static inline Arg apply(Arg a, Arg b) { return a + b; }
+    NO_SANITIZE_UNDEFINED static inline Arg apply(Arg a, Arg b) { return a + b; }
 };
 
 template <PrimitiveType TypeA, PrimitiveType TypeB>
@@ -58,8 +58,9 @@ struct PlusDecimalImpl {
     /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
     template <PrimitiveType Result>
         requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
-    static inline bool apply(ArgNativeTypeA a, ArgNativeTypeB b,
-                             typename PrimitiveTypeTraits<Result>::CppNativeType& c) {
+    NO_SANITIZE_UNDEFINED static inline bool apply(
+            ArgNativeTypeA a, ArgNativeTypeB b,
+            typename PrimitiveTypeTraits<Result>::CppNativeType& c) {
         return common::add_overflow(
                 static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a),
                 static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(b), c);
