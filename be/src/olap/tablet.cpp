@@ -569,14 +569,15 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
     }
 
     std::vector<RowsetMetaSharedPtr> rs_metas_to_delete;
+    int64_t now = ::time(nullptr);
     for (auto& rs : to_delete) {
-        rs_metas_to_delete.push_back(rs->rowset_meta());
-        _rs_version_map.erase(rs->version());
-
         if (!same_version) {
+            rs->rowset_meta()->set_stale_at(now);
             // put compaction rowsets in _stale_rs_version_map.
             _stale_rs_version_map[rs->version()] = rs;
         }
+        rs_metas_to_delete.push_back(rs->rowset_meta());
+        _rs_version_map.erase(rs->version());
     }
 
     std::vector<RowsetMetaSharedPtr> rs_metas_to_add;
@@ -640,7 +641,11 @@ Status Tablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, boo
     }
     std::vector<RowsetMetaSharedPtr> rs_metas;
     rs_metas.reserve(to_delete.size());
+    int64_t now = ::time(nullptr);
     for (const auto& rs : to_delete) {
+        if (move_to_stale) {
+            rs->rowset_meta()->set_stale_at(now);
+        }
         rs_metas.push_back(rs->rowset_meta());
         _rs_version_map.erase(rs->version());
     }
