@@ -76,9 +76,17 @@ public abstract class AbstractInsertExecutor {
      * Insert executor listener
      */
     public interface InsertExecutorListener {
-        void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId) throws Exception;
+        /**
+         * Called before insert execution begins
+         */
 
-        void afterComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId) throws Exception;
+        default void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                throws Exception {
+        }
+
+        default void afterComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                throws Exception {
+        }
     }
 
     private List<InsertExecutorListener> listeners = new CopyOnWriteArrayList<>();

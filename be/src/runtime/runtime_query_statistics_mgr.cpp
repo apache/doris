@@ -419,7 +419,7 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
             query_stats_result_map[query_id] = stats_result;
         }
 
-        report_runtime_params.__set_query_statistics_map(query_stats_result_map);
+        report_runtime_params.__set_query_statistics_result_map(query_stats_result_map);
 
         TReportExecStatusParams params;
         params.__set_report_workload_runtime_status(report_runtime_params);

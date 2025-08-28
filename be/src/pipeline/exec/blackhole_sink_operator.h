@@ -24,14 +24,10 @@
 #include <memory>
 
 #include "operator.h"
-#include "runtime/result_block_buffer.h"
 #include "vec/core/block.h"
-#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 
-class TDataStreamSink;
-class TPlanFragmentDestination;
 class TDataSink;
 
 namespace vectorized {
@@ -59,28 +55,19 @@ public:
     int64_t _rows_processed = 0;
     int64_t _bytes_processed = 0;
 
-    // Cache metrics for WARM UP SELECT result reporting
-    int64_t _scan_rows = 0;
-    int64_t _scan_bytes = 0;
-    int64_t _scan_bytes_from_local_storage = 0;
-    int64_t _scan_bytes_from_remote_storage = 0;
-
     RuntimeProfile::Counter* _rows_processed_timer = nullptr;
     RuntimeProfile::Counter* _bytes_processed_timer = nullptr;
 
 private:
     friend class BlackholeSinkOperatorX;
-
-    // Result buffer for sending cache metrics to FE
-    std::shared_ptr<vectorized::MySQLResultBlockBuffer> _sender = nullptr;
 };
 
 class BlackholeSinkOperatorX final : public DataSinkOperatorX<BlackholeSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<BlackholeSinkLocalState>;
 
-    BlackholeSinkOperatorX(int operator_id, const int dest_id, const TDataStreamSink& sink,
-                           const std::vector<TPlanFragmentDestination>& destinations);
+    BlackholeSinkOperatorX(int operator_id);
+
     Status prepare(RuntimeState* state) override;
 
     Status init(const TDataSink& tsink) override;
@@ -97,14 +84,6 @@ private:
      * This simulates a "/dev/null" sink - data goes in but nothing comes out.
      */
     Status _process_block(RuntimeState* state, vectorized::Block* block);
-
-    void _collect_cache_metrics(RuntimeState* state, BlackholeSinkLocalState& local_state);
-
-    Status _send_cache_metrics_batch(RuntimeState* state, BlackholeSinkLocalState& local_state);
-
-    TDataStreamSink _t_data_stream_sink;
-    std::vector<TPlanFragmentDestination> _destinations;
-    std::shared_ptr<vectorized::MySQLResultBlockBuffer> _sender = nullptr;
 };
 
 } // namespace pipeline

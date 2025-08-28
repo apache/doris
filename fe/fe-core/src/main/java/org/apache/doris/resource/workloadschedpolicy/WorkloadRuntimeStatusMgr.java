@@ -165,7 +165,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             LOG.warn("be report workload runtime status but without beid");
             return;
         }
-        if (!params.isSetQueryStatisticsMap()) {
+        if (!params.isSetQueryStatisticsResultMap()) {
             LOG.warn("be report workload runtime status but without query stats map");
             return;
         }
@@ -181,7 +181,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         } else {
             beReportInfo.beLastReportTime = currentTime;
         }
-        for (Map.Entry<String, TQueryStatisticsResult> entry : params.query_statistics_map.entrySet()) {
+        for (Map.Entry<String, TQueryStatisticsResult> entry : params.query_statistics_result_map.entrySet()) {
             beReportInfo.queryStatsMap.put(entry.getKey(), Pair.of(currentTime, entry.getValue()));
         }
     }

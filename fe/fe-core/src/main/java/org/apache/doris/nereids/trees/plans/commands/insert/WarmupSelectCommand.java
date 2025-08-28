@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -52,6 +53,16 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
     private static final long QUERY_STATISTICS_TIMEOUT_MS = 5000; // 5 seconds
     private static final long QUERY_STATISTICS_INTERVAL_MS = 1000; // 1 second
 
+    // Create a result set with aggregated data per BE
+    private static final ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+            .addColumn(new Column("BackendId", ScalarType.createVarchar(20)))
+            .addColumn(new Column("ScanRows", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("ScanBytes", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("ScanBytesFromLocalStorage", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("ScanBytesFromRemoteStorage", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("BytesWriteIntoCache", ScalarType.createType(PrimitiveType.BIGINT)))
+            .build();
+
     /**
      * WarmupSelectCommand constructor
      */
@@ -59,7 +70,6 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
         super(PlanType.INSERT_INTO_BLACKHOLE_COMMAND, logicalQuery, Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty());
         super.setInsertExecutorListener(new InsertExecutorListener() {
-
             @Override
             public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
                     throws Exception {
@@ -74,7 +84,9 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
                 }
                 Map<Long, TQueryStatisticsResult> statistics = pollForQueryStatistics(insertExecutor.ctx.queryId(),
                         QUERY_STATISTICS_TIMEOUT_MS, QUERY_STATISTICS_INTERVAL_MS);
-                sendAggregatedBlackholeResults(statistics, executor);
+                if (statistics != null) {
+                    sendAggregatedBlackholeResults(statistics, executor);
+                }
             }
         });
     }
@@ -97,9 +109,11 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
         // Get the coordinator to know how many backends are involved
         CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
         int expectedBackendCount = 0;
-        if (coor != null) {
-            expectedBackendCount = coor.getInvolvedBackends().size();
+        if (coor == null) {
+            return null;
         }
+
+        expectedBackendCount = coor.getInvolvedBackends().size();
 
         // Track which backends have finished and store the latest statistics for each backend
         Set<Long> finishedBackends = Sets.newHashSet();
@@ -152,16 +166,6 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
      */
     public void sendAggregatedBlackholeResults(Map<Long, TQueryStatisticsResult> statisticsResult,
             StmtExecutor executor) throws IOException {
-        // Create a result set with aggregated data per BE
-        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
-                .addColumn(new Column("BackendId", ScalarType.createVarchar(20)))
-                .addColumn(new Column("ScanRows", ScalarType.createVarchar(20)))
-                .addColumn(new Column("ScanBytes", ScalarType.createVarchar(20)))
-                .addColumn(new Column("ScanBytesFromLocalStorage", ScalarType.createVarchar(20)))
-                .addColumn(new Column("ScanBytesFromRemoteStorage", ScalarType.createVarchar(20)))
-                .addColumn(new Column("BytesWriteIntoCache", ScalarType.createVarchar(20)))
-                .build();
-
         List<List<String>> rows = Lists.newArrayList();
         long totalScanRows = 0;
         long totalScanBytes = 0;

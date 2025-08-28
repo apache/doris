@@ -1378,13 +1378,13 @@ public class NereidsParserTest extends ParserTestBase {
         String warmUpSql = "WARM UP SELECT * FROM test_table";
         LogicalPlan logicalPlan = nereidsParser.parseSingle(warmUpSql);
         Assertions.assertNotNull(logicalPlan);
-        Assertions.assertEquals(StmtType.OTHER, logicalPlan.stmtType());
+        Assertions.assertEquals(StmtType.INSERT, logicalPlan.stmtType());
 
         // Test warm up select with where clause
         String warmUpSqlWithWhere = "WARM UP SELECT id, name FROM test_table WHERE id > 10";
         LogicalPlan logicalPlanWithWhere = nereidsParser.parseSingle(warmUpSqlWithWhere);
         Assertions.assertNotNull(logicalPlanWithWhere);
-        Assertions.assertEquals(StmtType.OTHER, logicalPlanWithWhere.stmtType());
+        Assertions.assertEquals(StmtType.INSERT, logicalPlanWithWhere.stmtType());
 
         // Negative cases: LIMIT, JOIN, UNION, AGGREGATE not allowed
         Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table LIMIT 100"));

@@ -211,7 +211,8 @@ struct TQueryStatisticsResult {
 
 struct TReportWorkloadRuntimeStatusParams {
     1: optional i64 backend_id
-    2: optional map<string, TQueryStatisticsResult> query_statistics_map
+    2: optional map<string, TQueryStatistics> query_statistics_map // deprecated
+    3: optional map<string, TQueryStatisticsResult> query_statistics_result_map
 }
 
 struct TQueryProfile {

@@ -18,14 +18,16 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
@@ -63,27 +65,23 @@ public class BlackholeInsertExecutor extends AbstractInsertExecutor {
     }
 
     @Override
-    protected void onComplete() throws UserException {
-        if (!coordinator.getExecStatus().ok()) {
-            String errMsg = coordinator.getExecStatus().getErrorMsg();
-            LOG.warn("blackhole insert failed. label: {}, error: {}", labelName, errMsg);
-            throw new UserException(errMsg);
+    protected void onComplete() {
+        if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            LOG.warn("blackhole insert failed. label: {}, error: {}",
+                    labelName, coordinator.getExecStatus().getErrorMsg());
         }
     }
 
     @Override
     protected void onFail(Throwable t) {
-        // must from AbstractInsertExecutor so got DdlException
-        DdlException ddlException = (DdlException) t;
-        errMsg = t.getMessage() == null ? "unknown reason" : ddlException.getMessage();
+        errMsg = t.getMessage() == null ? "unknown reason" : Util.getRootCauseMessage(t);
         String queryId = DebugUtil.printId(ctx.queryId());
-        LOG.warn("blackhole insert [{}] with query id {} failed", labelName, queryId, ddlException);
+        LOG.warn("insert [{}] with query id {} abort txn {} failed", labelName, queryId, txnId);
         StringBuilder sb = new StringBuilder(errMsg);
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());
         }
-        // we should set the context to make the caller know the command failed
-        ctx.getState().setError(ddlException.getMysqlErrorCode(), sb.toString());
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
     }
 
     @Override
