@@ -903,6 +903,23 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         }
     }
 
+    {
+        // Get the partition version
+        brpc::Controller ctrl;
+        GetVersionRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(1);
+        req.set_table_id(table_id);
+        req.set_partition_id(partition_id);
+
+        GetVersionResponse resp;
+        meta_service->get_version(&ctrl, &req, &resp, nullptr);
+
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+                << " status is " << resp.status().DebugString();
+        ASSERT_GT(resp.version(), 1);
+    }
+
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
