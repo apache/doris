@@ -530,7 +530,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
 
     // 1 create thread pool
     if (_task_sched == nullptr) {
-        std::unique_ptr<pipeline::HybridTaskScheduler> pipeline_task_scheduler =
+        std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
                 std::make_unique<pipeline::HybridTaskScheduler>(pipeline_exec_thread_num,
                                                                 "p_" + wg_name, cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
@@ -638,7 +638,7 @@ Status WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
     return upsert_thread_pool_no_lock(wg_info, _cgroup_cpu_ctl);
 }
 
-void WorkloadGroup::get_query_scheduler(doris::pipeline::HybridTaskScheduler** exec_sched,
+void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                                         vectorized::SimplifiedScanScheduler** scan_sched,
                                         vectorized::SimplifiedScanScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
