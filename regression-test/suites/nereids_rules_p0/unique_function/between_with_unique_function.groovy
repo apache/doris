@@ -16,6 +16,7 @@
 // under the License.
 
 suite('between_with_unique_function') {
+    sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION'"
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
     qt_between_two_num 'explain shape plan select * from t1 where id between random() and random()'
 }

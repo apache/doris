@@ -248,9 +248,9 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         Assertions.assertEquals("AND[((cast(TA as BIGINT) + random(1, 10)) > 10),((cast(TA as BIGINT) + random(1, 10)) < 1)]", expr.toSql());
 
         expr = rewrite("TA + random(1, 10) between 10 and 20", Maps.newHashMap());
-        Assertions.assertEquals("AND[((TA + random(1, 10)) >= 10),((TA + random(1, 10)) <= 20)]", expr.toSql());
+        Assertions.assertEquals("AND[((cast(TA as BIGINT) + random(1, 10)) >= 10),((cast(TA as BIGINT) + random(1, 10)) <= 20)]", expr.toSql());
         expr = rewrite("TA + random(1, 10) between 20 and 10", Maps.newHashMap());
-        Assertions.assertEquals("AND[(TA + random(1, 10)) IS NULL,NULL]", expr.toSql());
+        Assertions.assertEquals("AND[(cast(TA as BIGINT) + random(1, 10)) IS NULL,NULL]", expr.toSql());
     }
 
     @Test
