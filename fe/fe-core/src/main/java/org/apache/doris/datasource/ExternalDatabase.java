@@ -164,7 +164,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             isInitializing = true;
             try {
                 if (!initialized) {
-                    if (extCatalog.getUseMetaCache().get() && Config.max_meta_object_cache_num > 0) {
+                    if (extCatalog.getUseMetaCache().get()) {
                         buildMetaCache();
                         setLastUpdateTime(System.currentTimeMillis());
                     } else {
@@ -430,7 +430,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
 
         // Step 3: Resolve remote table name if using meta cache and it is not provided
-        if (remoteTableName == null && extCatalog.useMetaCache.get()) {
+        if (remoteTableName == null && extCatalog.useMetaCache.get() && Config.max_meta_object_cache_num > 0) {
             if (Boolean.parseBoolean(extCatalog.getLowerCaseMetaNames())
                     || !Strings.isNullOrEmpty(extCatalog.getMetaNamesMapping())
                     || this.isStoredTableNamesLowerCase()) {
@@ -593,7 +593,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public List<T> getTables() {
         makeSureInitialized();
-        if (extCatalog.getUseMetaCache().get()) {
+        if (extCatalog.getUseMetaCache().get() && Config.max_meta_object_cache_num > 0) {
             List<T> tables = Lists.newArrayList();
             Set<String> tblNames = getTableNamesWithLock();
             for (String tblName : tblNames) {

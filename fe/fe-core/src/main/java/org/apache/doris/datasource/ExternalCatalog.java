@@ -246,7 +246,8 @@ public abstract class ExternalCatalog
         if (catalogProperty.getOrDefault(USE_META_CACHE, "").isEmpty()) {
             // If not setting USE_META_CACHE in replay logic,
             // set default value to false to be compatible with older version meta data.
-            catalogProperty.addProperty(USE_META_CACHE, isReplay ? "false" : String.valueOf(DEFAULT_USE_META_CACHE));
+            catalogProperty.addProperty(USE_META_CACHE, isReplay ? "false"
+                    : Config.max_meta_object_cache_num > 0 ? String.valueOf(DEFAULT_USE_META_CACHE) : "false");
         }
         useMetaCache = Optional.of(
                 Boolean.valueOf(catalogProperty.getOrDefault(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE))));
