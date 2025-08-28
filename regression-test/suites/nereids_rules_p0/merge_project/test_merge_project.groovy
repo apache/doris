@@ -22,13 +22,13 @@ suite('test_merge_project', 'nonConcurrent') {
             SET ignore_shape_nodes='PhysicalDistribute';
             drop table if exists ${tbl} force;
             create table ${tbl} (a int, b int) properties('replication_num' = '1');
-            insert into ${tbl} values (1, 2), (3, 4);
+            insert into ${tbl} values (2, 1), (4, 3);
             """
 
         explainAndOrderResult 'exceeds_expression_limit', """
             select
                 case
-                  when k15 > k16 then k15 + k16
+                  when k15 > k16 then k15 + k16 + 1
                   when k15 > k16 - 1 then k15 + k16 - 1
                   when k15 > k16 - 2 then k15 + k16 - 2
                   else 0
@@ -37,7 +37,7 @@ suite('test_merge_project', 'nonConcurrent') {
             from
             (select
                 case
-                  when k13 > k14 then k13 + k14
+                  when k13 > k14 then k13 + k14 + 1
                   when k13 > k14 - 1 then k13 + k14 - 1
                   when k13 > k14 - 2 then k13 + k14 - 2
                   else 0
@@ -46,7 +46,7 @@ suite('test_merge_project', 'nonConcurrent') {
             from
             (select
                 case
-                  when k11 > k12 then k11 + k12
+                  when k11 > k12 then k11 + k12 + 1
                   when k11 > k12 - 1 then k11 + k12 - 1
                   when k11 > k12 - 2 then k11 + k12 - 2
                   else 0
@@ -55,7 +55,7 @@ suite('test_merge_project', 'nonConcurrent') {
             from
             (select
                 case
-                  when k9 > k10 then k9 + k10
+                  when k9 > k10 then k9 + k10 + 1
                   when k9 > k10 - 1 then k9 + k10 - 1
                   when k9 > k10 - 2 then k9 + k10 - 2
                   else 0
@@ -64,7 +64,7 @@ suite('test_merge_project', 'nonConcurrent') {
             from
             (select
                 case
-                  when k7 > k8 then k7 + k8
+                  when k7 > k8 then k7 + k8 + 1
                   when k7 > k8 - 1 then k7 + k8 - 1
                   when k7 > k8 - 2 then k7 + k8 - 2
                   else 0
@@ -73,7 +73,7 @@ suite('test_merge_project', 'nonConcurrent') {
             from
             (select
                case
-                 when k5 > k6 then k5 + k6
+                 when k5 > k6 then k5 + k6 + 1
                  when k5 > k6 - 1 then k5 + k6 - 1
                  when k5 > k6 - 2 then k5 + k6 - 2
                  else 0
@@ -82,7 +82,7 @@ suite('test_merge_project', 'nonConcurrent') {
             from
             (select
                case
-                 when k3 > k4 then k3 + k4
+                 when k3 > k4 then k3 + k4 + 1
                  when k3 > k4 - 1 then k3 + k4 - 1
                  when k3 > k4 - 2 then k3 + k4 - 2
                  else 0
@@ -91,7 +91,7 @@ suite('test_merge_project', 'nonConcurrent') {
             from
             (select
                 case
-                  when k1 > k2 then k1 + k2
+                  when k1 > k2 then k1 + k2 + 1
                   when k1 > k2 - 1 then k1 + k2 - 1
                   when k1 > k2 - 2 then k1 + k2 - 2
                   else 0
