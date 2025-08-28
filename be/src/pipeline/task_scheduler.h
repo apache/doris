@@ -74,7 +74,7 @@ private:
     void _do_work(int index);
 };
 
-class HybridTaskScheduler final : public TaskScheduler {
+class HybridTaskScheduler MOCK_REMOVE(final) : public TaskScheduler {
 public:
     HybridTaskScheduler(int core_num, std::string name,
                         std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
