@@ -96,4 +96,27 @@ suite("fold_constant_by_be") {
          sql "select IS_IPV4_MAPPED(NULLABLE(ipv6_string_to_num_or_default('192.168.1.1')));"
          contains "192.168.1.1"
     }
+    explain {
+        sql "select cosine_distance([0], [0]);"
+        contains "cosine_distance"
+        notContains("NULL")
+    }
+
+    explain {
+        sql "select array(cosine_distance([1], [1]), cast(\"NaN\" as float));"
+        contains "array(cosine_distance"
+        notContains("[0, ")
+    }
+
+    explain {
+        sql "select map(cosine_distance([1], [1]), cast(\"NaN\" as float));"
+        contains "map(cosine_distance"
+        notContains("MAP{0")
+    }
+
+    explain {
+        sql "select map(cast(\"NaN\" as float), cosine_distance([1], [1]));"
+        contains "map(NaN, cosine_distance"
+        notContains("MAP{NaN")
+    }
 }
