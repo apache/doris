@@ -164,7 +164,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             isInitializing = true;
             try {
                 if (!initialized) {
-                    if (extCatalog.getUseMetaCache().get()) {
+                    if (extCatalog.getUseMetaCache().get() && Config.max_meta_object_cache_num > 0) {
                         buildMetaCache();
                         setLastUpdateTime(System.currentTimeMillis());
                     } else {
@@ -708,7 +708,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public T getTableNullable(long tableId) {
         makeSureInitialized();
-        if (extCatalog.getUseMetaCache().get() && metaCache != null) {
+        if (extCatalog.getUseMetaCache().get()) {
             return metaCache.getMetaObjById(tableId).orElse(null);
         } else {
             return idToTbl.get(tableId);
