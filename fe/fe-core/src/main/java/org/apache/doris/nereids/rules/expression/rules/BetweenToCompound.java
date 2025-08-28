@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -51,8 +52,12 @@ public class BetweenToCompound implements ExpressionPatternRuleFactory {
     }
 
     public Expression rewrite(Between expr, ExpressionRewriteContext context) {
-        Expression left = new GreaterThanEqual(expr.getCompareExpr(), expr.getLowerBound());
-        Expression right = new LessThanEqual(expr.getCompareExpr(), expr.getUpperBound());
-        return new And(left, right);
+        if (expr.getLowerBound().equals(expr.getUpperBound())) {
+            return new EqualTo(expr.getCompareExpr(), expr.getLowerBound());
+        } else {
+            Expression left = new GreaterThanEqual(expr.getCompareExpr(), expr.getLowerBound());
+            Expression right = new LessThanEqual(expr.getCompareExpr(), expr.getUpperBound());
+            return new And(left, right);
+        }
     }
 }

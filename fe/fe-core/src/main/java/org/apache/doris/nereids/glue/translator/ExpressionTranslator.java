@@ -391,9 +391,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitBetween(Between between, PlanTranslatorContext context) {
-        And and = new And(new GreaterThanEqual(between.getCompareExpr(), between.getLowerBound()),
-                new LessThanEqual(between.getCompareExpr(), between.getUpperBound()));
-        return and.accept(this, context);
+        if (between.getLowerBound().equals(between.getUpperBound())) {
+            EqualTo equalTo = new EqualTo(between.getCompareExpr(), between.getLowerBound());
+            return equalTo.accept(this, context);
+        } else {
+            And and = new And(new GreaterThanEqual(between.getCompareExpr(), between.getLowerBound()),
+                    new LessThanEqual(between.getCompareExpr(), between.getUpperBound()));
+            return and.accept(this, context);
+        }
     }
 
     @Override
