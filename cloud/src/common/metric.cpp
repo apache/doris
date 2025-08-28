@@ -386,6 +386,27 @@ static void export_fdb_kv_ranges_details(TxnKv* kv) {
     }
 }
 
+static void export_fdb_cluster_metrics(TxnKv* txn_kv) {
+    constexpr std::string_view start_key = "\xff\xff/metrics/";
+    constexpr std::string_view end_key = "\xff\xff/metrics/\xff";
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn to export fdb cluster metrics";
+        return;
+    }
+
+    std::unique_ptr<FullRangeGetIterator> it = txn->full_range_get(start_key, end_key);
+    for (auto&& kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+        auto&& [key, value] = kvp.value();
+        LOG(INFO) << "key: " << key << ", value: " << value;
+    }
+    if (!it->is_valid()) {
+        LOG(WARNING) << "export fdb cluster metrics: " << it->error_code();
+    }
+}
+
 void FdbMetricExporter::export_fdb_metrics(TxnKv* txn_kv) {
     int64_t busyness = 0;
     std::string fdb_status = get_fdb_status(txn_kv);
@@ -394,6 +415,7 @@ void FdbMetricExporter::export_fdb_metrics(TxnKv* txn_kv) {
     if (auto* kv = dynamic_cast<FdbTxnKv*>(txn_kv); kv != nullptr) {
         busyness = static_cast<int64_t>(kv->get_client_thread_busyness() * 100);
         g_bvar_fdb_client_thread_busyness_percent.set_value(busyness);
+        export_fdb_cluster_metrics(kv);
     }
     LOG(INFO) << "finish to collect fdb metric, client busyness: " << busyness << "%";
 }
