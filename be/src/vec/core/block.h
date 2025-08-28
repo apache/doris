@@ -357,9 +357,6 @@ public:
         return res;
     }
 
-    // for String type or Array<String> type
-    void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
-
     int64_t get_decompress_time() const { return _decompress_time_ns; }
     int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
     int64_t get_compress_time() const { return _compress_time_ns; }

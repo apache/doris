@@ -505,11 +505,6 @@ MutableColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const
                              assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
 }
 
-void ColumnMap::shrink_padding_chars() {
-    keys_column->shrink_padding_chars();
-    values_column->shrink_padding_chars();
-}
-
 void ColumnMap::reserve(size_t n) {
     get_offsets().reserve(n);
     keys_column->reserve(n);

@@ -2386,43 +2386,6 @@ public:
         }
     }
 
-    // get_shrinked_column should only happened in char-type column or nested char-type column,
-    // other column just return the origin column without any data changed, so check file content should be the same as the origin column
-    //  just shrink the end zeros for char-type column which happened in segmentIterator
-    //    eg. column_desc: char(6), insert into char(3), the char(3) will padding the 3 zeros at the end for writing to disk.
-    //       but we select should just print the char(3) without the padding zeros
-    //  limit and topN operation will trigger this function call
-    void shrink_padding_chars_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        auto option = DataTypeSerDe::FormatOptions();
-        std::vector<std::vector<std::string>> res;
-        for (size_t i = 0; i < load_cols.size(); i++) {
-            auto& source_column = load_cols[i];
-            LOG(INFO) << "now we are in shrink_padding_chars column : " << load_cols[i]->get_name()
-                      << " for column size : " << source_column->size();
-            source_column->shrink_padding_chars();
-            // check after get_shrinked_column: 1 in selector present the load cols data is selected and data should be default value
-            auto ser_col = ColumnString::create();
-            ser_col->reserve(source_column->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
-            std::vector<std::string> data;
-            data.push_back("column: " + source_column->get_name() +
-                           " with shrinked column size: " + std::to_string(source_column->size()));
-            for (size_t j = 0; j < source_column->size(); ++j) {
-                if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
-                                                                     buffer_writer, option);
-                    !st) {
-                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
-                    break;
-                }
-                buffer_writer.commit();
-                std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                data.push_back(actual_str_value);
-            }
-            res.push_back(data);
-        }
-        check_res_file("shrink_padding_chars", res);
-    }
-
     void assert_size_eq(MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->size(), expect_size);
     }

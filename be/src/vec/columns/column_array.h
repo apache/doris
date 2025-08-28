@@ -116,8 +116,6 @@ public:
         offsets->sanity_check();
     }
 
-    void shrink_padding_chars() override;
-
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnOffset64;
 

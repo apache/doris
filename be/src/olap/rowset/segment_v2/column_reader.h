@@ -415,6 +415,8 @@ private:
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
 
+    void _shrink_char_type_column_suffix_zero(vectorized::MutableColumnPtr& dst);
+
     ColumnReader* _reader = nullptr;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()

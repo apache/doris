@@ -99,10 +99,6 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nest
     offsets = ColumnOffsets::create();
 }
 
-void ColumnArray::shrink_padding_chars() {
-    data->shrink_padding_chars();
-}
-
 std::string ColumnArray::get_name() const {
     return "Array(" + get_data().get_name() + ")";
 }

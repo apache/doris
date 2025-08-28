@@ -1345,7 +1345,15 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
     }
     *n -= remaining;
     _opts.stats->bytes_read += (dst->byte_size() - curr_size) + BitmapSize(*n);
+    _shrink_char_type_column_suffix_zero(dst);
     return Status::OK();
+}
+
+void FileColumnIterator::_shrink_char_type_column_suffix_zero(vectorized::MutableColumnPtr& dst) {
+    if (_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+        auto& column_string = assert_cast<vectorized::ColumnString&>(*dst);
+        column_string.shrink_padding_chars();
+    }
 }
 
 Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
@@ -1424,6 +1432,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
             remaining -= nrows_to_read;
         }
     }
+    _shrink_char_type_column_suffix_zero(dst);
     return Status::OK();
 }
 

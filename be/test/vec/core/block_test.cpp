@@ -1327,8 +1327,6 @@ TEST(BlockTest, others) {
     block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
             {"abc", "efg", "hij"}));
 
-    block.shrink_char_type_column_suffix_zero({1, 2});
-
     SipHash hash;
     block.update_hash(hash);
 

@@ -1813,19 +1813,8 @@ void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         const Field* column_desc = _schema->column(cid);
-
-        // The additional deleted filter condition will be in the materialized column at the end of the block.
-        // After _output_column_by_sel_idx, it will be erased, so we do not need to shrink it.
-        if (i < block->columns()) {
-            if (_has_char_type(*column_desc)) {
-                _char_type_idx.emplace_back(i);
-                if (i != 0) {
-                    _char_type_idx_no_0.emplace_back(i);
-                }
-            }
-            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                _is_char_type[cid] = true;
-            }
+        if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _is_char_type[cid] = true;
         }
     }
 }
@@ -2357,7 +2346,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
         _current_return_columns.resize(_schema->columns().size());
         _converted_column_ids.resize(_schema->columns().size(), 0);
-        if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
+        if (_is_char_type.empty()) {
             _is_char_type.resize(_schema->columns().size(), false);
             _vec_init_char_column_id(block);
         }
@@ -2525,14 +2514,12 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         block->replace_by_position(0, std::move(tmp_indicator_col));
                         _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
                                                              block);
-                        block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                         RETURN_IF_ERROR(
                                 _execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                         block->replace_by_position(0, std::move(col0));
                     } else {
                         _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
                                                              block);
-                        block->shrink_char_type_column_suffix_zero(_char_type_idx);
                         RETURN_IF_ERROR(
                                 _execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                     }
@@ -2592,13 +2579,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 block->replace_by_position(0, std::move(tmp_indicator_col));
 
                 _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
-                block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                 RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
                 // now recover the origin col0
                 block->replace_by_position(0, std::move(col0));
             } else {
                 _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
-                block->shrink_char_type_column_suffix_zero(_char_type_idx);
                 RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
             }
             VLOG_DEBUG << fmt::format("Execute common expr end. block rows {}, selected size {}",
@@ -2611,9 +2596,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
 
         if (_non_predicate_columns.empty()) {
-            // shrink char_type suffix zero data
-            block->shrink_char_type_column_suffix_zero(_char_type_idx);
-
             return Status::OK();
         }
         // step4: read non_predicate column
@@ -2633,9 +2615,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
 
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
-
-    // shrink char_type suffix zero data
-    block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
 #ifndef NDEBUG
     size_t rows = block->rows();
