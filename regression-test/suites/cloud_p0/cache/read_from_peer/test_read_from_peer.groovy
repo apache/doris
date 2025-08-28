@@ -46,8 +46,9 @@ suite('test_read_from_peer', 'docker') {
         clusterBes[0]
     }
 
-    def testCase = { String clusterName, String type ->
+    def testCase = { String clusterName, String runType, String fetchFrom ->
         def startTime = System.currentTimeMillis()
+        GetDebugPoint().enableDebugPointForAllBEs("CachedRemoteFileReader.read_at_impl.change_type", [type: runType])
         
         try {
             sql """
@@ -57,7 +58,7 @@ suite('test_read_from_peer', 'docker') {
             def be = clusterBe(clusterName)
             def haveCacheBe = clusterBe("compute_cluster")
 
-            switch (type) {
+            switch (fetchFrom) {
                 case "s3":
                     // Read from S3: disable peer reads
                     GetDebugPoint().enableDebugPoint(be.Host, be.HttpPort as int, NodeType.BE, "CachedRemoteFileReader.read_at_impl.peer_read_fn_failed")
@@ -74,9 +75,12 @@ suite('test_read_from_peer', 'docker') {
                     GetDebugPoint().enableDebugPoint(be.Host, be.HttpPort as int, NodeType.BE, "CachedRemoteFileReader::_fetch_from_peer_cache_blocks", 
                         [host: haveCacheBe.Host, port: haveCacheBe.BrpcPort])
                     break
+
+                case "hit_cache":
+                    break
                     
                 default:
-                    throw new IllegalArgumentException("Invalid type: $type. Expected: peer, s3, or winner")
+                    throw new IllegalArgumentException("Invalid type: $fetchFrom. Expected: peer, s3, or winner")
             }
             
             // Execute the query and measure time
@@ -84,19 +88,11 @@ suite('test_read_from_peer', 'docker') {
             sql """
                 select * from $table
             """
-            def queryEndTime = System.currentTimeMillis()
-            
-            def totalTime = System.currentTimeMillis() - startTime
-            def queryTime = queryEndTime - queryStartTime
-            
-            println "Test completed - Type: $type, Cluster: $clusterName"
-            println "Total execution time: ${totalTime}ms"
-            println "Query execution time: ${queryTime}ms"
-            
+            def queryTime = System.currentTimeMillis() - queryStartTime
+            logger.info("Test completed - Type:{}, FetchFrom: {}, Cluster: {}, Query execution time: {}ms", runType, fetchFrom, clusterName, queryTime)
         } catch (Exception e) {
             def totalTime = System.currentTimeMillis() - startTime
-            println "Test failed after ${totalTime}ms - Type: $type, Cluster: $clusterName"
-            println "Error: ${e.message}"
+            logger.info("Test failed after {}ms - Type: {}, FetchFrom: {}, Cluster: {} Error: {}", totalTime, runType, fetchFrom, clusterName, e.message)
             throw e
         }
     }
@@ -136,8 +132,9 @@ suite('test_read_from_peer', 'docker') {
             select * from $table
         """
 
-        testCase("readS3cluster", "s3")
-        testCase("readPeercluster", "peer")
-        testCase("readWinnercluster", "winner")
+        testCase("compute_cluster", "s3", "hit_cache")
+        testCase("readS3cluster", "s3", "s3")
+        testCase("readPeercluster", "peer", "peer")
+        testCase("readWinnercluster", "winner", "winner")
     }
 }

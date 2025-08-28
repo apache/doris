@@ -58,6 +58,7 @@
 namespace doris::io {
 
 bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
+bvar::Adder<uint64_t> peer_read_counter("cached_remote_reader_peer_read");
 bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
 bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
@@ -170,6 +171,7 @@ static Status race_fetch_into_buffer(
         auto elapsed = t.elapsed_time();
         if (st.ok() && read_sz == size) {
             if (c->commit_and_succeed(local_buf.get(), size, dst)) {
+                peer_read_counter << 1;
                 stats->remote_read_timer += elapsed;
             }
         } else {
@@ -179,6 +181,7 @@ static Status race_fetch_into_buffer(
 
     cntl->run_and_wait(std::move(s3_fetch), std::move(peer_fetch));
     if (!cntl->st.ok()) {
+        LOG(INFO) << "dx debug run_and_wait failed, try to read from s3, err=" << cntl->st.msg();
         s3_read_counter << 1;
         SCOPED_RAW_TIMER(&stats->remote_read_timer);
         RETURN_IF_ERROR(s3_read_fn(empty_start, Slice(dst, size), &size, io_ctx));
@@ -364,30 +367,63 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
 
-        auto s3_read_fn = [this, &size](size_t off, Slice s, size_t* n, const IOContext* ctx) {
-            DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.s3_read_fn_failed", {
-                LOG_WARNING("debug point read_at_impl.s3_read_fn_failed")
-                        .tag("path", path().native())
-                        .tag("off", off)
-                        .tag("size", size);
-                return Status::InternalError("debug point read_at_impl.s3_read_fn_failed");
-            });
-            return _remote_file_reader->read_at(off, s, n, ctx);
-        };
-        auto peer_read_fn = [this, &empty_blocks, &size](size_t off, Slice s, size_t* n,
-                                                         const IOContext* ctx) {
-            DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.peer_read_fn_failed", {
-                LOG_WARNING("debug point read_at_impl.peer_read_fn_failed")
-                        .tag("path", path().native())
-                        .tag("off", off)
-                        .tag("size", size);
-                return Status::InternalError("debug point read_at_impl.peer_read_fn_failed");
-            });
-            return _fetch_from_peer_cache_blocks(empty_blocks, off, s, n, ctx);
-        };
+        std::string type = "s3";
+        DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.change_type", {
+            type = dp->param<std::string>("type", "s3");
+            LOG_WARNING("CachedRemoteFileReader.read_at_impl.change_type")
+                    .tag("path", path().native())
+                    .tag("off", offset)
+                    .tag("size", size)
+                    .tag("type", type);
+        });
 
-        RETURN_IF_ERROR(race_fetch_into_buffer(empty_start, size, buffer.get(), io_ctx, &stats,
-                                               s3_read_fn, peer_read_fn));
+        if (type == "s3") {
+            // Direct S3 read
+            s3_read_counter << 1;
+            SCOPED_RAW_TIMER(&stats.remote_read_timer);
+            RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
+                                                         &size, io_ctx));
+        } else if (type == "peer") {
+            // Direct peer read
+            peer_read_counter << 1;
+            SCOPED_RAW_TIMER(&stats.remote_read_timer);
+            RETURN_IF_ERROR(_fetch_from_peer_cache_blocks(
+                    empty_blocks, empty_start, Slice(buffer.get(), size), &size, io_ctx));
+        } else if (type == "winner") {
+            // Race between S3 and peer - let the faster one win
+            auto s3_read_fn = [this](size_t off, Slice s, size_t* n, const IOContext* ctx) {
+                DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.s3_read_fn_failed", {
+                    LOG_WARNING("debug point read_at_impl.s3_read_fn_failed")
+                            .tag("path", path().native())
+                            .tag("off", off)
+                            .tag("size", s.size);
+                    return Status::InternalError("debug point read_at_impl.s3_read_fn_failed");
+                });
+                return _remote_file_reader->read_at(off, s, n, ctx);
+            };
+
+            auto peer_read_fn = [this, &empty_blocks](size_t off, Slice s, size_t* n,
+                                                      const IOContext* ctx) {
+                DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.peer_read_fn_failed", {
+                    LOG_WARNING("debug point read_at_impl.peer_read_fn_failed")
+                            .tag("path", path().native())
+                            .tag("off", off)
+                            .tag("size", s.size);
+                    return Status::InternalError("debug point read_at_impl.peer_read_fn_failed");
+                });
+                return _fetch_from_peer_cache_blocks(empty_blocks, off, s, n, ctx);
+            };
+
+            RETURN_IF_ERROR(race_fetch_into_buffer(empty_start, size, buffer.get(), io_ctx, &stats,
+                                                   s3_read_fn, peer_read_fn));
+        } else {
+            // Default fallback to S3
+            LOG(WARNING) << "Unknown type: " << type << ", falling back to S3 read";
+            s3_read_counter << 1;
+            SCOPED_RAW_TIMER(&stats.remote_read_timer);
+            RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
+                                                         &size, io_ctx));
+        }
 
         for (auto& block : empty_blocks) {
             if (block->state() == FileBlock::State::SKIP_CACHE) {
