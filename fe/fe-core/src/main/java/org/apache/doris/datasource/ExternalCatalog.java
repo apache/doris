@@ -252,7 +252,17 @@ public abstract class ExternalCatalog
         // If max_meta_object_cache_num equals zero, force use_meta_cache to false.
         // otherwise meta operations will use meta cache.
         String configuredValue = catalogProperty.getOrDefault(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE));
-        useMetaCache = Optional.of(Boolean.parseBoolean(configuredValue) && (Config.max_meta_object_cache_num > 0));
+        boolean parsedValue = Boolean.parseBoolean(configuredValue);
+        boolean finalValue = parsedValue && (Config.max_meta_object_cache_num > 0);
+        useMetaCache = Optional.of(finalValue);
+
+        // Warn if user explicitly enabled meta cache ,but it's disabled due to cache size constraint
+        if (parsedValue && !finalValue) {
+            catalogProperty.addProperty(USE_META_CACHE, "false");
+            LOG.warn("Meta cache setting adjusted from {} to {} due to max_meta_object_cache_num constraint ({})",
+                    configuredValue, finalValue, Config.max_meta_object_cache_num);
+
+        }
     }
 
     // we need check auth fallback for kerberos or simple
