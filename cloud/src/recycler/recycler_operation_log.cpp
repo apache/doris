@@ -584,7 +584,7 @@ int InstanceRecycler::recycle_operation_logs() {
 
         bool need_recycle = true; // Always recycle operation logs for now
         if (need_recycle) {
-            AnnotateTag tag("log_key", hex(log_key));
+            AnnotateTag tag("log_key", hex(key));
             int res = recycle_operation_log(versionstamp, std::move(operation_log));
             if (res != 0) {
                 LOG_WARNING("failed to recycle operation log").tag("error_code", res);
