@@ -1351,8 +1351,7 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
 
 void FileColumnIterator::_shrink_char_type_column_suffix_zero(vectorized::MutableColumnPtr& dst) {
     if (_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-        auto& column_string = assert_cast<vectorized::ColumnString&>(*dst);
-        column_string.shrink_padding_chars();
+        dst->shrink_padding_chars();
     }
 }
 
