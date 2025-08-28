@@ -105,7 +105,7 @@ message RowsetMetaPB {
     optional PUniqueId tablet_uid = 21;
     // total number of segments
     optional int64 num_segments = 22;
-    // rowset id definition, it will replace required rowset id 
+    // rowset id definition, it will replace required rowset id
     optional string rowset_id_v2 = 23;
     // resource id
     optional string resource_id = 24;
@@ -146,6 +146,8 @@ message RowsetMetaPB {
     optional bool enable_inverted_index_file_info = 1006;
     repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
     optional SchemaDictKeyList schema_dict_key_list = 1008; // align to cloud rowset
+    // the time when this rowset should become stale (for compaction input rowsets)
+    optional int64 stale_at = 56;
 
     optional SplitSchemaPB __split_schema = 1009;  // A special field, DO NOT change it.
 }
@@ -223,6 +225,8 @@ message RowsetMetaCloudPB {
     optional string source_rowset_id = 54;
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
+    // the time when this rowset should become stale (for compaction input rowsets)
+    optional int64 stale_at = 56;
 
     // cloud
     // the field is a vector, rename it
