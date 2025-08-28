@@ -334,9 +334,9 @@ public abstract class ExternalCatalog
                 this.errorMsg = "";
             }
         } catch (Exception e) {
+            LOG.warn("failed to init catalog {}:{}", name, id, e);
             this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
-            throw new RuntimeException("Failed to init catalog: " + name + ", error: "
-                    + this.errorMsg + " You can use 'SHOW CATALOGS' to find the root cause", e);
+            throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
             isInitializing = false;
         }
