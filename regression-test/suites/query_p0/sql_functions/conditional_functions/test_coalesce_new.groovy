@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_coalesce_new") {
+suite("test_coalesce_new", 'nonConcurrent') {
     // test parameter:datetime, datev2
     sql """
         admin set frontend config ("enable_date_conversion"="false")

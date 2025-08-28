@@ -78,48 +78,43 @@ public class MTMVRelationManager implements MTMVHookService {
     /**
      * if At least one partition is available, return this mtmv
      *
-     * @param tableInfos
+     * @param candidateMTMVs
      * @param ctx
      * @return
      */
-    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx,
+    public Set<MTMV> getAvailableMTMVs(Set<MTMV> candidateMTMVs, ConnectContext ctx,
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
-        Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
                 ctx.getStatementContext(), new BitSet());
-
-        for (BaseTableInfo tableInfo : mvInfos) {
-            try {
-                MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
-                if (predicate.test(ctx, mtmv)) {
-                    continue;
-                }
-                if (!mtmv.isUseForRewrite()) {
-                    continue;
-                }
-                BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
-                if (isMVPartitionValid(mtmv, ctx, forceConsistent,
-                        relatedTableInfo == null ? null : queryUsedPartitions.get(relatedTableInfo.toList()))) {
-                    res.add(mtmv);
-                }
-            } catch (Exception e) {
-                // not throw exception to client, just ignore it
-                LOG.warn("getTable failed: {}", tableInfo.toString(), e);
+        for (MTMV mtmv : candidateMTMVs) {
+            if (predicate.test(ctx, mtmv)) {
+                continue;
+            }
+            if (!mtmv.isUseForRewrite()) {
+                continue;
+            }
+            BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+            if (isMVPartitionValid(mtmv, ctx, forceConsistent,
+                    relatedTableInfo == null ? null : queryUsedPartitions.get(relatedTableInfo.toList()))) {
+                res.add(mtmv);
             }
         }
         return res;
     }
 
     /**
-     * get all mtmv related to tableInfos.
+     * get candidate mtmv related to tableInfos.
      */
-    public Set<MTMV> getAllMTMVs(List<BaseTableInfo> tableInfos) {
+    public Set<MTMV> getCandidateMTMVs(List<BaseTableInfo> tableInfos) {
         Set<MTMV> mtmvs = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
-                mtmvs.add((MTMV) MTMVUtil.getTable(tableInfo));
+                MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
+                if (mtmv.canBeCandidate()) {
+                    mtmvs.add(mtmv);
+                }
             } catch (Exception e) {
                 // not throw exception to client, just ignore it
                 LOG.warn("getTable failed: {}", tableInfo.toString(), e);
@@ -256,6 +251,9 @@ public class MTMVRelationManager implements MTMVHookService {
     public void refreshComplete(MTMV mtmv, MTMVRelation relation, MTMVTask task) {
         if (task.getStatus() == TaskStatus.SUCCESS) {
             Objects.requireNonNull(relation);
+            if (mtmv.isDropped) {
+                return;
+            }
             refreshMTMVCache(relation, new BaseTableInfo(mtmv));
         }
     }

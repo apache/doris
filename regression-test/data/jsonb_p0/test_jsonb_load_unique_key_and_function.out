@@ -6047,7 +6047,7 @@ true
 8	1152921504606846976	false
 9	6.18	false
 10	"abcd"	false
-11	{}	true
+11	{}	false
 12	{"k1":"v31","k2":300}	true
 13	[]	false
 14	[123,456]	false
@@ -6057,7 +6057,7 @@ true
 18	{"k1":"v31","k2":300,"a1":[{"k1":"v41","k2":400},1,"a",3.14]}	true
 26	\N	\N
 27	{"k1":"v1","k2":200}	false
-28	{"a.b.c":{"k1.a1":"v31","k2":300},"a":"niu"}	true
+28	{"a.b.c":{"k1.a1":"v31","k2":300},"a":"niu"}	false
 
 -- !select_json_contains --
 1	\N	\N

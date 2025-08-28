@@ -141,27 +141,36 @@ Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) 
 Status JniConnector::get_table_schema(std::string& table_schema_str) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    // Call org.apache.doris.jni.JniScanner#getTableSchema
-    // return the TableSchema information
+
     jstring jstr = (jstring)env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_table_schema);
     RETURN_ERROR_IF_EXC(env);
-    table_schema_str = env->GetStringUTFChars(jstr, nullptr);
+
+    const char* cstr = env->GetStringUTFChars(jstr, nullptr);
     RETURN_ERROR_IF_EXC(env);
+
+    if (cstr == nullptr) {
+        return Status::RuntimeError("GetStringUTFChars returned null");
+    }
+
+    table_schema_str = std::string(cstr); // copy to std::string
+    env->ReleaseStringUTFChars(jstr, cstr);
+    env->DeleteLocalRef(jstr);
     return Status::OK();
 }
 
-std::map<std::string, std::string> JniConnector::get_statistics(JNIEnv* env) {
+Status JniConnector::get_statistics(JNIEnv* env, std::map<std::string, std::string>* result) {
+    result->clear();
     jobject metrics = env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_statistics);
     jthrowable exc = (env)->ExceptionOccurred();
     if (exc != nullptr) {
         LOG(WARNING) << "get_statistics has error: "
                      << JniUtil::GetJniExceptionMsg(env).to_string();
         env->DeleteLocalRef(metrics);
-        return std::map<std::string, std::string> {};
+        return Status::OK();
     }
-    std::map<std::string, std::string> result = JniUtil::convert_to_cpp_map(env, metrics);
+    RETURN_IF_ERROR(JniUtil::convert_to_cpp_map(env, metrics, result));
     env->DeleteLocalRef(metrics);
-    return result;
+    return Status::OK();
 }
 
 Status JniConnector::close() {
@@ -172,8 +181,11 @@ Status JniConnector::close() {
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
+            RETURN_ERROR_IF_EXC(env);
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
+            RETURN_ERROR_IF_EXC(env);
             env->DeleteGlobalRef(_jni_scanner_obj);
+            RETURN_ERROR_IF_EXC(env);
         }
         if (_jni_scanner_cls != nullptr) {
             // _jni_scanner_cls may be null if init connector failed
@@ -193,7 +205,7 @@ Status JniConnector::close() {
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_IF_ERROR(
             JniUtil::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
-    if (_jni_scanner_cls == nullptr) {
+    if (_jni_scanner_cls == nullptr) [[unlikely]] {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
         }
@@ -206,14 +218,15 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_ERROR_IF_EXC(env);
 
     // prepare constructor parameters
-    jobject hashmap_object = JniUtil::convert_to_java_map(env, _scanner_params);
+    jobject hashmap_object;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, _scanner_params, &hashmap_object));
     jobject jni_scanner_obj =
             env->NewObject(_jni_scanner_cls, scanner_constructor, batch_size, hashmap_object);
 
     RETURN_ERROR_IF_EXC(env);
 
     // prepare constructor parameters
-    env->DeleteLocalRef(hashmap_object);
+    env->DeleteGlobalRef(hashmap_object);
     RETURN_ERROR_IF_EXC(env);
 
     _jni_scanner_open = env->GetMethodID(_jni_scanner_cls, "open", "()V");
@@ -226,6 +239,7 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     _jni_scanner_release_table = env->GetMethodID(_jni_scanner_cls, "releaseTable", "()V");
     _jni_scanner_get_statistics =
             env->GetMethodID(_jni_scanner_cls, "getStatistics", "()Ljava/util/Map;");
+    RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_scanner_obj, &_jni_scanner_obj));
     env->DeleteLocalRef(jni_scanner_obj);
     RETURN_ERROR_IF_EXC(env);
@@ -748,7 +762,14 @@ void JniConnector::_collect_profile_before_close() {
             return;
         }
         // update scanner metrics
-        for (const auto& metric : get_statistics(env)) {
+        std::map<std::string, std::string> statistics_result;
+        st = get_statistics(env, &statistics_result);
+        if (!st) {
+            LOG(WARNING) << "failed to get_statistics when collect profile: " << st;
+            return;
+        }
+
+        for (const auto& metric : statistics_result) {
             std::vector<std::string> type_and_name = split(metric.first, ":");
             if (type_and_name.size() != 2) {
                 LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "

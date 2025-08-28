@@ -39,6 +39,8 @@ bvar::Status<int64_t> g_memtable_flush_memory("mm_limiter_mem_flush", 0);
 bvar::Status<int64_t> g_memtable_load_memory("mm_limiter_mem_load", 0);
 bvar::Status<int64_t> g_load_hard_mem_limit("mm_limiter_limit_hard", 0);
 bvar::Status<int64_t> g_load_soft_mem_limit("mm_limiter_limit_soft", 0);
+bvar::Adder<int> g_memtable_memory_limit_flush_memtable_count("mm_limiter_flush_memtable_count");
+bvar::LatencyRecorder g_memtable_memory_limit_flush_size_bytes("mm_limiter_flush_size_bytes");
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -113,7 +115,7 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     int64_t limit2 = _sys_avail_mem_less_than_warning_water_mark();
     int64_t limit3 = _process_used_mem_more_than_soft_mem_limit();
     int64_t need_flush = std::max(limit1, std::max(limit2, limit3));
-    return need_flush - _queue_mem_usage;
+    return need_flush - _queue_mem_usage - _flush_mem_usage;
 }
 
 void MemTableMemoryLimiter::handle_memtable_flush() {
@@ -150,15 +152,26 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                       << ", memtable writers num: " << _writers.size()
                       << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
-                      << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage);
+                      << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage)
+                      << ", need flush: " << PrettyPrinter::print_bytes(need_flush);
             _flush_active_memtables(need_flush);
         }
-    } while (_hard_limit_reached());
+    } while (_hard_limit_reached() && !_load_usage_low());
     g_memtable_memory_limit_waiting_threads << -1;
     timer.stop();
     int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
     g_memtable_memory_limit_latency_ms << time_ms;
-    LOG(INFO) << "waited " << time_ms << " ms for memtable memory limit";
+    if (time_ms > 0) {
+        LOG(INFO) << "waited " << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+                  << " for memtable memory limit"
+                  << ", " << GlobalMemoryArbitrator::process_memory_used_details_str() << ", "
+                  << GlobalMemoryArbitrator::sys_mem_available_details_str()
+                  << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+                  << ", memtable writers num: " << _writers.size()
+                  << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+                  << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
+                  << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage);
+    }
 }
 
 void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
@@ -209,6 +222,8 @@ void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
         }
         mem_flushed += mem;
         num_flushed += (mem > 0);
+        g_memtable_memory_limit_flush_memtable_count << 1;
+        g_memtable_memory_limit_flush_size_bytes << mem;
     }
     LOG(INFO) << "flushed " << num_flushed << " out of " << _active_writers.size()
               << " active writers, flushed size: " << PrettyPrinter::print_bytes(mem_flushed);

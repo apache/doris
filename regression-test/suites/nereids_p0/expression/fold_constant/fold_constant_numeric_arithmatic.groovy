@@ -65,6 +65,11 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ASIN(1E308)")
     testFoldConst("SELECT ASIN(-1E308)")
 
+    // Add function cases
+    testFoldConst("SELECT ADD(1e1000, 1)");
+    testFoldConst("SELECT ADD(-1e1000, 1)");
+    testFoldConst("SELECT ADD(cast(\"nan\" as double), 1)");
+
 //Atan function cases
     testFoldConst("SELECT ATAN(1) AS atan_case_1") //atan(1) = π/4
     testFoldConst("SELECT ATAN(0) AS atan_case_2") //atan(0) = 0
@@ -251,6 +256,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT EXP(-1E-308)") // Very small negative number
     testFoldConst("SELECT EXP(709.782712893384)") // Near overflow boundary
     testFoldConst("SELECT EXP(-709.782712893384)") // Near underflow boundary
+    testFoldConst("SELECT EXP(1959859681)") // Result overflow become infinity
 
 //Floor function cases
     testFoldConst("SELECT FLOOR(3.7) AS floor_case_1")
@@ -301,6 +307,8 @@ suite("fold_constant_numeric_arithmatic") {
 //    testFoldConst("SELECT POWER(2, 1E308)")
     testFoldConst("SELECT POWER(1E-308, 2)") // Very small base
     testFoldConst("SELECT POWER(2, -1E308)") // Very small negative exponent
+    testFoldConst("SELECT POWER(-1.1, 3.2)") // NaN
+    testFoldConst("SELECT POWER(1, 1e1000)")
 
 //Ln function cases
     testFoldConst("SELECT LN(1) AS ln_case_1") //ln(1) = 0
@@ -459,6 +467,8 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT SQRT(16) AS sqrt_case_1") //sqrt(16) = 4
     testFoldConst("SELECT SQRT(0) AS sqrt_case_2") //sqrt(0) = 0
     testFoldConst("SELECT SQRT(2) AS sqrt_case_3") //sqrt(2)
+    //testFoldConst("SELECT SQRT(1e1000)") //sqrt(2)
+    testFoldConst("SELECT SQRT(-1e1000)") //sqrt(2)
 
 //Tan function cases
     testFoldConst("SELECT TAN(PI() / 4) AS tan_case_1") //tan(π/4) = 1
@@ -470,6 +480,42 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT TANH(0) AS tanh_case_1") //tanh(0) = 0
     testFoldConst("SELECT TANH(1) AS tanh_case_2") //tanh(1)
     testFoldConst("SELECT TANH(-1) AS tanh_case_3") //tanh(-1)
+    testFoldConst("SELECT TANH(NULL)")
+    testFoldConst("SELECT TANH(-0.5), TANH(0.5), TANH(10), TANH(-10)")
+    testFoldConst("SELECT TANH(-20), TANH(20), TANH(1E-7), TANH(-1E-7)")
+
+//Cot function cases
+    testFoldConst("SELECT COT(PI() / 4)")
+    testFoldConst("SELECT COT(PI())")
+    testFoldConst("SELECT COT(PI() / 2)")
+    // testFoldConst("SELECT COT(0)") need rethink inf behavior
+    testFoldConst("SELECT COT(1)")
+    testFoldConst("SELECT COT(-1)")
+    testFoldConst("SELECT COT(NULL)")
+    testFoldConst("SELECT COT(-0.5), COT(0.5), COT(10), COT(-10)")
+    testFoldConst("SELECT COT(-20), COT(20), COT(1E-7), COT(-1E-7)")
+
+//Sec function cases
+    testFoldConst("SELECT SEC(PI() / 4)")
+    testFoldConst("SELECT SEC(PI())")
+    // testFoldConst("SELECT SEC(PI() / 2)") need rethink inf behavior
+    testFoldConst("SELECT SEC(0)")
+    testFoldConst("SELECT SEC(1)")
+    testFoldConst("SELECT SEC(-1)")
+    testFoldConst("SELECT SEC(NULL)")
+    testFoldConst("SELECT SEC(-0.5), SEC(0.5), SEC(10), SEC(-10)")
+    testFoldConst("SELECT SEC(-20), SEC(20), SEC(1E-7), SEC(-1E-7)")
+
+//Cosec function cases
+    testFoldConst("SELECT COSEC(PI() / 4)")
+    // testFoldConst("SELECT COSEC(PI())") need rethink inf behavior
+    testFoldConst("SELECT COSEC(PI() / 2)")
+    // testFoldConst("SELECT COSEC(0)") need rethink inf behavior
+    testFoldConst("SELECT COSEC(1)")
+    testFoldConst("SELECT COSEC(-1)")
+    testFoldConst("SELECT COSEC(NULL)")
+    testFoldConst("SELECT COSEC(-0.5), COSEC(0.5), COSEC(10), COSEC(-10)")
+    testFoldConst("SELECT COSEC(-20), COSEC(20), COSEC(1E-7), COSEC(-1E-7)")
 
 //Truncate function cases
     testFoldConst("SELECT TRUNCATE(123.456, 2) AS truncate_case_1") //truncate(123.456, 2) = 123.45

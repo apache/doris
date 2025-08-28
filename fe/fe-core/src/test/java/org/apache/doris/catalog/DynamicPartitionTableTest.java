@@ -1779,6 +1779,7 @@ public class DynamicPartitionTableTest {
         }
         RebalancerTestUtil.updateReplicaDataSize(1, 1, 1);
 
+        Config.autobucket_out_of_bounds_percent_threshold = 0.99;
         String alterStmt1 =
                 "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '2')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt1));
@@ -1789,6 +1790,7 @@ public class DynamicPartitionTableTest {
         partitions.sort(Comparator.comparing(Partition::getId));
         Assert.assertEquals(53, partitions.size());
         Assert.assertEquals(1, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+        Config.autobucket_out_of_bounds_percent_threshold = 0.5;
 
         table.readLock();
         try {
@@ -1826,5 +1828,48 @@ public class DynamicPartitionTableTest {
         Assert.assertEquals(54, partitions.size());
         // 100GB total, 5GB per bucket, should 20 buckets.
         Assert.assertEquals(20, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+
+        // mock partition size eq 0, use back-to-back logic
+        table.readLock();
+        try {
+            // when fe restart, when stat thread not get replica size from be/ms, replica size eq 0
+            for (int i = 0; i < 54; i++) {
+                Partition partition = partitions.get(i);
+                partition.updateVisibleVersion(2L);
+                for (MaterializedIndex idx : partition.getMaterializedIndices(
+                        MaterializedIndex.IndexExtState.VISIBLE)) {
+                    if (i < 52) {
+                        Assert.assertEquals(10, idx.getTablets().size());
+                    } else if (i == 52) {
+                        Assert.assertEquals(1, idx.getTablets().size());
+                    } else if (i == 53) {
+                        Assert.assertEquals(20, idx.getTablets().size());
+                    }
+                    for (Tablet tablet : idx.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            replica.updateVersion(3L);
+                            // mock replica size eq 0
+                            replica.setDataSize(0L);
+                            replica.setRowCount(0L);
+                        }
+                    }
+                }
+                Assert.assertEquals(0, partition.getAllDataSize(true));
+            }
+        } finally {
+            table.readUnlock();
+        }
+
+        String alterStmt3 = "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '4')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt3));
+        // 54th previous partition size set 53, check back to back logic work
+        partitions.get(53).getDistributionInfo().setBucketNum(53);
+        Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartition(tempDynamicPartitionTableInfo, false);
+
+        partitions = Lists.newArrayList(table.getAllPartitions());
+        partitions.sort(Comparator.comparing(Partition::getId));
+        Assert.assertEquals(55, partitions.size());
+        // due to partition size eq 0, use previous partition's(54th) bucket num
+        Assert.assertEquals(53, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
     }
 }

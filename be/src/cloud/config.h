@@ -124,5 +124,13 @@ DECLARE_mInt32(meta_service_conflict_error_retry_times);
 
 DECLARE_Bool(enable_check_storage_vault);
 
+DECLARE_mInt64(warmup_tablet_replica_info_cache_ttl_sec);
+
+DECLARE_mInt64(warm_up_rowset_slow_log_ms);
+
+DECLARE_mBool(enable_standby_passive_compaction);
+
+DECLARE_mDouble(standby_compaction_version_ratio);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

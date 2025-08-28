@@ -1531,6 +1531,161 @@ public:
         }
     }
 
+    class MockStringTypeInvertedIndexReader final : public StringTypeInvertedIndexReader {
+    public:
+        static std::shared_ptr<MockStringTypeInvertedIndexReader> create_shared(
+                const TabletIndex* idx_meta,
+                std::shared_ptr<InvertedIndexFileReader>& file_reader) {
+            return std::shared_ptr<MockStringTypeInvertedIndexReader>(
+                    new MockStringTypeInvertedIndexReader(idx_meta, file_reader));
+        }
+
+    protected:
+        Status handle_searcher_cache(InvertedIndexCacheHandle*, const io::IOContext*,
+                                     OlapReaderStatistics*) override {
+            CLuceneError err;
+            err.set(CL_ERR_IO, "mock handle_searcher_cache failure");
+            throw err;
+        }
+
+    private:
+        MockStringTypeInvertedIndexReader(const TabletIndex* idx_meta,
+                                          std::shared_ptr<InvertedIndexFileReader>& file_reader)
+                : StringTypeInvertedIndexReader(idx_meta, file_reader) {}
+    };
+
+    // Mock class for testing tokenized index query exceptions
+    class MockTokenizedStringTypeInvertedIndexReader final : public FullTextIndexReader {
+    public:
+        static std::shared_ptr<MockTokenizedStringTypeInvertedIndexReader> create_shared(
+                const TabletIndex* idx_meta,
+                std::shared_ptr<InvertedIndexFileReader>& file_reader) {
+            return std::shared_ptr<MockTokenizedStringTypeInvertedIndexReader>(
+                    new MockTokenizedStringTypeInvertedIndexReader(idx_meta, file_reader));
+        }
+
+    protected:
+        Status handle_searcher_cache(InvertedIndexCacheHandle*, const io::IOContext*,
+                                     OlapReaderStatistics*) override {
+            CLuceneError err;
+            err.set(CL_ERR_IO, "mock tokenized index searcher cache failure");
+            throw err;
+        }
+
+    private:
+        MockTokenizedStringTypeInvertedIndexReader(
+                const TabletIndex* idx_meta, std::shared_ptr<InvertedIndexFileReader>& file_reader)
+                : FullTextIndexReader(idx_meta, file_reader) {}
+    };
+
+    void test_cache_error_scenarios() {
+        std::string_view rowset_id = "test_handle_searcher_cache_exception";
+        int seg_id = 0;
+        std::vector<Slice> values = {Slice("apple"), Slice("banana")};
+
+        TabletIndex idx_meta;
+        {
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_mock_cache");
+            index_meta_pb->add_col_unique_id(1); // c2
+            idx_meta.init_from_pb(*index_meta_pb);
+        }
+
+        std::string index_path_prefix;
+        prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+        auto file_reader = std::make_shared<InvertedIndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        ASSERT_TRUE(file_reader->init().ok());
+
+        auto mock_reader = MockStringTypeInvertedIndexReader::create_shared(&idx_meta, file_reader);
+        ASSERT_NE(mock_reader, nullptr);
+
+        io::IOContext io_ctx;
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions opts;
+        runtime_state.set_query_options(opts);
+
+        std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+        std::string field_name = "1"; // c2 unique_id
+        StringRef query_val(values[0].data, values[0].size);
+
+        Status st = mock_reader->query(&io_ctx, &stats, &runtime_state, field_name, &query_val,
+                                       InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+
+        EXPECT_FALSE(st.ok());
+        EXPECT_EQ(st.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    }
+
+    void test_tokenized_index_query_error_scenarios() {
+        std::string_view rowset_id = "test_tokenized_index_query_exception";
+        int seg_id = 0;
+        std::vector<Slice> values = {Slice("Hello world this is a test"),
+                                     Slice("Apache Doris is a modern analytics database"),
+                                     Slice("Inverted index provides fast text search")};
+
+        TabletIndex idx_meta;
+        {
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(2);
+            index_meta_pb->set_index_name("test_tokenized_mock_cache");
+            index_meta_pb->add_col_unique_id(1); // c2
+
+            // Set tokenized index properties
+            auto* properties = index_meta_pb->mutable_properties();
+            (*properties)[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_ENGLISH;
+            (*properties)[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
+                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
+            (*properties)[INVERTED_INDEX_PARSER_LOWERCASE_KEY] = INVERTED_INDEX_PARSER_TRUE;
+
+            idx_meta.init_from_pb(*index_meta_pb);
+        }
+
+        std::string index_path_prefix;
+        prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+        auto file_reader = std::make_shared<InvertedIndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        ASSERT_TRUE(file_reader->init().ok());
+
+        auto mock_reader =
+                MockTokenizedStringTypeInvertedIndexReader::create_shared(&idx_meta, file_reader);
+        ASSERT_NE(mock_reader, nullptr);
+
+        io::IOContext io_ctx;
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions opts;
+        runtime_state.set_query_options(opts);
+
+        std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+        std::string field_name = "1"; // c2 unique_id
+
+        // Test tokenized query with "world" which should be found in "Hello world this is a test"
+        std::string query_term = "world";
+        StringRef query_val(query_term.data(), query_term.size());
+
+        Status st = mock_reader->query(&io_ctx, &stats, &runtime_state, field_name, &query_val,
+                                       InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
+
+        EXPECT_FALSE(st.ok());
+        EXPECT_EQ(st.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+
+        // Test phrase query
+        std::string phrase_query = "Apache Doris";
+        StringRef phrase_query_val(phrase_query.data(), phrase_query.size());
+
+        st = mock_reader->query(&io_ctx, &stats, &runtime_state, field_name, &phrase_query_val,
+                                InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+
+        EXPECT_FALSE(st.ok());
+        EXPECT_EQ(st.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    }
+
 private:
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
     std::unique_ptr<InvertedIndexQueryCache> _inverted_index_query_cache;
@@ -1559,6 +1714,16 @@ TEST_F(InvertedIndexReaderTest, StringIndexLargeDocset) {
 // Test reading existing large document set index file
 TEST_F(InvertedIndexReaderTest, CompatibleTest) {
     test_compatible_read_cross_platform();
+}
+
+// Test cache error scenarios that could crash BE
+TEST_F(InvertedIndexReaderTest, CacheErrorScenarios) {
+    test_cache_error_scenarios();
+}
+
+// Test tokenized index query error scenarios
+TEST_F(InvertedIndexReaderTest, TokenizedIndexQueryErrorScenarios) {
+    test_tokenized_index_query_error_scenarios();
 }
 
 } // namespace doris::segment_v2

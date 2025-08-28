@@ -159,7 +159,7 @@ Status DeleteBitmapAction::_handle_show_local_delete_bitmap_count(HttpRequest* r
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
-    auto dm = tablet->tablet_meta()->delete_bitmap().snapshot();
+    auto dm = tablet->tablet_meta()->delete_bitmap()->snapshot();
     _show_delete_bitmap(dm, verbose, json_result);
     return Status::OK();
 }
@@ -183,7 +183,7 @@ Status DeleteBitmapAction::_handle_show_ms_delete_bitmap_count(HttpRequest* req,
         LOG(WARNING) << "failed to sync tablet=" << tablet_id << ", st=" << st;
         return st;
     }
-    auto dm = tablet->tablet_meta()->delete_bitmap().snapshot();
+    auto dm = tablet->tablet_meta()->delete_bitmap()->snapshot();
     _show_delete_bitmap(dm, verbose, json_result);
     return Status::OK();
 }

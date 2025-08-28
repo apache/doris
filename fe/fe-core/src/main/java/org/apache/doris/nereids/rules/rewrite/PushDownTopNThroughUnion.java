@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -63,11 +64,13 @@ public class PushDownTopNThroughUnion implements RewriteRuleFactory {
                         .then(topN -> {
                             LogicalUnion union = topN.child();
                             List<Plan> newChildren = new ArrayList<>();
-                            for (Plan child : union.children()) {
+                            for (int j = 0; j < union.children().size(); j++) {
+                                Plan child = union.child(j);
+                                List<SlotReference> regularChildOutput = union.getRegularChildOutput(j);
                                 Map<Expression, Expression> replaceMap = new HashMap<>();
-                                for (int i = 0; i < union.getOutputs().size(); ++i) {
+                                for (int i = 0; i < regularChildOutput.size(); ++i) {
                                     NamedExpression output = union.getOutputs().get(i);
-                                    replaceMap.put(output, child.getOutput().get(i));
+                                    replaceMap.put(output, regularChildOutput.get(i));
                                 }
 
                                 List<OrderKey> orderKeys = topN.getOrderKeys().stream()

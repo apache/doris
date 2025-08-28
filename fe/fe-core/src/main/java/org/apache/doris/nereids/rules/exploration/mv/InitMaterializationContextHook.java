@@ -26,7 +26,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -51,7 +50,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * If enable query rewrite with mv, should init materialization context after analyze
@@ -117,10 +115,9 @@ public class InitMaterializationContextHook implements PlannerHook {
     }
 
     protected Set<MTMV> getAvailableMTMVs(Set<TableIf> usedTables, CascadesContext cascadesContext) {
-        List<BaseTableInfo> usedBaseTables =
-                usedTables.stream().map(BaseTableInfo::new).collect(Collectors.toList());
         return Env.getCurrentEnv().getMtmvService().getRelationManager()
-                .getAvailableMTMVs(usedBaseTables, cascadesContext.getConnectContext(),
+                .getAvailableMTMVs(cascadesContext.getStatementContext().getCandidateMTMVs(),
+                        cascadesContext.getConnectContext(),
                         false, ((connectContext, mtmv) -> {
                             return MTMVUtil.mtmvContainsExternalTable(mtmv) && (!connectContext.getSessionVariable()
                                     .isEnableMaterializedViewRewriteWhenBaseTableUnawareness());

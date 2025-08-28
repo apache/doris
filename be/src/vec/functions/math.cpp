@@ -270,6 +270,30 @@ struct TanhName {
 };
 using FunctionTanh = FunctionMathUnary<UnaryFunctionPlain<TanhName, std::tanh>>;
 
+struct CotName {
+    static constexpr auto name = "cot";
+};
+double cot(double x) {
+    return 1.0 / std::tan(x);
+}
+using FunctionCot = FunctionMathUnary<UnaryFunctionPlain<CotName, cot>>;
+
+struct SecName {
+    static constexpr auto name = "sec";
+};
+double sec(double x) {
+    return 1.0 / std::cos(x);
+}
+using FunctionSec = FunctionMathUnary<UnaryFunctionPlain<SecName, sec>>;
+
+struct CosecName {
+    static constexpr auto name = "cosec";
+};
+double cosec(double x) {
+    return 1.0 / std::sin(x);
+}
+using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CosecName, cosec>>;
+
 template <typename A>
 struct RadiansImpl {
     using ResultType = A;
@@ -450,6 +474,9 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
     factory.register_function<FunctionTanh>();
+    factory.register_function<FunctionCot>();
+    factory.register_function<FunctionSec>();
+    factory.register_function<FunctionCosec>();
     factory.register_function<FunctionPow>();
     factory.register_alias("pow", "power");
     factory.register_alias("pow", "dpow");

@@ -144,7 +144,9 @@ private:
                 return status;
             }
             env->CallNonvirtualVoidMethodA(executor, executor_cl, executor_close_id, nullptr);
+            RETURN_ERROR_IF_EXC(env);
             env->DeleteGlobalRef(executor);
+            RETURN_ERROR_IF_EXC(env);
             env->DeleteGlobalRef(executor_cl);
             RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
             is_closed = true;

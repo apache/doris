@@ -91,6 +91,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES (2, "bason", 11, [79, 85, 97], ["singing", "dancing"], "bason is good at singing", ["bason is very clever", "bason is very healthy"]); """
         sql """ INSERT INTO ${tableName} VALUES (3, "andy", 10, [89, 80, 98], ["football", "basketball"], "andy is good at sports", ["andy has a good heart", "andy is so nice"]); """
         sql """ INSERT INTO ${tableName} VALUES (3, "bason", 11, [79, 85, 97], ["singing", "dancing"], "bason is good at singing", ["bason is very clever", "bason is very healthy"]); """
+        sql """ SYNC """
     }
 
     def check_count = { String tableName, int count ->
@@ -219,7 +220,6 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         "InvertedIndexColumnWriterImpl::new_char_token_stream__char_string_reader_init_error",
         "InvertedIndexColumnWriterImpl::add_values_field_is_nullptr",
         "InvertedIndexColumnWriterImpl::add_values_index_writer_is_nullptr",
-        "InvertedIndexColumnWriterImpl::add_array_values_count_is_zero",
         "InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_nullptr",
         "InvertedIndexColumnWriterImpl::add_array_values_create_field_error",
         "InvertedIndexColumnWriterImpl::add_array_values_create_field_error_2",
@@ -262,13 +262,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
                     GetDebugPoint().enableDebugPointForAllBEs(debug_point)
                     run_insert("${tableName}")
                     check_count("${tableName}", 6)
-                    // if debug_point equals InvertedIndexColumnWriterImpl::add_array_values_count_is_zero, run_select(false(abnormal))
-                    // else run_select(true(normal))
-                    if (debug_point == "InvertedIndexColumnWriterImpl::add_array_values_count_is_zero") {
-                        run_select("${tableName}", false)
-                    } else {
-                        run_select("${tableName}", true)
-                    }
+                    run_select("${tableName}", true)
                     sql "TRUNCATE TABLE ${tableName}"
                 } catch (Exception e) {
                     log.error("Caught exception: ${e}")

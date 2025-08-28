@@ -258,7 +258,9 @@ Status NewJsonReader::get_columns(std::unordered_map<std::string, TypeDescriptor
 Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
                                         std::vector<TypeDescriptor>* col_types) {
     RETURN_IF_ERROR(_get_range_params());
-
+    // create decompressor.
+    // _decompressor may be nullptr if this is not a compressed file
+    RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
     RETURN_IF_ERROR(_open_file_reader(true));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
@@ -1681,6 +1683,17 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
                                                                        _serde_options));
 
+        } else if (value.type() == simdjson::ondemand::json_type::boolean) {
+            const char* str_value = nullptr;
+            // insert "1"/"0" , not "true"/"false".
+            if (value.get_bool()) {
+                str_value = (char*)"1";
+            } else {
+                str_value = (char*)"0";
+            }
+            Slice slice {str_value, 1};
+            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                       _serde_options));
         } else {
             // Maybe we can `switch (value->GetType()) case: kNumberType`.
             // Note that `if (value->IsInt())`, but column is FloatColumn.

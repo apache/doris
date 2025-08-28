@@ -20,6 +20,8 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -37,6 +39,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <set>
@@ -49,6 +52,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "gen_cpp/FrontendService.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/binlog.h"
@@ -67,6 +71,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
+#include "runtime/client_cache.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
@@ -74,8 +79,10 @@
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/uid_util.h"
 #include "util/work_thread_pool.hpp"
+#include "vec/common/assert_cast.h"
 
 using std::filesystem::directory_iterator;
 using std::filesystem::path;
@@ -1456,6 +1463,84 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
     return false;
 }
 
+bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TBackend>* backends) {
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
+        return false;
+    }
+    int64_t cur_time = UnixMillis();
+    if (cur_time - _last_get_peers_replica_backends_time_ms < 10000) {
+        LOG_WARNING("failed to get peers replica backens.")
+                .tag("tablet_id", tablet_id)
+                .tag("last time", _last_get_peers_replica_backends_time_ms)
+                .tag("cur time", cur_time);
+        return false;
+    }
+    LOG_INFO("start get peers replica backends info.").tag("tablet id", tablet_id);
+    ClusterInfo* cluster_info = ExecEnv::GetInstance()->cluster_info();
+    if (cluster_info == nullptr) {
+        LOG(WARNING) << "Have not get FE Master heartbeat yet";
+        return false;
+    }
+    TNetworkAddress master_addr = cluster_info->master_fe_addr;
+    if (master_addr.hostname.empty() || master_addr.port == 0) {
+        LOG(WARNING) << "Have not get FE Master heartbeat yet";
+        return false;
+    }
+    TGetTabletReplicaInfosRequest request;
+    TGetTabletReplicaInfosResult result;
+    request.tablet_ids.emplace_back(tablet_id);
+    Status rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->getTabletReplicaInfos(result, request);
+            });
+
+    if (!rpc_st.ok()) {
+        LOG(WARNING) << "Failed to get tablet replica infos, encounter rpc failure, "
+                        "tablet id: "
+                     << tablet_id;
+        return false;
+    }
+    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+    if (result.tablet_replica_infos.contains(tablet_id)) {
+        std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
+        if (reps.empty()) [[unlikely]] {
+            VLOG_DEBUG << "get_peers_replica_backends reps is empty, maybe this tablet is in "
+                          "schema change. Go to FE to see more info. Tablet id: "
+                       << tablet_id;
+        }
+        for (const auto& rep : reps) {
+            if (rep.replica_id != tablet->replica_id()) {
+                TBackend backend;
+                backend.__set_host(rep.host);
+                backend.__set_be_port(rep.be_port);
+                backend.__set_http_port(rep.http_port);
+                backend.__set_brpc_port(rep.brpc_port);
+                if (rep.__isset.is_alive) {
+                    backend.__set_is_alive(rep.is_alive);
+                }
+                if (rep.__isset.backend_id) {
+                    backend.__set_id(rep.backend_id);
+                }
+                backends->emplace_back(backend);
+                std::stringstream backend_string;
+                backend.printTo(backend_string);
+                LOG_INFO("get 1 peer replica backend info.")
+                        .tag("tablet id", tablet_id)
+                        .tag("backend info", backend_string.str());
+            }
+        }
+        _last_get_peers_replica_backends_time_ms = UnixMillis();
+        LOG_INFO("succeed get peers replica backends info.")
+                .tag("tablet id", tablet_id)
+                .tag("replica num", backends->size());
+        return true;
+    }
+    return false;
+}
+
 bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
 #ifdef BE_TEST
     if (tablet_id % 2 == 0) {
@@ -1567,6 +1652,36 @@ Status StorageEngine::_persist_broken_paths() {
         return st;
     }
 
+    return Status::OK();
+}
+
+Status StorageEngine::submit_clone_task(Tablet* tablet, int64_t version) {
+    std::vector<TBackend> backends;
+    if (!get_peers_replica_backends(tablet->tablet_id(), &backends)) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "get_peers_replica_backends failed.");
+    }
+    TAgentTaskRequest task;
+    TCloneReq req;
+    req.__set_tablet_id(tablet->tablet_id());
+    req.__set_schema_hash(tablet->schema_hash());
+    req.__set_src_backends(backends);
+    req.__set_version(version);
+    req.__set_replica_id(tablet->replica_id());
+    req.__set_partition_id(tablet->partition_id());
+    req.__set_table_id(tablet->table_id());
+    task.__set_task_type(TTaskType::CLONE);
+    task.__set_clone_req(req);
+    task.__set_priority(TPriority::HIGH);
+    task.__set_signature(tablet->tablet_id());
+    LOG_INFO("BE start to submit missing rowset clone task.")
+            .tag("tablet_id", tablet->tablet_id())
+            .tag("version", version)
+            .tag("replica_id", tablet->replica_id())
+            .tag("partition_id", tablet->partition_id())
+            .tag("table_id", tablet->table_id());
+    RETURN_IF_ERROR(assert_cast<PriorTaskWorkerPool*>(workers->at(TTaskType::CLONE).get())
+                            ->submit_high_prior_and_cancel_low(task));
     return Status::OK();
 }
 

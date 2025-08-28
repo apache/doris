@@ -81,7 +81,8 @@ public class FunctionCallExpr extends Expr {
     public static final ImmutableSet<String> STDDEV_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER)
             .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop").add("variance").add("variance_pop")
-            .add("variance_pop").add("var_samp").add("var_pop").add("variance_samp").add("avg_weighted").build();
+            .add("variance_pop").add("var_samp").add("var_pop").add("variance_samp").add("avg_weighted")
+            .add("std").build();
     public static final Map<String, java.util.function.BiFunction<ArrayList<Expr>, Type, Type>> PRECISION_INFER_RULE;
     public static final java.util.function.BiFunction<ArrayList<Expr>, Type, Type> DEFAULT_PRECISION_INFER_RULE;
     public static final ImmutableSet<String> ROUND_FUNCTION_SET = new ImmutableSortedSet.Builder(

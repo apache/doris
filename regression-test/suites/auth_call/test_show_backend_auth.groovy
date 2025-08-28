@@ -21,6 +21,8 @@ suite("test_show_backend_auth","p0,auth_call") {
     String user = 'test_show_backend_auth_user'
     String pwd = 'C123_567p'
 
+    try_sql("DROP USER ${user}")
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -28,18 +30,27 @@ suite("test_show_backend_auth","p0,auth_call") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
-
-    try_sql("DROP USER ${user}")
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
+    sql """grant select_priv on internal.information_schema.* to ${user}"""
+    def show_grants_result = sql """show grants for ${user}"""
+    logger.info("show grants result: " + show_grants_result)
+    sql """revoke select_priv on internal.information_schema.* from ${user}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
+        
+        try {
+            def show_result = sql """SHOW BACKENDS"""
+            logger.info("show_result: " + show_result)
+        } catch (Exception e) {
+            logger.info("show_result: " + e)
+            e.printStackTrace()
+        }
         test {
             sql """SHOW BACKENDS"""
             exception "denied"
         }
     }
-    sql """grant node_priv on *.*.* to ${user}"""
+    sql """grant select_priv on internal.information_schema.* to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW BACKENDS"""
         assertTrue(res.size() > 0)

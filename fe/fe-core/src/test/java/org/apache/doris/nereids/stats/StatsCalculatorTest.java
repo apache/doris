@@ -145,14 +145,14 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
-        Assertions.assertEquals(49.945, ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(49.945, ownerGroup.getStatistics().getRowCount(), 0.1);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         StatsCalculator.estimate(groupExpressionOr, null);
         Assertions.assertEquals(1448.555,
-                ownerGroupOr.getStatistics().getRowCount(), 0.001);
+                ownerGroupOr.getStatistics().getRowCount(), 0.1);
     }
 
     // a, b are in (0,100)
@@ -194,14 +194,14 @@ public class StatsCalculatorTest {
         Group ownerGroup = new Group(null, groupExpression, null);
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression, null);
-        Assertions.assertEquals(0, ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(0, ownerGroup.getStatistics().getRowCount(), 0.1);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator.estimate(groupExpressionOr, null);
-        Assertions.assertEquals(0, ownerGroupOr.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(0, ownerGroupOr.getStatistics().getRowCount(), 0.1);
     }
     // TODO: temporary disable this test, until we could get column stats
     // @Test

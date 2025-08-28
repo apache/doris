@@ -187,3 +187,20 @@ doris
 -- !sql --
 \N
 
+-- !json_contains1 --
+false
+
+-- !json_contains2 --
+true
+
+-- !json_contains3 --
+false
+
+-- !json_contains4 --
+true
+
+-- !json_contains5 --
+false
+
+-- !json_contains6 --
+\N

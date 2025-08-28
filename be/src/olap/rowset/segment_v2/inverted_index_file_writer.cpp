@@ -23,6 +23,7 @@
 #include <filesystem>
 
 #include "common/status.h"
+#include "io/fs/s3_file_writer.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
@@ -126,7 +127,8 @@ Status InvertedIndexFileWriter::close() {
     _closed = true;
     if (_indices_dirs.empty()) {
         // An empty file must still be created even if there are no indexes to write
-        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr) {
+        if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
+            dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr) {
             return _idx_v2_writer->close();
         }
         return Status::OK();
@@ -200,15 +202,19 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
     lucene::store::IndexInput* tmp = nullptr;
     CLuceneError err;
     auto open = dir->openInput(fileName, tmp, err);
+    std::unique_ptr<lucene::store::IndexInput> input(tmp);
     DBUG_EXECUTE_IF("InvertedIndexFileWriter::copyFile_openInput_error", {
         open = false;
         err.set(CL_ERR_IO, "debug point: copyFile_openInput_error");
     });
     if (!open) {
+        if (err.number() == CL_ERR_EmptyIndexSegment) {
+            LOG(WARNING) << "InvertedIndexFileWriter::copyFile: " << fileName << " is empty";
+            return;
+        }
         throw err;
     }
 
-    std::unique_ptr<lucene::store::IndexInput> input(tmp);
     int64_t start_ptr = output->getFilePointer();
     int64_t length = input->length();
     int64_t remainder = length;
@@ -422,15 +428,14 @@ InvertedIndexFileWriter::create_output_stream_v1(int64_t index_id,
     out_dir->set_file_writer_opts(_opts);
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
 
-    auto* out = out_dir->createOutput(idx_name.c_str());
+    std::unique_ptr<lucene::store::IndexOutput> output(out_dir->createOutput(idx_name.c_str()));
     DBUG_EXECUTE_IF("InvertedIndexFileWriter::write_v1_out_dir_createOutput_nullptr",
-                    { out = nullptr; });
-    if (out == nullptr) {
+                    { output = nullptr; });
+    if (output == nullptr) {
         LOG(WARNING) << "InvertedIndexFileWriter::create_output_stream_v1 error: CompoundDirectory "
                         "output is nullptr.";
         _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
     }
-    std::unique_ptr<lucene::store::IndexOutput> output(out);
 
     return {std::move(out_dir_ptr), std::move(output)};
 }
@@ -480,8 +485,7 @@ InvertedIndexFileWriter::create_output_stream_v2() {
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
 
     DCHECK(_idx_v2_writer != nullptr) << "inverted index file writer v2 is nullptr";
-    auto compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-            out_dir->createOutputV2(_idx_v2_writer.get()));
+    auto compound_file_output = out_dir->createOutputV2(_idx_v2_writer.get());
 
     return {std::move(out_dir_ptr), std::move(compound_file_output)};
 }

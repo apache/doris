@@ -22,6 +22,7 @@
 #include <bvar/latency_recorder.h>
 #include <bvar/multi_dimension.h>
 #include <bvar/reducer.h>
+#include <bvar/status.h>
 
 #include <cstdint>
 #include <initializer_list>
@@ -139,8 +140,7 @@ public:
     void put(const std::initializer_list<std::string>& dim_values, ValType value) {
         BvarType* stats = counter_.get_stats(std::list<std::string>(dim_values));
         if (stats) {
-            if constexpr (std::is_same_v<BvarType, bvar::Status<double>> ||
-                          std::is_same_v<BvarType, bvar::Status<long>>) {
+            if constexpr (is_bvar_status<BvarType>::value) {
                 stats->set_value(value);
             } else {
                 *stats << value;
@@ -150,10 +150,11 @@ public:
 
     auto get(const std::initializer_list<std::string>& dim_values) {
         BvarType* stats = counter_.get_stats(std::list<std::string>(dim_values));
+        using ReturnType = decltype(stats->get_value());
         if (stats) {
             return stats->get_value();
         }
-        return std::declval<BvarType>(0);
+        return ReturnType {};
     }
 
 private:
@@ -169,11 +170,16 @@ private:
     struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
     template <>
     struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
+    template <typename T>
+    struct is_bvar_status : std::false_type {};
+    template <typename T>
+    struct is_bvar_status<bvar::Status<T>> : std::true_type {};
 
     bvar::MultiDimension<BvarType> counter_;
 };
 
 using mBvarIntAdder = mBvarWrapper<bvar::Adder<int>>;
+using mBvarInt64Adder = mBvarWrapper<bvar::Adder<int64_t>>;
 using mBvarDoubleAdder = mBvarWrapper<bvar::Adder<double>>;
 using mBvarIntRecorder = mBvarWrapper<bvar::IntRecorder>;
 using mBvarLatencyRecorder = mBvarWrapper<bvar::LatencyRecorder>;
@@ -260,10 +266,10 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earl
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
 extern bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
 extern bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_recycle_duration;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_st_ts;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_ed_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
 
 extern mBvarIntAdder g_bvar_recycler_vault_recycle_status;
@@ -336,6 +342,8 @@ extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent;
+extern mBvarStatus<int64_t> g_bvar_fdb_process_status_int;
+extern mBvarStatus<double> g_bvar_fdb_process_status_float;
 
 // checker
 extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;
@@ -351,3 +359,223 @@ extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned;
+
+// rpc kv
+extern mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_version_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_tablet_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_rowset_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_rowset_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_tablet_stats_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_delete_bitmap_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_delete_bitmap_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_delete_bitmap_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_update_lock_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_update_lock_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_update_lock_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_update_lock_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_update_lock_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_update_lock_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_start_tablet_job_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_start_tablet_job_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_tablet_job_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_tablet_job_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_tablet_job_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_index_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_index_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_index_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_index_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_index_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_drop_index_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_drop_index_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_partition_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_partition_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_partition_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_partition_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_partition_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_drop_partition_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_drop_partition_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_check_kv_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_obj_store_info_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_obj_store_info_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_obj_store_info_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_ak_sk_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_ak_sk_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_instance_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_instance_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_instance_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_cluster_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_cluster_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_cluster_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_stage_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_stage_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_stage_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_iam_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_iam_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_iam_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_copy_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_copy_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_copy_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_copy_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_copy_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_copy_job_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_copy_files_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_filter_copy_files_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_cluster_status_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_txn_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_txn_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_rl_task_commit_attach_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_txn_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_txn_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_txn_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_current_max_txn_id_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_with_coordinator_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_check_txn_conflict_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter;
+
+extern mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_version_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_tablet_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_rowset_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_rowset_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_tablet_stats_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_delete_bitmap_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_delete_bitmap_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_delete_bitmap_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_update_lock_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_update_lock_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_delete_bitmap_update_lock_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_update_lock_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_update_lock_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_update_lock_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_remove_delete_bitmap_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_start_tablet_job_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_start_tablet_job_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_tablet_job_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_tablet_job_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_tablet_job_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_index_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_index_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_index_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_index_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_index_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_drop_index_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_drop_index_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_partition_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_prepare_partition_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_partition_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_partition_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_partition_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_drop_partition_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_drop_partition_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_check_kv_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_obj_store_info_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_obj_store_info_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_obj_store_info_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_ak_sk_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_update_ak_sk_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_instance_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_instance_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_instance_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_cluster_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_cluster_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_cluster_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_stage_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_create_stage_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_stage_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_iam_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_iam_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_iam_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_alter_ram_user_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_copy_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_copy_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_copy_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_copy_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_finish_copy_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_copy_job_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_copy_files_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_filter_copy_files_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_cluster_status_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_txn_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_txn_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_rl_task_commit_attach_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_txn_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_txn_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_commit_txn_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_current_max_txn_id_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_sub_txn_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_sub_txn_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_abort_txn_with_coordinator_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_check_txn_conflict_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_bytes;
+
+// meta ranges
+extern mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count;

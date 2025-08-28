@@ -39,6 +39,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
@@ -695,5 +697,92 @@ public class NereidsParserTest extends ParserTestBase {
         } catch (Exception ex) {
             Assertions.fail(ex);
         }
+    }
+
+    @Test
+    public void testLambdaSelect() {
+        parsePlan("SELECT  x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaGroupBy() {
+        parsePlan("SELECT 1 from ( select 2 ) t group by x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaSort() {
+        parsePlan("SELECT 1 from ( select 2 ) t order by x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaHaving() {
+        parsePlan("SELECT 1 from ( select 2 ) t having x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaJoin() {
+        parsePlan("SELECT 1 from ( select 2 as a1 ) t1 join ( select 2 as a2 ) as t2 on x -> x + 1 = t1.a1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    private void checkQueryTopPlanClass(String sql, NereidsParser parser, Class<?> clazz) {
+        if (clazz == null) {
+            Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql));
+        } else {
+            LogicalPlan logicalPlan = parser.parseSingle(sql);
+            Assertions.assertInstanceOf(clazz, logicalPlan.child(0));
+        }
+    }
+
+    @Test
+    public void testExpressionWithOrder() {
+        NereidsParser nereidsParser = new NereidsParser();
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b ASC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b ASC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b DESC",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b ASC",
+                nereidsParser, LogicalSort.class);
+
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a ASC, b DESC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a DESC, b ASC WITH ROLLUP",
+                nereidsParser, LogicalSort.class);
+
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b",
+                nereidsParser, LogicalAggregate.class);
+        checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b WITH ROLLUP",
+                nereidsParser, LogicalRepeat.class);
     }
 }

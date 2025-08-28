@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
@@ -41,7 +42,7 @@ import com.google.common.collect.ImmutableSet;
  */
 public class CheckMultiDistinct extends OneRewriteRuleFactory {
     private final ImmutableSet<Class<? extends AggregateFunction>> supportedFunctions =
-            ImmutableSet.of(Count.class, Sum.class, Avg.class, GroupConcat.class);
+            ImmutableSet.of(Count.class, Sum.class, Avg.class, GroupConcat.class, Sum0.class);
 
     @Override
     public Rule build() {

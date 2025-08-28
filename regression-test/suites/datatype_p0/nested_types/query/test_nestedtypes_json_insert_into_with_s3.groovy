@@ -28,10 +28,13 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
+    String s3_region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
-
-    def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
+    def dataFilePath = "s3://${bucket}/regression/datalake"
+    if (!s3_endpoint.startsWith("https://") && !s3_endpoint.startsWith("http://")) {
+        s3_endpoint = "https://${s3_endpoint}"
+    }
 
     ArrayList<String> json_files = ["${dataFilePath}/as.json", "${dataFilePath}/aa.json",
                                            "${dataFilePath}/ms.json","${dataFilePath}/am.json",
@@ -202,6 +205,8 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
     for (int i = 0; i < 3; ++i) {
         qt_sql_arr_json_without_quote_s3 """
         select * from s3("uri" = "${json_files[i]}",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${s3_region}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "json",
@@ -211,6 +216,8 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
 
         sql """
         insert into ${table_names[i]} select * from s3("uri" = "${json_files[i]}",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${s3_region}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "json",
@@ -228,6 +235,8 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
         qt_sql_arr_json_without_quote_s3 """
         select * from s3(
                 "uri" = "${json_files[i]}",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${s3_region}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "json",
@@ -238,6 +247,8 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
         sql """
         insert into ${table_names[i]} select * from s3 (
                "uri" = "${json_files[i]}",
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${s3_region}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "json",

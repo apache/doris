@@ -536,8 +536,9 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
                 ++failure_count;
             }
         }
-        if (!write_file_cache_version().ok()) {
-            return Status::InternalError("Failed to write version hints for file cache");
+        if (auto st = write_file_cache_version(); !st.ok()) {
+            return Status::InternalError("Failed to write version hints for file cache, err={}",
+                                         st.to_string());
         }
     }
 

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -148,11 +150,13 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             if (func.arity() <= 1) {
                 continue;
             }
-            for (int i = 1; i < func.arity(); i++) {
-                if (!func.child(i).getInputSlots().isEmpty() && !(func.child(i) instanceof OrderExpression)) {
-                    // think about group_concat(distinct col_1, ',')
-                    distinctMultiColumns = true;
-                    break;
+            if (func instanceof Count) {
+                for (int i = 1; i < func.arity(); i++) {
+                    if (!func.child(i).getInputSlots().isEmpty() && !(func.child(i) instanceof OrderExpression)) {
+                        // think about group_concat(distinct col_1, ',')
+                        distinctMultiColumns = true;
+                        break;
+                    }
                 }
             }
             if (distinctMultiColumns) {
@@ -170,7 +174,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     "The query contains multi count distinct or sum distinct, each can't have multi columns");
         }
         for (Expression expr : aggregate.getGroupByExpressions()) {
-            if (expr.anyMatch(AggregateFunction.class::isInstance)) {
+            if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
                 throw new AnalysisException(
                         "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
             }

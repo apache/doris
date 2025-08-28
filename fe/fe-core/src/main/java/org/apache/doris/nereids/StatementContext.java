@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -186,6 +187,7 @@ public class StatementContext implements Closeable {
     // if query is: select * from t2 join t5
     // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
+    private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
@@ -252,10 +254,10 @@ public class StatementContext implements Closeable {
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null
-                && connectContext.queryId() != null
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
             this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity(), connectContext.queryId());
+                    connectContext.getCurrentUserIdentity());
             if (originStatement != null) {
                 this.sqlCacheContext.setOriginSql(originStatement.originStmt);
             }
@@ -305,6 +307,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getMtmvRelatedTables() {
         return mtmvRelatedTables;
+    }
+
+    public Set<MTMV> getCandidateMTMVs() {
+        return candidateMTMVs;
     }
 
     public Map<List<String>, TableIf> getTables() {

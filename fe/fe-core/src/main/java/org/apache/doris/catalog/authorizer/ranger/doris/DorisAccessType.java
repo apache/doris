@@ -51,6 +51,8 @@ public enum DorisAccessType {
             case DROP_PRIV:
                 return DROP;
             case USAGE_PRIV:
+            case STAGE_USAGE_PRIV:
+            case CLUSTER_USAGE_PRIV:
                 return USAGE;
             case SHOW_VIEW_PRIV:
                 return SHOW_VIEW;

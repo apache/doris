@@ -156,6 +156,7 @@ public class InsertTask extends AbstractTask {
         ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.getState().reset();
+        ctx.getState().setNereids(true);
         ctx.setThreadLocalInfo();
         if (StringUtils.isNotEmpty(currentDb)) {
             ctx.setDatabase(currentDb);

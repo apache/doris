@@ -669,16 +669,30 @@ VPatternSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnS
 Status FunctionLikeBase::vector_non_const(const ColumnString& values, const ColumnString& patterns,
                                           ColumnUInt8::Container& result, LikeState* state,
                                           size_t input_rows_count) const {
+    ColumnString::MutablePtr replaced_patterns;
     VPatternSearchStateSPtr vector_search_state;
     if (state->is_like_pattern) {
-        vector_search_state = pattern_type_recognition<true>(patterns);
+        if (state->has_custom_escape) {
+            replaced_patterns = ColumnString::create();
+            for (int i = 0; i < input_rows_count; ++i) {
+                std::string val =
+                        replace_pattern_by_escape(patterns.get_data_at(i), state->escape_char);
+                replaced_patterns->insert_data(val.c_str(), val.size());
+            }
+            vector_search_state = pattern_type_recognition<true>(*replaced_patterns);
+        } else {
+            vector_search_state = pattern_type_recognition<true>(patterns);
+        }
     } else {
         vector_search_state = pattern_type_recognition<false>(patterns);
     }
+
+    const ColumnString& real_pattern = state->has_custom_escape ? *replaced_patterns : patterns;
+
     if (vector_search_state == nullptr) {
         // pattern type recognition failed, use default case
         for (int i = 0; i < input_rows_count; ++i) {
-            const auto pattern_val = patterns.get_data_at(i);
+            const auto pattern_val = real_pattern.get_data_at(i);
             const auto value_val = values.get_data_at(i);
             RETURN_IF_ERROR((state->scalar_function)(&state->search_state, value_val, pattern_val,
                                                      &result[i]));
@@ -815,7 +829,12 @@ void verbose_log_match(const std::string& str, const std::string& pattern_name, 
 Status FunctionLike::construct_like_const_state(FunctionContext* context, const StringRef& pattern,
                                                 std::shared_ptr<LikeState>& state,
                                                 bool try_hyperscan) {
-    std::string pattern_str = pattern.to_string();
+    std::string pattern_str;
+    if (state->has_custom_escape) {
+        pattern_str = replace_pattern_by_escape(pattern, state->escape_char);
+    } else {
+        pattern_str = pattern.to_string();
+    }
     state->search_state.pattern_str = pattern_str;
     std::string search_string;
 
@@ -920,6 +939,16 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
     state->is_like_pattern = true;
     state->function = like_fn;
     state->scalar_function = like_fn_scalar;
+    if (context->is_col_constant(2)) {
+        state->has_custom_escape = true;
+        const auto escape_col = context->get_constant_col(2)->column_ptr;
+        const auto& escape = escape_col->get_data_at(0);
+        if (escape.size != 1) {
+            return Status::InternalError("Escape character must be a single character, got: {}",
+                                         escape.to_string());
+        }
+        state->escape_char = escape.data[0];
+    }
     if (context->is_col_constant(1)) {
         const auto pattern_col = context->get_constant_col(1)->column_ptr;
         const auto& pattern = pattern_col->get_data_at(0);

@@ -42,11 +42,7 @@ class DorisCompoundReader;
 
 class InvertedIndexFileReader {
 public:
-    using EntriesType =
-            lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
-                                    lucene::util::Equals::Char, lucene::util::Deletor::acArray,
-                                    lucene::util::Deletor::Object<ReaderFileEntry>>;
-    // Map to hold the file entries for each index ID.
+    using EntriesType = std::unordered_map<std::string, std::unique_ptr<ReaderFileEntry>>;
     using IndicesEntriesMap =
             std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;
 
@@ -56,7 +52,7 @@ public:
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _storage_format(storage_format),
-              _idx_file_info(idx_file_info) {}
+              _idx_file_info(std::move(idx_file_info)) {}
 
     Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
                 const io::IOContext* io_ctx = nullptr);

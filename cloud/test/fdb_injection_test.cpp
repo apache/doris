@@ -33,7 +33,7 @@
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/txn_kv.h"
 
 using namespace doris;
 

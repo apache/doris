@@ -110,7 +110,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             return false;
         }
         if (!agg.getAggregateParam().canBeBanned) {
-            return true;
+            return visit(agg, context);
         }
         // forbid one phase agg on distribute
         if (agg.getAggMode() == AggMode.INPUT_TO_RESULT && children.get(0).getPlan() instanceof PhysicalDistribute) {
@@ -176,9 +176,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             }
         }
         // process must shuffle
-        visit(agg, context);
-        // process agg
-        return true;
+        return visit(agg, context);
     }
 
     @Override

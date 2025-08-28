@@ -27,6 +27,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
+#include "common/config.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -528,9 +529,11 @@ Status OlapScanLocalState::hold_tablets() {
     }
 
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
-        RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers(
-                {0, _tablets[i].version}, &_read_sources[i].rs_splits,
-                RuntimeFilterConsumer::_state->skip_missing_version()));
+        _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
+                {0, _tablets[i].version},
+                {.skip_missing_versions = RuntimeFilterConsumer::_state->skip_missing_version(),
+                 .enable_fetch_rowsets_from_peers =
+                         config::enable_fetch_rowsets_from_peer_replicas}));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }

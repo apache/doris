@@ -138,6 +138,7 @@ public class AutoBucketUtilsTest {
         Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         connectContext = UtFrameUtils.createDefaultCtx();
+        Config.autobucket_partition_size_per_bucket_gb = 1;
     }
 
     @After

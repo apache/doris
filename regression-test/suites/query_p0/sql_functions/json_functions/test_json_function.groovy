@@ -91,4 +91,23 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\k')"""
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\k')"""
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\\\k')"""
+
+    qt_json_contains1 """
+      SELECT JSON_CONTAINS('{"age": 30, "name": "John", "hobbies": ["reading", "swimming"]}', '{"invalid": "format"}');
+    """
+    qt_json_contains2 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '{"age": 25}');
+    """
+    qt_json_contains3 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '{"age": "25"}');
+    """
+    qt_json_contains4 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '"music"', '\$.hobbies[1]');
+    """
+    qt_json_contains5 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '"music"', '\$.hobbies[0]');
+    """
+    qt_json_contains6 """
+      SELECT JSON_CONTAINS(NULL, '"music"', '{"age": 25}');
+    """
 }

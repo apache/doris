@@ -837,6 +837,31 @@ message PGetFileCacheMetaResponse {
     repeated FileCacheBlockMeta file_cache_block_metas = 1;
 }
 
+message PWarmUpRowsetRequest {
+    repeated RowsetMetaPB rowset_metas = 1;
+    optional int64 unix_ts_us = 2;
+    optional int64 sync_wait_timeout_ms = 3;
+    optional bool skip_existence_check = 4;
+}
+
+message PWarmUpRowsetResponse {
+    optional PStatus status = 1;
+}
+
+message RecycleCacheMeta {
+    optional int64 tablet_id = 1;
+    optional string rowset_id = 2;
+    optional int64 num_segments = 3;
+    repeated string index_file_names = 4;
+}
+
+message PRecycleCacheRequest {
+    repeated RecycleCacheMeta cache_metas = 1;
+}
+
+message PRecycleCacheResponse {
+}
+
 message PReportStreamLoadStatusRequest {
     optional PUniqueId load_id = 1;
     optional PStatus status = 2;
@@ -989,6 +1014,21 @@ message PGetBeResourceResponse {
     optional PGlobalResourceUsage global_be_resource_usage = 2;
 }
 
+message PGetTabletRowsetsRequest {
+    optional int64 tablet_id = 1;
+    optional int64 version_start = 2;
+    optional int64 version_end = 3;
+
+    optional DeleteBitmapPB delete_bitmap_keys = 4;
+}
+
+message PGetTabletRowsetsResponse {
+    required PStatus status = 1;
+    repeated RowsetMetaPB rowsets = 2;
+
+    optional DeleteBitmapPB delete_bitmap = 3;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -1029,6 +1069,8 @@ service PBackendService {
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
+    rpc warm_up_rowset(PWarmUpRowsetRequest) returns (PWarmUpRowsetResponse);
+    rpc recycle_cache(PRecycleCacheRequest) returns (PRecycleCacheResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
@@ -1041,5 +1083,6 @@ service PBackendService {
     rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
+    rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
 };
 

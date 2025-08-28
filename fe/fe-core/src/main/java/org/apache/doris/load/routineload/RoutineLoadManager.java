@@ -498,8 +498,18 @@ public class RoutineLoadManager implements Writable {
     // check if the specified BE is available for running task
     // return true if it is available. return false if otherwise.
     // throw exception if unrecoverable errors happen.
-    public long getAvailableBeForTask(long jobId, long previousBeId) throws LoadException {
+    public long getAvailableBeForTask(long jobId, long previousBeId) throws UserException {
         List<Long> availableBeIds = getAvailableBackendIds(jobId);
+        if (availableBeIds.isEmpty()) {
+            RoutineLoadJob job = getJob(jobId);
+            if (job != null) {
+                String msg = "no available BE found for job " + jobId
+                        + "please check the BE status and user's cluster or tags";
+                job.updateState(RoutineLoadJob.JobState.PAUSED,
+                        new ErrorReason(InternalErrorCode.INTERNAL_ERR, msg), false /* not replay */);
+            }
+            return -1L;
+        }
 
         // check if be has idle slot
         readLock();

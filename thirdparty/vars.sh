@@ -253,6 +253,8 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
+# Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet.
+# https://github.com/apache/doris/pull/51217
 ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-17.0.0.tar.gz"
 ARROW_NAME="apache-arrow-17.0.0.tar.gz"
 ARROW_SOURCE="arrow-apache-arrow-17.0.0"
@@ -346,10 +348,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.119.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.11.119.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.11.119"
-AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.219.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.219.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"
+AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -394,10 +396,10 @@ HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.9"
 HDFS3_MD5SUM="b3eaa03e5b184521e5ad5bf6cabea97e"
 
 #libdivide
-LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
-LIBDIVIDE_NAME="libdivide-5.0.tar.gz"
-LIBDIVIDE_SOURCE="libdivide-5.0"
-LIBDIVIDE_MD5SUM="7fd16b0bb4ab6812b2e2fdc7bfb81641"
+LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/refs/tags/v5.2.0.tar.gz"
+LIBDIVIDE_NAME="libdivide-5.2.0.tar.gz"
+LIBDIVIDE_SOURCE="libdivide-5.2.0"
+LIBDIVIDE_MD5SUM="4ba77777192c295d6de2b86d88f3239a"
 
 #pdqsort
 PDQSORT_DOWNLOAD="https://raw.githubusercontent.com/orlp/pdqsort/b1ef26a55cdb60d236a5cb199c4234c704f46726/pdqsort.h"
@@ -419,10 +421,10 @@ XSIMD_SOURCE=xsimd-13.0.0
 XSIMD_MD5SUM="c661deb91836e82d3070f81032014fe6"
 
 # simdjson
-SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.0.1.tar.gz"
-SIMDJSON_NAME=simdjson-3.0.1.tar.gz
-SIMDJSON_SOURCE=simdjson-3.0.1
-SIMDJSON_MD5SUM="993576b47249f2bade2bfb2552b2896a"
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.11.6.tar.gz"
+SIMDJSON_NAME=simdjson-3.11.6.tar.gz
+SIMDJSON_SOURCE=simdjson-3.11.6
+SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
 
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
@@ -461,10 +463,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.5-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.6.5-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.5-for-doris"
-HADOOP_LIBS_MD5SUM="c13f90ceb5ef9460b7d736c49d9b79fd"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.6-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
+HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -509,10 +511,10 @@ BASE64_SOURCE="base64-0.5.2"
 BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
 
 # azure blob
-AZURE_DOWNLOAD="https://github.com/Azure/azure-sdk-for-cpp/archive/azure-core_1.10.3.tar.gz"
-AZURE_NAME="azure-core_1.10.3.tar.gz"
-AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.10.3"
-AZURE_MD5SUM="aa470cfdba93dd69a6f3112a6958c13c"
+AZURE_DOWNLOAD="https://github.com/Azure/azure-sdk-for-cpp/archive/azure-core_1.16.0.tar.gz"
+AZURE_NAME="azure-core_1.16.0.tar.gz"
+AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.16.0"
+AZURE_MD5SUM="0fb23eab695dc24b94456bf461e6af3b"
 
 # libdragonbox for faster double/float to string
 DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
@@ -537,6 +539,19 @@ PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixm
 PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
+
+# openblas
+OPENBLAS_DOWNLOAD="https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.29/OpenBLAS-0.3.29.tar.gz"
+OPENBLAS_NAME="OpenBLAS-0.3.29.tar.gz"
+OPENBLAS_SOURCE="OpenBLAS-0.3.29"
+OPENBLAS_MD5SUM="853a0c5c0747c5943e7ef4bbb793162d"
+
+# faiss
+FAISS_DOWNLOAD="https://github.com/facebookresearch/faiss/archive/refs/tags/v1.10.0.tar.gz"
+FAISS_NAME="faiss-1.10.0.tar.gz"
+FAISS_SOURCE="faiss-1.10.0"
+FAISS_MD5SUM="f31edf2492808b27cc963d0ab316a205"
+
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -618,6 +633,8 @@ export TP_ARCHIVES=(
     'ICU'
     'JINDOFS'
     'PUGIXML'
+    'OPENBLAS'
+    'FAISS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

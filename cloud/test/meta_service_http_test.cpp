@@ -45,11 +45,11 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "resource-manager/resource_manager.h"
 
@@ -717,7 +717,7 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         AlterClusterRequest req;
         req.set_instance_id(mock_instance);
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
-        req.mutable_cluster()->set_cluster_name("");
+        req.mutable_cluster()->set_cluster_name("%");
         req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
         ASSERT_EQ(status_code, 400);
@@ -1972,4 +1972,883 @@ TEST(MetaServiceHttpTest, CreateInstanceWithIamRoleTest) {
     }
 }
 
+static std::tuple<int, MetaServiceResponseStatus> add_cluster(
+        HttpContext& ctx, std::string cluster_name, std::string cluster_id,
+        const ClusterPB::Type type, const std::vector<std::string>& cluster_names,
+        const ClusterPolicy* policy) {
+    AlterClusterRequest req;
+    req.set_instance_id(mock_instance);
+    req.mutable_cluster()->set_type(type);
+    req.mutable_cluster()->set_cluster_id(cluster_id);
+    req.mutable_cluster()->set_cluster_name(cluster_name);
+    if (type == ClusterPB::VIRTUAL) {
+        for (auto cg_name : cluster_names) {
+            req.mutable_cluster()->add_cluster_names(cg_name);
+        }
+        if (policy != nullptr) {
+            req.mutable_cluster()->mutable_cluster_policy()->CopyFrom(*policy);
+        }
+    }
+    return ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+}
+
+static std::tuple<int, MetaServiceResponseStatus> alter_virtual_cluster(
+        HttpContext& ctx, std::string instance_id, std::string cluster_name, std::string cluster_id,
+        const std::vector<std::string>& cluster_names, const ClusterPolicy* policy) {
+    AlterClusterRequest alter_req;
+    alter_req.set_instance_id(instance_id);
+    alter_req.mutable_cluster()->set_cluster_id(cluster_id);
+    alter_req.mutable_cluster()->set_cluster_name(cluster_name);
+    alter_req.mutable_cluster()->set_type(ClusterPB::VIRTUAL);
+    for (auto subcg_name : cluster_names) {
+        alter_req.mutable_cluster()->add_cluster_names(subcg_name);
+    }
+    if (policy != nullptr) {
+        alter_req.mutable_cluster()->mutable_cluster_policy()->CopyFrom(*policy);
+    }
+    return ctx.forward<MetaServiceResponseStatus>("alter_vcluster_info", alter_req);
+}
+
+static std::tuple<int, JsonTemplate<ClusterPB>> get_cluster_info(HttpContext& ctx,
+                                                                 std::string cluster_name,
+                                                                 std::string cluster_id) {
+    GetClusterRequest req;
+    req.set_cloud_unique_id("1:" + mock_instance + ":xxxx");
+    req.set_cluster_id(cluster_id);
+    req.set_cluster_name(cluster_name);
+    return ctx.forward_with_result<ClusterPB>("get_cluster", req);
+}
+
+static std::tuple<int, MetaServiceResponseStatus> drop_cluster(HttpContext& ctx,
+                                                               std::string cluster_name,
+                                                               std::string cluster_id) {
+    AlterClusterRequest req_drop;
+    req_drop.set_instance_id(mock_instance);
+    if ("" != cluster_id) {
+        req_drop.mutable_cluster()->set_cluster_id(cluster_id);
+    }
+    if ("" != cluster_name) {
+        req_drop.mutable_cluster()->set_cluster_name(cluster_name);
+    }
+    return ctx.forward<MetaServiceResponseStatus>("drop_cluster", req_drop);
+}
+
+TEST(MetaServiceHttpTest, VirtualClusterTest) {
+    config::enable_cluster_name_check = true;
+
+    HttpContext ctx;
+    {
+        CreateInstanceRequest req;
+        req.set_instance_id(mock_instance);
+        req.set_user_id("test_user_virtual");
+        req.set_name("test_name_virtual");
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123_virtual");
+        obj.set_sk("321_virtual");
+        obj.set_bucket("456_virtual");
+        obj.set_prefix("654_virtual");
+        obj.set_endpoint("789_virtual");
+        obj.set_region("987_virtual");
+        obj.set_external_endpoint("888_virtual");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("create_instance", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+
+    //case: no type
+    {
+        std::string mock_vcg_name = "virtual_cluster_name";
+        std::string mock_vcg_id = "virtual_cluster_id";
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(mock_vcg_name);
+        req.mutable_cluster()->set_cluster_id(mock_vcg_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        std::cout << resp.DebugString() << std::endl;
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "cluster must have type arg");
+    }
+
+    //case: regex not ok
+    {
+        std::string mock_vcg_name = "*virtual_cluster_name";
+        std::string mock_vcg_id = "virtual_cluster_id";
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(mock_vcg_name);
+        req.mutable_cluster()->set_cluster_id(mock_vcg_id);
+        req.mutable_cluster()->set_type(ClusterPB::VIRTUAL);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        std::cout << resp.DebugString() << std::endl;
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(),
+                  "cluster name not regex with ^[a-zA-Z][a-zA-Z0-9_]*$, please check it");
+    }
+
+    //case: no instance
+    {
+        std::string mock_vcg_name = "virtual_cluster_name";
+        std::string mock_vcg_id = "virtual_cluster_id";
+        AlterClusterRequest req;
+        req.mutable_cluster()->set_cluster_name(mock_vcg_name);
+        req.mutable_cluster()->set_cluster_id(mock_vcg_id);
+        req.mutable_cluster()->set_type(ClusterPB::VIRTUAL);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        std::cout << resp.DebugString() << std::endl;
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "invalid request instance_id or cluster not given");
+    }
+
+    //case: no cluster name
+    {
+        std::string mock_vcg_name = "virtual_cluster_name";
+        std::string mock_vcg_id = "virtual_cluster_id";
+        AlterClusterRequest req;
+        req.mutable_cluster()->set_cluster_id(mock_vcg_id);
+        req.mutable_cluster()->set_type(ClusterPB::VIRTUAL);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        std::cout << resp.DebugString() << std::endl;
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "invalid request instance_id or cluster not given");
+    }
+
+    //case: no cluster id
+    {
+        std::string mock_vcg_name = "virtual_cluster_name";
+        std::string mock_vcg_id = "virtual_cluster_id";
+        AlterClusterRequest req;
+        req.mutable_cluster()->set_cluster_name(mock_vcg_name);
+        req.mutable_cluster()->set_type(ClusterPB::VIRTUAL);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        std::cout << resp.DebugString() << std::endl;
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "invalid request instance_id or cluster not given");
+    }
+
+    //case: use ordinary cluster's args, public_endpoint, mysql_user_name, private_endpoint, cluster_status
+    {
+        std::string mock_vcg_name = "virtual_cluster_name";
+        std::string mock_vcg_id = "virtual_cluster_id";
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(mock_vcg_name);
+        req.mutable_cluster()->set_cluster_id(mock_vcg_id);
+        req.mutable_cluster()->set_type(ClusterPB::VIRTUAL);
+        req.mutable_cluster()->set_public_endpoint("public_endpoint");
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        std::cout << resp.DebugString() << std::endl;
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "Inconsistent virtual cluster args");
+    }
+
+    //case: use ordinary cluster's args, nodes
+    {
+        std::string mock_vcg_name = "virtual_cluster_name";
+        std::string mock_vcg_id = "virtual_cluster_id";
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(mock_vcg_name);
+        req.mutable_cluster()->set_cluster_id(mock_vcg_id);
+        req.mutable_cluster()->set_type(ClusterPB::VIRTUAL);
+        auto node = req.mutable_cluster()->add_nodes();
+        node->set_ip("127.0.0.1");
+        node->set_heartbeat_port(9999);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        std::cout << resp.DebugString() << std::endl;
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "Inconsistent virtual cluster args");
+    }
+
+    // case: add a empty cluster
+    {
+        std::string mock_vcg_name = "virtual_cluster_name";
+        std::string mock_vcg_id = "virtual_cluster_id";
+        auto [status_code, resp] =
+                add_cluster(ctx, mock_vcg_name, mock_vcg_id, ClusterPB::VIRTUAL, {}, nullptr);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+
+        // test alter, add two subcg to empty cluster
+        {
+            add_cluster(ctx, "subcg_name1", "subcg_id1", ClusterPB::COMPUTE, {}, nullptr);
+            add_cluster(ctx, "subcg_name2", "subcg_id2", ClusterPB::COMPUTE, {}, nullptr);
+            ClusterPolicy policy;
+            policy.set_active_cluster_name("subcg_name2");
+            policy.add_standby_cluster_names("subcg_name1");
+            const std::vector<std::string> cluster_names = {"subcg_name2", "subcg_name1"};
+            auto [status_code, resp] = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name,
+                                                             mock_vcg_id, cluster_names, &policy);
+            ASSERT_EQ(status_code, 400);
+            ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(resp.msg(), "plz set cluster policy type, use virtual cluster policy");
+
+            // just has cluster_names
+            auto [status_code2, resp2] = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name,
+                                                               mock_vcg_id, cluster_names, nullptr);
+            ASSERT_EQ(status_code2, 400);
+            ASSERT_EQ(resp2.code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(resp2.msg(),
+                      "subcgs and policy must be Incoming at the same time or do not transmit at "
+                      "the same time");
+
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("subcg_name2");
+            policy.add_standby_cluster_names("subcg_name1");
+            auto [status_code1, resp1] = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name,
+                                                               mock_vcg_id, cluster_names, &policy);
+            ASSERT_EQ(status_code1, 200);
+            ASSERT_EQ(resp1.code(), MetaServiceCode::OK);
+            auto ret = get_cluster_info(ctx, mock_vcg_name, mock_vcg_id);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).status.code(), MetaServiceCode::OK);
+            ASSERT_TRUE(std::get<1>(ret).result.has_value());
+            for (auto showrt : std::get<1>(ret).result->cluster_names()) {
+                ASSERT_TRUE(std::find(cluster_names.begin(), cluster_names.end(), showrt) !=
+                            cluster_names.end());
+            }
+            ASSERT_EQ("subcg_name2",
+                      std::get<1>(ret).result->cluster_policy().active_cluster_name());
+            ASSERT_EQ("subcg_name1",
+                      std::get<1>(ret).result->cluster_policy().standby_cluster_names().at(0));
+            // check default value
+            ASSERT_EQ(3, std::get<1>(ret).result->cluster_policy().failover_failure_threshold());
+            ASSERT_EQ(100,
+                      std::get<1>(ret).result->cluster_policy().unhealthy_node_threshold_percent());
+        }
+
+        // case: disable alter vcluster status
+        AlterClusterRequest req1;
+        req1.set_instance_id(mock_instance);
+        req1.mutable_cluster()->set_cluster_id(mock_vcg_id);
+        req1.mutable_cluster()->set_cluster_status(ClusterStatus::SUSPENDED);
+        req1.set_op(AlterClusterRequest::SET_CLUSTER_STATUS);
+        auto [status_code1, resp1] =
+                ctx.forward<MetaServiceResponseStatus>("set_cluster_status", req1);
+        ASSERT_EQ(status_code1, 400);
+        ASSERT_EQ(resp1.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp1.msg(), "just support set COMPUTE cluster status");
+
+        // rename vcluster
+        AlterClusterRequest req2;
+        req2.set_instance_id(mock_instance);
+        req2.mutable_cluster()->set_cluster_id(mock_vcg_id);
+        req2.mutable_cluster()->set_cluster_name("virtual_cluster_name");
+        auto [status_code2, resp2] = ctx.forward<MetaServiceResponseStatus>("rename_cluster", req2);
+        ASSERT_EQ(status_code2, 400);
+        ASSERT_EQ(resp2.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(
+                resp2.msg().starts_with("failed to rename cluster, a cluster with the same name "
+                                        "already exists in this instance"));
+
+        req2.mutable_cluster()->set_cluster_name("virtual_cluster_new_name");
+        auto [status_code3, resp3] = ctx.forward<MetaServiceResponseStatus>("rename_cluster", req2);
+        ASSERT_EQ(status_code3, 200);
+        ASSERT_EQ(resp3.code(), MetaServiceCode::OK);
+    }
+
+    // case: add non-empty vcg failed
+    {
+        // has subcgs, not has policy
+        std::string mock_vcg_name1 = "virtual_cluster_name_1";
+        std::string mock_vcg_id1 = "virtual_cluster_id_1";
+        auto ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                               {"not_exist_cluster_1"}, nullptr);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "subcgs and policy must be Incoming at the same time or do not transmit at the "
+                  "same time");
+
+        // 2 subcg, and not set active_cluster_name
+        ClusterPolicy policy;
+        policy.set_type(ClusterPolicy::ActiveStandby);
+        policy.set_failover_failure_threshold(1);
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "active_cluster_name must not be empty and must be in cluster_names");
+
+        // 2 subcg, seted active_cluster_name but not set standby_cluster_names
+        policy.set_active_cluster_name("not_exist_cluster_1");
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "Inconsistent cluster policy: active_cluster_name must be set if "
+                  "standby_cluster_names are present, and vice versa.");
+
+        // 2 subcg, seted active_cluster_name, one standby_cluster_names, active_cluster_name not create before
+        policy.add_standby_cluster_names("not_exist_cluster_2");
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "sub cluster not_exist_cluster_1 not been added in instance, plz add it before "
+                  "create virtual cluster");
+
+        // 2 subcg, seted active_cluster_name, but not_exist_cluster_3 not in subcgs
+        policy.set_active_cluster_name("not_exist_cluster_3");
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "active_cluster_name must not be empty and must be in cluster_names");
+
+        // 2 subcg, seted active_cluster_name, two standby_cluster_names, but subcgs not have not_exist_cluster_3
+        policy.set_active_cluster_name("not_exist_cluster_1");
+        policy.add_standby_cluster_names("not_exist_cluster_3");
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "standby_cluster_name not_exist_cluster_3 must be in cluster_names");
+
+        // just support 2 subcg
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2", "not_exist_cluster_3"},
+                          &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(), "Currently, just support two sub clusters");
+
+        // just support 2 subcg
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"only_one_cluster"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(), "Currently, just support two sub clusters");
+
+        // subcg regex cluster name
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"*_regex_err_cluster", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "cluster name *_regex_err_cluster does not match regex ^[a-zA-Z][a-zA-Z0-9_]*$");
+
+        // subcgs and policy must be Incoming at the same time or do not transmit at the same time
+        policy.Clear();
+        policy.set_type(ClusterPolicy::ActiveStandby);
+        policy.add_standby_cluster_names("not_exist_cluster_2");
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL, {}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "subcgs and policy must be Incoming at the same time or do not transmit at the "
+                  "same time");
+
+        // policy has standy but not have active
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "Inconsistent cluster policy: active_cluster_name must be set if "
+                  "standby_cluster_names are present, and vice versa.");
+
+        policy.set_active_cluster_name("not_exist_cluster_2");
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(), "active_cluster_name is same of standby_cluster_name");
+
+        policy.set_active_cluster_name("not_exist_cluster_1");
+        // failover_failure_threshold 0, failed
+        policy.set_failover_failure_threshold(0);
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "failover_failure_threshold must be greater than 0 and less than max(int64)");
+
+        // failover_failure_threshold -1, failed
+        policy.set_failover_failure_threshold(-1);
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "failover_failure_threshold must be greater than 0 and less than max(int64)");
+
+        policy.set_failover_failure_threshold(88);
+        policy.set_unhealthy_node_threshold_percent(-1);
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "unhealthy_node_threshold_percent must be greater than 0 and less than or equal "
+                  "to 100");
+
+        policy.set_unhealthy_node_threshold_percent(0);
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "unhealthy_node_threshold_percent must be greater than 0 and less than or equal "
+                  "to 100");
+
+        policy.set_failover_failure_threshold(1);
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {"not_exist_cluster_1", "not_exist_cluster_2"}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "unhealthy_node_threshold_percent must be greater than 0 and less than or equal "
+                  "to 100");
+    }
+
+    // case: add non-empty vcg succ
+    {
+        std::string mock_vcg_name1 = "virtual_cluster_name_1";
+        std::string mock_vcg_id1 = "virtual_cluster_id_1";
+        std::string mock_vcg_name2 = "virtual_cluster_name_2";
+        std::string mock_vcg_id2 = "virtual_cluster_id_2";
+        std::string mock_exist_cluster_name1 = "exist_cluster_name_1";
+        std::string mock_exist_cluster_id1 = "exist_cluster_id_1";
+        std::string mock_exist_cluster_name2 = "exist_cluster_name_2";
+        std::string mock_exist_cluster_id2 = "exist_cluster_id_2";
+        std::string mock_exist_cluster_name3 = "fe_exist_cluster_name_3";
+        std::string mock_exist_cluster_id3 = "fe_exist_cluster_id_3";
+        // add two exist cluster before
+        auto ret = add_cluster(ctx, mock_exist_cluster_name1, mock_exist_cluster_id1,
+                               ClusterPB::COMPUTE, {}, nullptr);
+        ASSERT_EQ(std::get<0>(ret), 200);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+        ret = add_cluster(ctx, mock_exist_cluster_name2, mock_exist_cluster_id2, ClusterPB::COMPUTE,
+                          {}, nullptr);
+        ASSERT_EQ(std::get<0>(ret), 200);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+        AlterClusterRequest req_before_fe;
+        req_before_fe.set_instance_id(mock_instance);
+        req_before_fe.mutable_cluster()->set_type(ClusterPB::SQL);
+        req_before_fe.mutable_cluster()->set_cluster_id(mock_exist_cluster_id3);
+        req_before_fe.mutable_cluster()->set_cluster_name(mock_exist_cluster_name3);
+        auto node = req_before_fe.mutable_cluster()->add_nodes();
+        node->set_ip("127.0.0.1");
+        node->set_edit_log_port(9990);
+        node->set_node_type(NodeInfoPB::FE_MASTER);
+        ret = ctx.forward<MetaServiceResponseStatus>("add_cluster", req_before_fe);
+        ASSERT_EQ(std::get<1>(ret).msg(), "");
+        ASSERT_EQ(std::get<0>(ret), 200);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+        // test normal succ
+        ClusterPolicy policy;
+        policy.set_type(ClusterPolicy::ActiveStandby);
+        policy.set_active_cluster_name(mock_exist_cluster_name2);
+        policy.add_standby_cluster_names(mock_exist_cluster_name1);
+        ret = add_cluster(ctx, mock_vcg_name1, mock_vcg_id1, ClusterPB::VIRTUAL,
+                          {mock_exist_cluster_name1, mock_exist_cluster_name2}, &policy);
+        ASSERT_EQ(std::get<1>(ret).msg(), "");
+        ASSERT_EQ(std::get<0>(ret), 200);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+        // one cluster just can be added by one vcg
+        policy.Clear();
+        policy.set_type(ClusterPolicy::ActiveStandby);
+        policy.set_active_cluster_name(mock_exist_cluster_name1);
+        policy.add_standby_cluster_names(mock_exist_cluster_name2);
+        ret = add_cluster(ctx, mock_vcg_name2, mock_vcg_id2, ClusterPB::VIRTUAL,
+                          {mock_exist_cluster_name1, mock_exist_cluster_name2}, &policy);
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "sub cluster exist_cluster_name_1 has been add by other "
+                  "vcg=virtual_cluster_name_1");
+
+        // case alter cluster
+        // no instance_id or cloud_unique_id
+        {
+            ClusterPolicy policy;
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name(mock_exist_cluster_name1);
+            policy.add_standby_cluster_names(mock_exist_cluster_name2);
+            auto ret = alter_virtual_cluster(ctx, "", mock_vcg_name2, mock_vcg_id2,
+                                             {mock_exist_cluster_name1, mock_exist_cluster_name2},
+                                             &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(), "invalid request instance_id or cluster not given");
+        }
+
+        // no cluster_id
+        {
+            ClusterPolicy policy;
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name(mock_exist_cluster_name1);
+            policy.add_standby_cluster_names(mock_exist_cluster_name2);
+            auto ret = alter_virtual_cluster(ctx, mock_instance, "", "",
+                                             {mock_exist_cluster_name1, mock_exist_cluster_name2},
+                                             &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(), "missing cluster_id=");
+        }
+
+        {
+            // current vcg (active:exist_cluster_name2 Standby:exist_cluster_name1)
+            // alter to (active:exist_cluster_name1 Standby:exist_cluster_name_4)
+            add_cluster(ctx, "exist_cluster_name_4", "exist_cluster_id_4", ClusterPB::COMPUTE, {},
+                        nullptr);
+            std::vector<std::string> cluster_names = {mock_exist_cluster_name1,
+                                                      "exist_cluster_name_4"};
+            auto ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                             cluster_names, nullptr);
+            // not change policy, so alter failed
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(),
+                      "active_cluster_name must not be empty and must be in cluster_names");
+
+            // cluster_names and policy modify together, succ
+            ClusterPolicy policy;
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name(mock_exist_cluster_name1);
+            policy.add_standby_cluster_names("exist_cluster_name_4");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            // change back to vcg (active:exist_cluster_name2 Standby:exist_cluster_name1)
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name(mock_exist_cluster_name2);
+            policy.add_standby_cluster_names(mock_exist_cluster_name1);
+            cluster_names = {mock_exist_cluster_name1, mock_exist_cluster_name2};
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            // current vcg (active:exist_cluster_name2 Standby:exist_cluster_name1)
+            // alter to (active:exist_cluster_name_5 Standby:exist_cluster_name_4)
+            policy.Clear();
+            add_cluster(ctx, "exist_cluster_name_5", "exist_cluster_id_5", ClusterPB::COMPUTE, {},
+                        nullptr);
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("exist_cluster_name_5");
+            policy.add_standby_cluster_names("exist_cluster_name_4");
+            cluster_names = {"exist_cluster_name_4", "exist_cluster_name_5"};
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            // active A standby B -> active A standby B -> active B standby A
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("exist_cluster_name_4");
+            policy.add_standby_cluster_names("exist_cluster_name_5");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            auto show_rest = get_cluster_info(ctx, mock_vcg_name1, mock_vcg_id1);
+            ASSERT_EQ(std::get<0>(show_rest), 200);
+            ASSERT_EQ(std::get<1>(show_rest).status.code(), MetaServiceCode::OK);
+            ASSERT_TRUE(std::get<1>(show_rest).result.has_value());
+            for (auto showrt : std::get<1>(show_rest).result->cluster_names()) {
+                ASSERT_TRUE(std::find(cluster_names.begin(), cluster_names.end(), showrt) !=
+                            cluster_names.end());
+            }
+            ASSERT_EQ("exist_cluster_name_4",
+                      std::get<1>(show_rest).result->cluster_policy().active_cluster_name());
+            ASSERT_EQ(
+                    "exist_cluster_name_5",
+                    std::get<1>(show_rest).result->cluster_policy().standby_cluster_names().at(0));
+            // check default value
+            ASSERT_EQ(3,
+                      std::get<1>(show_rest).result->cluster_policy().failover_failure_threshold());
+            ASSERT_EQ(100, std::get<1>(show_rest)
+                                   .result->cluster_policy()
+                                   .unhealthy_node_threshold_percent());
+            ASSERT_EQ(ClusterPolicy::ActiveStandby,
+                      std::get<1>(show_rest).result->cluster_policy().type());
+
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("exist_cluster_name_5");
+            policy.add_standby_cluster_names("exist_cluster_name_4");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            // active A standby B -> active B standby C -> active C standby D -> active D standby A
+            cluster_names = {mock_exist_cluster_name2, "exist_cluster_name_4"};
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name(mock_exist_cluster_name2);
+            policy.add_standby_cluster_names("exist_cluster_name_4");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            cluster_names = {"exist_cluster_name_4", "exist_cluster_name_5"};
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("exist_cluster_name_4");
+            policy.add_standby_cluster_names("exist_cluster_name_5");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            cluster_names = {"exist_cluster_name_5", "exist_cluster_name_1"};
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("exist_cluster_name_5");
+            policy.add_standby_cluster_names("exist_cluster_name_1");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            // failed, not_exist_cluster_name_6
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("exist_cluster_name_5");
+            policy.add_standby_cluster_names("not_exist_cluster_name_6");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(),
+                      "sub cluster not_exist_cluster_name_6 not been added in instance, plz "
+                      "add it before create virtual cluster");
+
+            cluster_names = {"exist_cluster_name_5", "not_exist_cluster_name_6"};
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("exist_cluster_name_5");
+            policy.add_standby_cluster_names("not_exist_cluster_name_6");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(),
+                      "sub cluster not_exist_cluster_name_6 not been added in instance, plz "
+                      "add it before create virtual cluster");
+
+            show_rest = get_cluster_info(ctx, mock_vcg_name1, mock_vcg_id1);
+            ASSERT_EQ(std::get<0>(show_rest), 200);
+            ASSERT_EQ(std::get<1>(show_rest).status.code(), MetaServiceCode::OK);
+            ASSERT_TRUE(std::get<1>(show_rest).result.has_value());
+            cluster_names = {"exist_cluster_name_5", "exist_cluster_name_1"};
+            for (auto showrt : std::get<1>(show_rest).result->cluster_names()) {
+                ASSERT_TRUE(std::find(cluster_names.begin(), cluster_names.end(), showrt) !=
+                            cluster_names.end());
+            }
+            ASSERT_EQ("exist_cluster_name_5",
+                      std::get<1>(show_rest).result->cluster_policy().active_cluster_name());
+            ASSERT_EQ(
+                    "exist_cluster_name_1",
+                    std::get<1>(show_rest).result->cluster_policy().standby_cluster_names().at(0));
+            // check default value
+            ASSERT_EQ(3,
+                      std::get<1>(show_rest).result->cluster_policy().failover_failure_threshold());
+            ASSERT_EQ(100, std::get<1>(show_rest)
+                                   .result->cluster_policy()
+                                   .unhealthy_node_threshold_percent());
+            ASSERT_EQ(ClusterPolicy::ActiveStandby,
+                      std::get<1>(show_rest).result->cluster_policy().type());
+
+            // just change active,standby, so can not send cluster_names
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("exist_cluster_name_1");
+            policy.add_standby_cluster_names("exist_cluster_name_5");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1, {},
+                                        &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            // just change cluster_names, so can not send policy, nothing changed
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, nullptr);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            // just alter active_cluster_name, failed
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_active_cluster_name("exist_cluster_name_5");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1, {},
+                                        &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(),
+                      "active_cluster_name is same of standby_cluster_name");
+
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.add_standby_cluster_names("exist_cluster_name_1");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1, {},
+                                        &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(),
+                      "active_cluster_name is same of standby_cluster_name");
+
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1, {},
+                                        &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_failover_failure_threshold(55);
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1, {},
+                                        &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            show_rest = get_cluster_info(ctx, mock_vcg_name1, mock_vcg_id1);
+            ASSERT_EQ(std::get<0>(show_rest), 200);
+            ASSERT_EQ(std::get<1>(show_rest).status.code(), MetaServiceCode::OK);
+            // check default value
+            ASSERT_EQ(55,
+                      std::get<1>(show_rest).result->cluster_policy().failover_failure_threshold());
+
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_unhealthy_node_threshold_percent(66);
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1, {},
+                                        &policy);
+            ASSERT_EQ(std::get<0>(ret), 200);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+            show_rest = get_cluster_info(ctx, mock_vcg_name1, mock_vcg_id1);
+            ASSERT_EQ(std::get<0>(show_rest), 200);
+            ASSERT_EQ(std::get<1>(show_rest).status.code(), MetaServiceCode::OK);
+            // check default value
+            ASSERT_EQ(66, std::get<1>(show_rest)
+                                  .result->cluster_policy()
+                                  .unhealthy_node_threshold_percent());
+
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_unhealthy_node_threshold_percent(200);
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1, {},
+                                        &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(),
+                      "unhealthy_node_threshold_percent must be greater than 0 and less than "
+                      "or equal to 100");
+
+            policy.Clear();
+            policy.set_type(ClusterPolicy::ActiveStandby);
+            policy.set_unhealthy_node_threshold_percent(88);
+            cluster_names = {"exist_cluster_name_5"};
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(), "Currently, just support two sub clusters");
+
+            cluster_names = {"exist_cluster_name_5", "exist_cluster_name_4",
+                             mock_exist_cluster_name1};
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1,
+                                        cluster_names, &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(), "Currently, just support two sub clusters");
+
+            policy.Clear();
+            policy.set_active_cluster_name("exist_cluster_name_1");
+            policy.add_standby_cluster_names("exist_cluster_name_1");
+            ret = alter_virtual_cluster(ctx, mock_instance, mock_vcg_name1, mock_vcg_id1, {},
+                                        &policy);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(),
+                      "active_cluster_name is same of standby_cluster_name");
+        }
+
+        {
+            // sub cg must be COMPUTE cluster
+            AlterClusterRequest req2;
+            req2.set_instance_id(mock_instance);
+            req2.mutable_cluster()->set_cluster_name("vcg_name_3");
+            req2.mutable_cluster()->set_cluster_id("vcg_id_3");
+            req2.mutable_cluster()->set_type(ClusterPB::VIRTUAL);
+            req2.mutable_cluster()->add_cluster_names("exist_cluster_name_4");
+            req2.mutable_cluster()->add_cluster_names(mock_exist_cluster_name3);
+            auto* policy2 = req2.mutable_cluster()->mutable_cluster_policy();
+            policy2->set_type(ClusterPolicy::ActiveStandby);
+            policy2->set_active_cluster_name(mock_exist_cluster_name3);
+            policy2->add_standby_cluster_names("exist_cluster_name_4");
+            ret = ctx.forward<MetaServiceResponseStatus>("add_cluster", req2);
+            ASSERT_EQ(std::get<0>(ret), 400);
+            ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+            ASSERT_EQ(std::get<1>(ret).msg(),
+                      "sub cluster fe_exist_cluster_name_3 's type must be eq COMPUTE");
+        }
+
+        // drop subcg failed, if not drop vcg
+        ret = drop_cluster(ctx, "", mock_exist_cluster_id1);
+        // ASSERT_EQ(std::get<0>(ret), 409);
+        // ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::ALREADY_EXISTED);
+        ASSERT_EQ(std::get<1>(ret).msg(),
+                  "failed to drop cluster, this cluster owned by virtual "
+                  "cluster=virtual_cluster_name_1 if you want drop this cluster, please drop "
+                  "virtual "
+                  "cluster=virtual_cluster_name_1 firstly");
+
+        // case drop cluster no cluster_id
+        ret = drop_cluster(ctx, mock_vcg_name1, "");
+        ASSERT_EQ(std::get<0>(ret), 400);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(std::get<1>(ret).msg(), "missing cluster_id=");
+
+        // case drop cluster
+        ret = drop_cluster(ctx, mock_vcg_name1, mock_vcg_id1);
+        ASSERT_EQ(std::get<0>(ret), 200);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+        // ATTN: meta_service_http_test.cpp:203 check, parse json err, but I don't want change pb add errcode
+        // drop_cluster(ctx, mock_vcg_name1, mock_vcg_id1);
+
+        // after drop vcg, cg can be drop
+        ret = drop_cluster(ctx, "", mock_exist_cluster_id1);
+        ASSERT_EQ(std::get<0>(ret), 200);
+        ASSERT_EQ(std::get<1>(ret).code(), MetaServiceCode::OK);
+
+        // ret = drop_cluster(ctx, "", "not_exist_cg_id_1");
+        // ATTN: meta_service_http_test.cpp:203 check, parse json err, but I don't want change pb add errcode
+        // std::tuple<int, Response> doris::cloud::HttpContext::forward(std::string_view, const Request &) [Response = doris::cloud::MetaServiceResponseStatus, Request = doris::cloud::AlterClusterRequest] Parse JSON: INVALID_ARGUMENT:(code): invalid value "NOT_FOUND" for type type.googleapis.com/doris.cloud.MetaServiceCode, body: {
+        // "code": "NOT_FOUND",
+        // "msg": "failed to find cluster to drop, instance_id=test_instance cluster_id=not_exist_cg_id_1 cluster_name="
+        // }
+
+    } // namespace doris::cloud
+}
 } // namespace doris::cloud

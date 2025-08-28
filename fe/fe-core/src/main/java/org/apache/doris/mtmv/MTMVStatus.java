@@ -82,6 +82,12 @@ public class MTMVStatus {
         return this;
     }
 
+    public boolean canBeCandidate() {
+        // MTMVRefreshState.FAIL also can be candidate, because may have some sync partitions
+        return getState() == MTMVState.NORMAL
+                && getRefreshState() != MTMVRefreshState.INIT;
+    }
+
     @Override
     public String toString() {
         return "MTMVStatus{"

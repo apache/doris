@@ -473,7 +473,8 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
             // the type of predicate not match the slot's type
             return false;
         }
-    } else if (child_contains_slot->type().is_datetime_type() &&
+    } else if ((child_contains_slot->type().is_datetime_type() ||
+                child_contains_slot->type().is_datetime_v2_type()) &&
                child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
         // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
         // push down.
@@ -1212,7 +1213,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         // is checked in previous branch.
         if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
             DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
-            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
+                (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
+                 tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
                 if (tnode.limit > 0 &&
                     tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
                     _should_run_serial = true;

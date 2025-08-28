@@ -12,6 +12,10 @@
     "data_disk_size": 0,
     "index_disk_size": 0,
     "empty": true,
+    "load_id": {
+        "hi": 0,
+        "lo": 0
+    },
     "creation_time": 1552911435,
     "tablet_uid": {
         "hi": 10,

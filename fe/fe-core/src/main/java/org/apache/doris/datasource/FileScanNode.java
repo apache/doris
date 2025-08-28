@@ -92,7 +92,7 @@ public abstract class FileScanNode extends ExternalScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("table: ").append(desc.getTable().getName()).append("\n");
+        output.append(prefix).append("table: ").append(desc.getTable().getNameWithFullQualifiers()).append("\n");
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }

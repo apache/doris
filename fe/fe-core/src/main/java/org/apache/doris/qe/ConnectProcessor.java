@@ -236,6 +236,9 @@ public abstract class ConnectProcessor {
 
     // only throw an exception when there is a problem interacting with the requesting client
     protected void handleQuery(String originStmt) throws ConnectionException {
+        // Before executing the query, the queryId should be set to empty.
+        // Otherwise, if SQL parsing fails, the audit log will record the queryId from the previous query.
+        ctx.resetQueryId();
         if (Config.isCloudMode()) {
             if (!ctx.getCurrentUserIdentity().isRootUser()
                     && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
@@ -265,7 +268,17 @@ public abstract class ConnectProcessor {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
             if (Config.isCloudMode()) {
                 try {
-                    MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
+                    String clusterName = ctx.getCloudCluster(false);
+                    String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                            .getPhysicalCluster(clusterName);
+                    if (clusterName.equals(physicalClusterName)) {
+                        // not vcg
+                        MetricRepo.increaseClusterRequestAll(clusterName);
+                    } else {
+                        // vcg
+                        MetricRepo.increaseClusterRequestAll(clusterName);
+                        MetricRepo.increaseClusterRequestAll(physicalClusterName);
+                    }
                 } catch (ComputeGroupException e) {
                     LOG.warn("metrics get cluster exception", e);
                 }
@@ -381,7 +394,9 @@ public abstract class ConnectProcessor {
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
                     // execute failed, skip remaining stmts
-                    if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                    if (ctx.getState().getStateType() == MysqlStateType.ERR || (!Env.getCurrentEnv().isMaster()
+                            && ctx.executor != null && ctx.executor.isForwardToMaster()
+                            && ctx.executor.getProxyStatusCode() != 0)) {
                         break;
                     }
                 } catch (Throwable throwable) {
@@ -760,6 +775,7 @@ public abstract class ConnectProcessor {
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
+            result.setAffectedRows(ctx.getState().getAffectedRows());
         } else {
             ErrorCode errorCode = ctx.getState().getErrorCode();
             if (errorCode != null) {

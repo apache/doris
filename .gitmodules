@@ -4,9 +4,6 @@
 [submodule ".github/actions/get-workflow-origin"]
 	path = .github/actions/get-workflow-origin
 	url = https://github.com/potiuk/get-workflow-origin.git
-[submodule ".github/actions/setup-maven"]
-	path = .github/actions/setup-maven
-	url = https://github.com/stCarolas/setup-maven.git
 [submodule ".github/actions/paths-filter"]
 	path = .github/actions/paths-filter
 	url = https://github.com/dorny/paths-filter

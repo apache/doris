@@ -183,6 +183,8 @@ void ParquetReader::_init_profile() {
                 _profile, "ParsePageHeaderNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.predicate_filter_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
+        _parquet_profile.dict_filter_rewrite_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DictFilterRewriteTime", parquet_profile, 1);
     }
 }
 
@@ -589,6 +591,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         _column_statistics.merge(column_st);
         _statistics.lazy_read_filtered_rows += _current_group_reader->lazy_read_filtered_rows();
         _statistics.predicate_filter_time += _current_group_reader->predicate_filter_time();
+        _statistics.dict_filter_rewrite_time += _current_group_reader->dict_filter_rewrite_time();
         if (_read_row_groups.size() == 0) {
             *eof = true;
         } else {
@@ -859,7 +862,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
-        _col_offsets.emplace(parquet_col_id, offset_index);
+        _col_offsets[parquet_col_id] = offset_index;
     }
     if (skipped_row_ranges.empty()) {
         read_whole_row_group();
@@ -1033,6 +1036,7 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
                    _column_statistics.parse_page_header_num);
     COUNTER_UPDATE(_parquet_profile.predicate_filter_time, _statistics.predicate_filter_time);
+    COUNTER_UPDATE(_parquet_profile.dict_filter_rewrite_time, _statistics.dict_filter_rewrite_time);
     COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
     COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
     COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);

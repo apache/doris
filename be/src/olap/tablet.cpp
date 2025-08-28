@@ -391,12 +391,14 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         }
 
         if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
-            calc_bm_status = capture_consistent_rowsets_unlocked(calc_delete_bitmap_ver,
-                                                                 &calc_delete_bitmap_rowsets);
-            if (!calc_bm_status.ok()) {
-                LOG(WARNING) << "fail to capture_consistent_rowsets, res: " << calc_bm_status;
+            auto ret = capture_consistent_rowsets_unlocked(calc_delete_bitmap_ver,
+                                                           CaptureRowsetOps {});
+            if (!ret) {
+                LOG(WARNING) << "fail to capture_consistent_rowsets, res: " << ret.error();
+                calc_bm_status = std::move(ret.error());
                 break;
             }
+            calc_delete_bitmap_rowsets = std::move(ret->rowsets);
             // FIXME(plat1ko): Use `const TabletSharedPtr&` as parameter
             auto self = _engine.tablet_manager()->get_tablet(tablet_id());
             CHECK(self);
@@ -451,17 +453,16 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         // that we can capture by version
         if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
             Version full_version = Version(0, max_version_unlocked());
-            std::vector<RowsetSharedPtr> expected_rowsets;
-            auto st = capture_consistent_rowsets_unlocked(full_version, &expected_rowsets);
-            DCHECK(st.ok()) << st;
-            DCHECK_EQ(base_rowsets_for_full_clone.size(), expected_rowsets.size());
-            if (st.ok() && base_rowsets_for_full_clone.size() != expected_rowsets.size())
-                    [[unlikely]] {
+            auto ret = capture_consistent_rowsets_unlocked(full_version, CaptureRowsetOps {});
+            DCHECK(ret) << ret.error();
+            DCHECK_EQ(base_rowsets_for_full_clone.size(), ret->rowsets.size());
+
+            if (ret && base_rowsets_for_full_clone.size() != ret->rowsets.size()) [[unlikely]] {
                 LOG(WARNING) << "full clone succeeded, but the count("
                              << base_rowsets_for_full_clone.size()
                              << ") of base rowsets used for delete bitmap calculation is not match "
                                 "expect count("
-                             << expected_rowsets.size() << ") we capture from tablet meta";
+                             << ret->rowsets.size() << ") we capture from tablet meta";
             }
         }
     }
@@ -747,10 +748,9 @@ void Tablet::delete_expired_stale_rowset() {
             Version test_version = Version(0, lastest_delta->end_version());
             stale_version_path_map[*path_id_iter] = version_path;
 
-            Status status =
-                    capture_consistent_versions_unlocked(test_version, nullptr, false, false);
+            auto ret = capture_consistent_versions_unlocked(test_version, {});
             // 1. When there is no consistent versions, we must reconstruct the tracker.
-            if (!status.ok()) {
+            if (!ret) {
                 // 2. fetch missing version after delete
                 Versions after_missed_versions =
                         get_missed_versions_unlocked(lastest_delta->end_version());
@@ -865,51 +865,11 @@ void Tablet::delete_expired_stale_rowset() {
                     { _engine.start_delete_unused_rowset(); });
 }
 
-Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
-                                                    Versions* version_path,
-                                                    bool skip_missing_version, bool quiet) const {
-    Status status =
-            _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
-    if (!status.ok() && !quiet) {
-        Versions missed_versions = get_missed_versions_unlocked(spec_version.second);
-        if (missed_versions.empty()) {
-            // if version_path is null, it may be a compaction check logic.
-            // so to avoid print too many logs.
-            if (version_path != nullptr) {
-                LOG(WARNING) << "tablet:" << tablet_id()
-                             << ", version already has been merged. spec_version: " << spec_version
-                             << ", max_version: " << max_version_unlocked();
-            }
-            status = Status::Error<VERSION_ALREADY_MERGED, false>(
-                    "versions are already compacted, spec_version "
-                    "{}, max_version {}, tablet_id {}",
-                    spec_version.second, max_version_unlocked(), tablet_id());
-        } else {
-            if (version_path != nullptr) {
-                LOG(WARNING) << "status:" << status << ", tablet:" << tablet_id()
-                             << ", missed version for version:" << spec_version;
-                _print_missed_versions(missed_versions);
-                if (skip_missing_version) {
-                    LOG(WARNING) << "force skipping missing version for tablet:" << tablet_id();
-                    return Status::OK();
-                }
-            }
-        }
-    }
-
-    DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
-        if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
-            status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
-        }
-    });
-
-    return status;
-}
-
 Status Tablet::check_version_integrity(const Version& version, bool quiet) {
     std::shared_lock rdlock(_meta_lock);
-    return capture_consistent_versions_unlocked(version, nullptr, false, quiet);
+    [[maybe_unused]] auto _versions = DORIS_TRY(
+            capture_consistent_versions_unlocked(version, CaptureRowsetOps {.quiet = quiet}));
+    return Status::OK();
 }
 
 bool Tablet::exceed_version_limit(int32_t limit) {
@@ -939,22 +899,12 @@ void Tablet::acquire_version_and_rowsets(
     }
 }
 
-Status Tablet::capture_consistent_rowsets_unlocked(const Version& spec_version,
-                                                   std::vector<RowsetSharedPtr>* rowsets) const {
-    std::vector<Version> version_path;
-    RETURN_IF_ERROR(
-            capture_consistent_versions_unlocked(spec_version, &version_path, false, false));
-    RETURN_IF_ERROR(_capture_consistent_rowsets_unlocked(version_path, rowsets));
-    return Status::OK();
-}
-
 Status Tablet::capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                                   bool skip_missing_version) {
     std::shared_lock rlock(_meta_lock);
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(capture_consistent_versions_unlocked(spec_version, &version_path,
-                                                         skip_missing_version, false));
-    RETURN_IF_ERROR(capture_rs_readers_unlocked(version_path, rs_splits));
+    *rs_splits = DORIS_TRY(capture_rs_readers_unlocked(
+            spec_version, CaptureRowsetOps {.skip_missing_versions = skip_missing_version}));
     return Status::OK();
 }
 
@@ -2514,8 +2464,8 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
         // skip sentinel mark, which is used for delete bitmap correctness check
         if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID) {
-            _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
-                                                bitmap);
+            _tablet_meta->delete_bitmap()->merge({std::get<0>(key), std::get<1>(key), cur_version},
+                                                 bitmap);
         }
     }
 
@@ -2523,7 +2473,7 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
 }
 
 void Tablet::merge_delete_bitmap(const DeleteBitmap& delete_bitmap) {
-    _tablet_meta->delete_bitmap().merge(delete_bitmap);
+    _tablet_meta->delete_bitmap()->merge(delete_bitmap);
 }
 
 bool Tablet::check_all_rowset_segment() {

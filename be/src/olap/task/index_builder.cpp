@@ -822,7 +822,7 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         for (auto i = 0; i < _input_rowsets.size(); ++i) {
             RowsetId input_rowset_id = _input_rowsets[i]->rowset_id();
             RowsetId output_rowset_id = _output_rowsets[i]->rowset_id();
-            for (const auto& [k, v] : _tablet->tablet_meta()->delete_bitmap().delete_bitmap) {
+            for (const auto& [k, v] : _tablet->tablet_meta()->delete_bitmap()->delete_bitmap) {
                 RowsetId rs_id = std::get<0>(k);
                 if (rs_id == input_rowset_id) {
                     DeleteBitmap::BitmapKey output_rs_key = {output_rowset_id, std::get<1>(k),
@@ -832,7 +832,7 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
                 }
             }
         }
-        _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
+        _tablet->tablet_meta()->delete_bitmap()->merge(*delete_bitmap);
 
         // modify_rowsets will remove the delete_bitmap for input rowsets,
         // should call it after merge delete_bitmap

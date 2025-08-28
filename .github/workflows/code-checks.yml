@@ -99,7 +99,7 @@ jobs:
             sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
 
             pushd thirdparty
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation-3.0/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
               -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
             tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
             popd

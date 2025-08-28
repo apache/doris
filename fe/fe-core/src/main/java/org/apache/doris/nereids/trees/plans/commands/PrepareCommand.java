@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -43,6 +45,7 @@ public class PrepareCommand extends Command {
 
     private final List<Placeholder> placeholders = new ArrayList<>();
     private final LogicalPlan logicalPlan;
+    private final int maxPlaceholderCount = 65536;
 
     private final String name;
 
@@ -99,6 +102,9 @@ public class PrepareCommand extends Command {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<String> labels = getLabels();
+        if (labels.size() >= maxPlaceholderCount) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_PS_MANY_PARAM);
+        }
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",

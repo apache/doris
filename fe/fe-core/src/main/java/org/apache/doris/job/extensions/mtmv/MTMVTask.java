@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.mtmv;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -27,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -194,6 +196,7 @@ public class MTMVTask extends AbstractTask {
             tableIfs.sort(Comparator.comparing(TableIf::getId));
 
             MTMVRefreshContext context;
+            Pair<List<String>, List<PartitionKeyDesc>> syncPartitions = null;
             // lock table order by id to avoid deadlock
             MetaLockUtils.readLockTables(tableIfs);
             try {
@@ -203,8 +206,21 @@ public class MTMVTask extends AbstractTask {
                     checkColumnTypeIfChange(mtmv, ctx);
                 }
                 if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
-                    MTMVPartitionUtil.alignMvPartition(mtmv);
+                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
                 }
+            } finally {
+                MetaLockUtils.readUnlockTables(tableIfs);
+            }
+            if (syncPartitions != null) {
+                for (String pName : syncPartitions.first) {
+                    MTMVPartitionUtil.dropPartition(mtmv, pName);
+                }
+                for (PartitionKeyDesc partitionKeyDesc : syncPartitions.second) {
+                    MTMVPartitionUtil.addPartition(mtmv, partitionKeyDesc);
+                }
+            }
+            MetaLockUtils.readLockTables(tableIfs);
+            try {
                 context = MTMVRefreshContext.buildContext(mtmv);
                 this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
             } finally {

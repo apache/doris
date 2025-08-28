@@ -243,7 +243,10 @@ public:
         RETURN_IF_ERROR(open_index_directory());
         _char_string_reader =
                 DORIS_TRY(create_char_string_reader(_inverted_index_ctx->char_filter_map));
-        _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+            _parser_type != InvertedIndexParserType::PARSER_NONE) {
+            _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+        }
         _index_writer = create_index_writer();
         _doc = std::make_unique<lucene::document::Document>();
         if (_single_field) {
@@ -404,8 +407,6 @@ public:
     Status add_array_values(size_t field_size, const void* value_ptr,
                             const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
                             size_t count) override {
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_count_is_zero",
-                        { count = 0; })
         if (count == 0) {
             // no values to add inverted index
             return Status::OK();
@@ -425,7 +426,7 @@ public:
                 // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
                 auto array_elem_size = offsets[i + 1] - offsets[i];
                 // TODO(Amory).later we use object pool to avoid field creation
-                lucene::document::Field* new_field = nullptr;
+                std::unique_ptr<lucene::document::Field> new_field;
                 CL_NS(analysis)::TokenStream* ts = nullptr;
                 for (auto j = start_off; j < start_off + array_elem_size; ++j) {
                     if (nested_null_map && nested_null_map[j] == 1) {
@@ -440,7 +441,9 @@ public:
                         continue;
                     } else {
                         // now we temp create field . later make a pool
-                        Status st = create_field(&new_field);
+                        lucene::document::Field* tmp_field = nullptr;
+                        Status st = create_field(&tmp_field);
+                        new_field.reset(tmp_field);
                         DBUG_EXECUTE_IF(
                                 "InvertedIndexColumnWriterImpl::add_array_values_create_field_"
                                 "error",
@@ -469,9 +472,9 @@ public:
                                                         char_string_reader.release());
                             new_field->setValue(ts, own_token_stream);
                         } else {
-                            new_field_char_value(v->get_data(), v->get_size(), new_field);
+                            new_field_char_value(v->get_data(), v->get_size(), new_field.get());
                         }
-                        _doc->add(*new_field);
+                        _doc->add(*new_field.release());
                     }
                 }
                 start_off += array_elem_size;
@@ -500,7 +503,9 @@ public:
                     // avoid to add doc which without any field which may make threadState init skip
                     // init fieldDataArray, then will make error with next doc with fields in
                     // resetCurrentFieldData
-                    Status st = create_field(&new_field);
+                    lucene::document::Field* tmp_field = nullptr;
+                    Status st = create_field(&tmp_field);
+                    new_field.reset(tmp_field);
                     DBUG_EXECUTE_IF(
                             "InvertedIndexColumnWriterImpl::add_array_values_create_field_error_2",
                             {
@@ -513,7 +518,7 @@ public:
                                 << " error:" << st;
                         return st;
                     }
-                    _doc->add(*new_field);
+                    _doc->add(*new_field.release());
                     RETURN_IF_ERROR(add_null_document());
                     _doc->clear();
                 }
@@ -774,7 +779,7 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     }
 
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_unsupported_type_for_inverted_index",
-                    { type = FieldType::OLAP_FIELD_TYPE_FLOAT; })
+                    { type = FieldType::OLAP_FIELD_TYPE_HLL; })
     switch (type) {
 #define M(TYPE)                                                           \
     case TYPE:                                                            \

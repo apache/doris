@@ -181,6 +181,4 @@ suite("test_bloom_filter") {
     qt_select_datetime_v2 """SELECT * FROM ${test_datetime_tb} WHERE d2 IN ("2024-12-17 20:00:00", "2024-12-18 20:00:00") order by a"""
     qt_select_date_v1 """SELECT * FROM ${test_datetime_tb} WHERE da IN ("2024-12-17", "2024-12-18") order by a"""
     qt_select_date_v2 """SELECT * FROM ${test_datetime_tb} WHERE dav2 IN ("2024-12-17", "2024-12-18") order by a"""
-    sql """ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'true')"""
-    sql """ADMIN SET FRONTEND CONFIG ('disable_datev1' = 'true')"""
 }

@@ -28,11 +28,11 @@
 
 #include "common/logging.h"
 #include "common/util.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
 
@@ -173,7 +173,9 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
                                TabletStatsPB& stats, bool snapshot) {
     TabletStats detached_stats;
     internal_get_tablet_stats(code, msg, txn, instance_id, idx, stats, detached_stats, snapshot);
-    merge_tablet_stats(stats, detached_stats);
+    if (code == MetaServiceCode::OK) {
+        merge_tablet_stats(stats, detached_stats);
+    }
 }
 
 MetaServiceResponseStatus parse_fix_tablet_stats_param(

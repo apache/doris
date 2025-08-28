@@ -62,8 +62,12 @@ class WaitForAction implements SuiteAction {
         if (forRollUp) {
             num = 8
         }
-        Awaitility.await().atMost(time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and()
-                .pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        Awaitility
+                .with().pollInSameThread()
+                .await()
+                .atMost(time, TimeUnit.SECONDS)
+                .with().pollDelay(100, TimeUnit.MILLISECONDS).and()
+                .pollInterval(100, TimeUnit.MILLISECONDS).await().until({
             log.info("sql is :\n${sql}")
             def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
             String res = result.get(0).get(num)

@@ -49,6 +49,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
 
 public class IcebergMetadataOps implements ExternalMetadataOps {
@@ -291,5 +292,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private Namespace getNamespace() {
         return externalCatalogName.map(Namespace::of).orElseGet(() -> Namespace.empty());
+    }
+
+    public ThreadPoolExecutor getThreadPoolWithPreAuth() {
+        return dorisCatalog.getThreadPoolExecutor();
     }
 }

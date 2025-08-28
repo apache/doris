@@ -83,9 +83,9 @@ public class IndexDef {
         }
     }
 
-    public IndexDef(String indexName, PartitionNames partitionNames, boolean isBuildDeferred) {
+    public IndexDef(String indexName, PartitionNames partitionNames, IndexType indexType, boolean isBuildDeferred) {
         this.indexName = indexName;
-        this.indexType = IndexType.INVERTED;
+        this.indexType = indexType;
         this.partitionNames = partitionNames;
         this.isBuildDeferred = isBuildDeferred;
     }

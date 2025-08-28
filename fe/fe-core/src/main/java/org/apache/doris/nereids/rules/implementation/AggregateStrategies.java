@@ -582,7 +582,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         List<Expression> argumentsOfAggregateFunction = normalizeArguments(agg.getAggregateFunctions(), project);
 
-        if (!onlyContainsSlot(argumentsOfAggregateFunction)) {
+        if (!onlyContainsSlotOrLiteral(argumentsOfAggregateFunction)) {
             return agg;
         }
 
@@ -614,9 +614,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return arguments;
     }
 
-    private boolean onlyContainsSlot(List<Expression> arguments) {
+    private boolean onlyContainsSlotOrLiteral(List<Expression> arguments) {
         return arguments.stream().allMatch(argument -> {
-            if (argument instanceof SlotReference) {
+            if (argument instanceof SlotReference || argument instanceof Literal) {
                 return true;
             }
             return false;
@@ -919,7 +919,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private List<PhysicalHashAggregate<Plan>> onePhaseAggregateWithoutDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
-        AggregateParam inputToResultParam = AggregateParam.LOCAL_RESULT;
+        boolean canBeBanned = true;
+        for (AggregateFunction aggregateFunction : logicalAgg.getAggregateFunctions()) {
+            if (aggregateFunction.forceSkipRegulator(AggregatePhase.ONE)) {
+                canBeBanned = false;
+                break;
+            }
+        }
+        AggregateParam inputToResultParam = new AggregateParam(
+                AggregateParam.LOCAL_RESULT.aggPhase, AggregateParam.LOCAL_RESULT.aggMode, canBeBanned
+        );
         List<NamedExpression> newOutput = ExpressionUtils.rewriteDownShortCircuit(
                 logicalAgg.getOutputExpressions(), outputChild -> {
                     if (outputChild instanceof AggregateFunction) {
@@ -935,8 +944,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             // TODO: usually bad, disable it until we could do better cost computation.
-            // return ImmutableList.of(gatherLocalAgg);
-            return ImmutableList.of();
+            if (!canBeBanned) {
+                return ImmutableList.of(gatherLocalAgg);
+            } else {
+                return ImmutableList.of();
+            }
         } else {
             RequireProperties requireHash = RequireProperties.of(
                     PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
@@ -2088,10 +2100,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (func.arity() <= 1) {
                 continue;
             }
-            for (int i = 1; i < func.arity(); i++) {
-                // think about group_concat(distinct col_1, ',')
-                if (!(func.child(i) instanceof OrderExpression) && !func.child(i).getInputSlots().isEmpty()) {
-                    return false;
+            if (func instanceof Count) {
+                for (int i = 1; i < func.arity(); i++) {
+                    // think about group_concat(distinct col_1, ',')
+                    if (!(func.child(i) instanceof OrderExpression) && !func.child(i).getInputSlots().isEmpty()) {
+                        return false;
+                    }
                 }
             }
         }

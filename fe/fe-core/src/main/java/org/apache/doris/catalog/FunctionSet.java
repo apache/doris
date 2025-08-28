@@ -139,6 +139,7 @@ public class FunctionSet<T> {
                     .put(Type.DECIMAL32, Type.DECIMAL32)
                     .put(Type.DECIMAL64, Type.DECIMAL64)
                     .put(Type.DECIMAL128, Type.DECIMAL128)
+                    .put(Type.DECIMAL256, Type.DECIMAL256)
                     .build();
 
     private static final Map<Type, Type> STDDEV_RETTYPE_SYMBOL =
@@ -953,6 +954,19 @@ public class FunctionSet<T> {
                         null,
                         "",
                         false, true, true, true));
+            } else if (t.equals(Type.DECIMAL256)) {
+                // vectorized
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
+                        Type.BIGINT,
+                        Type.DECIMAL256,
+                        "",
+                        "",
+                        "",
+                        "",
+                        null,
+                        null,
+                        "",
+                        false, true, true, true));
             }
 
             // sum in multi distinct
@@ -1065,6 +1079,29 @@ public class FunctionSet<T> {
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum0", Lists.newArrayList(t),
                         MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
                         Type.DECIMAL128,
+                        "",
+                        "",
+                        "",
+                        "",
+                        null,
+                        null,
+                        "",
+                        false, true, true, true));
+            } else if (t.equals(Type.DECIMAL256)) {
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
+                        MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
+                        Type.DECIMAL256,
+                        "",
+                        "",
+                        "",
+                        "",
+                        null,
+                        null,
+                        "",
+                        false, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum0", Lists.newArrayList(t),
+                        MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
+                        Type.DECIMAL256,
                         "",
                         "",
                         "",
@@ -1196,6 +1233,14 @@ public class FunctionSet<T> {
                         null, null, null,
                         "",
                         false, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("stddev",
+                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        "",
+                        "",
+                        "",
+                        null, null, null,
+                        "",
+                         false, true, false, true));
                 addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
                         "",
@@ -1336,6 +1381,13 @@ public class FunctionSet<T> {
                     null, false, true, nameWithReturn.getValue(), true));
             addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
                     Lists.<Type>newArrayList(Type.DECIMAL128), Type.DECIMAL128, Type.DECIMAL128, "",
+                    "",
+                    "",
+                    null, null,
+                    "",
+                    null, false, true, nameWithReturn.getValue(), true));
+            addBuiltin(AggregateFunction.createBuiltin(nameWithReturn.getKey(),
+                    Lists.<Type>newArrayList(Type.DECIMAL256), Type.DECIMAL256, Type.DECIMAL256, "",
                     "",
                     "",
                     null, null,

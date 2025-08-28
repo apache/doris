@@ -879,7 +879,6 @@ nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_
             opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
-nonterminal IndexDef build_index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
 nonterminal ArrayList<IndexDef> index_definition_list;
 nonterminal AggregateType opt_agg_type;
@@ -1480,17 +1479,17 @@ alter_stmt ::=
     ;
 
 warm_up_stmt ::=
-    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force
+    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force opt_properties:properties
     {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force, properties);
     :}
     | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
     {:
         RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
     :}
-    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force
+    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force opt_properties:properties
     {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force, properties);
     :}
     | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
     {:
@@ -2078,7 +2077,7 @@ create_stmt ::=
     :}
     | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
     {:
-        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, new IndexDef(indexName, partitionNames, true), false)));
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, indexName, partitionNames, false)));
     :}
     /* stage */
     | KW_CREATE KW_STAGE opt_if_not_exists:ifNotExists ident:stageName KW_PROPERTIES opt_key_value_map:properties
@@ -4048,13 +4047,6 @@ index_definition ::=
     KW_INDEX opt_if_not_exists:ifNotExists ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
         RESULT = new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment);
-    :}
-    ;
-
-build_index_definition ::=
-    KW_INDEX ident:indexName opt_partition_names:partitionNames
-    {:
-        RESULT = new IndexDef(indexName, partitionNames, true);
     :}
     ;
 

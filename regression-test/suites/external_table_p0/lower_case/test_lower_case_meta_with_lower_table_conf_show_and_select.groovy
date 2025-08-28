@@ -90,7 +90,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "false",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "1"
+            "only_test_lower_case_table_names" = "1",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     wait_table_sync("test_cache_false_lower_false_with_conf1.external_test_lower_with_conf");
@@ -147,7 +151,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "false",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "2"
+            "only_test_lower_case_table_names" = "2",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     wait_table_sync("test_cache_false_lower_false_with_conf2.external_test_lower_with_conf");
@@ -205,7 +213,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "false",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "1"
+            "only_test_lower_case_table_names" = "1",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     qt_sql_test_cache_true_lower_false_with_conf1_1 "select * from test_cache_true_lower_false_with_conf1.external_test_lower_with_conf.lower_with_conf"
@@ -253,7 +265,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "false",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "2"
+            "only_test_lower_case_table_names" = "2",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     qt_sql_test_cache_true_lower_false_with_conf2_1 "select * from test_cache_true_lower_false_with_conf2.external_test_lower_with_conf.lower_with_conf"
@@ -301,7 +317,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "1"
+            "only_test_lower_case_table_names" = "1",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     wait_table_sync("test_cache_false_lower_true_with_conf1.external_test_lower_with_conf");
@@ -357,7 +377,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "2"
+            "only_test_lower_case_table_names" = "2",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     wait_table_sync("test_cache_false_lower_true_with_conf2.external_test_lower_with_conf");
@@ -414,7 +438,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "1"
+            "only_test_lower_case_table_names" = "1",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     qt_sql_test_cache_true_lower_true_with_conf1_1 "select * from test_cache_true_lower_true_with_conf1.external_test_lower_with_conf.lower_with_conf"
@@ -462,7 +490,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "2"
+            "only_test_lower_case_table_names" = "2",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     qt_sql_test_cache_true_lower_true_with_conf2_1 "select * from test_cache_true_lower_true_with_conf2.external_test_lower_with_conf.lower_with_conf"
@@ -511,7 +543,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "false",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "0"
+            "only_test_lower_case_table_names" = "0",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     wait_table_sync("test_cache_false_lower_false_with_conf0.external_test_lower_with_conf");
@@ -584,7 +620,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "false",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "0"
+            "only_test_lower_case_table_names" = "0",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     qt_sql_test_cache_true_lower_false_with_conf0_1 "select * from test_cache_true_lower_false_with_conf0.external_test_lower_with_conf.lower_with_conf"
@@ -650,7 +690,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "0"
+            "only_test_lower_case_table_names" = "0",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     wait_table_sync("test_cache_false_lower_true_with_conf0.external_test_lower_with_conf");
@@ -723,7 +767,11 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             "include_database_list" = "external_test_lower_with_conf",
-            "only_test_lower_case_table_names" = "0"
+            "only_test_lower_case_table_names" = "0",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     qt_sql_test_cache_true_lower_true_with_conf0_1 "select * from test_cache_true_lower_true_with_conf0.external_test_lower_with_conf.lower_with_conf"

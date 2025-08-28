@@ -48,6 +48,13 @@ public class S3ClientBEProperties {
                 || properties.containsKey(GCSProperties.ENDPOINT)
                 || properties.containsKey(CosProperties.ENDPOINT)) {
             return getBeAWSPropertiesFromS3(S3Properties.prefixToS3(properties));
+        } else if (properties.containsKey(S3Properties.Env.ENDPOINT)) {
+            if (!properties.containsKey(S3Properties.Env.REGION)) {
+                String endpoint = properties.get(S3Properties.Env.ENDPOINT);
+                String region = PropertyConverter.checkRegion(endpoint, properties.get(S3Properties.Env.REGION),
+                        S3Properties.Env.REGION);
+                properties.put(S3Properties.Env.REGION, region);
+            }
         }
         return properties;
     }

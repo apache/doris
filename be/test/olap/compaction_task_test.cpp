@@ -130,4 +130,157 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
     EXPECT_EQ(executing_task_num, 2);
 }
 
+TEST_F(CompactionTaskTest, TestAutoSetCompactionIncreaseTaskNum) {
+    auto st = ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                      .set_min_threads(2)
+                      .set_max_threads(2)
+                      .build(&_storage_engine->_base_compaction_thread_pool);
+    EXPECT_TRUE(st.ok());
+    st = ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                 .set_min_threads(2)
+                 .set_max_threads(2)
+                 .build(&_storage_engine->_cumu_compaction_thread_pool);
+    EXPECT_TRUE(st.ok());
+    config::disable_auto_compaction = false;
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("olap_server::_generate_compaction_tasks.return_empty", [](auto&& values) {
+        auto* ret = try_any_cast_ret<std::vector<TabletSharedPtr>>(values);
+        ret->second = true;
+    });
+    sp->set_call_back("StorageEngine::_adjust_compaction_thread_num.return_void",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->set_call_back("StorageEngine::_compaction_tasks_producer_callback",
+                      [](auto&& values) { std::this_thread::sleep_for(std::chrono::seconds(1)); });
+
+    Defer defer {[&]() {
+        _storage_engine->_stop_background_threads_latch.count_down();
+        sp->clear_all_call_backs();
+    }};
+
+    config::generate_compaction_tasks_interval_ms = 1000;
+    {
+        // queue size 1
+        // task num 1->1
+        _storage_engine->_cumu_compaction_thread_pool->_total_queued_tasks = 1;
+        // compaction tasks producer thread
+        st = Thread::create(
+                "StorageEngine", "compaction_tasks_producer_thread",
+                [this]() { this->_storage_engine->_compaction_tasks_producer_callback(); },
+                &_storage_engine->_compaction_tasks_producer_thread);
+        EXPECT_TRUE(st.ok());
+        _storage_engine->_stop_background_threads_latch.count_down();
+        sleep(2);
+        EXPECT_EQ(_storage_engine->get_compaction_num_per_round(), 1);
+    }
+    {
+        // queue size 0
+        // task num 4->8
+        _storage_engine->_cumu_compaction_thread_pool->_total_queued_tasks = 0;
+        _storage_engine->_compaction_num_per_round = 4;
+        // compaction tasks producer thread
+        st = Thread::create(
+                "StorageEngine", "compaction_tasks_producer_thread",
+                [this]() { this->_storage_engine->_compaction_tasks_producer_callback(); },
+                &_storage_engine->_compaction_tasks_producer_thread);
+        EXPECT_TRUE(st.ok());
+        _storage_engine->_stop_background_threads_latch.count_down();
+        sleep(2);
+        EXPECT_EQ(_storage_engine->get_compaction_num_per_round(), 8);
+    }
+    {
+        // queue size 0
+        // task num 64->64
+        _storage_engine->_cumu_compaction_thread_pool->_total_queued_tasks = 0;
+        _storage_engine->_compaction_num_per_round = 64;
+        // compaction tasks producer thread
+        st = Thread::create(
+                "StorageEngine", "compaction_tasks_producer_thread",
+                [this]() { this->_storage_engine->_compaction_tasks_producer_callback(); },
+                &_storage_engine->_compaction_tasks_producer_thread);
+        EXPECT_TRUE(st.ok());
+        _storage_engine->_stop_background_threads_latch.count_down();
+        sleep(2);
+        EXPECT_EQ(_storage_engine->get_compaction_num_per_round(), 64);
+    }
+}
+
+TEST_F(CompactionTaskTest, TestAutoSetCompactionDecreaseTaskNum) {
+    auto st = ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                      .set_min_threads(2)
+                      .set_max_threads(2)
+                      .build(&_storage_engine->_base_compaction_thread_pool);
+    EXPECT_TRUE(st.ok());
+    st = ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                 .set_min_threads(2)
+                 .set_max_threads(2)
+                 .build(&_storage_engine->_cumu_compaction_thread_pool);
+    EXPECT_TRUE(st.ok());
+    config::disable_auto_compaction = false;
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("olap_server::_generate_compaction_tasks.return_empty", [](auto&& values) {
+        auto* ret = try_any_cast_ret<std::vector<TabletSharedPtr>>(values);
+        ret->second = true;
+    });
+    sp->set_call_back("StorageEngine::_adjust_compaction_thread_num.return_void",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->set_call_back("StorageEngine::_compaction_tasks_producer_callback",
+                      [](auto&& values) { std::this_thread::sleep_for(std::chrono::seconds(1)); });
+
+    Defer defer {[&]() {
+        _storage_engine->_stop_background_threads_latch.count_down();
+        sp->clear_all_call_backs();
+    }};
+
+    config::generate_compaction_tasks_interval_ms = 1000;
+    {
+        // queue size 3
+        // task num 8->8
+        _storage_engine->_compaction_num_per_round = 8;
+        _storage_engine->_cumu_compaction_thread_pool->_total_queued_tasks = 3;
+        // compaction tasks producer thread
+        st = Thread::create(
+                "StorageEngine", "compaction_tasks_producer_thread",
+                [this]() { this->_storage_engine->_compaction_tasks_producer_callback(); },
+                &_storage_engine->_compaction_tasks_producer_thread);
+        EXPECT_TRUE(st.ok());
+        _storage_engine->_stop_background_threads_latch.count_down();
+        sleep(2);
+        EXPECT_EQ(_storage_engine->get_compaction_num_per_round(), 8);
+    }
+    {
+        // queue size 5
+        // task num 8->4
+        _storage_engine->_cumu_compaction_thread_pool->_total_queued_tasks = 5;
+        _storage_engine->_compaction_num_per_round = 8;
+        // compaction tasks producer thread
+        st = Thread::create(
+                "StorageEngine", "compaction_tasks_producer_thread",
+                [this]() { this->_storage_engine->_compaction_tasks_producer_callback(); },
+                &_storage_engine->_compaction_tasks_producer_thread);
+        EXPECT_TRUE(st.ok());
+        _storage_engine->_stop_background_threads_latch.count_down();
+        sleep(2);
+        EXPECT_EQ(_storage_engine->get_compaction_num_per_round(), 4);
+    }
+    {
+        // queue size 1
+        // task num 1->1
+        _storage_engine->_cumu_compaction_thread_pool->_total_queued_tasks = 1;
+        _storage_engine->_compaction_num_per_round = 1;
+        // compaction tasks producer thread
+        st = Thread::create(
+                "StorageEngine", "compaction_tasks_producer_thread",
+                [this]() { this->_storage_engine->_compaction_tasks_producer_callback(); },
+                &_storage_engine->_compaction_tasks_producer_thread);
+        EXPECT_TRUE(st.ok());
+        _storage_engine->_stop_background_threads_latch.count_down();
+        sleep(2);
+        EXPECT_EQ(_storage_engine->get_compaction_num_per_round(), 1);
+    }
+}
+
 } // namespace doris

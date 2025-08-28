@@ -1029,6 +1029,11 @@ public class Alter {
                 case ADD_TASK:
                     mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
                             isReplay);
+                    // If it is not a replay thread, it means that the current service is already a new version
+                    // and does not require compatibility
+                    if (isReplay) {
+                        mtmv.compatible(Env.getCurrentEnv().getCatalogMgr());
+                    }
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());

@@ -231,7 +231,7 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     std::vector<brpc::Controller> cntls(_stubs.size());
     bthread::CountdownEvent counter(_stubs.size());
     for (size_t i = 0; i < _stubs.size(); ++i) {
-        cntls[i].set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
+        cntls[i].set_timeout_ms(_fetch_option.runtime_state->execution_timeout() * 1000);
         auto callback = brpc::NewCallback(fetch_callback, &counter);
         _stubs[i]->multiget_data(&cntls[i], &mget_req, &resps[i], callback);
     }
@@ -442,9 +442,13 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                 iterator_map[iterator_key].segment = segment;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
-                                                            row_id, column, stats,
-                                                            iterator_item.iterator));
+            try {
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
+                                                                row_id, column, stats,
+                                                                iterator_item.iterator));
+            } catch (const Exception& e) {
+                return Status::Error<false>(e.code(), "Row id fetch failed because {}", e.what());
+            }
         }
     }
     // serialize block if not empty
@@ -461,16 +465,17 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
     LOG(INFO) << "Query stats: "
               << fmt::format(
+                         "query_id:{}, "
                          "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
                          "io_latency:{}ns, "
                          "uncompressed_bytes_read:{},"
                          "bytes_read:{},"
                          "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
                          "lookup_row_data_ms:{}",
-                         stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
-                         stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
-                         acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
-                         lookup_row_data_ms);
+                         print_id(request.query_id()), stats.cached_pages_num,
+                         stats.total_pages_num, stats.compressed_bytes_read, stats.io_ns,
+                         stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
+                         acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms);
     return Status::OK();
 }
 

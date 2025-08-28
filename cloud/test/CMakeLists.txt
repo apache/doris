@@ -45,6 +45,8 @@ add_executable(resource_test resource_test.cpp)
 
 add_executable(http_encode_key_test http_encode_key_test.cpp)
 
+add_executable(rpc_kv_bvar_test rpc_kv_bvar_test.cpp)
+
 add_executable(fdb_injection_test fdb_injection_test.cpp)
 
 add_executable(s3_accessor_test s3_accessor_test.cpp)
@@ -85,6 +87,8 @@ target_link_libraries(log_test ${TEST_LINK_LIBS})
 target_link_libraries(resource_test ${TEST_LINK_LIBS})
 
 target_link_libraries(http_encode_key_test ${TEST_LINK_LIBS})
+
+target_link_libraries(rpc_kv_bvar_test ${TEST_LINK_LIBS})
 
 target_link_libraries(s3_accessor_test ${TEST_LINK_LIBS})
 
@@ -131,7 +135,7 @@ install(FILES
     ${BASE_DIR}/script/run_all_tests.sh
     ${BASE_DIR}/conf/fdb.cluster
     ${BASE_DIR}/conf/doris_cloud.conf
-    ${BASE_DIR}/conf/lsan_suppression.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
     ${BASE_DIR}/test/fdb_metric_example.json
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE

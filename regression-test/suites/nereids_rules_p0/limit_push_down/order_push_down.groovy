@@ -26,7 +26,7 @@ suite("order_push_down") {
     sql 'set be_number_for_test=3'
     sql "set disable_nereids_rules='push_down_top_n_distinct_through_union'"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-
+    sql 'set enable_two_phase_read_opt = false'
 
     //`limit 1 offset 1 + sort, project`:
     qt_limit_offset_sort_project """ explain shape plan SELECT t1.id FROM t1 ORDER BY id LIMIT 1 OFFSET 1; """

@@ -149,6 +149,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
 
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
+    sql """ set enable_variant_flatten_nested = true """
     table_name = "github_events"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -178,11 +179,9 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
 
     // BUILD INDEX
-    try {
+    test {
         sql """ BUILD INDEX idx_var ON  github_events"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("The idx_var index can not be built on the v column, because it is a variant type column"))
+        exception "The idx_var index can not be built on the v column, because it is a variant type column"
     }
 
     // // add bloom filter at the end of loading data
@@ -197,6 +196,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
     sql """select * from github_events order by k limit 10"""
+    sql """ set enable_variant_flatten_nested = true """
     sql """
      CREATE TABLE IF NOT EXISTS github_events2 (
             k bigint,

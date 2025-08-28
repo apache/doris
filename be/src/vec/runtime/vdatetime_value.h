@@ -442,6 +442,12 @@ public:
         return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;
     }
 
+    void reset_time_part() {
+        _hour = 0;
+        _minute = 0;
+        _second = 0;
+    }
+
     bool check_loss_accuracy_cast_to_date() {
         auto loss_accuracy = _hour != 0 || _minute != 0 || _second != 0;
         cast_to_date();
@@ -934,6 +940,15 @@ public:
         return hour() * SECOND_PER_HOUR + minute() * SECOND_PER_MINUTE + second();
     }
 
+    void reset_time_part() {
+        if constexpr (is_datetime) {
+            date_v2_value_.hour_ = 0;
+            date_v2_value_.minute_ = 0;
+            date_v2_value_.second_ = 0;
+            date_v2_value_.microsecond_ = 0;
+        }
+    }
+
     int64_t time_part_to_microsecond() const {
         return time_part_to_seconds() * 1000 * 1000 + microsecond();
     }
@@ -1211,13 +1226,18 @@ public:
             }
             date_v2_value_.year_ = val;
         } else if constexpr (unit == TimeUnit::MONTH) {
-            if (val > MAX_MONTH) [[unlikely]] {
+            DCHECK(date_v2_value_.year_ <= MAX_YEAR);
+            if (val > MAX_MONTH || val == 0) [[unlikely]] {
                 return false;
             }
             date_v2_value_.month_ = val;
         } else if constexpr (unit == TimeUnit::DAY) {
+            DCHECK(date_v2_value_.year_ <= MAX_YEAR);
             DCHECK(date_v2_value_.month_ <= MAX_MONTH);
             DCHECK(date_v2_value_.month_ != 0);
+            if (val == 0) [[unlikely]] {
+                return false;
+            }
             if (val > S_DAYS_IN_MONTH[date_v2_value_.month_] &&
                 !(is_leap(date_v2_value_.year_) && date_v2_value_.month_ == 2 && val == 29)) {
                 return false;

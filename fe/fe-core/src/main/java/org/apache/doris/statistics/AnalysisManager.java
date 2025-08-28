@@ -700,9 +700,6 @@ public class AnalysisManager implements Writable {
     public void dropStats(TableIf table, PartitionNames partitionNames) {
         try {
             TableStatsMeta tableStats = findTableStatsStatus(table.getId());
-            if (tableStats == null) {
-                return;
-            }
             long catalogId = table.getDatabase().getCatalog().getId();
             long dbId = table.getDatabase().getId();
             long tableId = table.getId();

@@ -19,7 +19,9 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 
 namespace doris {
@@ -71,6 +73,7 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         LOG_WARNING("try to access tablet file cache meta, but file cache not enabled");
         return;
     }
+    LOG(INFO) << "warm up get meta from this be, tablets num=" << request->tablet_ids().size();
     for (const auto& tablet_id : request->tablet_ids()) {
         auto res = _engine.tablet_mgr().get_tablet(tablet_id);
         if (!res.has_value()) {
@@ -79,6 +82,12 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
             return;
         }
         CloudTabletSPtr tablet = std::move(res.value());
+        auto st = tablet->sync_rowsets();
+        if (!st) {
+            // just log failed, try it best
+            LOG(WARNING) << "failed to sync rowsets: " << tablet_id
+                         << " err msg: " << st.to_string();
+        }
         auto rowsets = tablet->get_snapshot_rowset();
         std::for_each(rowsets.cbegin(), rowsets.cend(), [&](const RowsetSharedPtr& rowset) {
             std::string rowset_id = rowset->rowset_id().to_string();
@@ -102,6 +111,280 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
                 }
             }
         });
+    }
+    VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
+               << ", response=" << response->DebugString();
+}
+
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_segment_num(
+        "file_cache_event_driven_warm_up_submitted_segment_num");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_finished_segment_num(
+        "file_cache_event_driven_warm_up_finished_segment_num");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_failed_segment_num(
+        "file_cache_event_driven_warm_up_failed_segment_num");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_segment_size(
+        "file_cache_event_driven_warm_up_submitted_segment_size");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_finished_segment_size(
+        "file_cache_event_driven_warm_up_finished_segment_size");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_failed_segment_size(
+        "file_cache_event_driven_warm_up_failed_segment_size");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_index_num(
+        "file_cache_event_driven_warm_up_submitted_index_num");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_finished_index_num(
+        "file_cache_event_driven_warm_up_finished_index_num");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_failed_index_num(
+        "file_cache_event_driven_warm_up_failed_index_num");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_index_size(
+        "file_cache_event_driven_warm_up_submitted_index_size");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_finished_index_size(
+        "file_cache_event_driven_warm_up_finished_index_size");
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_failed_index_size(
+        "file_cache_event_driven_warm_up_failed_index_size");
+bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_handle_unix_ts(
+        "file_cache_warm_up_rowset_last_handle_unix_ts", 0);
+bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_finish_unix_ts(
+        "file_cache_warm_up_rowset_last_finish_unix_ts", 0);
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_latency("file_cache_warm_up_rowset_latency");
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_request_to_handle_latency(
+        "file_cache_warm_up_rowset_request_to_handle_latency");
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_handle_to_finish_latency(
+        "file_cache_warm_up_rowset_handle_to_finish_latency");
+bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_slow_count(
+        "file_cache_warm_up_rowset_slow_count");
+bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_request_to_handle_slow_count(
+        "file_cache_warm_up_rowset_request_to_handle_slow_count");
+bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_handle_to_finish_slow_count(
+        "file_cache_warm_up_rowset_handle_to_finish_slow_count");
+
+void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* controller
+                                              [[maybe_unused]],
+                                              const PWarmUpRowsetRequest* request,
+                                              PWarmUpRowsetResponse* response,
+                                              google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    for (auto& rs_meta_pb : request->rowset_metas()) {
+        RowsetMeta rs_meta;
+        rs_meta.init_from_pb(rs_meta_pb);
+        auto storage_resource = rs_meta.remote_storage_resource();
+        if (!storage_resource) {
+            LOG(WARNING) << storage_resource.error();
+            continue;
+        }
+        int64_t tablet_id = rs_meta.tablet_id();
+        bool local_only = !(request->has_skip_existence_check() && request->skip_existence_check());
+        auto res = _engine.tablet_mgr().get_tablet(tablet_id, /* warmup_data = */ false,
+                                                   /* sync_delete_bitmap = */ true,
+                                                   /* sync_stats = */ nullptr,
+                                                   /* local_only = */ local_only);
+        if (!res.has_value()) {
+            LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
+            if (res.error().msg().find("local_only=true") != std::string::npos) {
+                res.error().set_code(ErrorCode::TABLE_NOT_FOUND);
+            }
+            res.error().to_protobuf(response->mutable_status());
+            continue;
+        }
+        auto tablet = res.value();
+        auto tablet_meta = tablet->tablet_meta();
+
+        int64_t handle_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
+        g_file_cache_warm_up_rowset_last_handle_unix_ts.set_value(handle_ts);
+        int64_t request_ts = request->has_unix_ts_us() ? request->unix_ts_us() : 0;
+        g_file_cache_warm_up_rowset_request_to_handle_latency << (handle_ts - request_ts);
+        if (request_ts > 0 && handle_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+            g_file_cache_warm_up_rowset_request_to_handle_slow_count << 1;
+            LOG(INFO) << "warm up rowset (request to handle) took " << handle_ts - request_ts
+                      << " us, tablet_id: " << rs_meta.tablet_id()
+                      << ", rowset_id: " << rs_meta.rowset_id().to_string();
+        }
+        int64_t expiration_time =
+                tablet_meta->ttl_seconds() == 0 || rs_meta.newest_write_timestamp() <= 0
+                        ? 0
+                        : rs_meta.newest_write_timestamp() + tablet_meta->ttl_seconds();
+        if (expiration_time <= UnixSeconds()) {
+            expiration_time = 0;
+        }
+
+        for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
+            auto download_done = [=, tablet_id = rs_meta.tablet_id(),
+                                  rowset_id = rs_meta.rowset_id().to_string(),
+                                  segment_size = rs_meta.segment_file_size(segment_id)](Status st) {
+                if (st.ok()) {
+                    g_file_cache_event_driven_warm_up_finished_segment_num << 1;
+                    g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
+                    int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count();
+                    g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
+                    g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
+                    g_file_cache_warm_up_rowset_handle_to_finish_latency << (now_ts - handle_ts);
+                    if (request_ts > 0 &&
+                        now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+                        g_file_cache_warm_up_rowset_slow_count << 1;
+                        LOG(INFO) << "warm up rowset took " << now_ts - request_ts
+                                  << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id
+                                  << ", segment_id: " << segment_id;
+                    }
+                    if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+                        g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
+                        LOG(INFO) << "warm up rowset (handle to finish) took " << now_ts - handle_ts
+                                  << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id
+                                  << ", segment_id: " << segment_id;
+                    }
+                } else {
+                    g_file_cache_event_driven_warm_up_failed_segment_num << 1;
+                    g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
+                    LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
+                                 << " rowset_id: " << rowset_id << ", error: " << st;
+                }
+            };
+
+            io::DownloadFileMeta download_meta {
+                    .path = storage_resource.value()->remote_segment_path(rs_meta, segment_id),
+                    .file_size = rs_meta.segment_file_size(segment_id),
+                    .offset = 0,
+                    .download_size = rs_meta.segment_file_size(segment_id),
+                    .file_system = storage_resource.value()->fs,
+                    .ctx =
+                            {
+                                    .is_index_data = false,
+                                    .expiration_time = expiration_time,
+                                    .is_dryrun =
+                                            config::enable_reader_dryrun_when_download_file_cache,
+                            },
+                    .download_done = std::move(download_done),
+            };
+            g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
+            g_file_cache_event_driven_warm_up_submitted_segment_size
+                    << rs_meta.segment_file_size(segment_id);
+            _engine.file_cache_block_downloader().submit_download_task(download_meta);
+
+            auto download_inverted_index = [&](std::string index_path, uint64_t idx_size) {
+                auto storage_resource = rs_meta.remote_storage_resource();
+                auto download_done = [=, tablet_id = rs_meta.tablet_id(),
+                                      rowset_id = rs_meta.rowset_id().to_string()](Status st) {
+                    if (st.ok()) {
+                        g_file_cache_event_driven_warm_up_finished_index_num << 1;
+                        g_file_cache_event_driven_warm_up_finished_index_size << idx_size;
+                        int64_t now_ts =
+                                std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
+                        g_file_cache_warm_up_rowset_last_finish_unix_ts.set_value(now_ts);
+                        g_file_cache_warm_up_rowset_latency << (now_ts - request_ts);
+                        g_file_cache_warm_up_rowset_handle_to_finish_latency
+                                << (now_ts - handle_ts);
+                        if (request_ts > 0 &&
+                            now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+                            g_file_cache_warm_up_rowset_slow_count << 1;
+                            LOG(INFO) << "warm up rowset took " << now_ts - request_ts
+                                      << " us, tablet_id: " << tablet_id
+                                      << ", rowset_id: " << rowset_id
+                                      << ", segment_id: " << segment_id;
+                        }
+                        if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
+                            g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
+                            LOG(INFO) << "warm up rowset (handle to finish) took "
+                                      << now_ts - handle_ts << " us, tablet_id: " << tablet_id
+                                      << ", rowset_id: " << rowset_id
+                                      << ", segment_id: " << segment_id;
+                        }
+                    } else {
+                        g_file_cache_event_driven_warm_up_failed_index_num << 1;
+                        g_file_cache_event_driven_warm_up_failed_index_size << idx_size;
+                        LOG(WARNING) << "download inverted index failed, tablet_id: " << tablet_id
+                                     << " rowset_id: " << rowset_id << ", error: " << st;
+                    }
+                };
+                io::DownloadFileMeta download_meta {
+                        .path = io::Path(index_path),
+                        .file_size = static_cast<int64_t>(idx_size),
+                        .file_system = storage_resource.value()->fs,
+                        .ctx =
+                                {
+                                        .is_index_data = false, // DORIS-20877
+                                        .expiration_time = expiration_time,
+                                        .is_dryrun = config::
+                                                enable_reader_dryrun_when_download_file_cache,
+                                },
+                        .download_done = std::move(download_done),
+                };
+                g_file_cache_event_driven_warm_up_submitted_index_num << 1;
+                g_file_cache_event_driven_warm_up_submitted_index_size << idx_size;
+                _engine.file_cache_block_downloader().submit_download_task(download_meta);
+            };
+
+            // inverted index
+            auto schema_ptr = rs_meta.tablet_schema();
+            auto idx_version = schema_ptr->get_inverted_index_storage_format();
+            bool has_inverted_index = schema_ptr->has_inverted_index();
+
+            if (has_inverted_index) {
+                if (idx_version == InvertedIndexStorageFormatPB::V1) {
+                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    std::unordered_map<int64_t, int64_t> index_size_map;
+                    for (const auto& info : inverted_index_info.index_info()) {
+                        if (info.index_file_size() != -1) {
+                            index_size_map[info.index_id()] = info.index_file_size();
+                        } else {
+                            VLOG_DEBUG << "Invalid index_file_size for segment_id " << segment_id
+                                       << ", index_id " << info.index_id();
+                        }
+                    }
+                    for (const auto& index : schema_ptr->inverted_indexes()) {
+                        auto idx_path = storage_resource.value()->remote_idx_v1_path(
+                                rs_meta, segment_id, index->index_id(), index->get_index_suffix());
+                        download_inverted_index(idx_path, index_size_map[index->index_id()]);
+                    }
+                } else { // InvertedIndexStorageFormatPB::V2
+                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    int64_t idx_size = 0;
+                    if (inverted_index_info.has_index_size()) {
+                        idx_size = inverted_index_info.index_size();
+                    } else {
+                        VLOG_DEBUG << "index_size is not set for segment " << segment_id;
+                    }
+                    auto idx_path =
+                            storage_resource.value()->remote_idx_v2_path(rs_meta, segment_id);
+                    download_inverted_index(idx_path, idx_size);
+                }
+            }
+        }
+    }
+}
+
+bvar::Adder<uint64_t> g_file_cache_recycle_cache_finished_segment_num(
+        "file_cache_recycle_cache_finished_segment_num");
+bvar::Adder<uint64_t> g_file_cache_recycle_cache_finished_index_num(
+        "file_cache_recycle_cache_finished_index_num");
+
+void CloudInternalServiceImpl::recycle_cache(google::protobuf::RpcController* controller
+                                             [[maybe_unused]],
+                                             const PRecycleCacheRequest* request,
+                                             PRecycleCacheResponse* response,
+                                             google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+
+    if (!config::enable_file_cache) {
+        return;
+    }
+    for (const auto& meta : request->cache_metas()) {
+        for (int64_t segment_id = 0; segment_id < meta.num_segments(); segment_id++) {
+            auto file_key = Segment::file_cache_key(meta.rowset_id(), segment_id);
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached_async(file_key);
+            g_file_cache_recycle_cache_finished_segment_num << 1;
+        }
+
+        // inverted index
+        for (const auto& file_name : meta.index_file_names()) {
+            auto file_key = io::BlockFileCache::hash(file_name);
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached_async(file_key);
+            g_file_cache_recycle_cache_finished_index_num << 1;
+        }
     }
 }
 

@@ -144,6 +144,7 @@ public class NereidsSqlCacheManager {
         }
 
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
+        sqlCacheContext.setQueryId(connectContext.queryId());
         String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
                 ? generateCacheKey(connectContext, normalizeSql(sql))
                 : generateCacheKey(connectContext, DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5()));
@@ -171,6 +172,7 @@ public class NereidsSqlCacheManager {
             return;
         }
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
+        sqlCacheContext.setQueryId(connectContext.queryId());
         String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
                 ? generateCacheKey(connectContext, normalizeSql(sql))
                 : generateCacheKey(connectContext, DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5()));

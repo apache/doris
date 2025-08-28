@@ -371,6 +371,14 @@ class Node(object):
         return utils.with_doris_prefix("{}-{}".format(self.cluster.name,
                                                       self.get_name()))
 
+    def get_system_core_pattern(self):
+        """Get system core pattern from /proc/sys/kernel/core_pattern"""
+        try:
+            with open("/proc/sys/kernel/core_pattern", "r") as f:
+                return f.read().strip()
+        except:
+            return "core"
+
     def docker_env(self):
         enable_coverage = self.cluster.coverage_dir
 
@@ -433,7 +441,19 @@ class Node(object):
         raise Exception("No implemented")
 
     def compose(self):
+        # Get system core pattern to determine core dump directory
+        core_pattern = self.get_system_core_pattern()
+
+        # Extract directory from core pattern if it's an absolute path
+        core_dump_dir = "/opt/apache-doris/core_dump"  # default
+        if core_pattern.startswith("/"):
+            # Extract directory part (everything before the filename)
+            core_dump_dir = os.path.dirname(core_pattern)
+
         volumes = [
+            "{}:{}".format(os.path.join(self.get_path(), "core_dump"),
+                           core_dump_dir)
+        ] + [
             "{}:{}/{}".format(os.path.join(self.get_path(), sub_dir),
                               self.docker_home_dir(), sub_dir)
             for sub_dir in self.expose_sub_dirs()
@@ -452,7 +472,8 @@ class Node(object):
                                                    DOCKER_DORIS_PATH))
 
         content = {
-            "cap_add": ["SYS_PTRACE"],
+            "cap_add": ["SYS_ADMIN"],
+            "privileged": "true",
             "container_name": self.service_name(),
             "environment": self.docker_env(),
             "image": self.get_image(),
@@ -547,7 +568,7 @@ class FE(Node):
         if self.cluster.is_cloud:
             envs["CLOUD_UNIQUE_ID"] = self.cloud_unique_id()
             if self.meta["is_cloud_follower"]:
-                envs["is_fe_follower"] = 1
+                envs["IS_FE_FOLLOWER"] = 1
         envs["MY_QUERY_PORT"] = self.meta["ports"]["query_port"]
         envs["MY_EDITLOG_PORT"] = self.meta["ports"]["edit_log_port"]
         return envs

@@ -26,6 +26,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.ValueList;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
@@ -226,14 +227,23 @@ public class AuditLogHelper {
                 MetricRepo.COUNTER_QUERY_ALL.increase(1L);
                 MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
             }
+            String physicalClusterName = "";
             try {
                 if (Config.isCloudMode()) {
                     cloudCluster = ctx.getCloudCluster(false);
+                    physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getPhysicalCluster(cloudCluster);
+                    if (!cloudCluster.equals(physicalClusterName)) {
+                        // vcg
+                        MetricRepo.increaseClusterQueryAll(physicalClusterName);
+                    }
                 }
             } catch (ComputeGroupException e) {
-                LOG.warn("Failed to get cloud cluster", e);
+                LOG.warn("Failed to get cloud cluster, cloudCluster={}, physicalClusterName={} ",
+                        cloudCluster, physicalClusterName, e);
                 return;
             }
+
             MetricRepo.increaseClusterQueryAll(cloudCluster);
             if (ctx.getState().getStateType() == MysqlStateType.ERR
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
@@ -241,7 +251,14 @@ public class AuditLogHelper {
                 if (!ctx.getSessionVariable().internalSession && MetricRepo.isInit) {
                     MetricRepo.COUNTER_QUERY_ERR.increase(1L);
                     MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
-                    MetricRepo.increaseClusterQueryErr(cloudCluster);
+                    if (cloudCluster.equals(physicalClusterName)) {
+                        // not vcg
+                        MetricRepo.increaseClusterQueryErr(cloudCluster);
+                    } else {
+                        // vcg
+                        MetricRepo.increaseClusterQueryErr(cloudCluster);
+                        MetricRepo.increaseClusterQueryErr(physicalClusterName);
+                    }
                 }
             } else if (ctx.getState().getStateType() == MysqlStateType.OK
                     || ctx.getState().getStateType() == MysqlStateType.EOF) {
@@ -249,7 +266,14 @@ public class AuditLogHelper {
                 if (!ctx.getSessionVariable().internalSession && MetricRepo.isInit) {
                     MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
                     MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
-                    MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
+                    if (cloudCluster.equals(physicalClusterName)) {
+                        // not vcg
+                        MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
+                    } else {
+                        // vcg
+                        MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
+                        MetricRepo.updateClusterQueryLatency(physicalClusterName, elapseMs);
+                    }
                 }
 
                 if (elapseMs > Config.qe_slow_log_ms) {

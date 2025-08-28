@@ -134,9 +134,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    public void setUnInitialized(boolean invalidCache) {
+    public synchronized void setUnInitialized(boolean invalidCache) {
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
+        this.lowerCaseToTableName = Maps.newConcurrentMap();
         if (extCatalog.getUseMetaCache().isPresent()) {
             if (extCatalog.getUseMetaCache().get() && metaCache != null) {
                 metaCache.invalidateAll();
@@ -155,50 +156,56 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return initialized;
     }
 
-    public final synchronized void makeSureInitialized() {
-        if (isInitializing) {
-            return;
-        }
-        isInitializing = true;
-        try {
-            extCatalog.makeSureInitialized();
-            if (!initialized) {
-                if (extCatalog.getUseMetaCache().get()) {
-                    if (metaCache == null) {
-                        metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
-                                name,
-                                OptionalLong.of(86400L),
-                                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                                Config.max_meta_object_cache_num,
-                                ignored -> listTableNames(),
-                                localTableName -> Optional.ofNullable(
-                                        buildTableForInit(null, localTableName,
-                                                Util.genIdByName(extCatalog.getName(), name, localTableName),
-                                                extCatalog,
-                                                this, true)),
-                                (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
-                    }
-                    setLastUpdateTime(System.currentTimeMillis());
-                } else {
-                    if (!Env.getCurrentEnv().isMaster()) {
-                        // Forward to master and wait the journal to replay.
-                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
-                        MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                        try {
-                            remoteExecutor.forward(extCatalog.getId(), id);
-                        } catch (Exception e) {
-                            Util.logAndThrowRuntimeException(LOG,
-                                    String.format("failed to forward init external db %s operation to master", name),
-                                    e);
-                        }
-                        return;
-                    }
-                    init();
-                }
-                initialized = true;
+    public final void makeSureInitialized() {
+        // Must call this method before any operation on the database to avoid deadlock of synchronized block
+        extCatalog.makeSureInitialized();
+        synchronized (this) {
+            if (isInitializing) {
+                return;
             }
-        } finally {
-            isInitializing = false;
+            isInitializing = true;
+            try {
+                if (!initialized) {
+                    if (extCatalog.getUseMetaCache().get()) {
+                        if (metaCache == null) {
+                            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+                                    name,
+                                    OptionalLong.of(86400L),
+                                    OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
+                                    Config.max_meta_object_cache_num,
+                                    ignored -> listTableNames(),
+                                    localTableName -> Optional.ofNullable(
+                                            buildTableForInit(null, localTableName,
+                                                    Util.genIdByName(extCatalog.getName(), name, localTableName),
+                                                    extCatalog,
+                                                    this, true)),
+                                    (key, value, cause)
+                                            -> value.ifPresent(ExternalTable::unsetObjectCreated));
+                        }
+                        setLastUpdateTime(System.currentTimeMillis());
+                    } else {
+                        if (!Env.getCurrentEnv().isMaster()) {
+                            // Forward to master and wait the journal to replay.
+                            int waitTimeOut = ConnectContext.get() == null ? 300
+                                    : ConnectContext.get().getExecTimeout();
+                            MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
+                            try {
+                                remoteExecutor.forward(extCatalog.getId(), id);
+                            } catch (Exception e) {
+                                Util.logAndThrowRuntimeException(LOG,
+                                        String.format("failed to forward init external db %s operation to master",
+                                                name),
+                                        e);
+                            }
+                            return;
+                        }
+                        init();
+                    }
+                    initialized = true;
+                }
+            } finally {
+                isInitializing = false;
+            }
         }
     }
 
@@ -315,6 +322,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     private List<Pair<String, String>> listTableNames() {
         List<Pair<String, String>> tableNames;
+        this.lowerCaseToTableName.clear();
         if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
             tableNames = ExternalInfoSchemaDatabase.listTableNames().stream()
                     .map(tableName -> {
@@ -580,37 +588,36 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public T getTableNullable(String tableName) {
         makeSureInitialized();
+        String finalName = tableName;
         if (this.isStoredTableNamesLowerCase()) {
-            tableName = tableName.toLowerCase();
+            finalName = tableName.toLowerCase();
         }
         if (this.isTableNamesCaseInsensitive()) {
-            String realTableName = lowerCaseToTableName.get(tableName.toLowerCase());
-            if (realTableName == null) {
+            finalName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (finalName == null) {
                 // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
                 // to prevent lowerCaseToTableName from being empty in some cases
                 listTableNames();
-                tableName = lowerCaseToTableName.get(tableName.toLowerCase());
-                if (tableName == null) {
+                finalName = lowerCaseToTableName.get(tableName.toLowerCase());
+                if (finalName == null) {
                     return null;
                 }
-            } else {
-                tableName = realTableName;
             }
         }
         if (extCatalog.getLowerCaseMetaNames().equalsIgnoreCase("true")
                 && (this.isTableNamesCaseInsensitive())) {
-            tableName = tableName.toLowerCase();
+            finalName = tableName.toLowerCase();
         }
         if (extCatalog.getUseMetaCache().get()) {
             // must use full qualified name to generate id.
             // otherwise, if 2 databases have the same table name, the id will be the same.
-            return metaCache.getMetaObj(tableName,
-                    Util.genIdByName(extCatalog.getName(), name, tableName)).orElse(null);
+            return metaCache.getMetaObj(finalName,
+                    Util.genIdByName(extCatalog.getName(), name, finalName)).orElse(null);
         } else {
-            if (!tableNameToId.containsKey(tableName)) {
+            if (!tableNameToId.containsKey(finalName)) {
                 return null;
             }
-            return idToTbl.get(tableNameToId.get(tableName));
+            return idToTbl.get(tableNameToId.get(finalName));
         }
     }
 

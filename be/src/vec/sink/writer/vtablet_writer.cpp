@@ -1557,6 +1557,12 @@ Status VTabletWriter::close(Status exec_status) {
     _do_try_close(_state, exec_status);
     TEST_INJECTION_POINT("VOlapTableSink::close");
 
+    DBUG_EXECUTE_IF("VTabletWriter.close.sleep", {
+        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "VTabletWriter.close.sleep", "sleep_sec", 1);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
+    });
+
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
         auto status = Status::OK();

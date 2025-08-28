@@ -33,12 +33,12 @@
 #include "common/network_util.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
-#include "txn_kv.h"
 
 namespace doris::cloud {
 
@@ -63,14 +63,6 @@ int MetaServer::start(brpc::Server* server) {
         return -1;
     }
 
-    fdb_metric_exporter_.reset(new FdbMetricExporter(txn_kv_));
-    ret = fdb_metric_exporter_->start();
-    TEST_SYNC_POINT_CALLBACK("MetaServer::start:3", &ret);
-    if (ret != 0) {
-        LOG(WARNING) << "failed to start fdb metric exporter";
-        return -2;
-    }
-
     auto rate_limiter = std::make_shared<RateLimiter>();
 
     // Add service
@@ -91,7 +83,6 @@ int MetaServer::start(brpc::Server* server) {
 
 void MetaServer::stop() {
     server_register_->stop();
-    fdb_metric_exporter_->stop();
 }
 
 void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {

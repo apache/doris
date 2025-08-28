@@ -98,6 +98,8 @@ using io::Path;
 
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
+bvar::Status<int64_t> g_cumu_compaction_task_num_per_round("cumu_compaction_task_num_per_round", 0);
+bvar::Status<int64_t> g_base_compaction_task_num_per_round("base_compaction_task_num_per_round", 0);
 
 static const uint64_t DEFAULT_SEED = 104729;
 static const uint64_t MOD_PRIME = 7652413;
@@ -188,7 +190,8 @@ CompactionSubmitRegistry::TabletSet& CompactionSubmitRegistry::_get_tablet_set(
 static int32_t get_cumu_compaction_threads_num(size_t data_dirs_num) {
     int32_t threads_num = config::max_cumu_compaction_threads;
     if (threads_num == -1) {
-        threads_num = data_dirs_num;
+        int num_cores = doris::CpuInfo::num_cores();
+        threads_num = std::max<size_t>(data_dirs_num, num_cores / 6);
     }
     threads_num = threads_num <= 0 ? 1 : threads_num;
     return threads_num;
@@ -388,7 +391,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
-        curr_interval = uint32_t(max_interval * ratio);
+        auto curr_interval = uint32_t(max_interval * ratio);
         curr_interval = std::max(curr_interval, min_interval);
         curr_interval = std::min(curr_interval, max_interval);
 
@@ -403,8 +406,6 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
                          << "see previous message for detail. err code=" << res;
             // do nothing. continue next loop.
         }
-        LOG(INFO) << "trash thread check usage=" << usage << " ratio=" << ratio
-                  << " curr_interval=" << curr_interval;
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval)));
 }
 
@@ -585,6 +586,7 @@ void StorageEngine::_tablet_path_check_callback() {
 }
 
 void StorageEngine::_adjust_compaction_thread_num() {
+    TEST_SYNC_POINT_RETURN_WITH_VOID("StorageEngine::_adjust_compaction_thread_num.return_void");
     auto base_compaction_threads_num = get_base_compaction_threads_num(_store_map.size());
     if (_base_compaction_thread_pool->max_threads() != base_compaction_threads_num) {
         int old_max_threads = _base_compaction_thread_pool->max_threads();
@@ -686,6 +688,33 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 if (cur_time - last_base_score_update_time >= check_score_interval_ms) {
                     check_score = true;
                     last_base_score_update_time = cur_time;
+                }
+            }
+            std::unique_ptr<ThreadPool>& thread_pool =
+                    (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
+                            ? _cumu_compaction_thread_pool
+                            : _base_compaction_thread_pool;
+            bvar::Status<int64_t>& g_compaction_task_num_per_round =
+                    (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
+                            ? g_cumu_compaction_task_num_per_round
+                            : g_base_compaction_task_num_per_round;
+            if (config::compaction_num_per_round != -1) {
+                _compaction_num_per_round = config::compaction_num_per_round;
+            } else if (thread_pool->get_queue_size() == 0) {
+                // If all tasks in the thread pool queue are executed,
+                // double the number of tasks generated each time,
+                // with a maximum of config::max_automatic_compaction_num_per_round tasks per generation.
+                if (_compaction_num_per_round < config::max_automatic_compaction_num_per_round) {
+                    _compaction_num_per_round *= 2;
+                    g_compaction_task_num_per_round.set_value(_compaction_num_per_round);
+                }
+            } else if (thread_pool->get_queue_size() > _compaction_num_per_round / 2) {
+                // If all tasks in the thread pool is greater than
+                // half of the tasks submitted in the previous round,
+                // reduce the number of tasks generated each time by half, with a minimum of 1.
+                if (_compaction_num_per_round > 1) {
+                    _compaction_num_per_round /= 2;
+                    g_compaction_task_num_per_round.set_value(_compaction_num_per_round);
                 }
             }
             std::vector<TabletSharedPtr> tablets_compaction =
@@ -947,6 +976,8 @@ bool has_free_compaction_slot(CompactionSubmitRegistry* registry, DataDir* dir,
 
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("olap_server::_generate_compaction_tasks.return_empty",
+                                      std::vector<TabletSharedPtr> {});
     _update_cumulative_compaction_policy();
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;

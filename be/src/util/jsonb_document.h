@@ -1326,12 +1326,12 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     }
     case JsonbType::T_Object: {
         if (rhs->isObject()) {
-            auto* str_value1 = (ObjectVal*)this;
-            auto* str_value2 = (ObjectVal*)rhs;
-            for (int i = 0; i < str_value2->numElem(); ++i) {
-                JsonbKeyValue* key = str_value2->getJsonbKeyValue(i);
-                JsonbValue* value = str_value1->find(key->getKeyStr(), key->klen());
-                if (key != nullptr && value != nullptr && !value->contains(key->value())) {
+            const auto* obj_value1 = (ObjectVal*)this;
+            const auto* obj_value2 = (ObjectVal*)rhs;
+            for (int i = 0; i < obj_value2->numElem(); ++i) {
+                JsonbKeyValue* key = obj_value2->getJsonbKeyValue(i);
+                JsonbValue* value = obj_value1->find(key->getKeyStr(), key->klen());
+                if (value == nullptr || !value->contains(key->value())) {
                     return false;
                 }
             }

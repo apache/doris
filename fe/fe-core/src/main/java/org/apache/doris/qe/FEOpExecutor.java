@@ -67,6 +67,9 @@ public class FEOpExecutor {
 
     public void execute() throws Exception {
         result = forward(feAddr, buildStmtForwardParams());
+        if (result.isSetAffectedRows()) {
+            ctx.updateReturnRows((int) result.getAffectedRows());
+        }
     }
 
     public void cancel() throws Exception {

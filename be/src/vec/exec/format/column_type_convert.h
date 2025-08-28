@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+
 #include "gutil/strings/numbers.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/types.h"
@@ -408,6 +410,62 @@ public:
             }
         }
 
+        return Status::OK();
+    }
+};
+
+template <PrimitiveType DstPrimitiveType>
+class DateTimeToNumericConverter : public ColumnTypeConverter {
+public:
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        using SrcColumnType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType;
+        using DstColumnType = typename PrimitiveTypeTraits<DstPrimitiveType>::ColumnType;
+        using SrcCppType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
+        using DstCppType = typename PrimitiveTypeTraits<DstPrimitiveType>::CppType;
+
+        ColumnPtr from_col = remove_nullable(src_col);
+        MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
+
+        NullMap* null_map = nullptr;
+        if (dst_col->is_nullable()) {
+            null_map = &reinterpret_cast<vectorized::ColumnNullable*>(dst_col.get())
+                                ->get_null_map_data();
+        }
+
+        size_t rows = from_col->size();
+        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        size_t start_idx = to_col->size();
+        to_col->resize(start_idx + rows);
+        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+
+        for (int i = 0; i < rows; ++i) {
+            const SrcCppType& src_value = src_data[i];
+            auto& dst_value = reinterpret_cast<DstCppType&>(data[start_idx + i]);
+
+            int64_t ts_s = 0;
+            if (!src_value.unix_timestamp(&ts_s, cctz::utc_time_zone())) {
+                if (null_map == nullptr) {
+                    return Status::InternalError("Failed to cast value '{}' to {} column",
+                                                 src_data[i], dst_col->get_name());
+                } else {
+                    (*null_map)[start_idx + i] = 1;
+                }
+            }
+            auto micro = src_value.microsecond();
+            int64_t ts_ms = ts_s * 1000 + micro / 1000;
+            if constexpr (DstPrimitiveType != TYPE_LARGEINT && DstPrimitiveType != TYPE_BIGINT) {
+                if ((Int64)std::numeric_limits<DstCppType>::min() > ts_ms ||
+                    ts_ms > (Int64)std::numeric_limits<DstCppType>::max()) {
+                    if (null_map == nullptr) {
+                        return Status::InternalError("Failed to cast value '{}' to {} column",
+                                                     src_data[i], dst_col->get_name());
+                    } else {
+                        (*null_map)[start_idx + i] = 1;
+                    }
+                }
+            }
+            dst_value = static_cast<DstCppType>(ts_ms);
+        }
         return Status::OK();
     }
 };

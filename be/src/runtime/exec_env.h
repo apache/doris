@@ -115,6 +115,7 @@ class HeapProfiler;
 class WalManager;
 class DNSCache;
 struct SyncRowsetStats;
+class DeleteBitmapAggCache;
 
 inline bool k_doris_exit = false;
 
@@ -292,6 +293,7 @@ public:
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_delete_bitmap_agg_cache(DeleteBitmapAggCache* c) { _delete_bitmap_agg_cache = c; }
     void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
         this->_tablet_column_object_pool = c;
     }
@@ -357,6 +359,8 @@ public:
     arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
 
     bool check_auth_token(const std::string& auth_token);
+
+    DeleteBitmapAggCache* delete_bitmap_agg_cache() { return _delete_bitmap_agg_cache; }
 
 private:
     ExecEnv();
@@ -488,6 +492,7 @@ private:
     QueryCache* _query_cache = nullptr;
     std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
+    DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 
