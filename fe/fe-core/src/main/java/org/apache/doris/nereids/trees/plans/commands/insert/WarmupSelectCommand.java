@@ -20,33 +20,20 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.profile.ProfileManager;
-import org.apache.doris.common.profile.ProfileManager.FetchRealTimeProfileTasksResult;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
-import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.BlackholeResultHandler.BeBlackholeAggregatedData;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordInterface;
 import org.apache.doris.qe.QeProcessorImpl;
-import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -56,45 +43,41 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.Future;
 
 /**
- *
+ * File cache warm up select command, such as "warm up select * from table where ..."
  */
-public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
-    
-    // Constants for query statistics polling
+public class WarmupSelectCommand extends InsertIntoTableCommand {
+
     private static final long QUERY_STATISTICS_TIMEOUT_MS = 5000; // 5 seconds
     private static final long QUERY_STATISTICS_INTERVAL_MS = 1000; // 1 second
 
+    /**
+     * WarmupSelectCommand constructor
+     */
     public WarmupSelectCommand(LogicalPlan logicalQuery) {
-        super(logicalQuery);
+        super(PlanType.INSERT_INTO_BLACKHOLE_COMMAND, logicalQuery, Optional.empty(), Optional.empty(),
+                Optional.empty(), true, Optional.empty());
         super.setInsertExecutorListener(new InsertExecutorListener() {
 
             @Override
-            public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId) throws Exception {
+            public void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                    throws Exception {
                 // no-ops
             }
 
             @Override
-            public void afterComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId) throws Exception {
+            public void afterComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                    throws Exception {
                 if (insertExecutor.ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
                     return;
                 }
-                String queryId = DebugUtil.printId(insertExecutor.ctx.queryId());
-                // Map<String, TQueryStatistics> statistics = ProfileManager.getInstance().getQueryStatistics(queryId);
-                
-                Map<Long, TQueryStatistics> statistics = pollForQueryStatistics(insertExecutor.ctx.queryId(), QUERY_STATISTICS_TIMEOUT_MS, QUERY_STATISTICS_INTERVAL_MS);
+                Map<Long, TQueryStatisticsResult> statistics = pollForQueryStatistics(insertExecutor.ctx.queryId(),
+                        QUERY_STATISTICS_TIMEOUT_MS, QUERY_STATISTICS_INTERVAL_MS);
                 sendAggregatedBlackholeResults(statistics, executor);
             }
         });
     }
-
-    // @Override
-    // public RedirectStatus toRedirectStatus() {
-    //     // must run by master
-    //     return RedirectStatus.FORWARD_WITH_SYNC;
-    // }
 
     /**
      * Poll for query statistics until the query is finished or timeout is reached.
@@ -103,45 +86,47 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
      * @param queryId The query ID to poll for
      * @param timeoutMs Maximum time to wait in milliseconds
      * @param intervalMs Time between polls in milliseconds
-     * @return Map of backend ID to query statistics
+     * @return Map of backend ID to query statistics result
      */
-    private Map<Long, TQueryStatistics> pollForQueryStatistics(TUniqueId queryId, long timeoutMs, long intervalMs) {
+    private Map<Long, TQueryStatisticsResult> pollForQueryStatistics(TUniqueId queryId,
+                                                                     long timeoutMs,
+                                                                     long intervalMs) {
         long startTime = System.currentTimeMillis();
-        Map<Long, TQueryStatisticsResult> beIdToStatisticsResult = Maps.newHashMap();
-        Map<Long, TQueryStatistics> statistics = Maps.newHashMap();
-        
+        Map<Long, TQueryStatisticsResult> beIdToStatisticsResult;
+
         // Get the coordinator to know how many backends are involved
         CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
         int expectedBackendCount = 0;
         if (coor != null) {
             expectedBackendCount = coor.getInvolvedBackends().size();
         }
-        
+
         // Track which backends have finished and store the latest statistics for each backend
         Set<Long> finishedBackends = Sets.newHashSet();
         Map<Long, TQueryStatisticsResult> latestStatisticsResult = Maps.newHashMap();
-        
+
         // Continue polling until all backends are finished or timeout
         while (System.currentTimeMillis() - startTime < timeoutMs && finishedBackends.size() < expectedBackendCount) {
             // Get current statistics
-            beIdToStatisticsResult = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().getQueryStatistics(DebugUtil.printId(queryId));
-            
+            beIdToStatisticsResult = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
+                    .getQueryStatistics(DebugUtil.printId(queryId));
+
             // Update the latest statistics for each backend and check which ones have finished
             if (beIdToStatisticsResult != null && !beIdToStatisticsResult.isEmpty()) {
                 for (Map.Entry<Long, TQueryStatisticsResult> entry : beIdToStatisticsResult.entrySet()) {
                     Long beId = entry.getKey();
                     TQueryStatisticsResult result = entry.getValue();
-                    
+
                     // Always update the latest statistics for this backend
                     latestStatisticsResult.put(beId, result);
-                    
+
                     // If this backend has finished, mark it as finished
                     if (result.isSetQueryFinished() && result.isQueryFinished()) {
                         finishedBackends.add(beId);
                     }
                 }
             }
-            
+
             // If not all backends have finished, continue polling
             if (finishedBackends.size() < expectedBackendCount) {
                 // Sleep before next poll
@@ -153,22 +138,20 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
                 }
             }
         }
-        
-        // Extract TQueryStatistics from the latest TQueryStatisticsResult for each backend
-        for (Map.Entry<Long, TQueryStatisticsResult> entry : latestStatisticsResult.entrySet()) {
-            Long beId = entry.getKey();
-            TQueryStatisticsResult result = entry.getValue();
-            
-            // Only include statistics if they exist
-            if (result.isSetStatistics()) {
-                statistics.put(beId, result.getStatistics());
-            }
-        }
-        
-        return statistics;
+
+        return latestStatisticsResult;
     }
 
-    public void sendAggregatedBlackholeResults(Map<Long, TQueryStatistics> statistics, StmtExecutor executor) throws IOException {
+    /**
+     * Send aggregated blackhole results to the client.
+     * Aggregates statistics from all backends and sends a summary result set.
+     *
+     * @param statisticsResult Map of backend ID to query statistics result
+     * @param executor The statement executor to send results through
+     * @throws IOException If sending the result set fails
+     */
+    public void sendAggregatedBlackholeResults(Map<Long, TQueryStatisticsResult> statisticsResult,
+            StmtExecutor executor) throws IOException {
         // Create a result set with aggregated data per BE
         ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
                 .addColumn(new Column("BackendId", ScalarType.createVarchar(20)))
@@ -176,7 +159,7 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
                 .addColumn(new Column("ScanBytes", ScalarType.createVarchar(20)))
                 .addColumn(new Column("ScanBytesFromLocalStorage", ScalarType.createVarchar(20)))
                 .addColumn(new Column("ScanBytesFromRemoteStorage", ScalarType.createVarchar(20)))
-                .addColumn(new Column("GetBytesWriteIntoCache", ScalarType.createVarchar(20)))
+                .addColumn(new Column("BytesWriteIntoCache", ScalarType.createVarchar(20)))
                 .build();
 
         List<List<String>> rows = Lists.newArrayList();
@@ -187,27 +170,30 @@ public class WarmupSelectCommand extends InsertIntoBlackholeCommand {
         long totalBytesWriteIntoCache = 0;
 
         // Add a row for each BE with its aggregated data
-        for (Map.Entry<Long, TQueryStatistics> entry : statistics.entrySet()) {
+        for (Map.Entry<Long, TQueryStatisticsResult> entry : statisticsResult.entrySet()) {
             Long beId = entry.getKey();
-            TQueryStatistics data = entry.getValue();
-
+            TQueryStatisticsResult data = entry.getValue();
+            if (!data.isSetStatistics()) {
+                continue;
+            }
+            TQueryStatistics statistics = data.getStatistics();
             List<String> row = Lists.newArrayList(
                     beId.toString(),
-                    String.valueOf(data.getScanRows()),
-                    String.valueOf(data.getScanBytes()),
-                    String.valueOf(data.getScanBytesFromLocalStorage()),
-                    String.valueOf(data.getScanBytesFromRemoteStorage()),
-                    String.valueOf(data.getBytesWriteIntoCache())
+                    String.valueOf(statistics.getScanRows()),
+                    String.valueOf(statistics.getScanBytes()),
+                    String.valueOf(statistics.getScanBytesFromLocalStorage()),
+                    String.valueOf(statistics.getScanBytesFromRemoteStorage()),
+                    String.valueOf(statistics.getBytesWriteIntoCache())
             );
 
             rows.add(row);
 
             // Accumulate totals
-            totalScanRows += data.getScanRows();
-            totalScanBytes += data.getScanBytes();
-            totalScanBytesFromLocalStorage += data.getScanBytesFromLocalStorage();
-            totalScanBytesFromRemoteStorage += data.getScanBytesFromRemoteStorage();
-            totalBytesWriteIntoCache += data.getBytesWriteIntoCache();
+            totalScanRows += statistics.getScanRows();
+            totalScanBytes += statistics.getScanBytes();
+            totalScanBytesFromLocalStorage += statistics.getScanBytesFromLocalStorage();
+            totalScanBytesFromRemoteStorage += statistics.getScanBytesFromRemoteStorage();
+            totalBytesWriteIntoCache += statistics.getBytesWriteIntoCache();
         }
 
         // Add a total row

@@ -41,7 +41,7 @@ public:
         RuntimeProfile::Counter* scan_bytes_from_local_storage_counter_;
         RuntimeProfile::Counter* scan_bytes_from_remote_storage_counter_;
         RuntimeProfile::Counter* bytes_write_into_cache_counter_;
-        
+
         // number rows returned by query.
         // only set once by result sink when closing.
         RuntimeProfile::Counter* returned_rows_counter_;
@@ -60,7 +60,8 @@ public:
                     ADD_COUNTER(profile_, "ScanBytesFromLocalStorage", TUnit::BYTES);
             scan_bytes_from_remote_storage_counter_ =
                     ADD_COUNTER(profile_, "ScanBytesFromRemoteStorage", TUnit::BYTES);
-            bytes_write_into_cache_counter_ = ADD_COUNTER(profile_, "BytesWriteIntoCache", TUnit::BYTES);
+            bytes_write_into_cache_counter_ =
+                    ADD_COUNTER(profile_, "BytesWriteIntoCache", TUnit::BYTES);
             returned_rows_counter_ = ADD_COUNTER(profile_, "ReturnedRows", TUnit::UNIT);
             shuffle_send_bytes_counter_ = ADD_COUNTER(profile_, "ShuffleSendBytes", TUnit::BYTES);
             shuffle_send_rows_counter_ =
@@ -89,7 +90,7 @@ public:
     int64_t scan_bytes_from_remote_storage() const {
         return stats_.scan_bytes_from_remote_storage_counter_->value();
     }
-    int64_t bytes_write_into_cache_counter_() const {
+    int64_t bytes_write_into_cache() const {
         return stats_.bytes_write_into_cache_counter_->value();
     }
     int64_t returned_rows() const { return stats_.returned_rows_counter_->value(); }

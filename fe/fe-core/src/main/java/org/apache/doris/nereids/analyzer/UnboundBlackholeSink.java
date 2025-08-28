@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -47,6 +46,9 @@ import java.util.Optional;
 public class UnboundBlackholeSink<CHILD_TYPE extends Plan> extends UnboundLogicalSink<CHILD_TYPE>
         implements Unbound, Sink, BlockFuncDepsPropagation {
 
+    /**
+     * create unbound sink for blackhole sink
+     */
     public UnboundBlackholeSink(CHILD_TYPE child) {
         super(ImmutableList.of("information_schema", "blackhole"),
                 PlanType.LOGICAL_UNBOUND_BLACKHOLE_SINK,
@@ -58,6 +60,9 @@ public class UnboundBlackholeSink<CHILD_TYPE extends Plan> extends UnboundLogica
                 child);
     }
 
+    /**
+     * create unbound sink for blackhole sink
+     */
     public UnboundBlackholeSink(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(ImmutableList.of("information_schema", "blackhole"),
