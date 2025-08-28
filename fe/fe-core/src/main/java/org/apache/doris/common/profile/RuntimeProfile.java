@@ -507,7 +507,7 @@ public class RuntimeProfile {
                                  rows.sum.getValue());
                     }
                 }
-                if (mergedProfile.counterMap.get("RowsProduced") != null){
+                if (mergedProfile.counterMap.get("RowsProduced") != null) {
                     mergedProfile.rowsProducedMap.put(nereidsId,
                             mergedProfile.counterMap.get("RowsProduced").getValue());
                 }
