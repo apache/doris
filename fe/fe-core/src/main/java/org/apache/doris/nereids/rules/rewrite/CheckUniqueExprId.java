@@ -41,6 +41,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Check whether the exprId of NamedExpression and UniqueFunction is unique in the plan tree.
+ * If not, throw AnalysisException.
+ * This rule is only enabled when the session variable 'fe_debug' is set to true.
+ * This rule is used to find some potential problems in the plan, such as:
+ * 1. Two different NamedExpressions have the same exprId, which may be caused by a bug in the code.
+ * 2. Two different UniqueFunctions have the same uniqueId, which may be caused by a bug in the code
+ *    or the lack of a Project node between two UniqueFunctions.
+ */
 public class CheckUniqueExprId implements CustomRewriter {
 
     private final Map<ExprId, NamedExpression> dedupNameExpressions = Maps.newHashMap();
