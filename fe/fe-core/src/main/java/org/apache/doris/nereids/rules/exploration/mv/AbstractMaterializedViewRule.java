@@ -1071,6 +1071,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
 
     // Check the tempRewrittenPlan is valid, should only contain logical project, scan or filter
     protected boolean checkTmpRewrittenPlanIsValid(Plan tempRewrittenPlan) {
+        if (tempRewrittenPlan == null) {
+            return false;
+        }
         return tempRewrittenPlan.accept(new DefaultPlanVisitor<Boolean, Void>() {
             @Override
             public Boolean visit(Plan plan, Void context) {
