@@ -95,8 +95,8 @@ public class ImplementationTest {
 
     @Test
     public void toPhysicalProjectTest() {
-        SlotReference col1 = new SlotReference("col1", BigIntType.INSTANCE);
-        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
+        SlotReference col1 = new SlotReference("col1", BigIntType.INSTANCE, false);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE, false);
         LogicalPlan project = new LogicalProject<>(Lists.newArrayList(col1, col2), groupPlan);
 
         PhysicalPlan physicalPlan = executeImplementationRule(project);
@@ -111,8 +111,10 @@ public class ImplementationTest {
     public void toPhysicalTopNTest() {
         int limit = 10;
         int offset = 100;
-        OrderKey key1 = new OrderKey(new SlotReference("col1", IntegerType.INSTANCE), true, true);
-        OrderKey key2 = new OrderKey(new SlotReference("col2", IntegerType.INSTANCE), true, true);
+        OrderKey key1 = new OrderKey(new SlotReference("col1", IntegerType.INSTANCE, false),
+                true, true);
+        OrderKey key2 = new OrderKey(new SlotReference("col2", IntegerType.INSTANCE, false),
+                true, true);
         LogicalTopN<GroupPlan> topN = new LogicalTopN<>(Lists.newArrayList(key1, key2), limit, offset, groupPlan);
 
         PhysicalPlan physicalPlan = executeImplementationRule(topN);

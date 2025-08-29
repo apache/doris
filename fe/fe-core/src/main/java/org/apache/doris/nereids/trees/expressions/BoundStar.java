@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 public class BoundStar extends NamedExpression implements PropagateNullable {
     /** BoundStar */
     public BoundStar(List<Slot> children) {
-        super((List) children);
+        super((List) children, true);
 
         for (Slot slot : children) {
             if (slot instanceof UnboundSlot) {
