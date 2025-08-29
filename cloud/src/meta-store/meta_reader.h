@@ -115,6 +115,17 @@ public:
                                           TabletStatsPB* tablet_stats, Versionstamp* versionstamp,
                                           bool snapshot = false);
 
+    // Get the tablet compact stats for the given tablet_ids.
+    // If a tablet_id does not exist, then it will not be included in the respective map.
+    TxnErrorCode get_tablet_compact_stats(const std::vector<int64_t>& tablet_ids,
+                                          std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                          std::unordered_map<int64_t, Versionstamp>* versionstamps,
+                                          bool snapshot = false);
+    TxnErrorCode get_tablet_compact_stats(Transaction* txn, const std::vector<int64_t>& tablet_ids,
+                                          std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                          std::unordered_map<int64_t, Versionstamp>* versionstamps,
+                                          bool snapshot = false);
+
     // Get the merged (load, compact) tablet stats for the given tablet.
     //
     // The `tablet_stats` will be filled with the merged TabletStatsPB.
