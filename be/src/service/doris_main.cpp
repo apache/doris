@@ -616,14 +616,14 @@ int main(int argc, char** argv) {
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
 
-#if !defined(__SANITIZE_ADDRESS__) && !__has_feature(address_sanitizer)
-    // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
-    // It will make sure that graceful shutdown can be done definitely.
-    LOG(INFO) << "Doris main exited.";
-    google::FlushLogFiles(google::GLOG_INFO);
-    _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
-    return 0;
-#endif
+    if (!doris::config::enable_graceful_exit_check) {
+        // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
+        // It will make sure that graceful shutdown can be done definitely.
+        LOG(INFO) << "Doris main exited.";
+        google::FlushLogFiles(google::GLOG_INFO);
+        _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
+        return 0;
+    }
     daemon.stop();
     flight_server.reset();
     LOG(INFO) << "Flight server stopped.";
