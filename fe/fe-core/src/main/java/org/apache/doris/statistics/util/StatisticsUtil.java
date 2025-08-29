@@ -1278,7 +1278,7 @@ public class StatisticsUtil {
             for (String oneRow : stringValues.split(" ;")) {
                 String[] oneRowSplit = oneRow.split(" :");
                 float value = Float.parseFloat(oneRowSplit[1]);
-                if (value / ColumnStatistic.ONE_HUNDRED >= avgOccurrences * SessionVariable.getHotValueThreshold()) {
+                if (value >= avgOccurrences * SessionVariable.getHotValueThreshold()) {
                     org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
                             new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
                                     oneRowSplit[0].replaceAll("\\\\:", ":")
