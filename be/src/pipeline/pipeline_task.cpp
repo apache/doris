@@ -287,6 +287,16 @@ bool PipelineTask::_is_pending_finish() {
                    [&](Dependency* dep) -> bool { return dep->is_blocked_by(shared_from_this()); });
 }
 
+bool PipelineTask::is_blockable() const {
+    // Before task starting, we should make sure
+    // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
+    // 2. Runtime filter dependencies are ready
+    // 3. All tablets are loaded into local storage
+    return std::any_of(_operators.begin(), _operators.end(),
+                       [&](OperatorPtr op) -> bool { return op->is_blockable(_state); }) ||
+           _sink->is_blockable(_state);
+}
+
 bool PipelineTask::is_revoking() const {
     // Spilling may be in progress if eos is true.
     return std::any_of(_spill_dependencies.begin(), _spill_dependencies.end(),
@@ -376,9 +386,6 @@ Status PipelineTask::execute(bool* done) {
     cpu_time_stop_watch.start();
     SCOPED_ATTACH_TASK(_state);
     Defer running_defer {[&]() {
-        if (_task_queue) {
-            _task_queue->update_statistics(this, time_spent);
-        }
         int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
         _task_cpu_timer->update(delta_cpu_time);
         fragment_context->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(
@@ -588,7 +595,7 @@ Status PipelineTask::execute(bool* done) {
         }
     }
 
-    RETURN_IF_ERROR(get_task_queue()->push_back(shared_from_this()));
+    RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(shared_from_this()));
     return Status::OK();
 }
 
@@ -694,9 +701,6 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
         _fresh_profile_counter();
     }
 
-    if (_task_queue) {
-        _task_queue->update_statistics(this, close_ns);
-    }
     if (close_sink) {
         RETURN_IF_ERROR(_state_transition(State::FINISHED));
     }
@@ -813,7 +817,7 @@ Status PipelineTask::wake_up(Dependency* dep) {
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
-    RETURN_IF_ERROR(get_task_queue()->push_back(holder));
+    RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
     return Status::OK();
 }
 

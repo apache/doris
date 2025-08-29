@@ -163,12 +163,15 @@ public class CloudReplica extends Replica {
 
     public long getBackendId(String beEndpoint) {
         String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByBeAddr(beEndpoint);
+        String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getPhysicalCluster(clusterName);
+
         try {
-            String clusterId = getCloudClusterIdByName(clusterName);
+            String clusterId = getCloudClusterIdByName(physicalClusterName);
             return getBackendIdImpl(clusterId);
         } catch (ComputeGroupException e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to get compute group name {}", clusterName, e);
+                LOG.debug("failed to get compute group name {}", physicalClusterName, e);
             }
             return -1;
         }

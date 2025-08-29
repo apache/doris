@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -121,7 +122,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             throw new AnalysisException("Only value columns of unique table could be updated");
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
-        String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        String tableName = tableAlias != null ? tableAlias : Util.getTempTableDisplayName(targetTable.getName());
         Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.

@@ -2988,7 +2988,7 @@ Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* bl
                     idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
                     column_expr->root()->debug_string());
         }
-
+        block->shrink_char_type_column_suffix_zero(_char_type_idx);
         if (vectorized::check_and_get_column<const vectorized::ColumnNothing>(
                     block->get_by_position(idx_in_block).column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",

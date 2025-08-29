@@ -577,6 +577,16 @@ suite("test_date_function") {
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
     qt_sql_date_format_long """ select date_format(cast('2011-06-24' as DATETIMEV2(0)), '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') """
     qt_sql_date_format_long """ select date_format(null, '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') """
+    sql " drop table if exists dtfmt "
+    sql """
+        create table dtfmt(
+        k0 datetime(3) null
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+    sql """insert into dtfmt select "2024-06-10 12:34:56.789" from numbers("number"="5000");"""
+    sql "select date_format(k0, '%Y-%m-%d') from dtfmt;"
     
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """

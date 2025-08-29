@@ -170,17 +170,6 @@ public:
       */
     virtual bool is_value_represented_by_number() const { return false; }
 
-    /** Values are unambiguously identified by contents of contiguous memory region,
-      *  that can be obtained by IColumn::get_data_at method.
-      * Examples: numbers, Date, DateTime, String, FixedString,
-      *  and Arrays of numbers, Date, DateTime, FixedString, Enum, but not String.
-      *  (because Array(String) values became ambiguous if you concatenate Strings).
-      * Counterexamples: Nullable, Tuple.
-      */
-    virtual bool is_value_unambiguously_represented_in_contiguous_memory_region() const {
-        return false;
-    }
-
     /** Example: numbers, Date, DateTime, FixedString, Enum... Nullable and Tuple of such types.
       * Counterexamples: String, Array.
       * It's Ok to return false for AggregateFunction despite the fact that some of them have fixed size state.
