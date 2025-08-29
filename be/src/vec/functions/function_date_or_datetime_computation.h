@@ -607,11 +607,11 @@ public:
             if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
                 rconst = true;
                 const auto col1_inside_const =
-                        assert_cast<const ColumnInt32&>(nest_col1_const->get_data_column());
+                        assert_cast<const ColumnInt64&>(nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
                                     col1_inside_const.get_data()[0], nullmap0, nullmap1);
             } else { // vector-vector
-                const auto concrete_col1 = assert_cast<const ColumnInt32&>(*nest_col1);
+                const auto concrete_col1 = assert_cast<const ColumnInt64&>(*nest_col1);
                 Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
                                   res_col->get_data(), nullmap0, nullmap1);
             }
@@ -638,7 +638,7 @@ public:
             const auto col0_inside_const = assert_cast<const ColumnVector<Transform::ArgPType>&>(
                     sources_const->get_data_column());
             const ColumnPtr nested_col1 = remove_nullable(col1);
-            const auto concrete_col1 = assert_cast<const ColumnInt32&>(*nested_col1);
+            const auto concrete_col1 = assert_cast<const ColumnInt64&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
                                 concrete_col1.get_data(), nullmap0, nullmap1);
 
@@ -767,7 +767,7 @@ struct CurrentDateTimeImpl {
             } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
                                block.get_by_position(arguments[0]).column.get())) {
                 const auto& null_map = nullable_column->get_null_map_data();
-                const auto& nested_column = assert_cast<const ColumnInt32*>(
+                const auto& nested_column = assert_cast<const ColumnInt64*>(
                         nullable_column->get_nested_column_ptr().get());
                 for (int i = 0; i < input_rows_count; i++) {
                     if (!null_map[i]) {
@@ -790,7 +790,7 @@ struct CurrentDateTimeImpl {
                 }
                 use_const = false;
             } else {
-                const auto* int_column = assert_cast<const ColumnInt32*>(
+                const auto* int_column = assert_cast<const ColumnInt64*>(
                         block.get_by_position(arguments[0]).column.get());
                 for (int i = 0; i < input_rows_count; i++) {
                     dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
@@ -903,7 +903,7 @@ struct SecToTimeImpl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
-        const auto& column_data = assert_cast<const ColumnInt32&>(*arg_col);
+        const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
 
         auto res_col = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res_col->get_data();
