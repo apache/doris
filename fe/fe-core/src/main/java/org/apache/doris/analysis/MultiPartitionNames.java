@@ -248,7 +248,7 @@ public class MultiPartitionNames implements AllPartitionDesc {
             throw new AnalysisException("Multi partition time interval must be larger than zero.");
         }
 
-        if ( timeType != null && !timeType.equals("")) {
+        if (timeType != null && !timeType.equals("")) {
             try {
                 this.timeUnitType = TimeUnit.valueOf(timeType.toUpperCase());
             } catch (Exception e) {
