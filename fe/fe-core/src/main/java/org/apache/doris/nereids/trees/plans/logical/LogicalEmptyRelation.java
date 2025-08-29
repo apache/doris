@@ -61,11 +61,6 @@ public class LogicalEmptyRelation extends LogicalRelation
     }
 
     @Override
-    public boolean canProcessProject(List<NamedExpression> parentProjects) {
-        return true;
-    }
-
-    @Override
     public List<NamedExpression> getProjects() {
         return projects;
     }
