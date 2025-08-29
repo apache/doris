@@ -17,11 +17,10 @@
 
 #pragma once
 
-#include "vec/data_types/data_type_number.h"
 #include "vec/functions/llm/functions_llm.h"
 
 namespace doris::vectorized {
-class FunctionLLMFilter : public LLMFunction<FunctionLLMFilter, ColumnUInt8> {
+class FunctionLLMFilter : public LLMFunction<FunctionLLMFilter> {
 public:
     static constexpr auto name = "llm_filter";
 
@@ -40,8 +39,5 @@ public:
     }
 
     static FunctionPtr create() { return std::make_shared<FunctionLLMFilter>(); }
-
-    Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
-                        std::string& prompt) const;
 };
 } // namespace doris::vectorized

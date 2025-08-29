@@ -132,9 +132,6 @@ public:
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool is_comparable() const override { return true; }
     bool is_value_represented_by_number() const override { return true; }
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override {
         return sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);

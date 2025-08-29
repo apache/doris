@@ -2960,6 +2960,17 @@ void SegmentIterator::_init_virtual_columns(vectorized::Block* block) {
 
 Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* block) {
     size_t prev_block_columns = block->columns();
+    // Some expr can not process empty block, such as function `element_at`.
+    // So materialize virtual column in advance to avoid errors.
+    if (block->rows() == 0) {
+        for (const auto& pair : _vir_cid_to_idx_in_block) {
+            auto& col_with_type_and_name = block->get_by_position(pair.second);
+            col_with_type_and_name.column = _opts.vir_col_idx_to_type[pair.second]->create_column();
+            col_with_type_and_name.type = _opts.vir_col_idx_to_type[pair.second];
+        }
+        return Status::OK();
+    }
+
     for (const auto& cid_and_expr : _virtual_column_exprs) {
         auto cid = cid_and_expr.first;
         auto column_expr = cid_and_expr.second;
@@ -2977,7 +2988,7 @@ Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* bl
                     idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
                     column_expr->root()->debug_string());
         }
-
+        block->shrink_char_type_column_suffix_zero(_char_type_idx);
         if (vectorized::check_and_get_column<const vectorized::ColumnNothing>(
                     block->get_by_position(idx_in_block).column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",

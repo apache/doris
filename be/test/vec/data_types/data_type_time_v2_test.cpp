@@ -108,7 +108,6 @@ TEST_F(DataTypeDateTimeV2Test, simple_func_test) {
         EXPECT_TRUE(dt.text_can_contain_only_valid_utf8());
         EXPECT_TRUE(dt.is_comparable());
         EXPECT_TRUE(dt.is_value_represented_by_number());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_TRUE(dt.have_maximum_size_of_value());
         EXPECT_EQ(dt.get_size_of_value_in_memory(), sizeof(FieldType));
         EXPECT_TRUE(dt.can_be_inside_low_cardinality());
