@@ -222,6 +222,7 @@ struct TCreateTabletReq {
     27: optional i64 time_series_compaction_level_threshold = 1
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
+    30: optional TEncryptionAlgorithm tde_algorithm
 
     // For cloud
     1000: optional bool is_in_memory = false
