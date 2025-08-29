@@ -20,8 +20,7 @@ import org.apache.doris.regression.util.Http
 
 suite("load_stream_fault_injection", "nonConcurrent") {
     if (isCloudMode()) {
-        // TODO: load stream fault injection test is not supported in cloud mode yet
-        logger.info("skip test in cloud mode")
+        logger.info("skip load_stream_fault_injection case, because cloud mode not support")
         return
     }
 
