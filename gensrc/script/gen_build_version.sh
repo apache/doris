@@ -35,7 +35,7 @@ fi
 build_version_prefix="${vendor}"
 build_version_major=3
 build_version_minor=0
-build_version_patch=7
+build_version_patch=8
 build_version_hotfix=0
 build_version_rc_version="rc01"
 
