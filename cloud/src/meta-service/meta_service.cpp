@@ -4274,6 +4274,7 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
     auto table_id = request->table_id();
     std::stringstream ss;
     bool is_versioned_read = is_version_read_enabled(instance_id);
+    is_versioned_read = false;
     if (!config::enable_batch_get_mow_tablet_stats_and_meta) {
         MetaReader reader(instance_id, txn_kv_.get());
         for (const auto& tablet_idx : request->tablet_indexes()) {

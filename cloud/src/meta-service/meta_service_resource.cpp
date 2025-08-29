@@ -1728,6 +1728,8 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         }
     }
 
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+
     InstanceKeyInfo key_info {request->instance_id()};
     std::string key;
     std::string val = instance.SerializeAsString();
