@@ -292,6 +292,22 @@ void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::str
     commit_txn(meta_service, db_id, txn_id, label);
 }
 
+void insert_rowsets(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
+                    int64_t table_id, int64_t partition_id, std::vector<int64_t> tablet_ids) {
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service, db_id, label, table_id, txn_id));
+    for (auto tablet_id : tablet_ids) {
+        CreateRowsetResponse res;
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+        prepare_rowset(meta_service, rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+        res.Clear();
+        ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service, rowset, res));
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    }
+    commit_txn(meta_service, db_id, txn_id, label);
+}
+
 static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instance_id,
                              int64_t table_id, int64_t index_id,
                              const std::vector<std::array<int64_t, 2>>& tablet_idxes,
