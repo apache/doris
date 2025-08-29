@@ -118,6 +118,10 @@ kafka_port=19193
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
 
+// polaris rest catalog config
+polaris_rest_uri_port=20181
+polaris_minio_port=20001
+
 enableEsTest=false
 es_6_port=19200
 es_7_port=29200
