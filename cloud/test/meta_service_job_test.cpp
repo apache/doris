@@ -51,6 +51,8 @@ extern doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
                                               int64_t version, int num_rows);
 extern void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
                           int64_t table_id, int64_t partition_id, int64_t tablet_id);
+extern void insert_rowsets(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
+                           int64_t table_id, int64_t partition_id, std::vector<int64_t> tablet_ids);
 extern void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
                        int64_t partition_id, int64_t tablet_id);
 extern void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
@@ -1368,7 +1370,6 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         insert_rowset(meta_service.get(), 1, "commit_rowset_1", table_id, partition_id, tablet_id);
         insert_rowset(meta_service.get(), 1, "commit_rowset_2", table_id, partition_id, tablet_id);
         insert_rowset(meta_service.get(), 1, "commit_rowset_3", table_id, partition_id, tablet_id);
-        insert_rowset(meta_service.get(), 1, "commit_rowset_4", table_id, partition_id, tablet_id);
     }
 
     auto get_tablet_stats = [&](int64_t tid) -> TabletStatsPB {
@@ -1416,6 +1417,14 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 
+    {
+        // Add more rowsets, to ensure the alter version is accurate.
+        insert_rowsets(meta_service.get(), 1, "commit_rowset_4", table_id, partition_id,
+                       {tablet_id, new_tablet_id});
+        insert_rowsets(meta_service.get(), 1, "commit_rowset_5", table_id, partition_id,
+                       {tablet_id, new_tablet_id});
+    }
+
     // Create output rowsets for new tablet
     std::vector<doris::RowsetMetaCloudPB> output_rowsets;
     for (int64_t i = 0; i < 3; ++i) {
@@ -1430,6 +1439,7 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
     auto old_tablet_stats_pb = get_tablet_stats(tablet_id);
     auto new_tablet_stats_pb = get_tablet_stats(new_tablet_id);
 
+    int64_t alter_version = output_rowsets.back().end_version();
     {
         // Finish schema change job
         FinishTabletJobRequest req;
@@ -1448,7 +1458,7 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         schema_change->mutable_new_tablet_idx()->set_table_id(table_id);
         schema_change->mutable_new_tablet_idx()->set_index_id(index_id);
         schema_change->mutable_new_tablet_idx()->set_partition_id(partition_id);
-        schema_change->set_alter_version(output_rowsets.back().end_version());
+        schema_change->set_alter_version(alter_version);
 
         // Set output rowsets info
         for (const auto& rowset : output_rowsets) {
@@ -1470,7 +1480,9 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         auto new_stats = get_tablet_stats(new_tablet_id);
 
         EXPECT_EQ(new_stats.num_rows(),
-                  new_tablet_stats_pb.num_rows() + req.job().schema_change().num_output_rows());
+                  new_tablet_stats_pb.num_rows() + req.job().schema_change().num_output_rows())
+                << "new_stats => " << new_stats.DebugString() << "\nnew_tablet_stats => "
+                << new_tablet_stats_pb.DebugString();
         EXPECT_EQ(new_stats.data_size(), new_tablet_stats_pb.data_size() +
                                                  req.job().schema_change().size_output_rowsets());
         EXPECT_EQ(new_stats.num_rowsets(), new_tablet_stats_pb.num_rowsets() +
@@ -1484,6 +1496,57 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         EXPECT_EQ(new_stats.segment_size(),
                   new_tablet_stats_pb.segment_size() +
                           req.job().schema_change().segment_size_output_rowsets());
+    }
+
+    {
+        // Get the rowset metas of the old tablet
+        GetRowsetRequest req;
+        GetRowsetResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_start_version(alter_version + 1);
+        req.set_end_version(-1);
+        req.mutable_idx()->set_db_id(1);
+        req.mutable_idx()->set_table_id(table_id);
+        req.mutable_idx()->set_index_id(index_id);
+        req.mutable_idx()->set_partition_id(partition_id);
+        req.mutable_idx()->set_tablet_id(tablet_id);
+        req.set_base_compaction_cnt(old_tablet_stats_pb.base_compaction_cnt());
+        req.set_cumulative_point(old_tablet_stats_pb.cumulative_point());
+        req.set_cumulative_compaction_cnt(old_tablet_stats_pb.cumulative_compaction_cnt());
+
+        brpc::Controller cntl;
+        meta_service->get_rowset(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.rowset_meta_size(), 2);
+        ASSERT_EQ(resp.rowset_meta(0).start_version(), 5);
+        ASSERT_EQ(resp.rowset_meta(0).end_version(), 5);
+        ASSERT_EQ(resp.rowset_meta(1).start_version(), 6);
+        ASSERT_EQ(resp.rowset_meta(1).end_version(), 6);
+    }
+
+    {
+        // Get the rowset metas of the new tablet
+        GetRowsetRequest req;
+        GetRowsetResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_start_version(alter_version + 1);
+        req.set_end_version(-1);
+        req.mutable_idx()->set_db_id(1);
+        req.mutable_idx()->set_table_id(table_id);
+        req.mutable_idx()->set_index_id(index_id);
+        req.mutable_idx()->set_partition_id(partition_id);
+        req.mutable_idx()->set_tablet_id(new_tablet_id);
+        req.set_base_compaction_cnt(new_tablet_stats_pb.base_compaction_cnt());
+        req.set_cumulative_point(new_tablet_stats_pb.cumulative_point());
+        req.set_cumulative_compaction_cnt(new_tablet_stats_pb.cumulative_compaction_cnt());
+        brpc::Controller cntl;
+        meta_service->get_rowset(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.rowset_meta_size(), 2);
+        ASSERT_EQ(resp.rowset_meta(0).start_version(), 5);
+        ASSERT_EQ(resp.rowset_meta(0).end_version(), 5);
+        ASSERT_EQ(resp.rowset_meta(1).start_version(), 6);
+        ASSERT_EQ(resp.rowset_meta(1).end_version(), 6);
     }
 }
 
