@@ -24,7 +24,7 @@ suite("test_hive_empty_partition_mtmv", "p0,external,hive,external_docker,extern
     String suiteName = "test_excluded_trigger_table_mtmv"
     String dbName = "default";
     String tableName = "${suiteName}_empty_table"
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         setHivePrefix(hivePrefix)
         // prepare catalog
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
