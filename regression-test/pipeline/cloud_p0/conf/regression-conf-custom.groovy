@@ -76,6 +76,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "workload_manager_p1," +
     "nereids_rules_p0/subquery," +
     "backup_restore," + // not a case for cloud mode, no need to run
+    "restore_p0," + // not a case for cloud mode, no need to run
     "validate_restore," + // validate_restore is not supported for snapshot
     "cold_heat_separation," +
     "storage_medium_p0," +
