@@ -900,6 +900,13 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
             check_rowset_meta_exist(txn, tablet_id, 2);
+
+            // Check versioned rowset meta exists.
+            std::string rowset_key = versioned::meta_rowset_load_key({mock_instance, tablet_id, 2});
+            doris::RowsetMetaCloudPB rowset_val;
+            Versionstamp versionstamp;
+            ASSERT_EQ(versioned::document_get(txn.get(), rowset_key, &rowset_val, &versionstamp),
+                      TxnErrorCode::TXN_OK);
         }
     }
 

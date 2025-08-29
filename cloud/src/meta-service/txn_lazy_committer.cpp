@@ -323,15 +323,18 @@ void convert_tmp_rowsets(
         if (is_versioned_write) {
             // If this is a versioned write, we need to put the rowset with versionstamp
             RowsetMetaCloudPB copied_rowset_meta(tmp_rowset_pb);
-            if (!versioned::document_put(txn.get(), rowset_key, versionstamp,
+            std::string rowset_load_key = versioned::meta_rowset_load_key(
+                    {instance_id, tmp_rowset_pb.tablet_id(), version});
+            if (!versioned::document_put(txn.get(), rowset_load_key, versionstamp,
                                          std::move(copied_rowset_meta))) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize rowset_meta, txn_id=" << txn_id
-                   << " key=" << hex(rowset_key);
+                   << " key=" << hex(rowset_load_key);
                 msg = ss.str();
                 return;
             }
-            LOG(INFO) << "put versioned rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id;
+            LOG(INFO) << "put versioned rowset_key=" << hex(rowset_load_key)
+                      << " txn_id=" << txn_id;
         }
     }
 
