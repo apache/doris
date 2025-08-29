@@ -2,89 +2,13 @@
 -- !select --
 1	zhangsan
 1	zhangsan1
-10	zhangsan1410
-10	zhangsan12410
-10	zhangsan1310
-10	zhangsan1510
-10	zhangsan410
-10	zhangsan2510
-10	zhangsan1210
-10	zhangsan210
-
--- !select --
-1048576	1048576
-
--- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
-
--- !select --
-1	zhangsan
-1	zhangsan1
-10	zhangsan2510
-10	zhangsan310
-10	zhangsan1510
-10	zhangsan3610
-10	zhangsan510
-10	zhangsan210
-10	zhangsan1210
-10	zhangsan1310
-
--- !select --
-1048576	1048576
-
--- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
-
--- !select --
-1	zhangsan1
-1	zhangsan
 10	zhangsan10
-10	zhangsan12410
-10	zhangsan2410
-10	zhangsan1510
-10	zhangsan12510
-10	zhangsan1210
-10	zhangsan210
 10	zhangsan110
-
--- !select --
-1048576	1048576
-
--- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
-
--- !select --
-1	zhangsan
-1	zhangsan1
-10	zhangsan12410
-10	zhangsan2410
-10	zhangsan13610
-10	zhangsan1510
-10	zhangsan510
-10	zhangsan210
-10	zhangsan410
-10	zhangsan310
-
--- !select --
-1048576	1048576
-
--- !select --
-c1	text	Yes	false	\N	NONE
-c2	text	Yes	false	\N	NONE
-
--- !select --
-1	zhangsan1
-1	zhangsan
-10	zhangsan2410
-10	zhangsan12410
-10	zhangsan1510
-10	zhangsan210
 10	zhangsan1210
-10	zhangsan13610
+10	zhangsan12410
+10	zhangsan12510
 10	zhangsan1310
+10	zhangsan13610
 10	zhangsan1410
 
 -- !select --
@@ -97,14 +21,90 @@ c2	text	Yes	false	\N	NONE
 -- !select --
 1	zhangsan
 1	zhangsan1
-10	zhangsan2510
-10	zhangsan110
-10	zhangsan12510
-10	zhangsan1510
-10	zhangsan3610
-10	zhangsan310
 10	zhangsan10
+10	zhangsan110
+10	zhangsan1210
 10	zhangsan12410
+10	zhangsan12510
+10	zhangsan1310
+10	zhangsan13610
+10	zhangsan1410
+
+-- !select --
+1048576	1048576
+
+-- !select --
+c1	text	Yes	false	\N	NONE
+c2	text	Yes	false	\N	NONE
+
+-- !select --
+1	zhangsan
+1	zhangsan1
+10	zhangsan10
+10	zhangsan110
+10	zhangsan1210
+10	zhangsan12410
+10	zhangsan12510
+10	zhangsan1310
+10	zhangsan13610
+10	zhangsan1410
+
+-- !select --
+1048576	1048576
+
+-- !select --
+c1	text	Yes	false	\N	NONE
+c2	text	Yes	false	\N	NONE
+
+-- !select --
+1	zhangsan
+1	zhangsan1
+10	zhangsan10
+10	zhangsan110
+10	zhangsan1210
+10	zhangsan12410
+10	zhangsan12510
+10	zhangsan1310
+10	zhangsan13610
+10	zhangsan1410
+
+-- !select --
+1048576	1048576
+
+-- !select --
+c1	text	Yes	false	\N	NONE
+c2	text	Yes	false	\N	NONE
+
+-- !select --
+1	zhangsan
+1	zhangsan1
+10	zhangsan10
+10	zhangsan110
+10	zhangsan1210
+10	zhangsan12410
+10	zhangsan12510
+10	zhangsan1310
+10	zhangsan13610
+10	zhangsan1410
+
+-- !select --
+1048576	1048576
+
+-- !select --
+c1	text	Yes	false	\N	NONE
+c2	text	Yes	false	\N	NONE
+
+-- !select --
+1	zhangsan
+1	zhangsan1
+10	zhangsan10
+10	zhangsan110
+10	zhangsan1210
+10	zhangsan12410
+10	zhangsan12510
+10	zhangsan1310
+10	zhangsan13610
+10	zhangsan1410
 
 -- !select --
 1048576	1048576

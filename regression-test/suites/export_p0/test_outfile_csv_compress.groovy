@@ -72,7 +72,7 @@ suite("test_outfile_csv_compress", "p0") {
                     "provider" = "${getS3Provider()}",
                     "region" = "${region}",
                     "compress_type" = "${compression_type}"
-                ) order by c1 limit 10;
+                ) order by c1, c2 limit 10;
                 """
         qt_select """ select count(c1), count(c2) from s3(
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}*",
