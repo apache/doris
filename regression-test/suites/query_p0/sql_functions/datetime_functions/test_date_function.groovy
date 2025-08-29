@@ -878,4 +878,105 @@ suite("test_date_function") {
     FROM date_add_test123; """
 
     order_qt_sql2 """ SELECT invalid_col,     DATE_ADD(invalid_col, INTERVAL 1+2 DAY)     FROM date_add_test123 """
+
+    // Test large parameter values for date_add functions - ensuring no overflow beyond 9999-12-31
+    def date_add_large_test_table = "date_add_large_test"
+    sql """ DROP TABLE IF EXISTS ${date_add_large_test_table} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${date_add_large_test_table} (
+                test_date datetime NULL COMMENT "",
+                test_datev2 datetimev2(3) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(test_date)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(test_date) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into ${date_add_large_test_table} values 
+            ("1000-01-01 00:00:00", "1000-01-01 00:00:00.000"),
+            ("2000-06-15 12:30:45", "2000-06-15 12:30:45.123"),
+            ("8000-01-01 00:00:00", "8000-01-01 00:00:00.000"),
+            ("9998-12-30 23:59:59", "9998-12-30 23:59:59.999") """
+
+    // Test minutes_add with large values that should work
+    qt_sql_large_minutes1 """ select minutes_add('1000-01-01', 1000000) """
+    qt_sql_large_minutes2 """ select minutes_add('2000-01-01', 5256000) """ // about 10 years worth of minutes
+    qt_sql_large_minutes3 """ select minutes_add(test_date, 1000000) from ${date_add_large_test_table} order by test_date """
+    qt_sql_large_minutes4 """ select minutes_add(test_datev2, 2628000) from ${date_add_large_test_table} order by test_date """ // about 5 years worth
+
+    // Test hours_add with large values
+    qt_sql_large_hours1 """ select hours_add('1000-01-01', 87600) """ // about 10 years worth of hours  
+    qt_sql_large_hours2 """ select hours_add('5000-01-01', 43800) """ // about 5 years worth
+    qt_sql_large_hours3 """ select hours_add(test_date, 8760) from ${date_add_large_test_table} order by test_date """ // 1 year worth
+    qt_sql_large_hours4 """ select hours_add(test_datev2, 17520) from ${date_add_large_test_table} order by test_date """ // 2 years worth
+
+    // Test days_add with large values
+    qt_sql_large_days1 """ select days_add('1000-01-01', 3650) """ // 10 years worth of days
+    qt_sql_large_days2 """ select days_add('5000-01-01', 1825) """ // 5 years worth
+    qt_sql_large_days3 """ select days_add(test_date, 365) from ${date_add_large_test_table} order by test_date """ // 1 year
+    qt_sql_large_days4 """ select days_add(test_datev2, 730) from ${date_add_large_test_table} order by test_date """ // 2 years
+
+    // Test weeks_add with large values
+    qt_sql_large_weeks1 """ select weeks_add('1000-01-01', 520) """ // 10 years worth of weeks
+    qt_sql_large_weeks2 """ select weeks_add('6000-01-01', 260) """ // 5 years worth
+    qt_sql_large_weeks3 """ select weeks_add(test_date, 52) from ${date_add_large_test_table} order by test_date """ // 1 year
+    qt_sql_large_weeks4 """ select weeks_add(test_datev2, 104) from ${date_add_large_test_table} order by test_date """ // 2 years
+
+    // Test months_add with large values
+    qt_sql_large_months1 """ select months_add('1000-01-01', 120) """ // 10 years worth of months
+    qt_sql_large_months2 """ select months_add('7000-01-01', 60) """ // 5 years worth
+    qt_sql_large_months3 """ select months_add(test_date, 12) from ${date_add_large_test_table} order by test_date """ // 1 year
+    qt_sql_large_months4 """ select months_add(test_datev2, 24) from ${date_add_large_test_table} order by test_date """ // 2 years
+
+    // Test years_add with large values
+    qt_sql_large_years1 """ select years_add('1000-01-01', 1000) """ // should give year 2000
+    qt_sql_large_years2 """ select years_add('5000-01-01', 2000) """ // should give year 7000
+    qt_sql_large_years3 """ select years_add(test_date, 10) from ${date_add_large_test_table} order by test_date """ // 10 years
+    qt_sql_large_years4 """ select years_add(test_datev2, 100) from ${date_add_large_test_table} order by test_date """ // 100 years
+
+    // Test seconds_add with large values
+    qt_sql_large_seconds1 """ select seconds_add('1000-01-01', 31536000) """ // 1 year worth of seconds
+    qt_sql_large_seconds2 """ select seconds_add('2000-01-01', 157680000) """ // 5 years worth
+    qt_sql_large_seconds3 """ select seconds_add(test_date, 86400) from ${date_add_large_test_table} order by test_date """ // 1 day worth
+    qt_sql_large_seconds4 """ select seconds_add(test_datev2, 604800) from ${date_add_large_test_table} order by test_date """ // 1 week worth
+
+    // Test microseconds_add with large values (for datetimev2 only)
+    qt_sql_large_microseconds1 """ select microseconds_add(cast('1000-01-01 00:00:00.000000' as datetimev2(6)), 3600000000) """ // 1 hour worth of microseconds
+    qt_sql_large_microseconds2 """ select microseconds_add(cast('2000-01-01 00:00:00.000000' as datetimev2(6)), 86400000000) """ // 1 day worth
+    qt_sql_large_microseconds3 """ select microseconds_add(cast(test_datev2 as datetimev2(6)), 1000000) from ${date_add_large_test_table} order by test_date """ // 1 second worth
+    qt_sql_large_microseconds4 """ select microseconds_add(cast(test_datev2 as datetimev2(6)), 60000000) from ${date_add_large_test_table} order by test_date """ // 1 minute worth
+
+    // Test edge cases near the upper limit (9999-12-31)
+    qt_sql_edge_case1 """ select minutes_add('9999-12-31 00:00:00', 1439) """ // add 23 hours 59 minutes - should reach 9999-12-31 23:59:00
+    qt_sql_edge_case2 """ select hours_add('9999-12-30 00:00:00', 47) """ // add 47 hours - should reach 9999-12-31 23:00:00
+    qt_sql_edge_case3 """ select days_add('9999-12-01 00:00:00', 30) """ // add 30 days - should reach 9999-12-31
+    qt_sql_edge_case4 """ select months_add('9999-01-01 00:00:00', 11) """ // add 11 months - should reach 9999-12-01
+    qt_sql_edge_case5 """ select years_add('8999-01-01 00:00:00', 1000) """ // add 1000 years - should reach 9999-01-01
+
+    // Test boundary values that should NOT exceed 9999-12-31 23:59:59
+    qt_sql_boundary1 """ select seconds_add('9999-12-31 23:59:58', 1) """ // should reach 9999-12-31 23:59:59
+    qt_sql_boundary2 """ select minutes_add('9999-12-31 23:58:59', 1) """ // should reach 9999-12-31 23:59:59
+    qt_sql_boundary3 """ select hours_add('9999-12-31 22:59:59', 1) """ // should reach 9999-12-31 23:59:59
+
+    // Test large negative values (going backwards in time)
+    qt_sql_large_negative1 """ select minutes_add('5000-01-01', -1000000) """ // subtract large number of minutes
+    qt_sql_large_negative2 """ select hours_add('3000-01-01', -87600) """ // subtract large number of hours
+    qt_sql_large_negative3 """ select days_add('9000-01-01', -3650) """ // subtract 10 years worth of days
+    qt_sql_large_negative4 """ select years_add('9000-01-01', -1000) """ // subtract 1000 years
+    qt_sql_large_negative5 """ select seconds_add('8000-01-01', -31536000) """ // subtract 1 year worth of seconds
+
+    // Test the specific originally problematic value
+    qt_sql_original_issue """ select minutes_add('1000-10-01', 20900000002) """ // This was the original failing case
+    
+    // Test other large values that were problematic before the fix
+    qt_sql_large_value1 """ select minutes_add('2000-01-01', 10000000000) """ // 10 billion minutes
+    qt_sql_large_value2 """ select hours_add('1500-01-01', 100000000) """ // 100 million hours
+    qt_sql_large_value3 """ select seconds_add('1000-01-01', 100000000000) """ // 100 billion seconds
+
+    // Clean up
+    sql """ DROP TABLE IF EXISTS ${date_add_large_test_table} """
 }

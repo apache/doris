@@ -65,11 +65,11 @@
 namespace doris::vectorized {
 #include "common/compile_check_avoid_begin.h"
 /// because all these functions(xxx_add/xxx_sub) defined in FE use Integer as the second value
-///  so Int32 as delta is enough. For upstream(FunctionDateOrDateTimeComputation) we also could use Int32.
+///  so Int64 as delta is needed to support large values. For upstream(FunctionDateOrDateTimeComputation) we use Int64.
 
 template <TimeUnit unit, PrimitiveType ArgType, PrimitiveType ReturnType>
 typename PrimitiveTypeTraits<ReturnType>::DataType::FieldType date_time_add(
-        const typename PrimitiveTypeTraits<ArgType>::DataType::FieldType& t, Int32 delta,
+        const typename PrimitiveTypeTraits<ArgType>::DataType::FieldType& t, Int64 delta,
         bool& is_null) {
     using DateValueType = typename PrimitiveTypeTraits<ArgType>::CppType;
     using ResultDateValueType = typename PrimitiveTypeTraits<ReturnType>::CppType;
@@ -110,14 +110,14 @@ typename PrimitiveTypeTraits<ReturnType>::DataType::FieldType date_time_add(
         using InputNativeType = typename PrimitiveTypeTraits<ArgType>::DataType::FieldType;         \
         static constexpr auto name = #NAME;                                                         \
         static constexpr auto is_nullable = true;                                                   \
-        static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta,               \
+        static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta,               \
                                                bool& is_null) {                                     \
             return date_time_add<TimeUnit::UNIT, ArgType, ReturnType>(t, delta, is_null);           \
         }                                                                                           \
                                                                                                     \
         static DataTypes get_variadic_argument_types() {                                            \
             return {std::make_shared<typename PrimitiveTypeTraits<ArgType>::DataType>(),            \
-                    std::make_shared<DataTypeInt32>()};                                             \
+                    std::make_shared<DataTypeInt64>()};                                             \
         }                                                                                           \
     }
 
@@ -139,13 +139,13 @@ struct AddQuartersImpl {
     using ReturnNativeType = typename PrimitiveTypeTraits<ReturnType>::DataType::FieldType;
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = true;
-    static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta, bool& is_null) {
+    static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         return date_time_add<TimeUnit::MONTH, ArgType, ReturnType>(t, 3 * delta, is_null);
     }
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<ArgType>::DataType>(),
-                std::make_shared<DataTypeInt32>()};
+                std::make_shared<DataTypeInt64>()};
     }
 };
 
@@ -156,7 +156,7 @@ struct SubtractIntervalImpl {
     using InputNativeType = typename Transform::InputNativeType;
     using ReturnNativeType = typename Transform::ReturnNativeType;
     static constexpr auto is_nullable = true;
-    static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta, bool& is_null) {
+    static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         return Transform::execute(t, -delta, is_null);
     }
 
@@ -570,7 +570,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         using ResFieldType =
                 typename PrimitiveTypeTraits<Transform::ReturnType>::DataType::FieldType;
-        using Op = DateTimeOp<Transform::ArgPType, TYPE_INT, ResFieldType, Transform>;
+        using Op = DateTimeOp<Transform::ArgPType, TYPE_BIGINT, ResFieldType, Transform>;
 
         auto get_null_map = [](const ColumnPtr& col) -> const NullMap* {
             if (col->is_nullable()) {
@@ -607,11 +607,11 @@ public:
             if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
                 rconst = true;
                 const auto col1_inside_const =
-                        assert_cast<const ColumnInt32&>(nest_col1_const->get_data_column());
+                        assert_cast<const ColumnInt64&>(nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
                                     col1_inside_const.get_data()[0], nullmap0, nullmap1);
             } else { // vector-vector
-                const auto concrete_col1 = assert_cast<const ColumnInt32&>(*nest_col1);
+                const auto concrete_col1 = assert_cast<const ColumnInt64&>(*nest_col1);
                 Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
                                   res_col->get_data(), nullmap0, nullmap1);
             }
@@ -638,7 +638,7 @@ public:
             const auto col0_inside_const = assert_cast<const ColumnVector<Transform::ArgPType>&>(
                     sources_const->get_data_column());
             const ColumnPtr nested_col1 = remove_nullable(col1);
-            const auto concrete_col1 = assert_cast<const ColumnInt32&>(*nested_col1);
+            const auto concrete_col1 = assert_cast<const ColumnInt64&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
                                 concrete_col1.get_data(), nullmap0, nullmap1);
 
@@ -767,7 +767,7 @@ struct CurrentDateTimeImpl {
             } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
                                block.get_by_position(arguments[0]).column.get())) {
                 const auto& null_map = nullable_column->get_null_map_data();
-                const auto& nested_column = assert_cast<const ColumnInt32*>(
+                const auto& nested_column = assert_cast<const ColumnInt64*>(
                         nullable_column->get_nested_column_ptr().get());
                 for (int i = 0; i < input_rows_count; i++) {
                     if (!null_map[i]) {
@@ -790,7 +790,7 @@ struct CurrentDateTimeImpl {
                 }
                 use_const = false;
             } else {
-                const auto* int_column = assert_cast<const ColumnInt32*>(
+                const auto* int_column = assert_cast<const ColumnInt64*>(
                         block.get_by_position(arguments[0]).column.get());
                 for (int i = 0; i < input_rows_count; i++) {
                     dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
@@ -903,7 +903,7 @@ struct SecToTimeImpl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
-        const auto& column_data = assert_cast<const ColumnInt32&>(*arg_col);
+        const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
 
         auto res_col = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res_col->get_data();
