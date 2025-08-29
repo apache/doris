@@ -670,9 +670,17 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     vectorized::IColumn::MutablePtr result_column;
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
-    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
-                                                                  rows_of_segment, result_column,
-                                                                  result_row_ids, ann_index_stats));
+    Status st = _ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
+                                                              rows_of_segment, result_column,
+                                                              result_row_ids, ann_index_stats);
+    if (!st.ok()) {
+        if (_downgrade_without_index(st)) {
+            // fallback
+            return Status::OK();
+        } else {
+            return st;
+        }
+    }
 
     VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
                               _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
@@ -971,9 +979,16 @@ Status SegmentIterator::_apply_index_expr() {
     segment_v2::AnnIndexStats ann_index_stats;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         size_t origin_rows = _row_bitmap.cardinality();
-        RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(_index_iterators, _schema->column_ids(),
-                                                            _column_iterators, _row_bitmap,
-                                                            ann_index_stats));
+        Status st = expr_ctx->evaluate_ann_range_search(_index_iterators, _schema->column_ids(),
+                                                        _column_iterators, _row_bitmap,
+                                                        ann_index_stats);
+        if (!st.ok()) {
+            if (_downgrade_without_index(st)) {
+                continue;
+            } else {
+                return st;
+            }
+        }
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
