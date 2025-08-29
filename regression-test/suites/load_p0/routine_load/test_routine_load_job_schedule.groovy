@@ -111,5 +111,60 @@ suite("test_routine_load_job_schedule","nonConcurrent") {
                 logger.warn("Failed to stop routine load job: ${e.message}")
             }
         }
+
+        sql "truncate table ${table_name}"
+        def memJob = "test_routine_load_job_schedule_mem_limit"
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED")
+            testData.each { line->
+                logger.info("Sending data to kafka: ${line}")
+                def record = new ProducerRecord<>(kafkaCsvTpoics[0], null, line)
+                producer.send(record)
+            }
+
+            sql """
+                CREATE ROUTINE LOAD ${memJob} ON ${tableName}
+                COLUMNS TERMINATED BY ","
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${newTopic.name()}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING",
+                    "max_batch_interval" = "6"
+                );
+            """
+
+            sleep(5000)
+
+            GetDebugPoint().disableDebugPointForAllBEs("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED")
+
+            def count = 0
+            def maxWaitCount = 120 // > 60 = maxBatchIntervalS * Config.routine_load_task_timeout_multiplier
+            while (true) {
+                def state = sql "show routine load for ${memJob}"
+                def routineLoadState = state[0][8].toString()
+                def statistic = state[0][14].toString()
+                logger.info("Routine load state: ${routineLoadState}")
+                logger.info("Routine load statistic: ${statistic}")
+                def rowCount = sql "select count(*) from ${memTableName}"
+                if (routineLoadState == "RUNNING" && rowCount[0][0] == 5) {
+                    break
+                }
+                if (count > maxWaitCount) {
+                    assertEquals(1, 2)
+                }
+                sleep(1000)
+                count++
+            }
+        } catch (Exception e) {
+            logger.error("MEM_LIMIT_EXCEEDED test failed with exception: ${e.message}")
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED")
+            try {
+                sql "stop routine load for test_routine_load_job_schedule_mem_limit"
+            } catch (Exception e) {
+                logger.warn("Failed to stop routine load job: ${e.message}")
+            }
+        }
     }
 }
