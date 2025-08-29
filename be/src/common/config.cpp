@@ -1070,6 +1070,8 @@ DEFINE_Bool(enable_java_support, "true");
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
+DEFINE_Bool(enable_graceful_exit_check, "false");
+
 DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
