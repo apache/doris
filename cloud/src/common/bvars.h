@@ -267,16 +267,14 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts
 
 // recycler's mbvars
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
-extern bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
-extern bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter;
+extern mBvarIntAdder g_bvar_recycler_instance_recycle_task_status;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
 
-extern mBvarIntAdder g_bvar_recycler_vault_recycle_status;
-extern mBvarIntAdder g_bvar_recycler_vault_recycle_task_concurrency;
+extern mBvarIntAdder g_bvar_recycler_vault_recycle_task_status;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes;

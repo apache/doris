@@ -107,11 +107,9 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycl
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts("recycler", "recycle_restore_job_earlest_ts");
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
-// current concurrency of recycle task
-bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
-
+// current status of recycle task (submitted, completed, error)
+mBvarIntAdder g_bvar_recycler_instance_recycle_task_status("recycler_instance_recycle_task_status", { "status"});
 // recycler's mbvars
-bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter("recycler_instance_running_counter");
 // cost time of the last whole recycle process
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration("recycler_instance_last_round_recycle_duration",{"instance_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts("recycler_instance_next_ts",{"instance_id"});
@@ -122,12 +120,10 @@ mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts("recycler_
 
 // recycler's mbvars
 // instance_id: unique identifier for the instance
-// resource_type: type of resource need to be recycled (index, partition, rowset, segment, tablet, etc.)
 // resource_id: unique identifier for the repository
-// status: status of the recycle task (normal, abnormal, etc.)
-mBvarIntAdder g_bvar_recycler_vault_recycle_status("recycler_vault_recycle_status", {"instance_id", "resource_id", "status"});
+// status: status of the recycle task (submitted, completed, error)
+mBvarIntAdder g_bvar_recycler_vault_recycle_task_status("recycler_vault_recycle_task_status", {"instance_id", "resource_id", "status"});
 // current concurrency of vault delete task
-mBvarIntAdder g_bvar_recycler_vault_recycle_task_concurrency("recycler_vault_recycle_task_concurrency", {"instance_id", "resource_type", "resource_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num("recycler_instance_last_round_recycled_num", {"instance_id", "resource_type"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num("recycler_instance_last_round_to_recycle_num", {"instance_id", "resource_type"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes("recycler_instance_last_round_recycled_bytes", {"instance_id", "resource_type"});
