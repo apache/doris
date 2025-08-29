@@ -77,6 +77,10 @@ public:
         state.squared_y += y * y;
     }
     static float finalize(const State& state) {
+        // division by zero check
+        if (state.squared_x == 0 || state.squared_y == 0) [[unlikely]] {
+            return 2.0F;
+        }
         return 1 - state.dot_prod / sqrt(state.squared_x * state.squared_y);
     }
 };
@@ -160,6 +164,15 @@ public:
             for (ssize_t pos = offsets1[row - 1]; pos < offsets1[row]; ++pos) {
                 // Calculate corresponding position in the second array
                 ssize_t pos2 = offsets2[row - 1] + (pos - offsets1[row - 1]);
+
+                if ((arr1.nested_nullmap_data && arr1.nested_nullmap_data[pos]) ||
+                    (arr2.nested_nullmap_data && arr2.nested_nullmap_data[pos2])) [[unlikely]] {
+                    return Status::RuntimeError(
+                            "function {} does not support arrays containing null, null found at "
+                            "index {}",
+                            get_name(), pos);
+                }
+
                 DistanceImpl::accumulate(st, nested_col1->get_element(pos),
                                          nested_col2->get_element(pos2));
             }
