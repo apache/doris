@@ -813,7 +813,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
 
     DCHECK(_pk_index_reader != nullptr);
     if (!_pk_index_reader->check_present(key_without_seq)) {
-        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
     }
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
@@ -823,7 +823,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
         return st;
     }
     if (st.is<ErrorCode::ENTRY_NOT_FOUND>() || (!has_seq_col && !has_rowid && !exact_match)) {
-        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
     }
     row_location->row_id = index_iterator->get_current_ordinal();
     row_location->segment_id = _segment_id;
@@ -850,7 +850,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     if (has_seq_col) {
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
-            return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+            return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
         }
 
         if (with_seq_col && segment_has_seq_col) {
@@ -870,7 +870,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                 Slice(sought_key.get_data(), sought_key.get_size() - rowid_length);
         // compare key
         if (key_without_seq.compare(sought_key_without_rowid) != 0) {
-            return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+            return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
         }
     }
     // found the key, use rowid in pk index if necessary.
