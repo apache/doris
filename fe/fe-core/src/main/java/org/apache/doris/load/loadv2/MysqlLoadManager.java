@@ -47,6 +47,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.EvictingQueue;
@@ -760,7 +761,7 @@ public class MysqlLoadManager {
         return httpPut;
     }
 
-    // public only for test
+    @VisibleForTesting
     public HttpPut generateRequestForMySqlLoad(
             InputStreamEntity entity,
             DataDescription desc,
@@ -785,6 +786,10 @@ public class MysqlLoadManager {
 
         Map<String, String> props = desc.getProperties();
         FileFormatProperties fileFormatProperties = desc.getFileFormatProperties();
+        if (!(fileFormatProperties instanceof CsvFileFormatProperties)) {
+            throw new LoadException("Only support csv file format for mysql load");
+        }
+        CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
         if (props != null) {
             // max_filter_ratio
             if (props.containsKey(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
@@ -816,21 +821,15 @@ public class MysqlLoadManager {
                 httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
             }
 
-            if (fileFormatProperties instanceof CsvFileFormatProperties) {
-                CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
-                httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES,
-                        String.valueOf(csvFileFormatProperties.isTrimDoubleQuotes()));
-                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
-                httpPut.addHeader(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
-            }
+            httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES,
+                    String.valueOf(csvFileFormatProperties.isTrimDoubleQuotes()));
+            httpPut.addHeader(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+            httpPut.addHeader(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
         }
 
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
-            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
-            httpPut.addHeader(LoadStmt.KEY_SKIP_LINES, Integer.toString(csvFileFormatProperties.getSkipLines()));
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, csvFileFormatProperties.getColumnSeparator());
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, csvFileFormatProperties.getLineDelimiter());
-        }
+        httpPut.addHeader(LoadStmt.KEY_SKIP_LINES, Integer.toString(csvFileFormatProperties.getSkipLines()));
+        httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, csvFileFormatProperties.getColumnSeparator());
+        httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, csvFileFormatProperties.getLineDelimiter());
 
         // columns
         String columns = getColumns(desc);
