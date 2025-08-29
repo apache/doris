@@ -75,6 +75,6 @@ suite("test_validate_restore_partition", "validate_restore") {
     }
 
     runValidateRestorePartition("3.0")
-    //runValidateRestorePartition("2.1")
+    runValidateRestorePartition("2.1")
 }
 

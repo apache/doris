@@ -65,7 +65,7 @@ suite("test_validate_restore_mtmv", "validate_restore") {
     }
 
     runValidateRestoreMtmv("3.0")
-    //runValidateRestoreMtmv("2.1")
+    runValidateRestoreMtmv("2.1")
 }
 
 
