@@ -26,6 +26,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
@@ -1210,6 +1211,71 @@ public class TypeCoercionUtils {
                     return caseWhen.withChildren(newChildren);
                 })
                 .orElseThrow(() -> new AnalysisException("Cannot find common type for case when " + caseWhen));
+    }
+
+    /**
+     * process between type coercion.
+     */
+    public static Expression processBetween(Between between) {
+        // check
+        between.checkLegalityBeforeTypeCoercion();
+
+        if (between.getLowerBound().getDataType().equals(between.getCompareExpr().getDataType())
+                && between.getUpperBound().getDataType().equals(between.getCompareExpr().getDataType())) {
+            return between;
+        }
+
+        // process string literal
+        boolean hitString = false;
+        Expression newLowerBound = between.getLowerBound();
+        Expression newUpperBound = between.getUpperBound();
+        if (!(between.getCompareExpr().getDataType().isStringLikeType())) {
+            if (newLowerBound instanceof Literal && ((Literal) newLowerBound).isStringLikeLiteral()) {
+                Optional<Expression> boundOpt = TypeCoercionUtils.characterLiteralTypeCoercion(
+                        ((Literal) newLowerBound).getStringValue(), between.getCompareExpr().getDataType());
+                if (boundOpt.isPresent()) {
+                    newLowerBound = boundOpt.get();
+                    hitString = true;
+                }
+            }
+            if (newUpperBound instanceof Literal && ((Literal) newUpperBound).isStringLikeLiteral()) {
+                Optional<Expression> boundOpt = TypeCoercionUtils.characterLiteralTypeCoercion(
+                        ((Literal) newUpperBound).getStringValue(), between.getCompareExpr().getDataType());
+                if (boundOpt.isPresent()) {
+                    newUpperBound = boundOpt.get();
+                    hitString = true;
+                }
+            }
+        }
+        if (hitString) {
+            between = new Between(between.getCompareExpr(), newLowerBound, newUpperBound);
+        }
+
+        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(
+                between.children()
+                        .stream()
+                        .map(Expression::getDataType)
+                        .collect(Collectors.toList()));
+
+        if (optionalCommonType.isPresent()) {
+            optionalCommonType = Optional.of(downgradeDecimalAndDateLikeType(
+                    optionalCommonType.get(),
+                    between.getCompareExpr(),
+                    between.getLowerBound(),
+                    between.getUpperBound()));
+        }
+
+        // lambda need a final variable
+        final Between finalBetween = between;
+
+        return optionalCommonType
+                .map(commonType -> {
+                    List<Expression> newChildren = finalBetween.children().stream()
+                            .map(e -> TypeCoercionUtils.castIfNotMatchType(e, commonType))
+                            .collect(Collectors.toList());
+                    return finalBetween.withChildren(newChildren);
+                })
+                .orElse(between);
     }
 
     private static boolean canCompareDate(DataType t1, DataType t2) {

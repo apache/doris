@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.rules.BetweenToCompound;
 import org.apache.doris.nereids.rules.expression.rules.ConcatWsMultiArrayToOne;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
@@ -54,6 +55,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
             bottomUp(
                 SupportJavaDateFormatter.INSTANCE,
                 NormalizeBinaryPredicatesRule.INSTANCE,
+                BetweenToCompound.INSTANCE,
                 InPredicateDedup.INSTANCE,
                 InPredicateExtractNonConstant.INSTANCE,
                 InPredicateToEqualToRule.INSTANCE,
