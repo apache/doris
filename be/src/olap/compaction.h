@@ -116,6 +116,9 @@ protected:
     int64_t _local_read_bytes_total {};
     int64_t _remote_read_bytes_total {};
 
+    int64_t _input_rowsets_cache_data_size {0};
+    int64_t _input_rowsets_cache_index_size {0};
+
     Merger::Statistics _stats;
 
     RowsetSharedPtr _output_rowset;
@@ -232,6 +235,36 @@ private:
     int64_t get_compaction_permits();
 
     void update_compaction_level();
+
+    bool output_rowset_write_file_cache() {
+        if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+            return true;
+        }
+
+        if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+            if (config::enable_file_cache_keep_base_compaction_output) {
+                return true;
+            }
+            double input_rowsets_hit_cache_ratio = 0.0;
+            int64_t total_size = _input_rowsets_data_size + _input_rowsets_index_size;
+            int64_t total_cache_size =
+                    _input_rowsets_cache_data_size + _input_rowsets_cache_index_size;
+            if (total_size > 0) {
+                input_rowsets_hit_cache_ratio = double(total_cache_size) / double(total_size);
+            }
+            VLOG_DEBUG << "CloudBaseCompaction output_rowset_write_file_cache"
+                       << ", tablet_id=" << _tablet->tablet_id()
+                       << ", input_rowsets_hit_cache_ratio=" << input_rowsets_hit_cache_ratio
+                       << ", total_size=" << total_size
+                       << ", total_cache_size=" << total_cache_size;
+
+            if (input_rowsets_hit_cache_ratio >
+                config::file_cache_keep_base_compaction_output_min_hit_ratio) {
+                return true;
+            }
+        }
+        return false;
+    }
 };
 
 } // namespace doris

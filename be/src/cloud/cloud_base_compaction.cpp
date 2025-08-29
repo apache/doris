@@ -38,6 +38,12 @@ bvar::Adder<uint64_t> base_output_size("base_compaction", "output_size");
 bvar::LatencyRecorder g_base_compaction_hold_delete_bitmap_lock_time_ms(
         "base_compaction_hold_delete_bitmap_lock_time_ms");
 
+bvar::Status<double> base_compaction_input_rowsets_data_hit_cache_ratio(
+        "base_compaction_input_rowsets_data_hit_cache_ratio", 0.0);
+
+bvar::Status<double> base_compaction_input_rowsets_index_hit_cache_ratio(
+        "base_compaction_input_rowsets_index_hit_cache_ratio", 0.0);
+
 CloudBaseCompaction::CloudBaseCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
                                "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
@@ -82,6 +88,8 @@ Status CloudBaseCompaction::prepare_compact() {
         _input_rowsets_data_size += rs->data_disk_size();
         _input_rowsets_index_size += rs->index_disk_size();
         _input_rowsets_total_size += rs->total_disk_size();
+        _input_rowsets_cache_data_size += rs->approximate_cache_data_size();
+        _input_rowsets_cache_index_size += rs->approximate_cache_index_size();
     }
     LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
              _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
@@ -91,7 +99,23 @@ Status CloudBaseCompaction::prepare_compact() {
             .tag("input_segments", _input_segments)
             .tag("input_rowsets_data_size", _input_rowsets_data_size)
             .tag("input_rowsets_index_size", _input_rowsets_index_size)
-            .tag("input_rowsets_total_size", _input_rowsets_total_size);
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
+            .tag("input_rowsets_cache_data_size", _input_rowsets_cache_data_size)
+            .tag("input_rowsets_cache_index_size", _input_rowsets_cache_index_size);
+
+    if (_input_rowsets_data_size > 0) {
+        base_compaction_input_rowsets_data_hit_cache_ratio.set_value(
+                double(_input_rowsets_cache_data_size) / double(_input_rowsets_data_size));
+    } else {
+        base_compaction_input_rowsets_data_hit_cache_ratio.set_value(0.0);
+    }
+
+    if (_input_rowsets_index_size > 0) {
+        base_compaction_input_rowsets_index_hit_cache_ratio.set_value(
+                double(_input_rowsets_cache_index_size) / double(_input_rowsets_index_size));
+    } else {
+        base_compaction_input_rowsets_index_hit_cache_ratio.set_value(0.0);
+    }
     return Status::OK();
 }
 
