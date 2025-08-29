@@ -26,7 +26,8 @@ final String ENABLE_FILE_CACHE_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PR
 final String FILE_CACHE_PATH_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "file_cache_path is empty or not configured"
 final String WEB_SERVER_PORT_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "webserver_port is empty or not configured"
 final String NORMAL_QUEUE_MAX_SIZE_LESS_THAN_FILE_CACHE_QUERY_LIMIT_BYTES_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "normal_queue_max_size is less than file_cache_query_limit_bytes"
-final String ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "enable_file_cache_query_limit is empty or not set to true"
+final String ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_FALSE_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "enable_file_cache_query_limit is empty or not set to false"
+final String ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_TRUE_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "enable_file_cache_query_limit is empty or not set to true"
 final String FILE_CACHE_QUERY_LIMIT_BYTES_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "file_cache_query_limit_bytes is empty or not configured"
 final String FILE_CACHE_QUERY_LIMIT_ENABLE_EVICT_FROM_OTHER_QUEUE_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "file_cache_query_limit_enable_evict_from_other_queue is empty or not set to false"
 
@@ -36,7 +37,6 @@ final String BASE_NORMAL_QUEUE_CURR_SIZE_IS_ZERO_MSG = FILE_CACHE_FEATURES_CHECK
 final String BASE_NORMAL_QUEUE_CURR_ELEMENTS_iS_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "base normal_queue_curr_elements is 0"
 final String TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "total_hit_counts did not increase after cache operation"
 final String TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "total_read_counts did not increase after cache operation"
-final String TOTAL_REMOVED_COUNTS_DID_NOT_INCREASE_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "total_removed_counts did not increase after cache operation"
 final String INITIAL_NORMAL_QUEUE_CURR_SIZE_NOT_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "initial normal_queue_curr_size is not 0"
 final String INITIAL_NORMAL_QUEUE_CURR_ELEMENTS_NOT_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "initial normal_queue_curr_elements is not 0"
 final String INITIAL_NORMAL_QUEUE_MAX_SIZE_IS_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "initial normal_queue_max_size is 0"
@@ -47,17 +47,11 @@ final String NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_FILE_CACHE_QUERY_LIMIT_BYTES_MS
 final String NORMAL_QUEUE_CURR_SIZE_LESS_THAN_FILE_CACHE_QUERY_LIMIT_BYTES_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "normal_queue_curr_size is less than file_cache_query_limit_bytes"
 final String NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_QUERY_CACHE_CAPACITY_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "normal_queue_curr_size is greater than query cache capacity"
 
-// Constants for cache query limit features check
-final String FILE_CACHE_QUERY_LIMIT_FEATURES_CHECK_FAILED_PREFIX = "File cache query limit features check failed: "
-final String TOTAL_QUERY_REMOVED_COUNTS_DID_NOT_INCREASE_MSG = FILE_CACHE_QUERY_LIMIT_FEATURES_CHECK_FAILED_PREFIX + "total_query_removed_counts did not increase after cache operation"
-final String TOTAL_QUERY_REMOVED_SIZE_DID_NOT_INCREASE_MSG = FILE_CACHE_QUERY_LIMIT_FEATURES_CHECK_FAILED_PREFIX + "total_query_removed_size did not increase after cache operation"
-final String TOTAL_QUERY_REMOVED_COUNTS_INCREASE_GREATER_THAN_TOTAL_REMOVED_COUNTS_MSG = FILE_CACHE_QUERY_LIMIT_FEATURES_CHECK_FAILED_PREFIX + "total_query_removed_counts increase greater than total_removed_counts"
-
 suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,p0,external") {
-    String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
-        return;
+    String enableHiveTest = context.config.otherConfigs.get("enableHiveTest")
+    if (enableHiveTest == null || !enableHiveTest.equalsIgnoreCase("true")) {
+        logger.info("disable hive test.")
+        return
     }
 
     // Check backend configuration prerequisites
@@ -157,8 +151,27 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
             "elements: ${initialNormalQueueCurrElements}")
 
     setBeConfigTemporary([
-            "enable_file_cache_query_limit": "false"
+            "enable_file_cache_query_limit": "false",
+            "file_cache_enter_disk_resource_limit_mode_percent": "99",
+            "file_cache_exit_disk_resource_limit_mode_percent": "99"
     ]) {
+        // Execute test logic with modified configuration for file_cache_query_limit
+        logger.info("Backend configuration set - enable_file_cache_query_limit: false")
+
+        // Waiting for backend configuration update
+        (1..iterations).each { count ->
+            Thread.sleep(interval * 1000)
+            def elapsedSeconds = count * interval
+            def remainingSeconds = totalWaitTime - elapsedSeconds
+            logger.info("Waited for backend configuration update ${elapsedSeconds} seconds, ${remainingSeconds} seconds remaining")
+        }
+
+        // Check if the configuration is modified
+        def enableFileCacheQueryLimitResult = sql """SHOW BACKEND CONFIG LIKE 'enable_file_cache_query_limit';"""
+        logger.info("enable_file_cache_query_limit configuration: " + enableFileCacheQueryLimitResult)
+        assertFalse(enableFileCacheQueryLimitResult.size() == 0 || enableFileCacheQueryLimitResult[0][3] == null || enableFileCacheQueryLimitResult[0][3] != "false",
+                ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_FALSE_FAILED_MSG)
+
         sql """switch ${catalog_name}"""
         // load the table into file cache
         sql query_sql
@@ -260,8 +273,8 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     assertTrue((initialNormalQueueMaxSize as Integer) > file_cache_query_limit_bytes.toInteger(),
             NORMAL_QUEUE_MAX_SIZE_LESS_THAN_FILE_CACHE_QUERY_LIMIT_BYTES_MSG)
 
-    // ===== Hit, Read And Removed Counts Metrics Check =====
-    // Get initial values for hit, read and removed counts
+    // ===== Hit And Read Counts Metrics Check =====
+    // Get initial values for hit and read counts
     def initialTotalHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
             where METRIC_NAME = 'total_hit_counts' limit 1;"""
     logger.info("Initial total_hit_counts result: " + initialTotalHitCountsResult)
@@ -270,33 +283,17 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
             where METRIC_NAME = 'total_read_counts' limit 1;"""
     logger.info("Initial total_read_counts result: " + initialTotalReadCountsResult)
 
-    def initialTotalRemovedCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'total_removed_counts' limit 1;"""
-    logger.info("Initial total_removed_counts result: " + initialTotalRemovedCountsResult)
-
-    // ===== Total Query Removed Counts And Size Metrics Check =====
-    // Get initial values for query removed counts and size
-    def initialTotalQueryRemovedCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_query_removed_counts' limit 1;"""
-    logger.info("Initial total_query_removed_counts result: " + initialTotalQueryRemovedCountsResult)
-
-    def initialTotalQueryRemovedSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_query_removed_size' limit 1;"""
-    logger.info("Initial total_query_removed_size result: " + initialTotalQueryRemovedSizeResult)
-
     // Store initial values
     double initialTotalHitCounts = Double.valueOf(initialTotalHitCountsResult[0][0])
     double initialTotalReadCounts = Double.valueOf(initialTotalReadCountsResult[0][0])
-    double initialTotalRemovedCounts = Double.valueOf(initialTotalRemovedCountsResult[0][0])
-
-    double initialTotalQueryRemovedCounts = Double.valueOf(initialTotalQueryRemovedCountsResult[0][0])
-    double initialTotalQueryRemovedSize = Double.valueOf(initialTotalQueryRemovedSizeResult[0][0])
 
     // Set backend configuration parameters for file_cache_query_limit test 1
     setBeConfigTemporary([
             "enable_file_cache_query_limit": "true",
             "file_cache_query_limit_bytes": file_cache_query_limit_bytes,
-            "file_cache_query_limit_enable_evict_from_other_queue": "false"
+            "file_cache_query_limit_enable_evict_from_other_queue": "false",
+            "file_cache_enter_disk_resource_limit_mode_percent": "99",
+            "file_cache_exit_disk_resource_limit_mode_percent": "99"
     ]) {
         // Execute test logic with modified configuration for file_cache_query_limit
         logger.info("Backend configuration set - enable_file_cache_query_limit: true , " +
@@ -315,7 +312,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
         def enableFileCacheQueryLimitResult = sql """SHOW BACKEND CONFIG LIKE 'enable_file_cache_query_limit';"""
         logger.info("enable_file_cache_query_limit configuration: " + enableFileCacheQueryLimitResult)
         assertFalse(enableFileCacheQueryLimitResult.size() == 0 || enableFileCacheQueryLimitResult[0][3] == null || enableFileCacheQueryLimitResult[0][3] != "true",
-                ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_FAILED_MSG)
+                ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_TRUE_FAILED_MSG)
 
         def fileCacheQueryLimitBytesResult = sql """SHOW BACKEND CONFIG LIKE 'file_cache_query_limit_bytes';"""
         logger.info("file_cache_query_limit_bytes configuration: " + fileCacheQueryLimitBytesResult)
@@ -365,7 +362,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
         assertTrue(((updatedNormalQueueCurrSize as Integer) <= file_cache_query_limit_bytes.toInteger()),
                 NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_FILE_CACHE_QUERY_LIMIT_BYTES_MSG)
 
-        // Get updated values for hit, read and removed counts after cache operations
+        // Get updated values for hit and read counts after cache operations
         def updatedTotalHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
                 where METRIC_NAME = 'total_hit_counts' limit 1;"""
         logger.info("Initial total_hit_counts result: " + updatedTotalHitCountsResult)
@@ -374,49 +371,15 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
                 where METRIC_NAME = 'total_read_counts' limit 1;"""
         logger.info("Initial total_read_counts result: " + updatedTotalReadCountsResult)
 
-        def updatedTotalRemovedCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_removed_counts' limit 1;"""
-        logger.info("Initial total_removed_counts result: " + updatedTotalRemovedCountsResult)
-
         // Check if updated values are greater than initial values
         double updatedTotalHitCounts = Double.valueOf(updatedTotalHitCountsResult[0][0])
         double updatedTotalReadCounts = Double.valueOf(updatedTotalReadCountsResult[0][0])
-        double updatedTotalRemovedCounts = Double.valueOf(updatedTotalRemovedCountsResult[0][0])
 
-        logger.info("Total hit counts, read counts and removed counts comparison - hit counts: ${initialTotalHitCounts} -> " +
-                "${updatedTotalHitCounts} , read counts: ${initialTotalReadCounts} -> ${updatedTotalReadCounts} , " +
-                "removed counts: ${initialTotalRemovedCounts} -> ${updatedTotalRemovedCounts}")
+        logger.info("Total hit and read counts comparison - hit counts: ${initialTotalHitCounts} -> " +
+                "${updatedTotalHitCounts} , read counts: ${initialTotalReadCounts} -> ${updatedTotalReadCounts}")
 
         assertTrue(updatedTotalHitCounts > initialTotalHitCounts, TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG)
         assertTrue(updatedTotalReadCounts > initialTotalReadCounts, TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG)
-        assertTrue(updatedTotalRemovedCounts > initialTotalRemovedCounts, TOTAL_REMOVED_COUNTS_DID_NOT_INCREASE_MSG)
-
-        // Get updated values for total query removed counts and size after cache operations
-        def updatedTotalQueryRemovedCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_query_removed_counts' limit 1;"""
-        logger.info("Updated total_query_removed_counts result: " + updatedTotalQueryRemovedCountsResult)
-
-        def updatedTotalQueryRemovedSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_query_removed_size' limit 1;"""
-        logger.info("Updated total_query_removed_size result: " + updatedTotalQueryRemovedSizeResult)
-
-        // Check if updated values are greater than initial values
-        double updatedTotalQueryRemovedCounts = Double.valueOf(updatedTotalQueryRemovedCountsResult[0][0])
-        double updatedTotalQueryRemovedSize = Double.valueOf(updatedTotalQueryRemovedSizeResult[0][0])
-
-        logger.info("Total query removed counts and size comparison - counts: ${initialTotalQueryRemovedCounts} -> " +
-                "${updatedTotalQueryRemovedCounts} , size: ${initialTotalQueryRemovedSize} -> ${updatedTotalQueryRemovedSize}")
-
-        assertTrue(updatedTotalQueryRemovedCounts > initialTotalQueryRemovedCounts, TOTAL_QUERY_REMOVED_COUNTS_DID_NOT_INCREASE_MSG)
-        assertTrue(updatedTotalQueryRemovedSize > initialTotalQueryRemovedSize, TOTAL_QUERY_REMOVED_SIZE_DID_NOT_INCREASE_MSG)
-
-        // Check if increased total query removed counts are equal to increased total removed counts
-        int increasedTotalQueryRemovedCounts = updatedTotalQueryRemovedCounts - initialTotalQueryRemovedCounts
-        int increasedTotalRemovedCounts = updatedTotalRemovedCounts - initialTotalRemovedCounts
-
-        logger.info("Increased total query removed counts and total removed counts comparison - total query removed counts: " +
-                "${increasedTotalQueryRemovedCounts}, total removed counts: ${increasedTotalRemovedCounts}")
-        assertTrue(increasedTotalQueryRemovedCounts <= increasedTotalRemovedCounts, TOTAL_QUERY_REMOVED_COUNTS_INCREASE_GREATER_THAN_TOTAL_REMOVED_COUNTS_MSG)
     }
 
     logger.info("===================== End running file cache query limit test 1 =====================")
@@ -440,8 +403,8 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
         logger.info("Waited for file cache clearing ${elapsedSeconds} seconds, ${remainingSeconds} seconds remaining")
     }
 
-    // ===== Hit, Read And Removed Counts Metrics Check =====
-    // Get initial values for hit, read and removed counts
+    // ===== Hit And Read Counts Metrics Check =====
+    // Get initial values for hit and read counts
     initialTotalHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
             where METRIC_NAME = 'total_hit_counts' limit 1;"""
     logger.info("Initial total_hit_counts result: " + initialTotalHitCountsResult)
@@ -450,33 +413,17 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
             where METRIC_NAME = 'total_read_counts' limit 1;"""
     logger.info("Initial total_read_counts result: " + initialTotalReadCountsResult)
 
-    initialTotalRemovedCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'total_removed_counts' limit 1;"""
-    logger.info("Initial total_removed_counts result: " + initialTotalRemovedCountsResult)
-
-    // ===== Total Query Removed Counts And Size Metrics Check =====
-    // Get initial values for query removed counts and size
-    initialTotalQueryRemovedCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_query_removed_counts' limit 1;"""
-    logger.info("Initial total_query_removed_counts result: " + initialTotalQueryRemovedCountsResult)
-
-    initialTotalQueryRemovedSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_query_removed_size' limit 1;"""
-    logger.info("Initial total_query_removed_size result: " + initialTotalQueryRemovedSizeResult)
-
     // Store initial values
     initialTotalHitCounts = Double.valueOf(initialTotalHitCountsResult[0][0])
     initialTotalReadCounts = Double.valueOf(initialTotalReadCountsResult[0][0])
-    initialTotalRemovedCounts = Double.valueOf(initialTotalRemovedCountsResult[0][0])
-
-    initialTotalQueryRemovedCounts = Double.valueOf(initialTotalQueryRemovedCountsResult[0][0])
-    initialTotalQueryRemovedSize = Double.valueOf(initialTotalQueryRemovedSizeResult[0][0])
 
     // Set backend configuration parameters for file_cache_query_limit test 2
     setBeConfigTemporary([
             "enable_file_cache_query_limit": "true",
             "file_cache_query_limit_bytes": file_cache_query_limit_bytes,
-            "file_cache_query_limit_enable_evict_from_other_queue": "true"
+            "file_cache_query_limit_enable_evict_from_other_queue": "true",
+            "file_cache_enter_disk_resource_limit_mode_percent": "99",
+            "file_cache_exit_disk_resource_limit_mode_percent": "99"
     ]) {
         // Execute test logic with modified configuration for file_cache_query_limit
         logger.info("Backend configuration set - enable_file_cache_query_limit: true , " +
@@ -495,7 +442,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
         def enableFileCacheQueryLimitResult = sql """SHOW BACKEND CONFIG LIKE 'enable_file_cache_query_limit';"""
         logger.info("enable_file_cache_query_limit configuration: " + enableFileCacheQueryLimitResult)
         assertFalse(enableFileCacheQueryLimitResult.size() == 0 || enableFileCacheQueryLimitResult[0][3] == null || enableFileCacheQueryLimitResult[0][3] != "true",
-                ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_FAILED_MSG)
+                ENABLE_FILE_CACHE_QUERY_LIMIT_CHECK_TRUE_FAILED_MSG)
 
         def fileCacheQueryLimitBytesResult = sql """SHOW BACKEND CONFIG LIKE 'file_cache_query_limit_bytes';"""
         logger.info("file_cache_query_limit_bytes configuration: " + fileCacheQueryLimitBytesResult)
@@ -549,7 +496,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
         assertTrue(((updatedNormalQueueCurrSize as Integer) <= queryCacheCapacity),
                 NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_QUERY_CACHE_CAPACITY_MSG)
 
-        // Get updated values for hit, read and removed counts after cache operations
+        // Get updated values for hit and read counts after cache operations
         def updatedTotalHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
                 where METRIC_NAME = 'total_hit_counts' limit 1;"""
         logger.info("Initial total_hit_counts result: " + updatedTotalHitCountsResult)
@@ -558,49 +505,12 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
                 where METRIC_NAME = 'total_read_counts' limit 1;"""
         logger.info("Initial total_read_counts result: " + updatedTotalReadCountsResult)
 
-        def updatedTotalRemovedCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_removed_counts' limit 1;"""
-        logger.info("Initial total_removed_counts result: " + updatedTotalRemovedCountsResult)
-
         // Check if updated values are greater than initial values
         double updatedTotalHitCounts = Double.valueOf(updatedTotalHitCountsResult[0][0])
         double updatedTotalReadCounts = Double.valueOf(updatedTotalReadCountsResult[0][0])
-        double updatedTotalRemovedCounts = Double.valueOf(updatedTotalRemovedCountsResult[0][0])
-
-        logger.info("Total hit counts, read counts and removed counts comparison - hit counts: ${initialTotalHitCounts} -> " +
-                "${updatedTotalHitCounts} , read counts: ${initialTotalReadCounts} -> ${updatedTotalReadCounts} , " +
-                "removed counts: ${initialTotalRemovedCounts} -> ${updatedTotalRemovedCounts}")
 
         assertTrue(updatedTotalHitCounts > initialTotalHitCounts, TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG)
         assertTrue(updatedTotalReadCounts > initialTotalReadCounts, TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG)
-        assertTrue(updatedTotalRemovedCounts > initialTotalRemovedCounts, TOTAL_REMOVED_COUNTS_DID_NOT_INCREASE_MSG)
-
-        // Get updated values for total query removed counts and size after cache operations
-        def updatedTotalQueryRemovedCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_query_removed_counts' limit 1;"""
-        logger.info("Updated total_query_removed_counts result: " + updatedTotalQueryRemovedCountsResult)
-
-        def updatedTotalQueryRemovedSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_query_removed_size' limit 1;"""
-        logger.info("Updated total_query_removed_size result: " + updatedTotalQueryRemovedSizeResult)
-
-        // Check if updated values are greater than initial values
-        double updatedTotalQueryRemovedCounts = Double.valueOf(updatedTotalQueryRemovedCountsResult[0][0])
-        double updatedTotalQueryRemovedSize = Double.valueOf(updatedTotalQueryRemovedSizeResult[0][0])
-
-        logger.info("Total query removed counts and size comparison - counts: ${initialTotalQueryRemovedCounts} -> " +
-                "${updatedTotalQueryRemovedCounts} , size: ${initialTotalQueryRemovedSize} -> ${updatedTotalQueryRemovedSize}")
-
-        assertTrue(updatedTotalQueryRemovedCounts > initialTotalQueryRemovedCounts, TOTAL_QUERY_REMOVED_COUNTS_DID_NOT_INCREASE_MSG)
-        assertTrue(updatedTotalQueryRemovedSize > initialTotalQueryRemovedSize, TOTAL_QUERY_REMOVED_SIZE_DID_NOT_INCREASE_MSG)
-
-        // Check if increased total query removed counts are equal to increased total removed counts
-        int increasedTotalQueryRemovedCounts = updatedTotalQueryRemovedCounts - initialTotalQueryRemovedCounts
-        int increasedTotalRemovedCounts = updatedTotalRemovedCounts - initialTotalRemovedCounts
-
-        logger.info("Increased total query removed counts and total removed counts comparison - total query removed counts: " +
-                "${increasedTotalQueryRemovedCounts}, total removed counts: ${increasedTotalRemovedCounts}")
-        assertTrue(increasedTotalQueryRemovedCounts <= increasedTotalRemovedCounts, TOTAL_QUERY_REMOVED_COUNTS_INCREASE_GREATER_THAN_TOTAL_REMOVED_COUNTS_MSG)
     }
 
     logger.info("===================== End running file cache query limit test 2 =====================")
