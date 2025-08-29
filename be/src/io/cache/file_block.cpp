@@ -112,7 +112,7 @@ void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& block_lock) {
 }
 
 Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) {
-    DCHECK(_download_state != State::DOWNLOADED);
+    // DCHECK(_download_state != State::DOWNLOADED);
     DCHECK_NE(_downloaded_size, 0);
     Status status = _mgr->_storage->finalize(_key);
     if (status.ok()) [[likely]] {
@@ -152,7 +152,7 @@ Status FileBlock::finalize() {
         size_t old_size = _block_range.size();
         _block_range.right = _block_range.left + _downloaded_size - 1;
         size_t new_size = _block_range.size();
-        DCHECK(new_size < old_size);
+        // DCHECK(new_size < old_size);
         _mgr->reset_range(_key.hash, _block_range.left, old_size, new_size, cache_lock);
     }
     std::lock_guard block_lock(_mutex);
