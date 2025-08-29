@@ -26,36 +26,40 @@ suite("hdfs_load_default_file_format", "p0,external,kerberos,external_docker") {
     def table = "hdfs_load_default_file_format_tbl";
     def table2 = "hdfs_load_default_file_format_tbl2";
 
-    def outfile_to_hdfs = { defaultFs ->
+    def outfile_to_hdfs = { defaultFs, format, format_prop ->
         def outFilePath = "${defaultFs}/tmp/hdfs_load_default_file_format_"
         // select ... into outfile ...
         def res = sql """
             SELECT * FROM ${table}
             INTO OUTFILE "${outFilePath}"
-            FORMAT AS PARQUET
+            FORMAT AS ${format}
             PROPERTIES (
-               "fs.defaultFS" = "${defaultFs}" 
+                ${format_prop}
+                "fs.defaultFS" = "${defaultFs}"
             );
         """
         println res
         return res[0][3]
     }
 
-    def hdfsLoad = { filePath, defaultFs ->
+    def hdfsLoad = { filePath, column_sep, defaultFs ->
         def dataCountResult = sql """
             SELECT count(*) FROM ${table}
         """
+        sql """truncate table ${table2}"""
         def dataCount = dataCountResult[0][0]
         def label = "hdfs_load_label_" + System.currentTimeMillis()
+        // test: do not specify the format, infer from file suffix.
         def load = sql """
             LOAD LABEL `${label}` (
             data infile ("${filePath}")
             into table ${table2}
-              (k1, k2))
-              with hdfs
-              (
-                 "fs.defaultFS" = "${defaultFs}"
-              );
+            ${column_sep}
+            (k1, k2))
+            with hdfs
+            (
+               "fs.defaultFS" = "${defaultFs}"
+            );
         """
         Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until({
             def loadResult = sql """
@@ -97,13 +101,14 @@ suite("hdfs_load_default_file_format", "p0,external,kerberos,external_docker") {
         sql """insert into ${table} select k1 + ${i}, concat(k2, k1 + ${i}) from ${table}"""
     }
 
-    // outfile 
-    // set enable_parallel_outfile to outfile multi files
-    // sql """set enable_parallel_outfile=true"""
-
-    def outfile = outfile_to_hdfs("hdfs://${externalEnvIp}:${hdfsPort}");
+    // outfile parquet and load
+    def outfile = outfile_to_hdfs("hdfs://${externalEnvIp}:${hdfsPort}", "parquet", "");
     println outfile
+    hdfsLoad(outfile, "", "hdfs://${externalEnvIp}:${hdfsPort}")
 
-    hdfsLoad(outfile, "hdfs://${externalEnvIp}:${hdfsPort}")
-
+    // outfile csv and load
+    outfile = outfile_to_hdfs("hdfs://${externalEnvIp}:${hdfsPort}", "csv", "\"column_separator\" = \"xx\",");
+    println outfile
+    hdfsLoad(outfile, "COLUMNS TERMINATED BY \"xx\"", "hdfs://${externalEnvIp}:${hdfsPort}")
 }
+
