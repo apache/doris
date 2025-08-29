@@ -75,6 +75,13 @@ public class MCProperties extends BaseProperties {
             "mc.datetime_predicate_push_down";
     public static final String DEFAULT_DATETIME_PREDICATE_PUSH_DOWN = "true";
 
+    // The account systems for Alibaba Cloud China and International are different. If the primary account is an
+    // International user, specify ACCOUNT_FORMAT as ACCOUNT_FORMAT_ID. Otherwise, specify ACCOUNT_FORMAT_NAME.
+    public static final String ACCOUNT_FORMAT = "mc.account_format";
+    public static final String ACCOUNT_FORMAT_NAME = "name";
+    public static final String ACCOUNT_FORMAT_ID = "id";
+    public static final String DEFAULT_ACCOUNT_FORMAT = ACCOUNT_FORMAT_NAME;
+
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
     }
