@@ -804,9 +804,17 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     vectorized::IColumn::MutablePtr result_column;
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
-    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
-                                                                  rows_of_segment, result_column,
-                                                                  result_row_ids, ann_index_stats));
+    Status st = _ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
+                                                              rows_of_segment, result_column,
+                                                              result_row_ids, ann_index_stats);
+    if (!st.ok()) {
+        if (_downgrade_without_index(st)) {
+            // fallback
+            return Status::OK();
+        } else {
+            return st;
+        }
+    }
 
     VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
                               _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
