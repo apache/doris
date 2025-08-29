@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <string>
 
@@ -31,6 +32,8 @@
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "util/slice.h"
+#include "vec/columns/column_vector.h"
+#include "vec/functions/cast/cast_to_string.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -230,6 +233,205 @@ TEST_F(ColumnZoneMapTest, ZoneMapCut) {
     varchar_column->set_index_length(1024);
     Field* field = FieldFactory::create(*varchar_column);
     test_string("ZoneMapCut", field);
+    delete field;
+}
+
+// Test for float/double
+template <FieldType T>
+TabletColumnPtr create_float_column(int32_t id, bool is_nullable) {
+    auto column = std::make_shared<TabletColumn>();
+    column->_unique_id = id;
+    column->_col_name = std::to_string(id);
+    column->_type = T;
+    column->_is_key = false;
+    column->_is_nullable = is_nullable;
+    column->_length = (T == FieldType::OLAP_FIELD_TYPE_DOUBLE ? 8 : 4);
+    column->_index_length = (T == FieldType::OLAP_FIELD_TYPE_DOUBLE ? 8 : 4);
+    column->_is_bf_column = false;
+    column->_has_bitmap_index = false;
+    return column;
+}
+TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
+    std::string filename = kTestDir + "/NormalTestFloatPage";
+    auto fs = io::global_local_filesystem();
+
+    auto column = create_float_column<FieldType::OLAP_FIELD_TYPE_FLOAT>(0, true);
+    Field* field = FieldFactory::create(*column);
+
+    std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+    static_cast<void>(ZoneMapIndexWriter::create(field, builder));
+    std::vector<float> values1 = {
+            -std::numeric_limits<float>::infinity(),
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::quiet_NaN(),
+            std::numeric_limits<float>::infinity(),
+            -1234.56F,
+            -1.23456F,
+            0,
+            1.23456F,
+            1234.56F,
+    };
+    // page 1
+    for (auto value : values1) {
+        builder->add_values((const uint8_t*)&value, 1);
+    }
+    static_cast<void>(builder->flush());
+
+    // page 2
+    std::vector<float> values2 = {
+            -1234.56F, -1.23456F, 0, 1.23456F, 1234.56F,
+    };
+    for (auto value : values2) {
+        builder->add_values((const uint8_t*)&value, 1);
+    }
+    builder->add_nulls(1);
+    static_cast<void>(builder->flush());
+
+    // page 3
+    builder->add_nulls(6);
+    static_cast<void>(builder->flush());
+
+    // write out zone map index
+    ColumnIndexMetaPB index_meta;
+    {
+        io::FileWriterPtr file_writer;
+        EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+        EXPECT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
+        EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
+        EXPECT_TRUE(file_writer->close().ok());
+    }
+
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+
+    auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
+    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::lowest()),
+              segment_zone_map.min());
+    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::max()),
+              segment_zone_map.max());
+    EXPECT_EQ(true, segment_zone_map.has_null());
+    EXPECT_EQ(true, segment_zone_map.has_not_null());
+    EXPECT_EQ(true, segment_zone_map.has_positive_inf());
+    EXPECT_EQ(true, segment_zone_map.has_negative_inf());
+    EXPECT_EQ(true, segment_zone_map.has_nan());
+
+    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index().page_zone_maps());
+    Status status = column_zone_map.load(true, false);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(3, column_zone_map.num_pages());
+    const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
+    EXPECT_EQ(3, zone_maps.size());
+
+    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::lowest()),
+              zone_maps[0].min());
+    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::max()),
+              zone_maps[0].max());
+    EXPECT_EQ(false, zone_maps[0].has_null());
+    EXPECT_EQ(true, zone_maps[0].has_not_null());
+    EXPECT_EQ(true, zone_maps[0].has_positive_inf());
+    EXPECT_EQ(true, zone_maps[0].has_negative_inf());
+    EXPECT_EQ(true, zone_maps[0].has_nan());
+
+    EXPECT_EQ(vectorized::CastToString::from_number(-1234.56F), zone_maps[1].min());
+    EXPECT_EQ(vectorized::CastToString::from_number(1234.56F), zone_maps[1].max());
+    EXPECT_EQ(true, zone_maps[1].has_null());
+    EXPECT_EQ(true, zone_maps[1].has_not_null());
+
+    EXPECT_EQ(true, zone_maps[2].has_null());
+    EXPECT_EQ(false, zone_maps[2].has_not_null());
+    delete field;
+}
+
+TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
+    std::string filename = kTestDir + "/NormalTestDoublePage";
+    auto fs = io::global_local_filesystem();
+
+    auto column = create_float_column<FieldType::OLAP_FIELD_TYPE_DOUBLE>(0, true);
+    Field* field = FieldFactory::create(*column);
+
+    std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
+    static_cast<void>(ZoneMapIndexWriter::create(field, builder));
+    std::vector<double> values1 = {
+            -std::numeric_limits<double>::infinity(),
+            std::numeric_limits<double>::lowest(),
+            std::numeric_limits<double>::max(),
+            std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::infinity(),
+            -1234.56789012345,
+            0,
+            1234.56789012345,
+    };
+    // page 1
+    for (auto value : values1) {
+        builder->add_values((const uint8_t*)&value, 1);
+    }
+    static_cast<void>(builder->flush());
+
+    // page 2
+    std::vector<double> values2 = {
+            -1234.56789012345,
+            0,
+            1234.56789012345,
+    };
+    for (auto value : values2) {
+        builder->add_values((const uint8_t*)&value, 1);
+    }
+    builder->add_nulls(1);
+    static_cast<void>(builder->flush());
+
+    // page 3
+    builder->add_nulls(6);
+    static_cast<void>(builder->flush());
+
+    // write out zone map index
+    ColumnIndexMetaPB index_meta;
+    {
+        io::FileWriterPtr file_writer;
+        EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+        EXPECT_TRUE(builder->finish(file_writer.get(), &index_meta).ok());
+        EXPECT_EQ(ZONE_MAP_INDEX, index_meta.type());
+        EXPECT_TRUE(file_writer->close().ok());
+    }
+
+    io::FileReaderSPtr file_reader;
+    EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
+
+    auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
+    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::lowest()),
+              segment_zone_map.min());
+    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::max()),
+              segment_zone_map.max());
+    EXPECT_EQ(true, segment_zone_map.has_null());
+    EXPECT_EQ(true, segment_zone_map.has_not_null());
+    EXPECT_EQ(true, segment_zone_map.has_positive_inf());
+    EXPECT_EQ(true, segment_zone_map.has_negative_inf());
+    EXPECT_EQ(true, segment_zone_map.has_nan());
+
+    ZoneMapIndexReader column_zone_map(file_reader, index_meta.zone_map_index().page_zone_maps());
+    Status status = column_zone_map.load(true, false);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(3, column_zone_map.num_pages());
+    const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
+    EXPECT_EQ(3, zone_maps.size());
+
+    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::lowest()),
+              zone_maps[0].min());
+    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::max()),
+              zone_maps[0].max());
+    EXPECT_EQ(false, zone_maps[0].has_null());
+    EXPECT_EQ(true, zone_maps[0].has_not_null());
+    EXPECT_EQ(true, zone_maps[0].has_positive_inf());
+    EXPECT_EQ(true, zone_maps[0].has_negative_inf());
+    EXPECT_EQ(true, zone_maps[0].has_nan());
+
+    EXPECT_EQ(vectorized::CastToString::from_number(-1234.56789012345), zone_maps[1].min());
+    EXPECT_EQ(vectorized::CastToString::from_number(1234.56789012345), zone_maps[1].max());
+    EXPECT_EQ(true, zone_maps[1].has_null());
+    EXPECT_EQ(true, zone_maps[1].has_not_null());
+
+    EXPECT_EQ(true, zone_maps[2].has_null());
+    EXPECT_EQ(false, zone_maps[2].has_not_null());
     delete field;
 }
 
