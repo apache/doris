@@ -58,7 +58,7 @@ suite("test_hive_empty_partition_mtmv", "p0,external,hive,external_docker,extern
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT user_id,num,year FROM ${catalogName}.${hive_database}.${hive_table};
+                SELECT * FROM ${catalogName}.`${dbName}`.${tableName};
             """
         waitingMTMVTaskFinishedByMvName(mvName)
         // not partition
@@ -69,7 +69,7 @@ suite("test_hive_empty_partition_mtmv", "p0,external,hive,external_docker,extern
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT user_id,num,year FROM ${catalogName}.${hive_database}.${hive_table};
+                SELECT * FROM ${catalogName}.`${dbName}`.${tableName};
             """
         waitingMTMVTaskFinishedByMvName(mvName)
 
