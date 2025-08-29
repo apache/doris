@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "common/compare.h"
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
@@ -151,9 +152,13 @@ public:
         T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
-            return _operator(tmp_min_value <= _value && tmp_max_value >= _value, true);
+            return _operator(Compare::compare(tmp_min_value, _value) <= 0 &&
+                                     Compare::compare(tmp_max_value, _value) >= 0,
+                             true);
         } else if constexpr (PT == PredicateType::NE) {
-            return _operator(tmp_min_value == _value && tmp_max_value == _value, true);
+            return _operator(Compare::compare(tmp_min_value, _value) == 0 &&
+                                     Compare::compare(tmp_max_value, _value) == 0,
+                             true);
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
             return _operator(tmp_min_value, _value);
         } else {
@@ -408,17 +413,17 @@ private:
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
         if constexpr (PT == PredicateType::EQ) {
-            return lhs == rhs;
+            return Compare::compare(lhs, rhs) == 0;
         } else if constexpr (PT == PredicateType::NE) {
-            return lhs != rhs;
+            return Compare::compare(lhs, rhs) != 0;
         } else if constexpr (PT == PredicateType::LT) {
-            return lhs < rhs;
+            return Compare::compare(lhs, rhs) == -1;
         } else if constexpr (PT == PredicateType::LE) {
-            return lhs <= rhs;
+            return Compare::compare(lhs, rhs) != 1;
         } else if constexpr (PT == PredicateType::GT) {
-            return lhs > rhs;
+            return Compare::compare(lhs, rhs) == 1;
         } else if constexpr (PT == PredicateType::GE) {
-            return lhs >= rhs;
+            return Compare::compare(lhs, rhs) != -1;
         }
     }
 

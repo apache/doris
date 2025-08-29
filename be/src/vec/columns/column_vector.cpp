@@ -440,6 +440,20 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
     }
 }
 
+template <PrimitiveType T>
+void ColumnVector<T>::replace_float_special_values() {
+    if constexpr (is_float_or_double(T)) {
+        auto s = size();
+        for (size_t i = 0; i < s; ++i) {
+            if (data[i] == -0.0) {
+                data[i] = 0.0;
+            } else if (is_nan(data[i])) {
+                data[i] = std::numeric_limits<value_type>::quiet_NaN();
+            }
+        }
+    }
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class ColumnVector<TYPE_BOOLEAN>;
 template class ColumnVector<TYPE_TINYINT>;

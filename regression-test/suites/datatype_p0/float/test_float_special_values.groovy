@@ -194,4 +194,70 @@ suite("test_float_special_values", "datatype_p0") {
         stmt_read0.setInt(1, 0)
         qe_prepared_stmt_select_inf_nan stmt_read0
     }
+
+    // group by float/double columns
+    sql """
+        drop table if exists test_float_double_group_by;
+    """
+    sql """
+        create table test_float_double_group_by(
+            k1 decimalv3(10, 6),
+            v1 float,
+            v2 float
+        ) properties("replication_num" = "1");
+    """
+    sql """
+        insert into test_float_double_group_by values
+            (1, "+0.0", "-0.0"),
+            (2, "-0.0", "+0.0"),
+            (3, "0.0", "0.0"),
+            (1, 1.1, 1.1),
+            (2, 1.1, 1.1),
+            (3, 1.1, 1.1),
+            (1, 'NaN', 'NaN'),
+            (2, 'NaN', 'NaN'),
+            (3, 'NaN', 'NaN'),
+            (1, 'NaN', 1.2),
+            (2, 'NaN', 1.2),
+            (3, 'NaN', 1.2),
+            (1, 'NaN', -1.2),
+            (2, 'NaN', -1.2),
+            (3, 'NaN', -1.2),
+            (1, 'NaN', "Infinity"),
+            (2, 'NaN', "Infinity"),
+            (3, 'NaN', "Infinity"),
+            (1, 'NaN', "-Infinity"),
+            (2, 'NaN', "-Infinity"),
+            (3, 'NaN', "-Infinity"),
+            (1, 'Infinity', 'Infinity'),
+            (2, 'Infinity', 'Infinity'),
+            (3, 'Infinity', 'Infinity'),
+            (1, 'Infinity', 1.3),
+            (2, 'Infinity', 1.3),
+            (3, 'Infinity', 1.3),
+            (1, 'Infinity', -1.3),
+            (2, 'Infinity', -1.3),
+            (3, 'Infinity', -1.3),
+            (1, '-Infinity', '-Infinity'),
+            (2, '-Infinity', '-Infinity'),
+            (3, '-Infinity', '-Infinity'),
+            (1, '-Infinity', 1.4),
+            (2, '-Infinity', 1.4),
+            (3, '-Infinity', 1.4),
+            (1, '-Infinity', -1.4),
+            (2, '-Infinity', -1.4),
+            (3, '-Infinity', -1.4);
+    """
+    qt_select_float_double_group_by1 "select v1, min(k1) from test_float_double_group_by group by v1 order by v1;"
+    qt_select_float_double_group_by2 "select v1, max(k1) from test_float_double_group_by group by v1 order by v1;"
+    qt_select_float_double_group_by3 "select v1, count(k1) from test_float_double_group_by group by v1 order by v1;"
+    qt_select_float_double_group_by4 "select v1, sum(k1) from test_float_double_group_by group by v1 order by v1;"
+    qt_select_float_double_group_by5 "select v1, avg(k1) from test_float_double_group_by group by v1 order by v1;"
+
+    qt_select_float_double_group_by6 "select v1, v2, min(k1) from test_float_double_group_by group by v1, v2 order by v1, v2;"
+    qt_select_float_double_group_by7 "select v1, v2, max(k1) from test_float_double_group_by group by v1, v2 order by v1, v2;"
+    qt_select_float_double_group_by8 "select v1, v2, count(k1) from test_float_double_group_by group by v1, v2 order by v1, v2;"
+    qt_select_float_double_group_by9 "select v1, v2, sum(k1) from test_float_double_group_by group by v1, v2 order by v1, v2;"
+    qt_select_float_double_group_by10 "select v1, v2, avg(k1) from test_float_double_group_by group by v1, v2 order by v1, v2;"
+
 }
