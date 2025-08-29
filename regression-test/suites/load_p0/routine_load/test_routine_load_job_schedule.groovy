@@ -22,7 +22,7 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 import java.util.Collections
 
-suite("test_routine_load_job_schedule","nonConcurrent") {
+suite("test_routine_load_job_schedule","p0") {
     def kafkaCsvTpoics = [
                   "test_routine_load_job_schedule",
                 ]
@@ -112,7 +112,7 @@ suite("test_routine_load_job_schedule","nonConcurrent") {
             }
         }
 
-        sql "truncate table ${table_name}"
+        sql "truncate table ${tableName}"
         def memJob = "test_routine_load_job_schedule_mem_limit"
         try {
             GetDebugPoint().enableDebugPointForAllBEs("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED")
