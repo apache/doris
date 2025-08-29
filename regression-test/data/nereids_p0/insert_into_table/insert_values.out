@@ -56,5 +56,7 @@ true	10	10000	10000000	92233720368547758	19223372036854775807	3.14159	hello worl
 1	2020-02-02
 
 -- !select_test_insert_more_string --
-3	akljalkjbalkjsldkrjewokjf	aa
+1	ab
+2	abcd
+5	o
 
