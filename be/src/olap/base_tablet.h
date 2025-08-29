@@ -45,6 +45,8 @@ class RowIdConversion;
 struct PartialUpdateInfo;
 class FixedReadPlan;
 
+extern bvar::Adder<size_t> g_total_tablet_num;
+
 struct TabletWithVersion {
     BaseTabletSPtr tablet;
     int64_t version;
