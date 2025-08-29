@@ -18,7 +18,12 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
-suite("hdfs_load_default_file_format", "p0,external,kerberos,external_docker") {
+suite("hdfs_load_default_file_format", "external_docker,hive,external_docker_hive,p0,external") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable Hive test.")
+        return;
+    }
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String hdfsPort = context.config.otherConfigs.get("hive3HdfsPort")
     def defaultFS = "hdfs://${externalEnvIp}:${hdfsPort}"
