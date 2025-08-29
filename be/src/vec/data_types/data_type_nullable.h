@@ -87,14 +87,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool have_subtypes() const override { return true; }
-    bool should_align_right_in_pretty_formats() const override {
-        return nested_data_type->should_align_right_in_pretty_formats();
-    }
-    bool text_can_contain_only_valid_utf8() const override {
-        return nested_data_type->text_can_contain_only_valid_utf8();
-    }
-    bool is_comparable() const override { return nested_data_type->is_comparable(); }
     bool have_maximum_size_of_value() const override {
         return nested_data_type->have_maximum_size_of_value();
     }
@@ -102,9 +94,6 @@ public:
         return 1 + nested_data_type->get_size_of_value_in_memory();
     }
     bool is_nullable() const override { return true; }
-    bool can_be_inside_low_cardinality() const override {
-        return nested_data_type->can_be_inside_low_cardinality();
-    }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
