@@ -54,9 +54,11 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -741,10 +743,17 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitBetween(Between between, ExpressionRewriteContext context) {
-        List<Expression> rewrittenChildren = between.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList());
-        Between newBetween = between.withChildren(rewrittenChildren);
-        return TypeCoercionUtils.processBetween(newBetween);
+        Expression compareExpr = between.getCompareExpr().accept(this, context);
+        Expression lowerBound = between.getLowerBound().accept(this, context);
+        Expression upperBound = between.getUpperBound().accept(this, context);
+        if (lowerBound.equals(upperBound)) {
+            // rewrite `x between a and a` to `x = a`
+            return TypeCoercionUtils.processComparisonPredicate(new EqualTo(compareExpr, lowerBound));
+        } else {
+            return new And(
+                    TypeCoercionUtils.processComparisonPredicate(new GreaterThanEqual(compareExpr, lowerBound)),
+                    TypeCoercionUtils.processComparisonPredicate(new LessThanEqual(compareExpr, upperBound)));
+        }
     }
 
     @Override

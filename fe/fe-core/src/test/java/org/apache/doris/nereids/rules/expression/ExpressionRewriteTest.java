@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
-import org.apache.doris.nereids.rules.expression.rules.BetweenToCompound;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
@@ -244,19 +243,6 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testBetweenToCompoundRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(
-                        BetweenToCompound.INSTANCE,
-                        SimplifyNotExprRule.INSTANCE)
-        ));
-
-        assertRewrite("a between c and d", "(a >= c) and (a <= d)");
-        assertRewrite("a not between c and d", "(a < c) or (a > d)");
-        assertRewrite("a between c and c", "a = c");
-    }
-
-    @Test
     void testSimplifyCastRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(SimplifyCastRule.INSTANCE)
@@ -326,8 +312,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     void testAddMinMax() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(
-                    AddMinMax.INSTANCE,
-                    BetweenToCompound.INSTANCE
+                AddMinMax.INSTANCE
             )
         ));
 
@@ -393,8 +378,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(
                         SimplifyRange.INSTANCE,
-                        AddMinMax.INSTANCE,
-                        BetweenToCompound.INSTANCE
+                        AddMinMax.INSTANCE
                 )
         ));
 

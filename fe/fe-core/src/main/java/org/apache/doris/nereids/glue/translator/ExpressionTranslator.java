@@ -54,7 +54,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -387,18 +386,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             }
         }
         return results.pop();
-    }
-
-    @Override
-    public Expr visitBetween(Between between, PlanTranslatorContext context) {
-        if (between.getLowerBound().equals(between.getUpperBound())) {
-            EqualTo equalTo = new EqualTo(between.getCompareExpr(), between.getLowerBound());
-            return equalTo.accept(this, context);
-        } else {
-            And and = new And(new GreaterThanEqual(between.getCompareExpr(), between.getLowerBound()),
-                    new LessThanEqual(between.getCompareExpr(), between.getUpperBound()));
-            return and.accept(this, context);
-        }
     }
 
     @Override
