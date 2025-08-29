@@ -63,6 +63,7 @@ bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
 bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
         "cached_remote_reader_skip_local_cache_io_sum_bytes");
+bvar::LatencyRecorder g_peer_file_reader_latency("peer_file_reader_latency");
 
 // no custom launcher needed when using std::thread
 
@@ -579,6 +580,15 @@ Status CachedRemoteFileReader::_fetch_from_peer_cache_blocks(
         st = Status::RpcError("Address {} is wrong", brpc_addr);
         return st;
     }
+    int64_t begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count();
+    Defer defer {[&]() {
+        int64_t end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+        g_peer_file_reader_latency << (end_ts - begin_ts);
+    }};
 
     brpc::Controller cntl;
     cntl.set_timeout_ms(60000);

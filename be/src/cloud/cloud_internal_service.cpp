@@ -31,6 +31,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "util/async_io.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -194,13 +195,20 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
                         std::chrono::duration_cast<std::chrono::microseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())
                                 .count();
-                std::thread reader([&]() {
+                auto task = [&] {
                     // Current thread not exist ThreadContext, usually after the thread is started, using SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.
                     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
                     Slice slice(data.data(), data.size());
                     read_st = fb->read(slice, /*read_offset=*/0);
-                });
-                if (reader.joinable()) reader.join();
+                };
+                AsyncIO::run_task(task, io::FileSystemType::LOCAL);
+                // std::thread reader([&]() {
+                //     // Current thread not exist ThreadContext, usually after the thread is started, using SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.
+                //     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
+                //     Slice slice(data.data(), data.size());
+                //     read_st = fb->read(slice, /*read_offset=*/0);
+                // });
+                // if (reader.joinable()) reader.join();
                 int64_t end_read_file_ts =
                         std::chrono::duration_cast<std::chrono::microseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())

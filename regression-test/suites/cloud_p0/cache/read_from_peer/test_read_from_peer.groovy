@@ -89,9 +89,10 @@ suite('test_read_from_peer', 'docker') {
             
             // Execute the query and measure time
             def queryStartTime = System.currentTimeMillis()
-            sql """
+            def ret = sql """
                 select count(*) from $tableName
             """
+            logger.info("select ret={}", ret)
             def queryTime = System.currentTimeMillis() - queryStartTime
             logger.info("Test completed - Type:{}, FetchFrom: {}, Cluster: {}, Query execution time: {}ms", runType, fetchFrom, clusterName, queryTime)
         } catch (Exception e) {
@@ -159,9 +160,10 @@ suite('test_read_from_peer', 'docker') {
             }
         }
 
-        sql """
+        def ret = sql """
             select count(*) from $tableName
         """
+        logger.info("ret after load, ret {}", ret)
 
         testCase("compute_cluster", "s3", "hit_cache")
         testCase("readS3cluster", "s3", "s3")
