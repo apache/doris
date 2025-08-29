@@ -524,6 +524,17 @@ public:
      */
     void subset(const BitmapKey& start, const BitmapKey& end,
                 DeleteBitmap* subset_delete_map) const;
+    void subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids, int64_t start_version,
+                int64_t end_version, DeleteBitmap* subset_delete_map) const;
+
+    /**
+     * Gets subset of delete_bitmap of the input rowsets
+     * with given version range [start_version, end_version] and agg to end_version,
+     * then merge to subset_delete_map
+     */
+    void subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
+                        int64_t start_version, int64_t end_version,
+                        DeleteBitmap* subset_delete_map) const;
 
     /**
      * Gets count of delete_bitmap with given range [start, end)
