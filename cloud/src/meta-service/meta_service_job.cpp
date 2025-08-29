@@ -1707,12 +1707,12 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         }
     } else {
         std::vector<RowsetMetaCloudPB> rowset_metas;
-        TxnErrorCode err = reader.get_rowset_metas(
-                txn.get(), tablet_id, 2, schema_change.alter_version() + 1, &rowset_metas);
+        TxnErrorCode err = reader.get_rowset_metas(txn.get(), tablet_id, 2,
+                                                   schema_change.alter_version(), &rowset_metas);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get rowset metas, tablet_id={}, start={}, end={}, err={}",
-                              tablet_id, 2, schema_change.alter_version() + 1, err);
+                              tablet_id, 2, schema_change.alter_version(), err);
             LOG(WARNING) << msg;
             return;
         }
