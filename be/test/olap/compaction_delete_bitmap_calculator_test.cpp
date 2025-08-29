@@ -240,7 +240,7 @@ TEST_F(CompactionDeleteBitmapCalculatorTest, test) {
     // publish rowset 1
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
     RowsetIdUnorderedSet set;
-    set.insert(_tablet_meta->all_rs_metas()[0]->rowset_id());
+    set.insert(_rowset1->rowset_id());
     engine_ref->txn_manager()->set_txn_related_delete_bitmap(partition_id, 1, _tablet->tablet_id(),
                                                              _tablet->tablet_uid(), true,
                                                              delete_bitmap, set, nullptr);
@@ -254,7 +254,7 @@ TEST_F(CompactionDeleteBitmapCalculatorTest, test) {
     status = engine_ref->txn_manager()->commit_txn(_meta, partition_id, 2, tablet_id, _tablet_uid,
                                                    load_id, _rowset2, {}, false);
     EXPECT_TRUE(status == Status::OK());
-    set.insert(_tablet_meta->all_rs_metas()[1]->rowset_id());
+    set.insert(_rowset2->rowset_id());
     engine_ref->txn_manager()->set_txn_related_delete_bitmap(
             partition_id, 2, tablet_id, _tablet_uid, true, delete_bitmap, set, nullptr);
 

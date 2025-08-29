@@ -415,8 +415,9 @@ private:
     DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
 };
 
-#include "common/compile_check_end.h"
+using RowsetMetaMapContainer = std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>;
 
+#include "common/compile_check_end.h"
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
