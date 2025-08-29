@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -41,10 +40,8 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.math.BigDecimal;
@@ -69,7 +66,8 @@ import java.util.Locale;
 
 /**
  * executable function:
- * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute, second, microsecond
+ * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute,
+ * second, microsecond
  */
 public class DateTimeExtractAndTransform {
 
@@ -457,7 +455,8 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_days")
     public static Expression fromDays(IntegerLiteral n) {
-        // doris treat 0000AD as ordinary year but java LocalDateTime treat it as lunar year.
+        // doris treat 0000AD as ordinary year but java LocalDateTime treat it as lunar
+        // year.
         LocalDateTime res = LocalDateTime.of(0, 1, 1, 0, 0, 0)
                 .plusDays(n.getValue());
         if (res.isBefore(LocalDateTime.of(0, 3, 1, 0, 0, 0))) {
@@ -547,7 +546,7 @@ public class DateTimeExtractAndTransform {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
 
         if (second.getValue() < 0) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+            throw new AnalysisException("function from_unixtime's second argument must be positive");
         }
 
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
@@ -558,7 +557,7 @@ public class DateTimeExtractAndTransform {
         DateTimeV2Literal datetime = new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(),
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
         if (datetime.checkRange()) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+            throw new AnalysisException("function from_unixtime return value is out of date range");
         }
         return dateFormat(datetime, format);
     }
@@ -571,7 +570,7 @@ public class DateTimeExtractAndTransform {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
 
         if (second.getValue().signum() < 0) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+            throw new AnalysisException("function from_unixtime's second argument must be positive");
         }
 
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
@@ -584,7 +583,7 @@ public class DateTimeExtractAndTransform {
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
                 dateTime.getNano() / 1000);
         if (datetime.checkRange()) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+            throw new AnalysisException("function from_unixtime's second argument must be positive");
         }
         return dateFormat(datetime, format);
     }
@@ -638,15 +637,14 @@ public class DateTimeExtractAndTransform {
     private static String getTimestamp(LocalDateTime dateTime) {
         LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
         dateTime = dateTime.atZone(DateUtils.getTimeZone())
-                        .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
-                        .toLocalDateTime();
+                .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
+                .toLocalDateTime();
         if (dateTime.isBefore(specialLowerBound)) {
             return "0";
         }
         Duration duration = Duration.between(
                 specialLowerBound,
-                dateTime
-                );
+                dateTime);
         if (duration.getNano() == 0) {
             return String.valueOf(duration.getSeconds());
         } else {
@@ -700,8 +698,11 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "makedate")
     public static Expression makeDate(IntegerLiteral year, IntegerLiteral dayOfYear) {
         int day = dayOfYear.getValue();
-        return day > 0 ? DateLiteral.fromJavaDateType(LocalDateTime.of(year.getValue(), 1, 1, 0, 0, 0)
-                .plusDays(day - 1)) : new NullLiteral(DateType.INSTANCE);
+        if (day <= 0) {
+            throw new AnalysisException("function makedate's second argument must be positive");
+        }
+        return DateLiteral.fromJavaDateType(LocalDateTime.of(year.getValue(), 1, 1, 0, 0, 0)
+                .plusDays(day - 1));
     }
 
     /**
@@ -914,7 +915,7 @@ public class DateTimeExtractAndTransform {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
-                                WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
+                                        WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
             }
             case 1: {
                 return new IntegerLiteral(localDateTime.get(WeekFields.ISO.weekBasedYear()) * 100
@@ -924,7 +925,7 @@ public class DateTimeExtractAndTransform {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
-                                WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
+                                        WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
             }
             case 3: {
                 return new IntegerLiteral(localDateTime.get(WeekFields.ISO.weekBasedYear()) * 100
@@ -934,25 +935,25 @@ public class DateTimeExtractAndTransform {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 4).weekBasedYear()) * 100
                                 + localDateTime
-                                .get(WeekFields.of(DayOfWeek.SUNDAY, 4).weekOfWeekBasedYear()));
+                                        .get(WeekFields.of(DayOfWeek.SUNDAY, 4).weekOfWeekBasedYear()));
             }
             case 5: {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.MONDAY, 7).weekBasedYear()) * 100
                                 + localDateTime
-                                .get(WeekFields.of(DayOfWeek.MONDAY, 7).weekOfWeekBasedYear()));
+                                        .get(WeekFields.of(DayOfWeek.MONDAY, 7).weekOfWeekBasedYear()));
             }
             case 6: {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 4).weekBasedYear()) * 100
                                 + localDateTime.get(
-                                WeekFields.of(DayOfWeek.SUNDAY, 4).weekOfWeekBasedYear()));
+                                        WeekFields.of(DayOfWeek.SUNDAY, 4).weekOfWeekBasedYear()));
             }
             case 7: {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.MONDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
-                                WeekFields.of(DayOfWeek.MONDAY, 7).weekOfWeekBasedYear()));
+                                        WeekFields.of(DayOfWeek.MONDAY, 7).weekOfWeekBasedYear()));
             }
             default: {
                 throw new AnalysisException(
@@ -1058,7 +1059,8 @@ public class DateTimeExtractAndTransform {
 
     private static Expression fromMicroSecond(long microSecond) {
         if (microSecond < 0 || microSecond > 253402271999999999L) {
-            return new NullLiteral(DateTimeV2Type.SYSTEM_DEFAULT);
+            throw new AnalysisException("function from_microsecond's argument is out of range"
+                    + " (0 to 253402271999999999)");
         }
         LocalDateTime dateTime = LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(microSecond / 1000).plusNanos(microSecond % 1000 * 1000),

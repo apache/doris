@@ -296,8 +296,10 @@ suite("test_date_function") {
     qt_sql """ select /*+SET_VAR(time_zone="Asia/Hong_Kong")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
     qt_sql """ select /*+SET_VAR(time_zone="Asia/Hong_Kong")*/ from_unixtime(1196440219, '%Y-%m-%d') """
     qt_sql """ select /*+SET_VAR(time_zone="Asia/Hong_Kong")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
-    qt_sql """ select /*+SET_VAR(time_zone="Asia/Hong_Kong")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
-
+    test {
+        sql """ select /*+SET_VAR(time_zone="Asia/Hong_Kong")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+        exception "Cannot convert timestamp 253402272000 to valid date"
+    }
     // HOUR
     qt_sql """ select hour('2018-12-31 23:59:59') """
     qt_sql """ select hour('2018-12-31') """
@@ -837,4 +839,59 @@ suite("test_date_function") {
             result([[true]])
         }
     }()
+
+    test {
+        sql """SELECT MAKEDATE(2020, 0);"""
+        exception "The function makedate Argument value 2020, 0 must be larger than zero ,and yearbetween 1 and 9999"
+    }
+
+    test {
+        sql """SELECT MAKEDATE(9999, 366);"""
+        exception "The function makedate with input 9999 , 366 result is out of range"
+    }
+
+    test {
+        sql """SELECT TIMEDIFF('2023-07-13 12:34:56.789', '2024-07-13 12:34:50.123')"""
+        exception "The function timediff result of 2023-07-13 12:34:56.789000, 2024-07-13 12:34:50.123000 is out of range"
+    }
+
+    test {
+        sql """select from_unixtime(253402281999);"""
+        exception "Cannot convert timestamp 253402281999 to valid date"
+    }
+
+    test {
+        sql """ select sec_to_time(99999999); """
+        exception "The function sec_to_time Argument value 99999999 is out of Time range"
+    }
+
+    test {
+        sql """select from_second(999999999999999);"""
+        exception "The function from_second Argument value is out of DateTime range"
+    }
+
+    test {
+        sql """select from_second(-1);"""
+        exception "The function from_second Argument value must be non-negative"
+    }
+
+    test {
+        sql """select from_millisecond(999999999999999999);"""
+        exception "The function from_millisecond Argument value is out of DateTime range"
+    }
+
+    test {
+        sql """select from_millisecond(-1);"""
+        exception "The function from_millisecond Argument value must be non-negative"
+    }
+
+    test {
+        sql """select from_microsecond(999999999999999999);"""
+        exception "The function from_microsecond Argument value is out of DateTime range"
+    }
+
+    test {
+        sql """select from_microsecond(-1);"""
+        exception "The function from_microsecond Argument value must be non-negative"   
+    }
 }

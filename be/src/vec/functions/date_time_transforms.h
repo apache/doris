@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
@@ -311,17 +312,22 @@ struct FromUnixTimeImpl {
     static bool execute(const ArgType& val, StringRef format, ColumnString::Chars& res_data,
                         size_t& offset, const cctz::time_zone& time_zone) {
         if (!check_valid(val)) {
-            return true;
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Timestamp value {} is out of supported range (must be non-negative)",
+                            val);
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(val, time_zone);
         if (!dt.is_valid_date()) {
-            return true;
+            throw Exception(ErrorCode::OUT_OF_BOUND, "Cannot convert timestamp {} to valid date",
+                            val);
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
                                                   100 + SAFE_FORMAT_STRING_MARGIN)) {
-                return true;
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Failed to format datetime with format string '{}'",
+                                std::string_view(format.data, format.size));
             }
 
             auto len = strlen(buf);
@@ -370,23 +376,29 @@ struct FromUnixTimeDecimalImpl {
         return dt;
     }
 
-    // return true if null(result is invalid)
+    // throw exception if invalid (instead of returning true for null)
     template <typename Impl>
     static bool execute_decimal(const ArgType& interger, const ArgType& fraction, StringRef format,
                                 ColumnString::Chars& res_data, size_t& offset,
                                 const cctz::time_zone& time_zone) {
         if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) {
-            return true;
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Timestamp value {} is out of supported range (must be non-negative)",
+                            interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)));
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(interger, fraction, time_zone);
         if (!dt.is_valid_date()) {
-            return true;
+            throw Exception(ErrorCode::OUT_OF_BOUND,
+                            "Cannot convert timestamp to valid date: integer={}, fraction={}",
+                            interger, fraction);
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
                                                   100 + SAFE_FORMAT_STRING_MARGIN)) {
-                return true;
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Failed to format datetime with format string '{}'",
+                                std::string_view(format.data, format.size));
             }
 
             auto len = strlen(buf);
