@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_map.h"
@@ -39,46 +40,32 @@ namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
 
-Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, vectorized::PathInData path,
-                                        const SubcolumnColumnReaders::Node* node,
-                                        const SubcolumnColumnReaders::Node* root,
-                                        ReadType read_type,
-                                        std::unique_ptr<ColumnIterator>&& sparse_reader) {
+Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_uid,
+                                        vectorized::PathInData path,
+                                        const SubcolumnColumnMetaInfo::Node* node,
+                                        std::unique_ptr<SubstreamIterator>&& sparse_reader,
+                                        std::unique_ptr<SubstreamIterator>&& root_column_reader,
+                                        ColumnReaderCache* column_reader_cache,
+                                        OlapReaderStatistics* stats) {
     // None leave node need merge with root
     auto stream_iter = std::make_unique<HierarchicalDataIterator>(path);
     if (node != nullptr) {
-        std::vector<const SubcolumnColumnReaders::Node*> leaves;
+        std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
         vectorized::PathsInData leaves_paths;
-        SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
+        SubcolumnColumnMetaInfo::get_leaves_of_node(node, leaves, leaves_paths);
         for (size_t i = 0; i < leaves_paths.size(); ++i) {
             if (leaves_paths[i].empty()) {
                 // use set_root to share instead
                 continue;
             }
-            RETURN_IF_ERROR(stream_iter->add_stream(leaves[i]));
-        }
-        // Make sure the root node is in strem_cache, so that child can merge data with root
-        // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
-        // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
-        // like {"a" : "b" : {"e" : 1.1}} in jsonb format
-        if (read_type == ReadType::MERGE_ROOT) {
-            // ColumnIterator* it;
-            // RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
-            stream_iter->set_root(std::make_unique<SubstreamIterator>(
-                    root->data.file_column_type->create_column(),
-                    std::unique_ptr<ColumnIterator>(
-                            new FileColumnIterator(root->data.reader.get())),
-                    root->data.file_column_type));
+            RETURN_IF_ERROR(
+                    stream_iter->add_stream(col_uid, leaves[i], column_reader_cache, stats));
         }
     }
-
-    // need read from sparse column
-    if (sparse_reader) {
-        vectorized::MutableColumnPtr sparse_column =
-                vectorized::ColumnVariant::create_sparse_column_fn();
-        stream_iter->_sparse_column_reader = std::make_unique<SubstreamIterator>(
-                std::move(sparse_column), std::move(sparse_reader), nullptr);
-    };
+    // need read from root column if not null
+    stream_iter->_root_reader = std::move(root_column_reader);
+    // need read from sparse column if not null
+    stream_iter->_sparse_column_reader = std::move(sparse_reader);
     *reader = std::move(stream_iter);
 
     return Status::OK();
@@ -147,16 +134,21 @@ Status HierarchicalDataIterator::read_by_rowids(const rowid_t* rowids, const siz
             dst, count);
 }
 
-Status HierarchicalDataIterator::add_stream(const SubcolumnColumnReaders::Node* node) {
+Status HierarchicalDataIterator::add_stream(int32_t col_uid,
+                                            const SubcolumnColumnMetaInfo::Node* node,
+                                            ColumnReaderCache* column_reader_cache,
+                                            OlapReaderStatistics* stats) {
     if (_substream_reader.find_leaf(node->path)) {
         VLOG_DEBUG << "Already exist sub column " << node->path.get_path();
         return Status::OK();
     }
     CHECK(node);
-    ColumnIteratorUPtr it_ptr;
-    RETURN_IF_ERROR(node->data.reader->new_iterator(&it_ptr, nullptr));
-
-    SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it_ptr),
+    ColumnIteratorUPtr it;
+    std::shared_ptr<ColumnReader> column_reader;
+    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(col_uid, node->path, &column_reader,
+                                                                stats, node));
+    RETURN_IF_ERROR(column_reader->new_iterator(&it, nullptr));
+    SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it),
                              node->data.file_column_type);
     bool added = _substream_reader.add(node->path, std::move(reader));
     if (!added) {

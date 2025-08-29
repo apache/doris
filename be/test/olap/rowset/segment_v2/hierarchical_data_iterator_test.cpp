@@ -51,11 +51,13 @@ public:
 
 TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     std::unique_ptr<ColumnIterator> sparse_reader = std::make_unique<DummySparseIterator>();
-    HierarchicalDataIterator::ReadType read_type = HierarchicalDataIterator::ReadType::READ_DIRECT;
     doris::segment_v2::ColumnIteratorUPtr iter;
-    ASSERT_TRUE(HierarchicalDataIterator::create(&iter, PathInData("a.b"), /*node*/ nullptr,
-                                                 /*root*/ nullptr, read_type,
-                                                 std::move(sparse_reader))
+    auto sparse_iter = std::make_unique<SubstreamIterator>(
+            doris::vectorized::ColumnVariant::create_sparse_column_fn(), std::move(sparse_reader),
+            nullptr);
+    ASSERT_TRUE(HierarchicalDataIterator::create(
+                        &iter, /*col_uid*/ 0, PathInData("a.b"), /*node*/ nullptr,
+                        /*root*/ std::move(sparse_iter), nullptr, nullptr, nullptr)
                         .ok());
 
     ColumnIteratorOptions opts;
@@ -126,7 +128,7 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
 
     EXPECT_EQ(read_offs.size(), 2);
 
-    EXPECT_EQ(read_keys.get_element(0), "e");
+    EXPECT_EQ(read_keys.get_data_at(0).to_string(), "e");
     auto val = read_vals.get_data_at(0).to_string();
     EXPECT_EQ(val.substr(val.size() - 9, 9), "abevalues");
 
