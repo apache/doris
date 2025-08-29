@@ -77,6 +77,11 @@ public:
      */
     std::string clear_file_caches(bool sync);
 
+    /**
+     * dump lru queue info for all file cache instances
+     */
+    void dump_all_caches();
+
     std::vector<std::string> get_base_paths();
 
     /**

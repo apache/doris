@@ -165,6 +165,8 @@ public:
     std::string dump_structure(const UInt128Wrapper& hash);
     std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
 
+    void dump_lru_queues(bool force);
+
     [[nodiscard]] size_t get_used_cache_size(FileCacheType type) const;
 
     [[nodiscard]] size_t get_file_blocks_num(FileCacheType type) const;
@@ -533,6 +535,7 @@ private:
     // so join this async load thread first
     std::unique_ptr<FileCacheStorage> _storage;
     std::shared_ptr<bvar::LatencyRecorder> _lru_dump_latency_us;
+    std::mutex _dump_lru_queues_mtx;
 };
 
 } // namespace doris::io
