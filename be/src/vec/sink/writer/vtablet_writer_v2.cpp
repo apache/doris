@@ -100,9 +100,7 @@ Status VTabletWriterV2::_incremental_open_streams(
                     tablet.set_partition_id(partition->id);
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
-                    if (!_load_stream_map->contains(node)) {
-                        new_backends.insert(node);
-                    }
+                    new_backends.insert(node);
                     _tablets_for_node[node].emplace(tablet_id, tablet);
                     if (known_indexes.contains(index.index_id)) [[likely]] {
                         continue;

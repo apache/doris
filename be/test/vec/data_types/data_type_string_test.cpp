@@ -101,7 +101,6 @@ TEST_F(DataTypeStringTest, MetaInfoTest) {
             .is_null_literal = false,
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_STRING>(""),
     };
     auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, false);
@@ -266,7 +265,6 @@ TEST_F(DataTypeStringTest, simple_func_test) {
         EXPECT_FALSE(dt.have_subtypes());
         EXPECT_FALSE(dt.should_align_right_in_pretty_formats());
         EXPECT_TRUE(dt.is_comparable());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_FALSE(dt.have_maximum_size_of_value());
         EXPECT_TRUE(dt.can_be_inside_low_cardinality());
 

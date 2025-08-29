@@ -39,7 +39,17 @@ import java.util.Map;
  * Common interface for logical/physical project.
  */
 public interface Project extends ProjectMergeable {
-    List<NamedExpression> getProjects();
+
+    @Override
+    default boolean canProcessProject(List<NamedExpression> parentProjects) {
+        List<NamedExpression> bottomProjects = getProjects();
+        if (ExpressionUtils.containsWindowExpression(parentProjects)
+                && ExpressionUtils.containsWindowExpression(bottomProjects)) {
+            return false;
+        }
+
+        return ProjectMergeable.super.canProcessProject(parentProjects);
+    }
 
     /**
      * Generate a map that the key is the alias slot, corresponding value is the expression produces the slot.
@@ -79,18 +89,7 @@ public interface Project extends ProjectMergeable {
 
     /** check can merge two projects */
     default boolean canMergeChildProjections(Project childProject) {
-        return childProject.canMergeParentProjections(getProjects());
-    }
-
-    /** check can merge two projects */
-    default boolean canMergeParentProjections(List<NamedExpression> parentProject) {
-        List<NamedExpression> bottomProjects = getProjects();
-        if (ExpressionUtils.containsWindowExpression(parentProject)
-                && ExpressionUtils.containsWindowExpression(bottomProjects)) {
-            return false;
-        }
-
-        return PlanUtils.canReplaceWithProjections(bottomProjects, parentProject);
+        return childProject.canProcessProject(getProjects());
     }
 
     /**

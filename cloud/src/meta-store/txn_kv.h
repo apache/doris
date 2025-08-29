@@ -308,18 +308,18 @@ public:
                                    const BatchGetOptions& opts = BatchGetOptions()) = 0;
 
     /**
-     * @brief Batch scan for the first key-value pair starting from each given key.
+     * @brief Batch scan for the first key-value pair with each given key prefix.
      *
-     * For each key in the input keys, this function starts scanning from that key (inclusive)
-     * in the direction specified by `opts.reverse` (forward by default) and returns the first
-     * key-value pair encountered. If no key is found (i.e., scanning reaches the end without
-     * finding any key), the corresponding result is an empty optional.
+     * For each key prefix in the input key_prefixs, this function scans for keys that start with
+     * that prefix in the direction specified by `opts.reverse` (forward by default) and returns
+     * the first key-value pair encountered. If no key with the given prefix is found, the
+     * corresponding result is an empty optional.
      *
-     * The function scans keys in batches and is more efficient than scanning each key individually.
+     * The function scans keys in batches and is more efficient than scanning each prefix individually.
      *
-     * @param[out] res The output vector of optionals. Each element corresponds to the same index as in the input keys.
-     *                  If a key-value pair is found, the element will contain the pair; otherwise, it will be std::nullopt.
-     * @param[in] keys The list of keys from which to start the scan for each corresponding search.
+     * @param[out] res The output vector of optionals. Each element corresponds to the same index as in the input key_prefixs.
+     *                  If a key-value pair with the prefix is found, the element will contain the pair; otherwise, it will be std::nullopt.
+     * @param[in] key_prefixs The list of key prefixes to scan for.
      * @param[in] opts Options such as `reverse` and `snapshot`. If `reverse` is true, the scan is in the backward direction.
      *
      * @return TXN_OK if all scans completed successfully. If any error occurs during the scanning,
@@ -328,7 +328,33 @@ public:
      */
     virtual TxnErrorCode batch_scan(
             std::vector<std::optional<std::pair<std::string, std::string>>>* res,
-            const std::vector<std::string>& keys,
+            const std::vector<std::string>& key_prefixs,
+            const BatchGetOptions& opts = BatchGetOptions());
+
+    /**
+     * @brief Batch scan for the first key-value pairs within each given range.
+     *
+     * For each range in the input ranges, this function performs a range scan from the begin key
+     * (inclusive) to the end key (exclusive) in the direction specified by `opts.reverse` (forward
+     * by default) and returns all key-value pairs found within that range. If no keys are found
+     * within a range, the corresponding result is an empty optional.
+     *
+     * The function scans ranges in batches and is more efficient than scanning each range individually.
+     *
+     * @param[out] res The output vector of optionals. Each element corresponds to the same index as in the input ranges.
+     *                  If key-value pairs are found within the range, the element will contain a vector of pairs;
+     *                  otherwise, it will be std::nullopt.
+     * @param[in] ranges The list of ranges to scan. Each range is a pair of (begin_key, end_key) where
+     *                   begin_key is inclusive and end_key is exclusive.
+     * @param[in] opts Options such as `reverse` and `snapshot`. If `reverse` is true, the scan is in the backward direction.
+     *
+     * @return TXN_OK if all scans completed successfully. If any error occurs during the scanning,
+     *         the function stops immediately and returns the error code of the first error encountered.
+     *         Note: The output vector `res` may be partially filled when an error occurs.
+     */
+    virtual TxnErrorCode batch_scan(
+            std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+            const std::vector<std::pair<std::string, std::string>>& ranges,
             const BatchGetOptions& opts = BatchGetOptions()) = 0;
 
     /**
@@ -645,6 +671,7 @@ private:
 
 class Transaction : public cloud::Transaction {
     FRIEND_TEST(TxnKvTest, ReportConflictingRange);
+    FRIEND_TEST(TxnKvTest, VersionedGetConflictRange);
 
 public:
     friend class Database;
@@ -755,7 +782,7 @@ public:
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
     TxnErrorCode batch_scan(std::vector<std::optional<std::pair<std::string, std::string>>>* res,
-                            const std::vector<std::string>& keys,
+                            const std::vector<std::pair<std::string, std::string>>& ranges,
                             const BatchGetOptions& opts = BatchGetOptions()) override;
 
     size_t approximate_bytes() const override { return approximate_bytes_; }
@@ -837,4 +864,5 @@ private:
 };
 
 } // namespace fdb
+
 } // namespace doris::cloud
