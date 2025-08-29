@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -53,6 +54,10 @@ public abstract class Planner {
 
     public String getExplainString(ExplainOptions explainOptions) {
         Preconditions.checkNotNull(explainOptions);
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().enableExplainNone) {
+            return "";
+        }
         if (explainOptions.isGraph()) {
             // print the plan graph
             PlanTreeBuilder builder = new PlanTreeBuilder(fragments);
