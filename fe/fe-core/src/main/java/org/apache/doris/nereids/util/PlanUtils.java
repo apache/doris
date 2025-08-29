@@ -165,7 +165,7 @@ public class PlanUtils {
      * if replace with the projects, then result expressions: [ t + random(),  t + random() + 10 ],
      * it will calculate random two times, this is error.
      */
-    public static boolean canReplaceWithProjections(List<? extends NamedExpression> childProjects,
+    public static boolean canMergeWithProjections(List<? extends NamedExpression> childProjects,
             List<? extends Expression> targetExpressions) {
         Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
         for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {

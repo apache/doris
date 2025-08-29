@@ -35,6 +35,12 @@ import java.util.Optional;
  * 3. project(emptyRelation) -> emptyRelation
  */
 public interface ProjectMergeable extends ProjectProcessor, OutputPrunable, Plan {
+
+    @Override
+    default boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return PlanUtils.canMergeWithProjections(getProjects(), parentProjects);
+    }
+
     @Override
     default Optional<Plan> processProject(List<NamedExpression> parentProjects) {
         return mergeContinuedProjects(parentProjects, this);
