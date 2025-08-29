@@ -111,8 +111,11 @@ public class HadoopHudiJniScanner extends JniScanner {
 
         this.hudiColumnNames = params.get("hudi_column_names");
         this.hudiColumnTypes = params.get("hudi_column_types").split("#");
-        this.requiredFields = params.get("required_fields").split(",");
-
+        if (!params.get("required_fields").equals("")) {
+            this.requiredFields = params.get("required_fields").split(",");
+        } else {
+            this.requiredFields = new String[0];
+        }
         this.fieldInspectors = new ObjectInspector[requiredFields.length];
         this.structFields = new StructField[requiredFields.length];
         this.fsOptionsProps = Maps.newHashMap();
