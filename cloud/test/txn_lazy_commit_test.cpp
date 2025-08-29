@@ -68,11 +68,6 @@ int main(int argc, char** argv) {
     }
 
     config::enable_cloud_txn_lazy_commit = true;
-    config::txn_lazy_commit_rowsets_thresold = 2;
-    config::txn_lazy_max_rowsets_per_batch = 2;
-    config::txn_lazy_commit_num_threads = 2;
-    config::max_tablet_index_num_per_batch = 2;
-
     config::enable_txn_store_retry = false;
 
     config::label_keep_max_second = 0;
@@ -157,8 +152,8 @@ static void create_tablet_with_db_id(MetaServiceProxy* meta_service, int64_t db_
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
 }
 
-static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int index_id,
-                                              int partition_id, int64_t version = -1,
+static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int64_t index_id,
+                                              int64_t partition_id, int64_t version = -1,
                                               int num_rows = 100) {
     doris::RowsetMetaCloudPB rowset;
     rowset.set_rowset_id(0); // required
@@ -179,9 +174,9 @@ static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
     return rowset;
 }
 
-static doris::RowsetMetaCloudPB create_huge_rowset(int64_t txn_id, int64_t tablet_id, int index_id,
-                                                   int partition_id, int64_t version = -1,
-                                                   int num_rows = 100) {
+static doris::RowsetMetaCloudPB create_huge_rowset(int64_t txn_id, int64_t tablet_id,
+                                                   int64_t index_id, int64_t partition_id,
+                                                   int64_t version = -1, int num_rows = 100) {
     doris::RowsetMetaCloudPB rowset;
     rowset.set_rowset_id(0); // required
     rowset.set_rowset_id_v2(next_rowset_id());
@@ -410,14 +405,14 @@ TEST(TxnLazyCommitTest, CreateTabletWithDbIdTest) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 11414703;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         check_tablet_idx_db_id(txn, db_id, tablet_id);
     }
@@ -432,14 +427,14 @@ TEST(TxnLazyCommitTest, CreateTabletWithoutDbIdTest) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 42411890;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_without_db_id(meta_service.get(), table_id, index_id, partition_id,
                                     tablet_id_base + i);
     }
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         check_tablet_idx_without_db_id(txn, tablet_id);
     }
@@ -479,7 +474,7 @@ TEST(TxnLazyCommitTest, RepairTabletIndexTest) {
     // mock rowset and tablet
     int64_t tablet_id_base = 87134121;
     std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> tmp_rowsets_meta;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_without_db_id(meta_service.get(), table_id, index_id, partition_id,
                                     tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
@@ -492,7 +487,7 @@ TEST(TxnLazyCommitTest, RepairTabletIndexTest) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_without_db_id(txn, tablet_id);
         }
@@ -506,7 +501,7 @@ TEST(TxnLazyCommitTest, RepairTabletIndexTest) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
         }
@@ -567,7 +562,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 1103;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2999; ++i) {
         create_tablet_without_db_id(meta_service.get(), table_id, index_id, partition_id,
                                     tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
@@ -579,7 +574,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tmp_rowset_exist(txn, tablet_id, txn_id);
         }
@@ -593,7 +588,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
         req.set_enable_txn_lazy_commit(true);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2999; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             req.add_base_tablet_ids(tablet_id);
         }
@@ -610,7 +605,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string mock_instance = "test_instance";
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2999; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
@@ -648,7 +643,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortedTest) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 372323;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_without_db_id(meta_service.get(), table_id, index_id, partition_id,
                                     tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
@@ -660,7 +655,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortedTest) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tmp_rowset_exist(txn, tablet_id, txn_id);
         }
@@ -687,7 +682,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortedTest) {
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
         req.set_enable_txn_lazy_commit(true);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             req.add_base_tablet_ids(tablet_id);
         }
@@ -700,7 +695,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortedTest) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_exist(txn, tablet_id, txn_id);
@@ -757,7 +752,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 3131124;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2048; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
@@ -787,7 +782,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string mock_instance = "test_instance";
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2048; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
@@ -865,7 +860,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 3131124;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
@@ -895,7 +890,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string mock_instance = "test_instance";
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
@@ -1000,7 +995,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventuallyWithoutDbIdTest) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 1103;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_without_db_id(meta_service.get(), table_id, index_id, partition_id,
                                     tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
@@ -1012,7 +1007,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventuallyWithoutDbIdTest) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tmp_rowset_exist(txn, tablet_id, txn_id);
         }
@@ -1026,7 +1021,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventuallyWithoutDbIdTest) {
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
         req.set_enable_txn_lazy_commit(true);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             req.add_base_tablet_ids(tablet_id);
         }
@@ -1042,7 +1037,7 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventuallyWithoutDbIdTest) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < 5; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
@@ -1406,7 +1401,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
     int64_t tablet_id_base = 1908462;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -1435,7 +1430,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             ASSERT_GT(txn_id1, 0);
         }
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset =
                         create_rowset(txn_id1, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
@@ -1483,7 +1478,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             ASSERT_GT(txn_id2, 0);
         }
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset =
                         create_rowset(txn_id2, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
@@ -1526,7 +1521,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string mock_instance = "test_instance";
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             std::string key = meta_tablet_idx_key({mock_instance, tablet_id});
             std::string val;
@@ -1646,7 +1641,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
     int64_t tablet_id_base = 1908462;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 1999; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -1675,7 +1670,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
             ASSERT_GT(txn_id1, 0);
         }
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 1999; ++i) {
                 auto tmp_rowset =
                         create_rowset(txn_id1, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
@@ -1723,7 +1718,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
             ASSERT_GT(txn_id2, 0);
         }
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 1999; ++i) {
                 auto tmp_rowset =
                         create_rowset(txn_id2, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
@@ -1766,7 +1761,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 1999; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
 
@@ -1809,7 +1804,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
     // mock rowset and tablet
     int64_t tablet_id_base = 19201262;
 
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 10001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -1834,7 +1829,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
         }
 
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 10001; ++i) {
                 auto tmp_rowset =
                         create_rowset(tmp_txn_id, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
@@ -1943,7 +1938,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
         }
 
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 10001; ++i) {
                 auto tmp_rowset =
                         create_rowset(txn_id1, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
@@ -2070,7 +2065,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
     int64_t tablet_id_base = 213430076554;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -2095,7 +2090,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
         }
 
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
@@ -2243,7 +2238,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
     int64_t tablet_id_base = 1908562;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -2272,7 +2267,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
             ASSERT_GT(txn_id1, 0);
         }
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset =
                         create_rowset(txn_id1, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
@@ -2320,7 +2315,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
             ASSERT_GT(txn_id2, 0);
         }
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset =
                         create_rowset(txn_id2, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
@@ -2353,7 +2348,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
             ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[0]);
         }
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset =
                         create_rowset(sub_txn_id2, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
@@ -2373,14 +2368,14 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
             SubTxnInfo sub_txn_info1;
             sub_txn_info1.set_sub_txn_id(sub_txn_id1);
             sub_txn_info1.set_table_id(table_id);
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 sub_txn_info1.mutable_base_tablet_ids()->Add(tablet_id_base + i);
             }
 
             SubTxnInfo sub_txn_info2;
             sub_txn_info2.set_sub_txn_id(sub_txn_id2);
             sub_txn_info2.set_table_id(table_id);
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 sub_txn_info1.mutable_base_tablet_ids()->Add(tablet_id_base + i);
             }
 
@@ -2412,7 +2407,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 2001; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
 
@@ -2603,7 +2598,7 @@ TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase1) {
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
     int64_t tablet_id_base = 2313324;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -2628,7 +2623,7 @@ TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase1) {
         }
 
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
@@ -2722,7 +2717,7 @@ TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase2) {
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
     int64_t tablet_id_base = 2313324;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -2747,7 +2742,7 @@ TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase2) {
         }
 
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
@@ -2822,7 +2817,7 @@ TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase3) {
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
     int64_t tablet_id_base = 2313324;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -2847,7 +2842,7 @@ TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase3) {
         }
 
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
@@ -2948,7 +2943,7 @@ TEST(TxnLazyCommitTest, RecyclePartitions) {
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
     int64_t tablet_id_base = 2313324;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -2973,7 +2968,7 @@ TEST(TxnLazyCommitTest, RecyclePartitions) {
         }
 
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
@@ -3094,7 +3089,7 @@ TEST(TxnLazyCommitTest, RecycleIndexes) {
     auto meta_service = get_meta_service(txn_kv, true);
     // mock rowset and tablet
     int64_t tablet_id_base = 2313324;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
     }
@@ -3119,7 +3114,7 @@ TEST(TxnLazyCommitTest, RecycleIndexes) {
         }
 
         {
-            for (int i = 0; i < 10; ++i) {
+            for (int i = 0; i < 2001; ++i) {
                 auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
                 CreateRowsetResponse res;
                 commit_rowset(meta_service.get(), tmp_rowset, res);
@@ -3220,7 +3215,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithMultiTableTest) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 3131124;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
@@ -3229,7 +3224,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithMultiTableTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 
-    for (int i = 5; i < 10; ++i) {
+    for (int i = 2001; i < 4002; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id2, index_id2, partition_id2,
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id2, partition_id2);
@@ -3257,7 +3252,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithMultiTableTest) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string mock_instance = "test_instance";
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 4002; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
@@ -3271,7 +3266,6 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithMultiTableTest) {
 }
 
 TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
-    config::txn_lazy_max_rowsets_per_batch = 1000;
     auto txn_kv = get_fdb_txn_kv();
     int64_t db_id = 14135425;
     int64_t table_id = 31245456;
@@ -3319,7 +3313,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
 
     // mock rowset and tablet
     int64_t tablet_id_base = 3131124;
-    for (int i = 0; i < 1000; ++i) {
+    for (int i = 0; i < 1001; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
                                  tablet_id_base + i);
         auto tmp_rowset = create_huge_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
@@ -3328,7 +3322,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 
-    for (int i = 1000; i < 2000; ++i) {
+    for (int i = 1001; i < 2002; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id2, index_id2, partition_id2,
                                  tablet_id_base + i);
         auto tmp_rowset = create_huge_rowset(txn_id, tablet_id_base + i, index_id2, partition_id2);
@@ -3356,7 +3350,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string mock_instance = "test_instance";
-        for (int i = 0; i < 2000; ++i) {
+        for (int i = 0; i < 2002; ++i) {
             int64_t tablet_id = tablet_id_base + i;
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
@@ -3367,7 +3361,172 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
-    config::txn_lazy_max_rowsets_per_batch = 2;
+}
+
+TEST(TxnLazyCommitTest, CommitTxnEventuallyWithSchemaChangeTest) {
+    // ===========================================================================
+    // threads concurrent execution flow:
+    //
+    //            thread1             lazy thread1                          thread3
+    //               |                     |                                   |
+    //  commit_txn_eventually begin        |                                   |
+    //               |                     |                                   |
+    //   lazy commit wait                  |                                   |
+    //               |                     |                                   |
+    //               |              make_committed_txn_visible                 |
+    //               |                     |                                   |
+    //               |              inject TXN_TOO_OLD fdb error               |
+    //               |                     |                      sc create new tablet tmp rowset
+    //               |                     |                                   |
+    //               |                     |                                   |
+    //       retry commit_txn              |                                   |
+    //               v                     v
+    auto txn_kv = get_mem_txn_kv();
+    int64_t db_id = 4534445675;
+    int64_t table_id = 4365676543;
+    int64_t index_id = 665453237;
+    int64_t partition_id = 2136776543678;
+
+    bool go = false;
+    std::mutex go_mutex;
+    std::condition_variable go_cv;
+    std::atomic<int32_t> make_committed_txn_visible_count = {0};
+    std::atomic<int32_t> sc_create_tmp_rowset_count = {0};
+    std::atomic<int32_t> sc_create_tmp_rowset_finish_count = {0};
+    std::atomic<int32_t> tmp_rowsets_been_already_converted = {0};
+
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("TxnLazyCommitTask::make_committed_txn_visible::commit", [&](auto&& args) {
+        LOG(INFO) << "zhangleiyyy";
+        {
+            std::unique_lock<std::mutex> _lock(go_mutex);
+            if (make_committed_txn_visible_count == 0) {
+                make_committed_txn_visible_count++;
+                if (sc_create_tmp_rowset_count == 0) {
+                    go_cv.wait(_lock, [&] { return sc_create_tmp_rowset_count == 1; });
+                }
+                MetaServiceCode* code = try_any_cast<MetaServiceCode*>(args[0]);
+                *code = MetaServiceCode::KV_TXN_CONFLICT;
+                bool* pred = try_any_cast<bool*>(args.back());
+                *pred = true;
+                LOG(INFO) << "inject kv error KV_TXN_CONFLICT";
+                go_cv.notify_all();
+            }
+        }
+    });
+
+    sp->set_call_back("convert_tmp_rowsets::already_been_converted", [&](auto&& args) {
+        auto version_pb = *try_any_cast<VersionPB*>(args[0]);
+        LOG(INFO) << "version_pb:" << version_pb.ShortDebugString();
+        std::unique_lock<std::mutex> _lock(go_mutex);
+        tmp_rowsets_been_already_converted++;
+        go_cv.notify_all();
+    });
+
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service(txn_kv, true);
+    brpc::Controller cntl;
+    BeginTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    TxnInfoPB txn_info_pb;
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label("test_sc_with_commit_txn_label");
+    txn_info_pb.add_table_ids(table_id);
+    txn_info_pb.set_timeout_ms(36000);
+    req.mutable_txn_info()->CopyFrom(txn_info_pb);
+    BeginTxnResponse res;
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                            nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    int64_t txn_id = res.txn_id();
+
+    // mock rowset and tablet
+    int64_t tablet_id_base = 3131124;
+    for (int i = 0; i < 1001; ++i) {
+        create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                                 tablet_id_base + i);
+        auto tmp_rowset = create_huge_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+        CreateRowsetResponse res;
+        commit_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    std::thread thread1([&] {
+        {
+            {
+                std::unique_lock<std::mutex> _lock(go_mutex);
+                go_cv.wait(_lock, [&] { return go; });
+            }
+
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            req.set_is_2pc(false);
+            req.set_enable_txn_lazy_commit(true);
+            CommitTxnResponse res;
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+        LOG(INFO) << "thread1 finish";
+    });
+
+    std::thread thread2([&] {
+        {
+            {
+                std::unique_lock<std::mutex> _lock(go_mutex);
+                go_cv.wait(_lock, [&] { return go; });
+            }
+
+            {
+                std::unique_lock<std::mutex> _lock(go_mutex);
+                sc_create_tmp_rowset_count++;
+                if (make_committed_txn_visible_count == 0) {
+                    go_cv.wait(_lock, [&] { return make_committed_txn_visible_count > 0; });
+                }
+                for (int i = 0; i < 1001; ++i) {
+                    create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id,
+                                             partition_id, tablet_id_base + i);
+                    auto tmp_rowset =
+                            create_huge_rowset(txn_id, tablet_id_base + i, index_id, partition_id);
+                    CreateRowsetResponse res;
+                    commit_rowset(meta_service.get(), tmp_rowset, res);
+                    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                }
+                LOG(INFO) << "sc_create_tmp_rowset_finish_count finish";
+                sc_create_tmp_rowset_finish_count++;
+                go_cv.notify_all();
+            }
+            LOG(INFO) << "thread2 finish";
+        }
+    });
+
+    std::unique_lock<std::mutex> go_lock(go_mutex);
+    go = true;
+    go_lock.unlock();
+    go_cv.notify_all();
+
+    thread1.join();
+    thread2.join();
+
+    ASSERT_GE(tmp_rowsets_been_already_converted, 1);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string mock_instance = "test_instance";
+        for (int i = 0; i < 1001; ++i) {
+            int64_t tablet_id = tablet_id_base + i;
+            check_tablet_idx_db_id(txn, db_id, tablet_id);
+            check_tmp_rowset_exist(txn, tablet_id, txn_id);
+            check_rowset_meta_exist(txn, tablet_id, 2);
+        }
+    }
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
 }
 
 } // namespace doris::cloud
