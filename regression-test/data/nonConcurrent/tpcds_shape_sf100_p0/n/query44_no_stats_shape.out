@@ -17,7 +17,7 @@ PhysicalResultSink
 --------------------hashJoin[INNER_JOIN] hashCondition=((asceding.rnk = descending.rnk)) otherCondition=()
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
---------------------------filter((rnk < 11))
+--------------------------filter((V11.rnk < 11))
 ----------------------------PhysicalWindow
 ------------------------------PhysicalQuickSort[MERGE_SORT]
 --------------------------------PhysicalDistribute[DistributionSpecGather]
@@ -45,7 +45,7 @@ PhysicalResultSink
 --------------------------------------------------------------PhysicalOlapScan[store_sales]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
---------------------------filter((rnk < 11))
+--------------------------filter((V21.rnk < 11))
 ----------------------------PhysicalWindow
 ------------------------------PhysicalQuickSort[MERGE_SORT]
 --------------------------------PhysicalDistribute[DistributionSpecGather]

@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[item] apply RFs: RF1
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------filter((rnk < 11))
+----------------------filter((V11.rnk < 11))
 ------------------------PhysicalWindow
 --------------------------PhysicalQuickSort[MERGE_SORT]
 ----------------------------PhysicalDistribute[DistributionSpecGather]
@@ -46,7 +46,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[item] apply RFs: RF0
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------filter((rnk < 11))
+----------------------filter((V21.rnk < 11))
 ------------------------PhysicalWindow
 --------------------------PhysicalQuickSort[MERGE_SORT]
 ----------------------------PhysicalDistribute[DistributionSpecGather]
