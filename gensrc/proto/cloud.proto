@@ -150,10 +150,24 @@ enum ClusterStatus {
     MANUAL_SHUTDOWN = 4;
 }
 
+// just for virtual cluster
+message ClusterPolicy {
+    enum PolicyType {
+        ActiveStandby = 0;
+    }
+    optional PolicyType type = 1;
+    optional string active_cluster_name = 2;
+    repeated string standby_cluster_names = 3;
+    optional int64 failover_failure_threshold = 4;
+    optional int64 unhealthy_node_threshold_percent = 5;
+    repeated string cache_warmup_jobids = 6;
+}
+
 message ClusterPB {
     enum Type {
         SQL = 0;
         COMPUTE = 1;
+        VIRTUAL = 2;
     }
     optional string cluster_id = 1;
     optional string cluster_name = 2;
@@ -164,6 +178,10 @@ message ClusterPB {
     optional string public_endpoint = 7;
     optional string private_endpoint = 8;
     optional ClusterStatus cluster_status = 9;
+    optional int64 ctime = 10;
+    optional int64 mtime = 11;
+    repeated string cluster_names = 12; // clusters in virtual cluster
+    optional ClusterPolicy cluster_policy = 13; // virtual cluster policy
 }
 
 message NodeInfoPB {
@@ -1378,6 +1396,7 @@ message AlterClusterRequest {
         NOTIFY_DECOMMISSIONED = 8;
         UPDATE_CLUSTER_ENDPOINT = 9;
         SET_CLUSTER_STATUS = 10;
+        ALTER_VCLUSTER_INFO = 11;
     }
     optional string instance_id = 1;
     optional string cloud_unique_id = 2; // For auth
