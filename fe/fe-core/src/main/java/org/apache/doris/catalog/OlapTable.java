@@ -802,7 +802,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void resetVersionForRestore() {
         for (Partition partition : idToPartition.values()) {
-            partition.setNextVersion(partition.getVisibleVersion() + 1);
+            partition.setNextVersion(partition.getCachedVisibleVersion() + 1);
         }
     }
 
@@ -940,7 +940,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     if (Config.isCloudMode()) {
                         long newReplicaId = Env.getCurrentEnv().getNextId();
                         Replica replica = new CloudReplica(newReplicaId, null, ReplicaState.NORMAL,
-                                visibleVersion, schemaHash, db.getId(), id, partition.getId(), idx.getId(), i);
+                                visibleVersion, schemaHash, db.getId(), id, entry.getKey(), idx.getId(), i);
                         newTablet.addReplica(replica, true /* is restore */);
                         continue;
                     }
