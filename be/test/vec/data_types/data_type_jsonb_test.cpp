@@ -90,14 +90,11 @@ TEST_F(DataTypeJsonbTest, MetaInfoTest) {
             .family_name = dt_jsonb.get_family_name(),
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_JSONB,
-            .should_align_right_in_pretty_formats = false,
-            .text_can_contain_only_valid_utf8 = false,
             .have_maximum_size_of_value = false,
             .size_of_value_in_memory = 0,
             .precision = size_t(-1),
             .scale = size_t(-1),
             .is_null_literal = false,
-            .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
             .default_field = Field::create_field<TYPE_JSONB>(JsonbField())};
     auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
@@ -260,11 +257,7 @@ TEST_F(DataTypeJsonbTest, ser_deser) {
 
 TEST_F(DataTypeJsonbTest, simple_func_test) {
     auto test_func = [](auto& dt) {
-        EXPECT_FALSE(dt.have_subtypes());
-        EXPECT_FALSE(dt.should_align_right_in_pretty_formats());
-        EXPECT_FALSE(dt.is_comparable());
         EXPECT_FALSE(dt.have_maximum_size_of_value());
-        EXPECT_TRUE(dt.can_be_inside_low_cardinality());
 
         EXPECT_FALSE(dt.is_null_literal());
 
