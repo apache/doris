@@ -1494,12 +1494,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         Float value = unionHotValues.get(entry.getKey());
                         if (value == null) {
                             unionHotValues.put(entry.getKey(),
-                                    (float) (entry.getValue()
-                                            / ColumnStatistic.ONE_HUNDRED * childStats.get(j).getRowCount()));
+                                    (float) (entry.getValue() * childStats.get(j).getRowCount()));
                         } else {
                             unionHotValues.put(entry.getKey(),
-                                    (float) (value + entry.getValue()
-                                            / ColumnStatistic.ONE_HUNDRED * childStats.get(j).getRowCount()));
+                                    (float) (value + entry.getValue() * childStats.get(j).getRowCount()));
                         }
                     }
                 }
