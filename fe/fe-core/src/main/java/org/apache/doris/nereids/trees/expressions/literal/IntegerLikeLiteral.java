@@ -90,7 +90,10 @@ public abstract class IntegerLikeLiteral extends NumericLiteral {
                 return BooleanLiteral.TRUE;
             }
         } else if (targetType.isIntegralType()) {
-            // Overflow has been checked in Literal.checkedCastTo. Don't need to worry about overflow here.
+            BigDecimal bigDecimalValue = getBigDecimalValue();
+            if (numericOverflow(bigDecimalValue, targetType)) {
+                throw new CastException(String.format("%s can't cast to %s, overflow.", bigDecimalValue, targetType));
+            }
             long value = getLongValue();
             if (targetType.isTinyIntType()) {
                 return Literal.of((byte) value);
