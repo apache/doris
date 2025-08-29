@@ -62,6 +62,9 @@ private:
         res_ptr->get_offsets().reserve(sel_size + res_ptr->get_offsets().size());
         res_ptr->get_chars().reserve(length + res_ptr->get_chars().size());
         res_ptr->insert_many_strings_without_reserve(_refs.data(), sel_size);
+        if constexpr (Type == TYPE_CHAR) {
+            res_ptr->shrink_padding_chars();
+        }
     }
 
     template <PrimitiveType Y, template <PrimitiveType> typename ColumnContainer>

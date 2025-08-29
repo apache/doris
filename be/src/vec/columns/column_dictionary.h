@@ -192,6 +192,9 @@ public:
         res_col->get_offsets().reserve(sel_size + res_col->get_offsets().size());
         res_col->get_chars().reserve(length + res_col->get_chars().size());
         res_col->insert_many_strings_without_reserve(_strings.data(), sel_size);
+        if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            res_col->shrink_padding_chars();
+        }
         return Status::OK();
     }
 
