@@ -65,11 +65,11 @@
 namespace doris::vectorized {
 #include "common/compile_check_avoid_begin.h"
 /// because all these functions(xxx_add/xxx_sub) defined in FE use Integer as the second value
-///  so Int32 as delta is enough. For upstream(FunctionDateOrDateTimeComputation) we also could use Int32.
+///  so Int64 as delta is needed to support large values. For upstream(FunctionDateOrDateTimeComputation) we use Int64.
 
 template <TimeUnit unit, PrimitiveType ArgType, PrimitiveType ReturnType>
 typename PrimitiveTypeTraits<ReturnType>::DataType::FieldType date_time_add(
-        const typename PrimitiveTypeTraits<ArgType>::DataType::FieldType& t, Int32 delta,
+        const typename PrimitiveTypeTraits<ArgType>::DataType::FieldType& t, Int64 delta,
         bool& is_null) {
     using DateValueType = typename PrimitiveTypeTraits<ArgType>::CppType;
     using ResultDateValueType = typename PrimitiveTypeTraits<ReturnType>::CppType;
@@ -110,14 +110,14 @@ typename PrimitiveTypeTraits<ReturnType>::DataType::FieldType date_time_add(
         using InputNativeType = typename PrimitiveTypeTraits<ArgType>::DataType::FieldType;         \
         static constexpr auto name = #NAME;                                                         \
         static constexpr auto is_nullable = true;                                                   \
-        static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta,               \
+        static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta,               \
                                                bool& is_null) {                                     \
             return date_time_add<TimeUnit::UNIT, ArgType, ReturnType>(t, delta, is_null);           \
         }                                                                                           \
                                                                                                     \
         static DataTypes get_variadic_argument_types() {                                            \
             return {std::make_shared<typename PrimitiveTypeTraits<ArgType>::DataType>(),            \
-                    std::make_shared<DataTypeInt32>()};                                             \
+                    std::make_shared<DataTypeInt64>()};                                             \
         }                                                                                           \
     }
 
@@ -139,13 +139,13 @@ struct AddQuartersImpl {
     using ReturnNativeType = typename PrimitiveTypeTraits<ReturnType>::DataType::FieldType;
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = true;
-    static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta, bool& is_null) {
+    static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         return date_time_add<TimeUnit::MONTH, ArgType, ReturnType>(t, 3 * delta, is_null);
     }
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<ArgType>::DataType>(),
-                std::make_shared<DataTypeInt32>()};
+                std::make_shared<DataTypeInt64>()};
     }
 };
 
@@ -156,7 +156,7 @@ struct SubtractIntervalImpl {
     using InputNativeType = typename Transform::InputNativeType;
     using ReturnNativeType = typename Transform::ReturnNativeType;
     static constexpr auto is_nullable = true;
-    static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta, bool& is_null) {
+    static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         return Transform::execute(t, -delta, is_null);
     }
 
@@ -570,7 +570,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         using ResFieldType =
                 typename PrimitiveTypeTraits<Transform::ReturnType>::DataType::FieldType;
-        using Op = DateTimeOp<Transform::ArgPType, TYPE_INT, ResFieldType, Transform>;
+        using Op = DateTimeOp<Transform::ArgPType, TYPE_BIGINT, ResFieldType, Transform>;
 
         auto get_null_map = [](const ColumnPtr& col) -> const NullMap* {
             if (col->is_nullable()) {
