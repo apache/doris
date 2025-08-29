@@ -155,8 +155,10 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     }
 
     public void checkSupportedCompressionType(boolean isWrite) {
+        // Currently, only check for write operation.
+        // Because we only support a subset of compression type for writing.
         if (isWrite) {
-            // "UKNOWN" means use does not specify the compression type
+            // "UNKNOWN" means user does not specify the compression type
             if (this.compressionType == TFileCompressType.UNKNOWN) {
                 this.compressionType = TFileCompressType.PLAIN;
             }

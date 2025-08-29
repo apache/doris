@@ -56,6 +56,7 @@ struct ResultFileOptions {
     std::string orc_schema;
     TFileCompressType::type orc_compression_type;
     // currently only for csv
+    // TODO: we should merge parquet_commpression_type/orc_compression_type/compression_type
     TFileCompressType::type compression_type = TFileCompressType::PLAIN;
 
     bool delete_existing_files = false;
