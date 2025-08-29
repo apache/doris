@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
+import org.apache.doris.nereids.trees.expressions.functions.llm.Embed;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
@@ -1033,7 +1034,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(LLMClassify.class, "llm_classify"),
             scalar(LLMMask.class, "llm_mask"),
             scalar(LLMSummarize.class, "llm_summarize"),
-            scalar(LLMSimilarity.class, "llm_similarity"));
+            scalar(LLMSimilarity.class, "llm_similarity"),
+            scalar(Embed.class, "embed"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
