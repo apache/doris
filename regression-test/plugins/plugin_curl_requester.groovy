@@ -144,14 +144,21 @@ Suite.metaClass.curl = { String method, String url, String body = null, Integer 
 
     while (retryCount < maxRetries) {
         process = cmd.execute()
+
+        def outputGlobber = new ByteArrayOutputStream()
+        def errorGlobber = new ByteArrayOutputStream()
+        process.consumeProcessOutput(outputGlobber, errorGlobber)
+
         code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-        out = process.getText()
+        err = errorGlobber.toString()
+        out = outputGlobber.toString()
 
         // If the command was successful, break the loop
         if (code == 0) {
             break
         }
+
+        logger.error("Command curl failed, code: " + code + ", err: " + err + ", retry after " + sleepTime + " ms")
 
         // If the command was not successful, increment the retry count, sleep for a while and try again
         retryCount++
