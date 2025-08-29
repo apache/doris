@@ -1707,7 +1707,7 @@ public class SessionVariable implements Serializable, Writable {
     private double leftSemiOrAntiProbeFactor = 0.05;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
-    private double broadcastRowCountLimit = 30000000;
+    private double broadcastRowCountLimit = 30_000_000;
 
     @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE, needForward = true)
     private double broadcastHashtableMemLimitPercentage = 0.2;
