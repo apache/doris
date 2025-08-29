@@ -1269,7 +1269,7 @@ public class StatisticsUtil {
      * value1 :percent1 ;value2 :percent2 ;value3 :percent3
      * @return Map of LiteralExpr -> percentage.
      */
-    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type) {
+    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type, double avgOccurrences) {
         if (stringValues == null || "null".equalsIgnoreCase(stringValues)) {
             return null;
         }
@@ -1278,7 +1278,7 @@ public class StatisticsUtil {
             for (String oneRow : stringValues.split(" ;")) {
                 String[] oneRowSplit = oneRow.split(" :");
                 float value = Float.parseFloat(oneRowSplit[1]);
-                if (value > SessionVariable.getHotValueThreshold()) {
+                if (value / ColumnStatistic.ONE_HUNDRED >= avgOccurrences * SessionVariable.getHotValueThreshold()) {
                     org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
                             new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
                                     oneRowSplit[0].replaceAll("\\\\:", ":")
