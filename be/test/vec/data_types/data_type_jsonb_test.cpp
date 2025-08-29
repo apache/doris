@@ -99,7 +99,6 @@ TEST_F(DataTypeJsonbTest, MetaInfoTest) {
             .is_null_literal = false,
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_JSONB>(JsonbField())};
     auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
@@ -264,7 +263,6 @@ TEST_F(DataTypeJsonbTest, simple_func_test) {
         EXPECT_FALSE(dt.have_subtypes());
         EXPECT_FALSE(dt.should_align_right_in_pretty_formats());
         EXPECT_FALSE(dt.is_comparable());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_FALSE(dt.have_maximum_size_of_value());
         EXPECT_TRUE(dt.can_be_inside_low_cardinality());
 

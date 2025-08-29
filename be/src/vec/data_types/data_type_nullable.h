@@ -87,10 +87,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return nested_data_type->is_value_unambiguously_represented_in_contiguous_memory_region();
-    }
-
     bool have_subtypes() const override { return true; }
     bool should_align_right_in_pretty_formats() const override {
         return nested_data_type->should_align_right_in_pretty_formats();

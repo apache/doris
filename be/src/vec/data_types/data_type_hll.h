@@ -70,10 +70,6 @@ public:
     bool should_align_right_in_pretty_formats() const override { return false; }
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool is_comparable() const override { return false; }
-    // TODO:
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 

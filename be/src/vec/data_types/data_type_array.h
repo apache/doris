@@ -88,10 +88,6 @@ public:
     }
     bool is_comparable() const override { return nested->is_comparable(); }
 
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return nested->is_value_unambiguously_represented_in_contiguous_memory_region();
-    }
-
     const DataTypePtr& get_nested_type() const { return nested; }
 
     /// 1 for plain array, 2 for array of arrays and so on.
