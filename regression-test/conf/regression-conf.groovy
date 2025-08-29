@@ -232,6 +232,10 @@ extArrowFlightSqlPassword= ""
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
 
+// polaris rest catalog config
+polaris_rest_uri_port=20181
+polaris_minio_port=20001
+
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.
 // <=0 means no limit.
