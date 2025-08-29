@@ -23,7 +23,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -222,7 +221,7 @@ public:
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
     TxnErrorCode batch_scan(std::vector<std::optional<std::pair<std::string, std::string>>>* res,
-                            const std::vector<std::string>& keys,
+                            const std::vector<std::pair<std::string, std::string>>& ranges,
                             const BatchGetOptions& opts = BatchGetOptions()) override;
 
     size_t approximate_bytes() const override { return approximate_bytes_; }
