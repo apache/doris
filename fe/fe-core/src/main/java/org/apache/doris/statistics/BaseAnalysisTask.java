@@ -110,7 +110,7 @@ public abstract class BaseAnalysisTask {
             +         "MAX(`${colName}`) as `column_key`, "
             +         "COUNT(1) AS `count` "
             +         "FROM cte1 WHERE `${colName}` IS NOT NULL "
-            +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 3) t) "
+            +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t) "
             + "SELECT * FROM cte2 CROSS JOIN cte3";
 
     protected static final String DUJ1_ANALYZE_TEMPLATE = "WITH cte1 AS ("
@@ -146,7 +146,7 @@ public abstract class BaseAnalysisTask {
             +     "FROM ("
             +         "SELECT `col_value`, `count` "
             +             "FROM cte1 "
-            +             "WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT 3) t2) "
+            +             "WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT ${hotValueCollectCount}}) t2) "
             + "SELECT * FROM cte2 CROSS JOIN cte3";
 
     protected static final String ANALYZE_PARTITION_COLUMN_TEMPLATE = " SELECT "

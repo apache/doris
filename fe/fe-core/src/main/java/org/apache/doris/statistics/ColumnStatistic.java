@@ -199,7 +199,9 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
         }
         columnStatisticBuilder.setUpdatedTime(row.get(13));
-        columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType()));
+        if (ndv > 0 && count > 0) {
+            columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(), count / ndv));
+        }
         return columnStatisticBuilder.build();
     }
 

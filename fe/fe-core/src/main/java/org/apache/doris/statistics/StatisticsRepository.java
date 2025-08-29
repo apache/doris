@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -358,8 +359,16 @@ public class StatisticsRepository {
                 }
             }
         }
-        builder.setHotValues(StatisticsUtil.getHotValues(hotValues, column.getType()));
-
+        if (ndv != null) {
+            try {
+                double avgOccurrences = Double.parseDouble(rowCount) / Double.parseDouble(ndv);
+                builder.setHotValues(StatisticsUtil.getHotValues(hotValues, column.getType(), avgOccurrences));
+            } catch (Exception e) {
+                if (SessionVariable.isFeDebug()) {
+                    throw e;
+                }
+            }
+        }
         ColumnStatistic columnStatistic = builder.build();
         Map<String, String> params = new HashMap<>();
         params.put("id", constructId(objects.table.getId(), indexId, colName));

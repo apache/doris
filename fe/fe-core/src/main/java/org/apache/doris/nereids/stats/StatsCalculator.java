@@ -1507,8 +1507,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
             Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
             for (Literal hot : unionHotValues.keySet()) {
-                float ratio = (float) (ColumnStatistic.ONE_HUNDRED * unionHotValues.get(hot) / unionRowCount);
-                if (ratio > SessionVariable.getHotValueThreshold()) {
+                float ratio = (float) (unionHotValues.get(hot) / unionRowCount);
+                if (ratio * colStatsBuilder.getNdv() >= SessionVariable.getHotValueThreshold()) {
                     resultHotValues.put(hot, ratio);
                 }
             }
