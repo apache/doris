@@ -181,7 +181,9 @@ Status S3FileSystem::init() {
     return _client->init();
 }
 
-S3FileSystem::~S3FileSystem() = default;
+S3FileSystem::~S3FileSystem() {
+    std::cout << "S3FileSystem destructor called for id: " << _id << std::endl;
+}
 
 Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                       const FileWriterOptions* opts) {
