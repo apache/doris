@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -74,6 +75,9 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
             if (!task.killed) {
                 if (except != null) {
                     LOG.warn("Analyze {} failed.", task.toString(), except);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_FAILED_ANALYZE_TASK.increase(1L);
+                    }
                     task.job.taskFailed(task, Util.getRootCauseMessage(except));
                 }
             }
