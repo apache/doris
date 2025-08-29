@@ -19,6 +19,7 @@
 
 #include <curl/curl.h>
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -249,19 +250,16 @@ TEST(LLM_ADAPTER_TEST, gemini_adapter_request) {
     ASSERT_EQ(gen_cfg["maxOutputTokens"].GetInt(), 32);
 
     // system_prompt
-    ASSERT_TRUE(doc.HasMember("system_instruction")) << "Missing system field";
-    ASSERT_TRUE(doc["system_instruction"].IsArray()) << "System field is not an array";
-    ASSERT_GT(doc["system_instruction"].Size(), 0) << "system_instruction field is empty";
+    ASSERT_TRUE(doc.HasMember("systemInstruction")) << "Missing system field";
+    ASSERT_TRUE(doc["systemInstruction"].IsObject()) << request_body;
+    ASSERT_TRUE(doc["systemInstruction"].HasMember("parts")) << request_body;
+    ASSERT_TRUE(doc["systemInstruction"]["parts"].IsArray()) << request_body;
+    ASSERT_GT(doc["systemInstruction"]["parts"].Size(), 0) << request_body;
 
-    const auto& content_sys = doc["system_instruction"][0];
-    ASSERT_TRUE(content_sys.HasMember("parts")) << "system_instruction missing parts field";
-    ASSERT_TRUE(content_sys["parts"].IsArray()) << "Parts is not an array";
-    ASSERT_GT(content_sys["parts"].Size(), 0) << "Parts array is empty";
-
-    const auto& part_sys = content_sys["parts"][0];
-    ASSERT_TRUE(part_sys.HasMember("text")) << "parts missing text field";
-    ASSERT_TRUE(part_sys["text"].IsString()) << "Text field is not a string";
-    ASSERT_STREQ(part_sys["text"].GetString(), FunctionLLMExtract::system_prompt);
+    const auto& content_sys = doc["systemInstruction"]["parts"][0];
+    ASSERT_TRUE(content_sys.HasMember("text")) << "parts missing text field";
+    ASSERT_TRUE(content_sys["text"].IsString()) << "Text field is not a string";
+    ASSERT_STREQ(content_sys["text"].GetString(), FunctionLLMExtract::system_prompt);
 
     // content structure
     ASSERT_TRUE(doc.HasMember("contents")) << "Missing contents field";
@@ -372,22 +370,6 @@ TEST(LLM_ADAPTER_TEST, anthropic_adapter_parse_response) {
     ASSERT_EQ(results[0], "anthropic result");
 }
 
-TEST(LLM_ADAPTER_TEST, adapter_type_names) {
-    LocalAdapter local;
-    OpenAIAdapter openai;
-    DeepSeekAdapter deepseek;
-    MoonShotAdapter moonshot;
-    GeminiAdapter gemini;
-    AnthropicAdapter anthropic;
-
-    ASSERT_EQ(local.get_type(), "local");
-    ASSERT_EQ(openai.get_type(), "openai");
-    ASSERT_EQ(deepseek.get_type(), "deepseek");
-    ASSERT_EQ(moonshot.get_type(), "moonshot");
-    ASSERT_EQ(gemini.get_type(), "gemini");
-    ASSERT_EQ(anthropic.get_type(), "anthropic");
-}
-
 TEST(LLM_ADAPTER_TEST, unsupported_provider_type) {
     TLLMResource config;
     config.provider_type = "not_exist";
@@ -396,8 +378,9 @@ TEST(LLM_ADAPTER_TEST, unsupported_provider_type) {
 }
 
 TEST(LLM_ADAPTER_TEST, adapter_factory_all_types) {
-    std::vector<std::string> types = {"LOCAL", "OPENAI", "MOONSHOT", "DEEPSEEK",  "MINIMAX",
-                                      "ZHIPU", "QWEN",   "BAICHUAN", "ANTHROPIC", "GEMINI"};
+    std::vector<std::string> types = {"LOCAL",     "OPENAI", "MOONSHOT", "DEEPSEEK",
+                                      "MINIMAX",   "ZHIPU",  "QWEN",     "BAICHUAN",
+                                      "ANTHROPIC", "GEMINI", "VOYAGEAI", "MOCK"};
     for (const auto& type : types) {
         auto adapter = doris::vectorized::LLMAdapterFactory::create_adapter(type);
         ASSERT_TRUE(adapter != nullptr) << "Adapter not found for type: " << type;
@@ -482,6 +465,34 @@ TEST(LLM_ADAPTER_TEST, anthropic_adapter_parse_response_content_not_array) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, voyage_adapter_chat_test) {
+    VoyageAIAdapter adapter;
+    TLLMResource config;
+    config.api_key = "test_voyage_key";
+    config.provider_type = "VoyageAI";
+
+    adapter.init(config);
+    MockHttpClient mock_client;
+    Status auth_status = adapter.set_authentication(&mock_client);
+    ASSERT_TRUE(auth_status.ok());
+    EXPECT_STREQ(mock_client.get()->data, "Authorization: Bearer test_voyage_key");
+    EXPECT_STREQ(mock_client.get()->next->data, "Content-Type: application/json");
+
+    std::vector<std::string> inputs = {"test_inputs"};
+    std::string request_body;
+    Status st = adapter.build_request_payload(inputs, "test_system_prompt", request_body);
+    ASSERT_FALSE(st.ok());
+    ASSERT_STREQ(st.to_string().c_str(),
+                 "[NOT_IMPLEMENTED_ERROR]VoyageAI don't support text generation");
+
+    std::string response_body = "test_response_body";
+    std::vector<std::string> result;
+    st = adapter.parse_response(response_body, result);
+    ASSERT_FALSE(st.ok());
+    ASSERT_STREQ(st.to_string().c_str(),
+                 "[NOT_IMPLEMENTED_ERROR]VoyageAI don't support text generation");
 }
 
 } // namespace doris::vectorized

@@ -1441,16 +1441,21 @@ TEST(TxnKvTest, BatchScan) {
                     true,
                     {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
                      "BatchScan_different_key"},
-                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                    {"BatchScan_prefix1_sub2", "BatchScan_prefix2_sub1", "BatchScan_prefix3",
                      "BatchScan_different_key"},
             },
             {
                     true,
                     {"BatchScan_prefix1_", "BatchScan_prefix2_"},
-                    {"BatchScan_prefix1", "BatchScan_prefix2"},
+                    {"BatchScan_prefix1_sub2", "BatchScan_prefix2_sub1"},
             },
-    };
+            {
+                    true,
+                    {"BatchScan_prefix4"},
+                    {std::nullopt},
+            }};
 
+    size_t count = 0;
     for (auto& tc : test_cases) {
         auto ret = txn_kv->create_txn(&txn);
         ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
@@ -1463,13 +1468,14 @@ TEST(TxnKvTest, BatchScan) {
         ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
         ASSERT_EQ(results.size(), tc.scan_keys.size());
 
+        count += 1;
         for (size_t i = 0; i < results.size(); ++i) {
             if (tc.expected_keys[i].has_value()) {
                 ASSERT_TRUE(results[i].has_value());
                 std::string& key = results[i].value().first;
-                ASSERT_EQ(key, tc.expected_keys[i]);
+                ASSERT_EQ(key, tc.expected_keys[i]) << tc.scan_keys[i] << ", tc: " << count;
             } else {
-                ASSERT_FALSE(results[i].has_value());
+                ASSERT_FALSE(results[i].has_value()) << tc.scan_keys[i] << ", tc: " << count;
             }
         }
     }

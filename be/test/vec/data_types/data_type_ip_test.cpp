@@ -39,7 +39,7 @@
 //         text_can_contain_only_valid_utf8
 //         have_maximum_size_of_value, get_maximum_size_of_value_in_memory, get_size_of_value_in_memory
 //         get_precision, get_scale
-//         is_null_literal, is_value_represented_by_number, is_value_unambiguously_represented_in_contiguous_memory_region
+//         is_null_literal, is_value_represented_by_number
 // 2. datatype creation with column : create_column, create_column_const (size_t size, const Field &field), create_column_const_with_default_value (size_t size), get_uncompressed_serialized_bytes (const IColumn &column, int be_exec_version)
 // 3. serde related: get_serde (int nesting_level=1)
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to), from_string (ReadBuffer &rb, IColumn *column)
@@ -90,30 +90,27 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .is_null_literal = false,
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_IPV4>(IPv4(0)),
     };
     auto ipv6_type_descriptor =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_IPV6, false);
     auto col_meta6 = std::make_shared<PColumnMeta>();
     col_meta6->set_type(PGenericType_TypeId_IPV6);
-    DataTypeMetaInfo ipv6_meta_info = {
-            .type_id = PrimitiveType::TYPE_IPV6,
-            .type_as_type_descriptor = ipv6_type_descriptor,
-            .family_name = "IPv6",
-            .has_subtypes = false,
-            .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_IPV6,
-            .should_align_right_in_pretty_formats = true,
-            .text_can_contain_only_valid_utf8 = true,
-            .have_maximum_size_of_value = true,
-            .size_of_value_in_memory = sizeof(IPv6),
-            .precision = size_t(-1),
-            .scale = size_t(-1),
-            .is_null_literal = false,
-            .is_value_represented_by_number = true,
-            .pColumnMeta = col_meta6.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = Field::create_field<TYPE_IPV6>(IPv6(0))};
+    DataTypeMetaInfo ipv6_meta_info = {.type_id = PrimitiveType::TYPE_IPV6,
+                                       .type_as_type_descriptor = ipv6_type_descriptor,
+                                       .family_name = "IPv6",
+                                       .has_subtypes = false,
+                                       .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_IPV6,
+                                       .should_align_right_in_pretty_formats = true,
+                                       .text_can_contain_only_valid_utf8 = true,
+                                       .have_maximum_size_of_value = true,
+                                       .size_of_value_in_memory = sizeof(IPv6),
+                                       .precision = size_t(-1),
+                                       .scale = size_t(-1),
+                                       .is_null_literal = false,
+                                       .is_value_represented_by_number = true,
+                                       .pColumnMeta = col_meta6.get(),
+                                       .default_field = Field::create_field<TYPE_IPV6>(IPv6(0))};
     meta_info_assert(dt_ipv4, ipv4_meta_info_to_assert);
     meta_info_assert(dt_ipv6, ipv6_meta_info);
 }

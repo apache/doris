@@ -235,7 +235,7 @@ public:
 
     Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                     DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                    int64_t next_visible_version);
+                                    int64_t next_visible_version, RowsetSharedPtr rowset);
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
