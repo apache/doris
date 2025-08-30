@@ -501,6 +501,7 @@ void HttpService::stop() {
         return;
     }
     _ev_http_server->stop();
+    _ev_http_server->join();
     _pool.clear();
     stopped = true;
 }
