@@ -7848,6 +7848,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             properties = ImmutableMap.of();
         }
 
+        // MySQL load only support csv, set it explicitly
+        if (!properties.containsKey("format")) {
+            Map<String, String> newProperties = Maps.newHashMap(properties);
+            newProperties.put("format", "csv");
+            properties = ImmutableMap.copyOf(newProperties);
+        }
         MysqlDataDescription mysqlDataDescription = new MysqlDataDescription(
                 filePaths,
                 tableNameInfo,
