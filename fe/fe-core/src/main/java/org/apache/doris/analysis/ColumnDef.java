@@ -199,7 +199,12 @@ public class ColumnDef {
     private int clusterKeyId = -1;
     private Optional<GeneratedColumnInfo> generatedColumnInfo = Optional.empty();
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
+    // if add hidden column, must set enableAddHiddenColumn true
+    private boolean enableAddHiddenColumn = false;
 
+    public void setEnableAddHiddenColumn(boolean enableAddHiddenColumn) {
+        this.enableAddHiddenColumn = enableAddHiddenColumn;
+    }
 
     public ColumnDef(String name, TypeDef typeDef) {
         this(name, typeDef, false, null, ColumnNullableType.NOT_NULLABLE, DefaultValue.NOT_SET, "");
@@ -269,44 +274,63 @@ public class ColumnDef {
     }
 
     public static ColumnDef newDeleteSignColumnDef() {
-        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null,
+        ColumnDef columnDef = new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris delete flag hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newDeleteSignColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, aggregateType,
+        ColumnDef columnDef = new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT),
+                false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris delete flag hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newSequenceColumnDef(Type type) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, null, ColumnNullableType.NULLABLE, -1,
+        ColumnDef columnDef = new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false,
+                null, ColumnNullableType.NULLABLE, -1,
                 DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newSequenceColumnDef(Type type, AggregateType aggregateType) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, aggregateType, ColumnNullableType.NULLABLE,
+        ColumnDef columnDef = new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type),
+                false, aggregateType, ColumnNullableType.NULLABLE,
                 -1, DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false,
                 Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newRowStoreColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false, aggregateType,
+        ColumnDef columnDef = new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING),
+                false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, ""),
                 "doris row store hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newVersionColumnDef() {
-        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null,
+        ColumnDef columnDef = new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris version hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newVersionColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, aggregateType,
+        ColumnDef columnDef = new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT),
+                false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris version hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public boolean isAllowNull() {
@@ -369,7 +393,13 @@ public class ColumnDef {
         if (name == null || typeDef == null) {
             throw new AnalysisException("No column name or column type in column definition.");
         }
-        FeNameFormat.checkColumnName(name);
+        // if enableAddHiddenColumn is true, can add hidden column.
+        // So does not check if the column name starts with __DORIS_
+        if (enableAddHiddenColumn) {
+            FeNameFormat.checkColumnNameBypassHiddenColumn(name);
+        } else {
+            FeNameFormat.checkColumnName(name);
+        }
         FeNameFormat.checkColumnCommentLength(comment);
 
         typeDef.analyze(null);
