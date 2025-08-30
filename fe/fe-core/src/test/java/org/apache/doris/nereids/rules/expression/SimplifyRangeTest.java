@@ -198,6 +198,8 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "((TA + TC) is null and null) OR TB < 5");
 
         assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1");
+        assertRewrite("SA = '20250101' and SA < '20200101'", "SA is null and null");
+        assertRewrite("SA > '20250101' and SA > '20260110'", "SA > '20260110'");
 
     }
 
