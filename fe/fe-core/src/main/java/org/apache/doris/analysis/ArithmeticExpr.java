@@ -607,7 +607,7 @@ public class ArithmeticExpr extends Expr {
             Preconditions.checkState(false,
                     String.format("No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
         }
-        if (!fn.getReturnType().isDecimalV3()) {
+        if (!(type.isDecimalV3() && fn.getReturnType().isInvalid()) && !fn.getReturnType().isDecimalV3()) {
             type = fn.getReturnType();
         }
     }
