@@ -572,7 +572,7 @@ class StatisticsUtilTest {
     @Test
     void testGetHotValues() {
         String value1 = "1234 :35 ;222 :34";
-        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
+        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT, 0.01);
         Assertions.assertEquals(2, hotValues.size());
 
         int i = 0;
@@ -588,7 +588,7 @@ class StatisticsUtilTest {
         }
 
         String value2 = "1234 :34";
-        hotValues = StatisticsUtil.getHotValues(value2, Type.INT);
+        hotValues = StatisticsUtil.getHotValues(value2, Type.INT, 0.01);
         Assertions.assertEquals(1, hotValues.size());
 
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
@@ -597,7 +597,7 @@ class StatisticsUtilTest {
         }
 
         String value3 = "aabbcc\\:\\; :34 ; dd :22";
-        hotValues = StatisticsUtil.getHotValues(value3, Type.STRING);
+        hotValues = StatisticsUtil.getHotValues(value3, Type.STRING, 0.01);
         Assertions.assertEquals(1, hotValues.size());
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
             Assertions.assertEquals("aabbcc:;", entry.getKey().getStringValue());
