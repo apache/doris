@@ -80,6 +80,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
 namespace doris::segment_v2 {
@@ -1712,6 +1713,74 @@ Status RowIdColumnIteratorV2::read_by_rowids(const rowid_t* rowids, const size_t
     }
     return Status::OK();
 }
+
+CastColumnIterator::CastColumnIterator(std::unique_ptr<ColumnIterator> child_iterator,
+                                       const vectorized::DataTypePtr& src_type,
+                                       const vectorized::DataTypePtr& dst_type)
+        : _child_iterator(std::move(child_iterator)), _src_type(src_type), _dst_type(dst_type) {
+    _src_column = src_type->create_column();
+}
+
+Status CastColumnIterator::_perform_cast(vectorized::MutableColumnPtr& dst) {
+    vectorized::ColumnPtr cast_res;
+    RETURN_IF_ERROR(vectorized::schema_util::cast_column({_src_column->get_ptr(), _src_type, ""},
+                                                         _dst_type, &cast_res));
+
+    if ((dst->is_nullable() == cast_res->is_nullable()) && (dst->size() == 0)) {
+        dst = cast_res->assume_mutable();
+    } else if (!dst->is_nullable() && cast_res->is_nullable()) {
+        dst->insert_range_from(*(check_and_get_column<vectorized::ColumnNullable>(_src_column.get())
+                                         ->get_nested_column_ptr()),
+                               0, _src_column->size());
+    } else {
+        dst->insert_range_from(*cast_res, 0, cast_res->size());
+    }
+
+    return Status::OK();
+}
+
+Status CastColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                      bool* has_null) {
+    // if dst is PredicateColumnType or ColumnDictI32, no need to cast
+    // since the cast will be done in output column
+    const vectorized::IColumn* check_col = dst.get();
+    if (dst->is_nullable()) {
+        auto* nullable = check_and_get_column<vectorized::ColumnNullable>(dst.get());
+        check_col = &nullable->get_nested_column();
+    }
+    if (check_col->is_predicate_column() || check_col->is_column_dictionary()) {
+        return _child_iterator->next_batch(n, dst, has_null);
+    }
+
+    _src_column->clear();
+    RETURN_IF_ERROR(_child_iterator->next_batch(n, _src_column));
+    RETURN_IF_ERROR(_perform_cast(dst));
+    return Status::OK();
+}
+
+Status CastColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                          vectorized::MutableColumnPtr& dst) {
+    // if dst is PredicateColumnType or ColumnDictI32, no need to cast
+    // since the cast will be done in output column
+    const vectorized::IColumn* check_col = dst.get();
+    if (dst->is_nullable()) {
+        auto* nullable = check_and_get_column<vectorized::ColumnNullable>(dst.get());
+        check_col = &nullable->get_nested_column();
+    }
+    if (check_col->is_predicate_column() || check_col->is_column_dictionary()) {
+        return _child_iterator->read_by_rowids(rowids, count, dst);
+    }
+
+    _src_column->clear();
+    RETURN_IF_ERROR(_child_iterator->read_by_rowids(rowids, count, _src_column));
+    RETURN_IF_ERROR(_perform_cast(dst));
+    return Status::OK();
+}
+
+Status CastColumnIterator::seek_to_ordinal(ordinal_t ord) {
+    return _child_iterator->seek_to_ordinal(ord);
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

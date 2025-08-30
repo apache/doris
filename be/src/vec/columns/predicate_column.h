@@ -411,6 +411,8 @@ public:
                                "should not call replace_column_data in predicate column");
     }
 
+    bool is_predicate_column() const override { return true; }
+
 private:
     Container data;
     // manages the memory for slice's data(For string type)

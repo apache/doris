@@ -30,11 +30,15 @@
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.h"
 #include "testutil/test_util.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nothing.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -230,6 +234,133 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             }
             delete iter;
         }
+    }
+}
+
+TEST_F(ColumnReaderWriterTest, test_cast_iterator_int_to_double_next_batch) {
+    // child iterator: default INT value = 7
+    const auto* int_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_INT>();
+    std::unique_ptr<ColumnIterator> child(new DefaultValueColumnIterator(
+            true, std::string("7"), false, create_static_type_info_ptr(int_type_info), 0, 0));
+
+    ColumnIteratorOptions opts;
+    auto st = child->init(opts);
+    EXPECT_TRUE(st.ok());
+
+    // cast iterator: INT -> DOUBLE
+    auto src_type = vectorized::DataTypeInt32().create();
+    auto dst_type = vectorized::DataTypeFloat64().create();
+    CastColumnIterator cast_iter(std::move(child), src_type, dst_type);
+    st = cast_iter.init(opts);
+    EXPECT_TRUE(st.ok());
+
+    vectorized::MutableColumnPtr dst = vectorized::DataTypeFloat64().create_column();
+    size_t n = 3;
+    bool has_null = false;
+    st = cast_iter.next_batch(&n, dst, &has_null);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(3u, n);
+    EXPECT_FALSE(has_null);
+
+    for (size_t i = 0; i < n; ++i) {
+        auto v =
+                assert_cast<vectorized::ColumnVector<vectorized::Float64>*>(dst.get())->get_element(
+                        i);
+        EXPECT_DOUBLE_EQ(7.0, v);
+    }
+}
+
+TEST_F(ColumnReaderWriterTest, test_cast_iterator_int_to_string_next_batch) {
+    // child iterator: default INT value = 42
+    const auto* int_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_INT>();
+    std::unique_ptr<ColumnIterator> child(new DefaultValueColumnIterator(
+            true, std::string("42"), false, create_static_type_info_ptr(int_type_info), 0, 0));
+
+    ColumnIteratorOptions opts;
+    auto st = child->init(opts);
+    EXPECT_TRUE(st.ok());
+
+    // cast iterator: INT -> STRING
+    auto src_type = vectorized::DataTypeInt32().create();
+    auto dst_type = vectorized::DataTypeString().create();
+    CastColumnIterator cast_iter(std::move(child), src_type, dst_type);
+    st = cast_iter.init(opts);
+    EXPECT_TRUE(st.ok());
+
+    vectorized::MutableColumnPtr dst = vectorized::DataTypeString().create_column();
+    size_t n = 5;
+    bool has_null = false;
+    st = cast_iter.next_batch(&n, dst, &has_null);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(5u, n);
+
+    for (size_t i = 0; i < n; ++i) {
+        auto sr = assert_cast<vectorized::ColumnString*>(dst.get())->get_data_at(i);
+        EXPECT_EQ(std::string("42"), std::string(sr.data, sr.size));
+    }
+}
+
+TEST_F(ColumnReaderWriterTest, test_cast_iterator_nullable_src_to_nullable_dst) {
+    // child iterator: nullable INT default NULL
+    const auto* int_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_INT>();
+    std::unique_ptr<ColumnIterator> child(new DefaultValueColumnIterator(
+            true, std::string("NULL"), true, create_static_type_info_ptr(int_type_info), 0, 0));
+
+    ColumnIteratorOptions opts;
+    auto st = child->init(opts);
+    EXPECT_TRUE(st.ok());
+
+    // cast iterator: Nullable(INT) -> Nullable(BIGINT)
+    auto src_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt32>());
+    auto dst_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt64>());
+    CastColumnIterator cast_iter(std::move(child), src_type, dst_type);
+    st = cast_iter.init(opts);
+    EXPECT_TRUE(st.ok());
+
+    vectorized::MutableColumnPtr dst =
+            vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt64>())
+                    ->create_column();
+    size_t n = 4;
+    bool has_null = false;
+    st = cast_iter.next_batch(&n, dst, &has_null);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(4u, n);
+
+    auto& nullable = assert_cast<vectorized::ColumnNullable&>(*dst);
+    auto& null_map = assert_cast<vectorized::ColumnUInt8&>(nullable.get_null_map_column());
+    for (size_t i = 0; i < n; ++i) {
+        EXPECT_EQ(1, null_map.get_element(i));
+    }
+}
+
+TEST_F(ColumnReaderWriterTest, test_cast_iterator_read_by_rowids) {
+    // child iterator: default INT value = -3
+    const auto* int_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_INT>();
+    std::unique_ptr<ColumnIterator> child(new DefaultValueColumnIterator(
+            true, std::string("-3"), false, create_static_type_info_ptr(int_type_info), 0, 0));
+
+    ColumnIteratorOptions opts;
+    auto st = child->init(opts);
+    EXPECT_TRUE(st.ok());
+
+    // cast iterator: INT -> DOUBLE
+    auto src_type = vectorized::DataTypeInt32().create();
+    auto dst_type = vectorized::DataTypeFloat64().create();
+    CastColumnIterator cast_iter(std::move(child), src_type, dst_type);
+    st = cast_iter.init(opts);
+    EXPECT_TRUE(st.ok());
+
+    vectorized::MutableColumnPtr dst = vectorized::DataTypeFloat64().create_column();
+    rowid_t rowids[3] = {0, 5, 7};
+    st = cast_iter.read_by_rowids(rowids, 3, dst);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(3u, dst->size());
+
+    for (size_t i = 0; i < 3; ++i) {
+        auto v =
+                assert_cast<vectorized::ColumnVector<vectorized::Float64>*>(dst.get())->get_element(
+                        i);
+        EXPECT_DOUBLE_EQ(-3.0, v);
     }
 }
 
