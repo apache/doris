@@ -85,7 +85,7 @@ suite('test_ingestion_load_drop_table', 'p0,external') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath}\\": 5745}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -188,7 +188,6 @@ suite('test_ingestion_load_drop_table', 'p0,external') {
             })
 
         } finally {
-            sql "DROP TABLE ${tableName}"
         }
 
     }
