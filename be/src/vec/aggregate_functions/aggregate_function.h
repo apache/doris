@@ -255,6 +255,13 @@ public:
     /// sum[i] = sum[i-1] - col[x] + col[y]
     virtual bool supported_incremental_mode() const { return false; }
 
+    virtual void set_query_context(QueryContext* context) {
+        throw Status::InternalError(
+                "set_query_context is not supported by aggregate function '{}'; only LLM aggregate "
+                "functions implement this method",
+                get_name());
+    }
+
     /**
     * Executes the aggregate function in incremental mode.
     * This is a virtual function that should be overridden by aggregate functions supporting incremental calculation.

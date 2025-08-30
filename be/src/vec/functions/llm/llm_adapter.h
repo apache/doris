@@ -35,6 +35,31 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+struct LLMResource {
+    LLMResource() = default;
+    LLMResource(TLLMResource& tllm)
+            : endpoint(tllm.endpoint),
+              provider_type(tllm.provider_type),
+              model_name(tllm.model_name),
+              api_key(tllm.api_key),
+              temperature(tllm.temperature),
+              max_tokens(tllm.max_tokens),
+              max_retries(tllm.max_retries),
+              retry_delay_second(tllm.retry_delay_second),
+              anthropic_version(tllm.anthropic_version) {}
+
+    std::string endpoint;
+    std::string provider_type;
+    std::string model_name;
+    std::string api_key;
+    double temperature;
+    int64_t max_tokens;
+    int64_t max_retries;
+    int64_t retry_delay_second;
+    std::string anthropic_version;
+};
+
 class LLMAdapter {
 public:
     virtual ~LLMAdapter() = default;
@@ -43,6 +68,17 @@ public:
     virtual Status set_authentication(HttpClient* client) const = 0;
 
     virtual void init(const TLLMResource& config) { _config = config; }
+    virtual void init(const LLMResource& config) {
+        _config.endpoint = config.endpoint;
+        _config.provider_type = config.provider_type;
+        _config.model_name = config.model_name;
+        _config.api_key = config.api_key;
+        _config.temperature = config.temperature;
+        _config.max_tokens = config.max_tokens;
+        _config.max_retries = config.max_retries;
+        _config.retry_delay_second = config.retry_delay_second;
+        _config.anthropic_version = config.anthropic_version;
+    }
 
     // Build request payload based on input text strings
     virtual Status build_request_payload(const std::vector<std::string>& inputs,

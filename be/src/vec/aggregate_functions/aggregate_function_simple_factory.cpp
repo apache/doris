@@ -79,6 +79,7 @@ void register_aggregate_function_kurtosis(AggregateFunctionSimpleFactory& factor
 void register_aggregate_function_approx_top_k(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_approx_top_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_reservoir(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_llm_agg(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -135,6 +136,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_approx_top_k(instance);
         register_aggregate_function_approx_top_sum(instance);
         register_aggregate_function_percentile_reservoir(instance);
+        register_aggregate_function_llm_agg(instance);
         // Register foreach and foreachv2 functions
         register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_combinator_foreachv2(instance);
