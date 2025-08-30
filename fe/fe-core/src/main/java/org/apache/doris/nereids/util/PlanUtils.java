@@ -25,6 +25,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -143,7 +144,23 @@ public class PlanUtils {
     }
 
     /**
-     * merge childProjects with parentProjects
+     * try merge childProjects with parentProjects. if merged expression exceeds limit, return empty.
+     */
+    public static Optional<List<NamedExpression>> tryMergeProjections(List<? extends NamedExpression> childProjects,
+            List<? extends NamedExpression> parentProjects) {
+        try {
+            return Optional.of(mergeProjections(childProjects, parentProjects));
+        } catch (AnalysisException e) {
+            if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                return Optional.empty();
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * merge childProjects with parentProjects. if merged expression exceeds limit, will throw AnalysisException.
      */
     public static List<NamedExpression> mergeProjections(List<? extends NamedExpression> childProjects,
             List<? extends NamedExpression> parentProjects) {

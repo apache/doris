@@ -28,12 +28,13 @@ import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Common interface for logical/physical project.
@@ -67,24 +68,30 @@ public interface Project extends ProjectMergeable {
     }
 
     /**
-     * combine upper level and bottom level projections
+     * combine upper level and bottom level projections.
+     * if the combined expressions too huge, will return empty.
      * 1. alias combination, for example
      * proj(x as y, b) --> proj(a as x, b, c) =>(a as y, b)
      * 2. remove used projection in bottom project
      * @param childProject bottom project
      * @return project list for merged project
      */
-    default List<NamedExpression> mergeProjections(Project childProject) {
-        List<NamedExpression> projects = new ArrayList<>(
-                PlanUtils.mergeProjections(childProject.getProjects(), getProjects())
-        );
+    default Optional<List<NamedExpression>> mergeProjections(Project childProject) {
+        Optional<List<NamedExpression>> parentProjectsOpt
+                = PlanUtils.tryMergeProjections(childProject.getProjects(), getProjects());
+        if (!parentProjectsOpt.isPresent()) {
+            return Optional.empty();
+        }
+        ImmutableList.Builder<NamedExpression> projectsBuilder
+                = ImmutableList.builderWithExpectedSize(parentProjectsOpt.get().size());
+        projectsBuilder.addAll(parentProjectsOpt.get());
         for (NamedExpression expression : childProject.getProjects()) {
             // keep NoneMovableFunction for later use
             if (expression.containsType(NoneMovableFunction.class)) {
-                projects.add(expression);
+                projectsBuilder.add(expression);
             }
         }
-        return projects;
+        return Optional.of(projectsBuilder.build());
     }
 
     /** check can merge two projects */
