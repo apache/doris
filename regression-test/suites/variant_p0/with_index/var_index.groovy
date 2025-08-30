@@ -52,8 +52,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     qt_sql "select * from var_index order by k limit 15"
 
     sql "DROP TABLE IF EXISTS var_index"
-    boolean findException = false
-    try {
+    test {
         sql """
             CREATE TABLE IF NOT EXISTS var_index (
                 k bigint,
@@ -64,14 +63,9 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
             DISTRIBUTED BY HASH(k) BUCKETS 1 
             properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
         """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
-        findException = true
+        exception "not supported in inverted index format V1"
     }
-    assertTrue(findException)
 
-    findException = false
     sql """
         CREATE TABLE IF NOT EXISTS var_index (
             k bigint,
@@ -82,19 +76,15 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
     """
 
-    try {
+    test {
         sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
-        findException = true
+        exception "not supported in inverted index format V1"
     }
-    assertTrue(findException)
 
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
         if (isCloudMode()) {
             sql "DROP TABLE IF EXISTS var_index"
-            try {
+            test {
                 sql """
                     CREATE TABLE IF NOT EXISTS var_index (
                         k bigint,
@@ -105,9 +95,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                     DISTRIBUTED BY HASH(k) BUCKETS 1 
                     properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
                 """
-            } catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
+                exception "not supported in inverted index format V1"
             }
 
             sql """
@@ -120,11 +108,9 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                 properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
             """
 
-            try {
+            test {
                 sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
-            } catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
+                exception "not supported in inverted index format V1"
             }
         } else {
             sql """
