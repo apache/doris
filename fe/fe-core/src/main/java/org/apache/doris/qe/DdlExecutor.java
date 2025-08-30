@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.catalog.Env;
@@ -40,8 +39,6 @@ public class DdlExecutor {
         checkDdlStmtSupported(ddlStmt);
         if (ddlStmt instanceof CreateTableStmt) {
             env.createTable((CreateTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
-            env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
