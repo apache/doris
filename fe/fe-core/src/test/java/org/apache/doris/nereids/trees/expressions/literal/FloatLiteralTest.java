@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import org.junit.jupiter.api.Assertions;
@@ -284,5 +285,41 @@ public class FloatLiteralTest {
         FloatLiteral finalF9 = f1;
         Assertions.assertThrows(CastException.class, () -> finalF9.uncheckedCastTo(DateType.INSTANCE));
 
+    }
+
+    @Test
+    public void testFloatGetStringValue() {
+        Assertions.assertEquals("0", ((StringLiteral) (new FloatLiteral(0f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("0", ((StringLiteral) (new FloatLiteral(0.0f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-0", ((StringLiteral) (new FloatLiteral(-0f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1", ((StringLiteral) (new FloatLiteral(1f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1", ((StringLiteral) (new FloatLiteral(1.0f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-1", ((StringLiteral) (new FloatLiteral(-1f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1.554", ((StringLiteral) (new FloatLiteral(1.554f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("0.338", ((StringLiteral) (new FloatLiteral(0.338f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-1", ((StringLiteral) (new FloatLiteral(-1.0f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1e+38", ((StringLiteral) (new FloatLiteral((float) 1e38).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-1e+38", ((StringLiteral) (new FloatLiteral((float) -1e38).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1000000", ((StringLiteral) (new FloatLiteral((float) 1.0E6).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-1000000", ((StringLiteral) (new FloatLiteral((float) -1.0E6).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1e+07", ((StringLiteral) (new FloatLiteral((float) 1.0E7).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-1e+07", ((StringLiteral) (new FloatLiteral((float) -1.0E7).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("0.0001", ((StringLiteral) (new FloatLiteral(0.0001f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1e-05", ((StringLiteral) (new FloatLiteral(0.00001f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("Infinity", ((StringLiteral) (new FloatLiteral(Float.POSITIVE_INFINITY).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-Infinity", ((StringLiteral) (new FloatLiteral(Float.NEGATIVE_INFINITY).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("NaN", ((StringLiteral) (new FloatLiteral(Float.NaN).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1234567", ((StringLiteral) (new FloatLiteral(1234567.12345f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1.234568e+07", ((StringLiteral) (new FloatLiteral(12345678.12345f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("0.0001234568", ((StringLiteral) (new FloatLiteral(0.0001234567890123456789f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("1.234568e-15", ((StringLiteral) (new FloatLiteral(0.000000000000001234567890123456f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("123.456", ((StringLiteral) (new FloatLiteral(123.456000f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("123", ((StringLiteral) (new FloatLiteral(123.000f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-1234567", ((StringLiteral) (new FloatLiteral(-1234567.12345f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-1.234568e+07", ((StringLiteral) (new FloatLiteral(-12345678.12345f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-0.0001234568", ((StringLiteral) (new FloatLiteral(-0.0001234567890123456789f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-1.234568e-15", ((StringLiteral) (new FloatLiteral(-0.000000000000001234567890123456f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-123.456", ((StringLiteral) (new FloatLiteral(-123.456000f).uncheckedCastTo(StringType.INSTANCE))).getValue());
+        Assertions.assertEquals("-123", ((StringLiteral) (new FloatLiteral(-123.000f).uncheckedCastTo(StringType.INSTANCE))).getValue());
     }
 }

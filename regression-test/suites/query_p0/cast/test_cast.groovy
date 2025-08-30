@@ -29,7 +29,7 @@ suite('test_cast', "arrow_flight_sql") {
     }
     test {
         sql "select cast(${datetime} as bigint), cast(${datetime} as float), cast(${datetime} as double)"
-        result([[20200101123445l, ((float) 20200101123445l), ((double) 20200101123445l)]])
+        result([[20200101123445l, ((float) 20200100000000l), ((double) 20200101123445l)]])
     }
 
     test {
