@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
+#include "vec/aggregate_functions/aggregate_function_llm_agg.h"
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sort.h"
@@ -235,6 +236,10 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (!_sort_description.empty()) {
         _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
                                                    _sort_description, state);
+    }
+
+    if (_fn.name.function_name == "llm_agg") {
+        _function->set_query_context(state->get_query_ctx());
     }
 
     // Foreachv2, like foreachv1, does not check the return type,
