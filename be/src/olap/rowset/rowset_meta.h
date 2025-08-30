@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -210,6 +211,13 @@ public:
     void set_creation_time(int64_t creation_time) {
         return _rowset_meta_pb.set_creation_time(creation_time);
     }
+
+    int64_t stale_at() const {
+        return _rowset_meta_pb.has_stale_at() ? _rowset_meta_pb.stale_at()
+                                              : _rowset_meta_pb.creation_time();
+    }
+
+    void set_stale_at(int64_t stale_at) { _rowset_meta_pb.set_stale_at(stale_at); }
 
     int64_t partition_id() const { return _rowset_meta_pb.partition_id(); }
 
