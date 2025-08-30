@@ -199,6 +199,8 @@ public class ColumnDef {
     private int clusterKeyId = -1;
     private Optional<GeneratedColumnInfo> generatedColumnInfo = Optional.empty();
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
+    // if add hidden column, must set enableAddHiddenColumn true
+    private boolean enableAddHiddenColumn = false;
 
 
     public ColumnDef(String name, TypeDef typeDef) {
@@ -262,6 +264,10 @@ public class ColumnDef {
         this.visible = visible;
     }
 
+    public void setEnableAddHiddenColumn(boolean enableAddHiddenColumn) {
+        this.enableAddHiddenColumn = enableAddHiddenColumn;
+    }
+
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, ColumnNullableType nullableType, String comment,
             Optional<GeneratedColumnInfo> generatedColumnInfo) {
         this(name, typeDef, isKey, null, nullableType, -1, DefaultValue.NOT_SET,
@@ -269,50 +275,72 @@ public class ColumnDef {
     }
 
     public static ColumnDef newDeleteSignColumnDef() {
-        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null,
-                ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
+        ColumnDef columnDef = new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null,
+                ColumnNullableType.NOT_NULLABLE, -1, new DefaultValue(true, "0"),
                 "doris delete flag hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newDeleteSignColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, aggregateType,
-                ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
+        ColumnDef columnDef = new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false,
+                aggregateType,
+                ColumnNullableType.NOT_NULLABLE, -1, new DefaultValue(true, "0"),
                 "doris delete flag hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newSequenceColumnDef(Type type) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, null, ColumnNullableType.NULLABLE, -1,
+        ColumnDef columnDef = new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type),
+                false, null, ColumnNullableType.NULLABLE, -1,
                 DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newSequenceColumnDef(Type type, AggregateType aggregateType) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, aggregateType, ColumnNullableType.NULLABLE,
+        ColumnDef columnDef = new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type),
+                false, aggregateType, ColumnNullableType.NULLABLE,
                 -1, DefaultValue.NULL_DEFAULT_VALUE, "sequence column hidden column", false,
                 Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newRowStoreColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false, aggregateType,
+        ColumnDef columnDef = new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING),
+                false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, ""),
                 "doris row store hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newVersionColumnDef() {
-        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null,
+        ColumnDef columnDef = new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris version hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newVersionColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, aggregateType,
+        ColumnDef columnDef = new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT),
+                false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, new ColumnDef.DefaultValue(true, "0"),
                 "doris version hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public static ColumnDef newSkipBitmapColumnDef(AggregateType aggregateType) {
-        return new ColumnDef(Column.SKIP_BITMAP_COL, TypeDef.create(PrimitiveType.BITMAP), false, aggregateType,
+        ColumnDef columnDef = new ColumnDef(Column.SKIP_BITMAP_COL, TypeDef.create(PrimitiveType.BITMAP),
+                false, aggregateType,
                 ColumnNullableType.NOT_NULLABLE, -1, DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE,
                 "doris skip bitmap hidden column", false, Optional.empty());
+        columnDef.setEnableAddHiddenColumn(true);
+        return columnDef;
     }
 
     public boolean isAllowNull() {
@@ -375,7 +403,13 @@ public class ColumnDef {
         if (name == null || typeDef == null) {
             throw new AnalysisException("No column name or column type in column definition.");
         }
-        FeNameFormat.checkColumnName(name);
+
+        if (enableAddHiddenColumn) {
+            FeNameFormat.checkColumnNameBypassHiddenColumn(name);
+        } else {
+            FeNameFormat.checkColumnName(name);
+        }
+
         FeNameFormat.checkColumnCommentLength(comment);
 
         typeDef.analyze(null);
