@@ -4,7 +4,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------filter((web_cumulative > store_cumulative))
+--------filter((y.web_cumulative > y.store_cumulative))
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
 --------------PhysicalDistribute[DistributionSpecHash]
