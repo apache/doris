@@ -64,7 +64,9 @@ bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
         "cached_remote_reader_skip_local_cache_io_sum_bytes");
 bvar::LatencyRecorder g_peer_file_reader_latency("peer_file_reader_latency");
-
+bvar::Adder<uint64_t> peer_file_reader_read_counter("peer_file_reader", "read_at");
+bvar::PerSecond<bvar::Adder<uint64_t>> peer_get_request_qps("peer_file_reader", "peer_get_request",
+    &peer_file_reader_read_counter);
 // no custom launcher needed when using std::thread
 
 // Controller to race two fetchers (e.g., S3 vs peer BE) and signal on first success
@@ -593,6 +595,7 @@ Status CachedRemoteFileReader::_fetch_from_peer_cache_blocks(
     brpc::Controller cntl;
     cntl.set_timeout_ms(60000);
     PFetchPeerDataResponse resp;
+    peer_file_reader_read_counter << 1;
     brpc_stub->fetch_peer_data(&cntl, &req, &resp, nullptr);
     if (cntl.Failed()) {
         return Status::RpcError(cntl.ErrorText());

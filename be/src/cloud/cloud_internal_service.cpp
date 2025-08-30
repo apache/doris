@@ -148,93 +148,86 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
     int64_t begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                std::chrono::system_clock::now().time_since_epoch())
                                .count();
-    LOG(INFO) << "fetch cache " << request->DebugString();
+    // LOG(INFO) << "fetch cache " << request->DebugString();
     const auto type = request->type();
     const auto& path = request->path();
     response->mutable_status()->set_status_code(TStatusCode::OK);
-    if (type == PFetchPeerDataRequest_Type_PEER_FILE_RANGE) {
-        // Read specific range [file_offset, file_offset+file_size) across cached blocks
-        auto datas = io::FileCacheFactory::instance()->get_cache_data_by_path(path);
-        for (auto& cb : datas) {
-            *(response->add_datas()) = std::move(cb);
-        }
-    } else if (type == PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK) {
-        // Multiple specific blocks
-        auto hash = io::BlockFileCache::hash(path);
-        auto* cache = io::FileCacheFactory::instance()->get_by_path(hash);
-        LOG(INFO) << "dx debug path=" << path << " hash=" << hash.to_string();
-        if (cache == nullptr) {
-            g_file_cache_get_by_peer_failed_num << 1;
-            response->mutable_status()->add_error_msgs("can't get file cache instance");
-            response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
-            return;
-        }
-        io::CacheContext ctx {};
-        // ensure a valid stats pointer is provided to cache layer
-        io::ReadStatistics local_stats;
-        ctx.stats = &local_stats;
-        for (const auto& cb_req : request->cache_req()) {
-            LOG(INFO) << "dx debug path=" << path << " offset=" << cb_req.block_offset()
-                      << " size=" << cb_req.block_size();
-            size_t offset = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_offset()));
-            size_t size = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_size()));
-            auto holder = cache->get_or_set(hash, offset, size, ctx);
-            for (auto& fb : holder.file_blocks) {
-                g_file_cache_get_by_peer_blocks_num << 1;
-                LOG(INFO) << "dx debug fb path=" << path << " offset=" << fb->offset()
-                          << " size=" << fb->range().size();
-                doris::CacheBlock* out = response->add_datas();
-                out->set_block_offset(static_cast<int64_t>(fb->offset()));
-                out->set_block_size(static_cast<int64_t>(fb->range().size()));
-                std::string data;
-                data.resize(fb->range().size());
-                // Offload the file block read to a dedicated OS thread to avoid bthread IO
-                Status read_st = Status::OK();
-                // due to file_reader.cpp:33] Check failed: bthread_self() == 0
-                int64_t begin_read_file_ts =
-                        std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
-                auto task = [&] {
+    auto task = [&] {
+        if (type == PFetchPeerDataRequest_Type_PEER_FILE_RANGE) {
+            // Read specific range [file_offset, file_offset+file_size) across cached blocks
+            auto datas = io::FileCacheFactory::instance()->get_cache_data_by_path(path);
+            for (auto& cb : datas) {
+                *(response->add_datas()) = std::move(cb);
+            }
+        } else if (type == PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK) {
+            // Multiple specific blocks
+            auto hash = io::BlockFileCache::hash(path);
+            auto* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+            LOG(INFO) << "dx debug path=" << path << " hash=" << hash.to_string();
+            if (cache == nullptr) {
+                g_file_cache_get_by_peer_failed_num << 1;
+                response->mutable_status()->add_error_msgs("can't get file cache instance");
+                response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
+                return;
+            }
+            io::CacheContext ctx {};
+            // ensure a valid stats pointer is provided to cache layer
+            io::ReadStatistics local_stats;
+            ctx.stats = &local_stats;
+            for (const auto& cb_req : request->cache_req()) {
+                LOG(INFO) << "dx debug path=" << path << " offset=" << cb_req.block_offset()
+                          << " size=" << cb_req.block_size();
+                size_t offset = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_offset()));
+                size_t size = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_size()));
+                auto holder = cache->get_or_set(hash, offset, size, ctx);
+                for (auto& fb : holder.file_blocks) {
+                    g_file_cache_get_by_peer_blocks_num << 1;
+                    LOG(INFO) << "dx debug fb path=" << path << " offset=" << fb->offset()
+                              << " size=" << fb->range().size();
+                    doris::CacheBlock* out = response->add_datas();
+                    out->set_block_offset(static_cast<int64_t>(fb->offset()));
+                    out->set_block_size(static_cast<int64_t>(fb->range().size()));
+                    std::string data;
+                    data.resize(fb->range().size());
+                    // Offload the file block read to a dedicated OS thread to avoid bthread IO
+                    Status read_st = Status::OK();
+                    // due to file_reader.cpp:33] Check failed: bthread_self() == 0
+                    int64_t begin_read_file_ts =
+                            std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
                     // Current thread not exist ThreadContext, usually after the thread is started, using SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.
                     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
                     Slice slice(data.data(), data.size());
                     read_st = fb->read(slice, /*read_offset=*/0);
-                };
-                AsyncIO::run_task(task, io::FileSystemType::LOCAL);
-                // std::thread reader([&]() {
-                //     // Current thread not exist ThreadContext, usually after the thread is started, using SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.
-                //     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
-                //     Slice slice(data.data(), data.size());
-                //     read_st = fb->read(slice, /*read_offset=*/0);
-                // });
-                // if (reader.joinable()) reader.join();
-                int64_t end_read_file_ts =
-                        std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
-                g_file_cache_get_by_peer_read_cache_file_latency
-                        << (end_read_file_ts - begin_read_file_ts);
-                if (read_st.ok()) {
-                    out->set_data(std::move(data));
-                } else {
-                    g_file_cache_get_by_peer_failed_num << 1;
-                    LOG(WARNING) << "read cache block failed: " << read_st;
-                    response->mutable_status()->add_error_msgs("read cache file error");
-                    response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
-                    return;
+                    int64_t end_read_file_ts =
+                            std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
+                    g_file_cache_get_by_peer_read_cache_file_latency
+                            << (end_read_file_ts - begin_read_file_ts);
+                    if (read_st.ok()) {
+                        out->set_data(std::move(data));
+                    } else {
+                        g_file_cache_get_by_peer_failed_num << 1;
+                        LOG(WARNING) << "read cache block failed: " << read_st;
+                        response->mutable_status()->add_error_msgs("read cache file error");
+                        response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
+                        return;
+                    }
                 }
             }
         }
-    }
+    };
+    AsyncIO::run_task(task, io::FileSystemType::LOCAL);
     int64_t end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
     g_file_cache_get_by_peer_latency << (end_ts - begin_ts);
     g_file_cache_get_by_peer_success_num << 1;
 
-    LOG(INFO) << "fetch cache request=" << request->DebugString()
-              << ", response=" << response->DebugString();
+    // LOG(INFO) << "fetch cache request=" << request->DebugString()
+    //           << ", response=" << response->DebugString();
 }
 
 #include "common/compile_check_end.h"
