@@ -23,6 +23,7 @@
 #include <cmath>
 #include <limits>
 
+#include "common/compare.h"
 #include "runtime/primitive_type.h"
 #include "util/binary_cast.hpp"
 #include "vec/common/nan_utils.h"
@@ -232,7 +233,7 @@ struct EqualsOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::equalsOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::equal(a, b); }
 };
 
 template <>
@@ -254,7 +255,7 @@ struct NotEqualsOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::notEqualsOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::not_equal(a, b); }
 };
 
 template <>
@@ -274,7 +275,7 @@ struct LessOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::lessOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::less(a, b); }
 };
 
 template <>
@@ -296,7 +297,7 @@ struct GreaterOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::greaterOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::greater(a, b); }
 };
 
 template <>
@@ -321,7 +322,7 @@ struct LessOrEqualsOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::lessOrEqualsOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::less_equal(a, b); }
 };
 
 template <>
@@ -338,7 +339,7 @@ struct GreaterOrEqualsOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::greaterOrEqualsOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::greater_equal(a, b); }
 };
 
 template <>

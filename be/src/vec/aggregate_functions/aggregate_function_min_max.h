@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/compare.h"
 #include "common/logging.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
@@ -78,20 +79,20 @@ public:
     constexpr static bool IsFixedLength = true;
 
     void set_to_min_max(bool max) {
-        value = max ? type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::max()
-                    : type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::min();
+        value = max ? Compare::max_value<typename PrimitiveTypeTraits<T>::ColumnItemType>()
+                    : Compare::min_value<typename PrimitiveTypeTraits<T>::ColumnItemType>();
     }
 
     void change_if(const IColumn& column, size_t row_num, bool less) {
         has_value = true;
-        value = less ? std::min(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                            TypeCheckOnRelease::DISABLE>(column)
-                                        .get_data()[row_num],
-                                value)
-                     : std::max(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                            TypeCheckOnRelease::DISABLE>(column)
-                                        .get_data()[row_num],
-                                value);
+        value = less ? Compare::min(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                                TypeCheckOnRelease::DISABLE>(column)
+                                            .get_data()[row_num],
+                                    value)
+                     : Compare::max(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                                TypeCheckOnRelease::DISABLE>(column)
+                                            .get_data()[row_num],
+                                    value);
     }
 
     void insert_result_into(IColumn& to) const {
@@ -137,9 +138,10 @@ public:
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena& arena) {
-        if (!has() || assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                  TypeCheckOnRelease::DISABLE>(column)
-                                      .get_data()[row_num] < value) {
+        if (!has() || Compare::less(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                                TypeCheckOnRelease::DISABLE>(column)
+                                            .get_data()[row_num],
+                                    value)) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -148,7 +150,7 @@ public:
     }
 
     bool change_if_less(const Self& to, Arena& arena) {
-        if (to.has() && (!has() || to.value < value)) {
+        if (to.has() && (!has() || Compare::less(to.value, value))) {
             change(to, arena);
             return true;
         } else {
@@ -157,9 +159,11 @@ public:
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena& arena) {
-        if (!has() || assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                  TypeCheckOnRelease::DISABLE>(column)
-                                      .get_data()[row_num] > value) {
+        if (!has() ||
+            Compare::greater(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                         TypeCheckOnRelease::DISABLE>(column)
+                                     .get_data()[row_num],
+                             value)) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -171,13 +175,14 @@ public:
         if (!has()) {
             return false;
         }
-        return assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                           TypeCheckOnRelease::DISABLE>(column)
-                       .get_data()[row_num] == value;
+        return Compare::equal(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                          TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num],
+                              value);
     }
 
     bool change_if_greater(const Self& to, Arena& arena) {
-        if (to.has() && (!has() || to.value > value)) {
+        if (to.has() && (!has() || Compare::greater(to.value, value))) {
             change(to, arena);
             return true;
         } else {
@@ -217,20 +222,20 @@ public:
     constexpr static bool IsFixedLength = true;
 
     void set_to_min_max(bool max) {
-        value = max ? type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::max()
-                    : type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::min();
+        value = max ? Compare::max_value<typename PrimitiveTypeTraits<T>::ColumnItemType>()
+                    : Compare::min_value<typename PrimitiveTypeTraits<T>::ColumnItemType>();
     }
 
     void change_if(const IColumn& column, size_t row_num, bool less) {
         has_value = true;
-        value = less ? std::min(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                            TypeCheckOnRelease::DISABLE>(column)
-                                        .get_data()[row_num],
-                                value)
-                     : std::max(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                            TypeCheckOnRelease::DISABLE>(column)
-                                        .get_data()[row_num],
-                                value);
+        value = less ? Compare::min(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                                TypeCheckOnRelease::DISABLE>(column)
+                                            .get_data()[row_num],
+                                    value)
+                     : Compare::max(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                                TypeCheckOnRelease::DISABLE>(column)
+                                            .get_data()[row_num],
+                                    value);
     }
 
     void insert_result_into(IColumn& to) const {
@@ -276,9 +281,10 @@ public:
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena& arena) {
-        if (!has() || assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                  TypeCheckOnRelease::DISABLE>(column)
-                                      .get_data()[row_num] < value) {
+        if (!has() || Compare::less(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                                TypeCheckOnRelease::DISABLE>(column)
+                                            .get_data()[row_num],
+                                    value)) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -287,7 +293,7 @@ public:
     }
 
     bool change_if_less(const Self& to, Arena& arena) {
-        if (to.has() && (!has() || to.value < value)) {
+        if (to.has() && (!has() || Compare::less(to.value, value))) {
             change(to, arena);
             return true;
         } else {
@@ -296,9 +302,11 @@ public:
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena& arena) {
-        if (!has() || assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                  TypeCheckOnRelease::DISABLE>(column)
-                                      .get_data()[row_num] > value) {
+        if (!has() ||
+            Compare::greater(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                         TypeCheckOnRelease::DISABLE>(column)
+                                     .get_data()[row_num],
+                             value)) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -307,7 +315,7 @@ public:
     }
 
     bool change_if_greater(const Self& to, Arena& arena) {
-        if (to.has() && (!has() || to.value > value)) {
+        if (to.has() && (!has() || Compare::greater(to.value, value))) {
             change(to, arena);
             return true;
         } else {
@@ -319,9 +327,10 @@ public:
         if (!has()) {
             return false;
         }
-        return assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                           TypeCheckOnRelease::DISABLE>(column)
-                       .get_data()[row_num] == value;
+        return Compare::equal(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                          TypeCheckOnRelease::DISABLE>(column)
+                                      .get_data()[row_num],
+                              value);
     }
 
     void change_first_time(const IColumn& column, size_t row_num, Arena& arena) {
