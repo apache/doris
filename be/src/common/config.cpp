@@ -1261,7 +1261,7 @@ DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 
 // The secure path with user files, used in the `local` table function.
-DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
+DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
