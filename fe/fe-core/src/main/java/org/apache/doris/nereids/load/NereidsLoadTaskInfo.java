@@ -114,6 +114,10 @@ public interface NereidsLoadTaskInfo {
 
     boolean isFixedPartialUpdate();
 
+    default boolean getEmptyFieldAsNull() {
+        return false;
+    }
+
     default TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
         return TUniqueKeyUpdateMode.UPSERT;
     }
