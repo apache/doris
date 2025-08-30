@@ -216,7 +216,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // if break when running the loop above, the condition must be false.
             if (curChildIndex == groupExpression.arity()) {
                 if (!calculateEnforce(requestChildrenProperties, outputChildrenProperties)) {
-                    return; // if error exists, return
+                    // continue to process next children request property.
+                    clear();
+                    continue;
                 }
                 if (curTotalCost.getValue() < context.getCostUpperBound()) {
                     context.setCostUpperBound(curTotalCost.getValue());
