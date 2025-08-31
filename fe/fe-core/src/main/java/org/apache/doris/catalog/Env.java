@@ -28,7 +28,6 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
@@ -3464,33 +3463,6 @@ public class Env {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(createTableInfo.getCtlName(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         return catalogIf.createTable(createTableInfo);
-    }
-
-    /**
-     * Following is the step to create an olap table:
-     * 1. create columns
-     * 2. create partition info
-     * 3. create distribution info
-     * 4. set table id and base index id
-     * 5. set bloom filter columns
-     * 6. set and build TableProperty includes:
-     * 6.1. dynamicProperty
-     * 6.2. replicationNum
-     * 6.3. inMemory
-     * 6.4. storageFormat
-     * 6.5. compressionType
-     * 7. set index meta
-     * 8. check colocation properties
-     * 9. create tablet in BE
-     * 10. add this table to FE's meta
-     * 11. add this table to ColocateGroup if necessary
-     * @return if CreateTableStmt.isIfNotExists is true, return true if table already exists
-     * otherwise return false
-     */
-    public boolean createTable(CreateTableStmt stmt) throws UserException {
-        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
-                catalog -> new DdlException(("Unknown catalog " + catalog)));
-        return catalogIf.createTable(stmt);
     }
 
     /**

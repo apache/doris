@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
@@ -1113,31 +1112,6 @@ public abstract class ExternalCatalog
                 Env.getCurrentEnv().getEditLog().logCreateTable(info);
                 LOG.info("finished to create table {}.{}.{}", getName(), createTableInfo.getDbName(),
                         createTableInfo.getTableName());
-            }
-            return res;
-        } catch (Exception e) {
-            LOG.warn("Failed to create a table.", e);
-            throw e;
-        }
-    }
-
-    @Override
-    public boolean createTable(CreateTableStmt stmt) throws UserException {
-        makeSureInitialized();
-        if (metadataOps == null) {
-            throw new DdlException("Create table is not supported for catalog: " + getName());
-        }
-        try {
-            boolean res = metadataOps.createTable(stmt);
-            if (!res) {
-                // res == false means the table does not exist before, and we create it.
-                // we should get the table stored in Doris, and use local name in edit log.
-                org.apache.doris.persist.CreateTableInfo info = new org.apache.doris.persist.CreateTableInfo(
-                        getName(),
-                        stmt.getDbName(),
-                        stmt.getTableName());
-                Env.getCurrentEnv().getEditLog().logCreateTable(info);
-                LOG.info("finished to create table {}.{}.{}", getName(), stmt.getDbName(), stmt.getTableName());
             }
             return res;
         } catch (Exception e) {
