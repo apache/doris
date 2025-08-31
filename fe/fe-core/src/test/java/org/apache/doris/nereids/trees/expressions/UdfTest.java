@@ -56,99 +56,99 @@ import java.io.DataOutputStream;
 import java.util.List;
 
 public class UdfTest extends TestWithFeService implements PlanPatternMatchSupported {
-        @Override
-        protected void runBeforeAll() throws Exception {
-                createDatabase("test");
-                createDatabase("test_1");
-        }
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+        createDatabase("test_1");
+    }
 
-        @Override
-        protected void runBeforeEach() throws Exception {
-                connectContext.setDatabase("test");
-                Config.enable_java_udf = true;
-        }
+    @Override
+    protected void runBeforeEach() throws Exception {
+        connectContext.setDatabase("test");
+        Config.enable_java_udf = true;
+    }
 
-        @Test
-        public void testSimpleAliasFunction() throws Exception {
-                // alias udf should not check java_udf
-                Config.enable_java_udf = false;
-                createFunction("create global alias function f(int) with parameter(n) as hours_add(now(3), n)");
-                createFunction("create alias function f(int) with parameter(n) as hours_sub(now(3), n)");
+    @Test
+    public void testSimpleAliasFunction() throws Exception {
+        // alias udf should not check java_udf
+        Config.enable_java_udf = false;
+        createFunction("create global alias function f(int) with parameter(n) as hours_add(now(3), n)");
+        createFunction("create alias function f(int) with parameter(n) as hours_sub(now(3), n)");
 
-                String sql = "select f(3)";
-                Expression expected = new HoursSub(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
-                PlanChecker.from(connectContext)
-                                .analyze(sql)
-                                .matches(
-                                                logicalOneRowRelation()
-                                                                .when(oneRow -> oneRow.getProjects().get(0).child(0)
-                                                                                .equals(expected)));
+        String sql = "select f(3)";
+        Expression expected = new HoursSub(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matches(
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0)
+                                        .equals(expected)));
 
-                connectContext.setDatabase("test_1");
-                Expression expected1 = new HoursAdd(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
-                PlanChecker.from(connectContext)
-                                .analyze(sql)
-                                .matches(
-                                                logicalOneRowRelation()
-                                                                .when(oneRow -> oneRow.getProjects().get(0).child(0)
-                                                                                .equals(expected1)));
+        connectContext.setDatabase("test_1");
+        Expression expected1 = new HoursAdd(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matches(
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0)
+                                        .equals(expected1)));
 
-                sql = "select test.f(3)";
-                Expression expected2 = new HoursSub(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
-                PlanChecker.from(connectContext)
-                                .analyze(sql)
-                                .matches(
-                                                logicalOneRowRelation()
-                                                                .when(oneRow -> oneRow.getProjects().get(0).child(0)
-                                                                                .equals(expected2)));
-        }
+        sql = "select test.f(3)";
+        Expression expected2 = new HoursSub(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matches(
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0)
+                                        .equals(expected2)));
+    }
 
-        @Test
-        public void testNestedAliasFunction() throws Exception {
-                createFunction("create global alias function f1(int) with parameter(n) as hours_add(now(3), n)");
-                createFunction("create global alias function f2(int) with parameter(n) as dayofweek(days_add(f1(3), n))");
-                createFunction("create global alias function f3(date) with parameter(dt) as hours_sub(days_sub(dt, f2(3)), dayofmonth(f1(f2(4))))");
+    @Test
+    public void testNestedAliasFunction() throws Exception {
+        createFunction("create global alias function f1(int) with parameter(n) as hours_add(now(3), n)");
+        createFunction("create global alias function f2(int) with parameter(n) as dayofweek(days_add(f1(3), n))");
+        createFunction("create global alias function f3(date) with parameter(dt) as hours_sub(days_sub(dt, f2(3)), dayofmonth(f1(f2(4))))");
 
-                Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
-                                .findUdfBuilder(connectContext.getDatabase(), "f3").size());
+        Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
+                .findUdfBuilder(connectContext.getDatabase(), "f3").size());
 
-                String sql = "select f3(now(3))";
-                Expression expected = new HoursSub(
-                                new DaysSub(
-                                                new Cast(new Now(new IntegerLiteral(3)), DateV2Type.INSTANCE),
-                                                new Cast(new DayOfWeek(new DaysAdd(
-                                                                new HoursAdd(
-                                                                                new Now(new IntegerLiteral(3)),
-                                                                                new BigIntLiteral(3)),
-                                                                new BigIntLiteral(3))), BigIntType.INSTANCE)),
-                                new Cast(new DayOfMonth(new HoursAdd(
-                                                new Now(new IntegerLiteral(3)),
-                                                new Cast(new DayOfWeek(new DaysAdd(
-                                                                new HoursAdd(
-                                                                                new Now(new IntegerLiteral(3)),
-                                                                                new BigIntLiteral(3)),
-                                                                new BigIntLiteral(4))), BigIntType.INSTANCE))),
-                                                BigIntType.INSTANCE));
+        String sql = "select f3(now(3))";
+        Expression expected = new HoursSub(
+                new DaysSub(
+                        new Cast(new Now(new IntegerLiteral(3)), DateV2Type.INSTANCE),
+                        new Cast(new DayOfWeek(new DaysAdd(
+                                new HoursAdd(
+                                        new Now(new IntegerLiteral(3)),
+                                        new BigIntLiteral(3)),
+                                new BigIntLiteral(3))), BigIntType.INSTANCE)),
+                new Cast(new DayOfMonth(new HoursAdd(
+                        new Now(new IntegerLiteral(3)),
+                        new Cast(new DayOfWeek(new DaysAdd(
+                                new HoursAdd(
+                                        new Now(new IntegerLiteral(3)),
+                                        new BigIntLiteral(3)),
+                                new BigIntLiteral(4))), BigIntType.INSTANCE))),
+                        BigIntType.INSTANCE));
 
-                PlanChecker.from(connectContext)
-                                .analyze(sql)
-                                .matches(
-                                                logicalOneRowRelation()
-                                                                .when(oneRow -> oneRow.getProjects().size() == 1
-                                                                                && oneRow.getProjects().get(0).child(0)
-                                                                                                .equals(expected)));
-        }
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matches(
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().size() == 1
+                                        && oneRow.getProjects().get(0).child(0)
+                                                .equals(expected)));
+    }
 
-        @Test
-        public void testParameterUseMoreThanOneTime() throws Exception {
-                createFunction("CREATE ALIAS FUNCTION f7(DATETIMEV2(3), INT) with PARAMETER (datetime1, int1) as\n"
-                                + "        DATE_FORMAT(HOURS_ADD(\n"
-                                + "            date_trunc(datetime1, 'day'),\n"
-                                + "            add(multiply(floor(divide(HOUR(datetime1), divide(24, int1))), 1), 1)), '%Y%m%d:%H')");
+    @Test
+    public void testParameterUseMoreThanOneTime() throws Exception {
+        createFunction("CREATE ALIAS FUNCTION f7(DATETIMEV2(3), INT) with PARAMETER (datetime1, int1) as\n"
+                + "        DATE_FORMAT(HOURS_ADD(\n"
+                + "            date_trunc(datetime1, 'day'),\n"
+                + "            add(multiply(floor(divide(HOUR(datetime1), divide(24, int1))), 1), 1)), '%Y%m%d:%H')");
 
-                String sql = "select f7('2023-05-20 12:23:45', 3)";
+        String sql = "select f7('2023-05-20 12:23:45', 3)";
 
-                Expression expected = new DateFormat(
+        Expression expected = new DateFormat(
                                 new HoursAdd(
                                                 new DateTrunc(
                                                                 new Cast(new VarcharLiteral("2023-05-20 12:23:45"),
@@ -177,33 +177,33 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                                                 BigIntType.INSTANCE)),
                                 new VarcharLiteral("%Y%m%d:%H"));
 
-                PlanChecker.from(connectContext)
+        PlanChecker.from(connectContext)
                                 .analyze(sql)
                                 .matches(
                                                 logicalOneRowRelation()
                                                                 .when(oneRow -> oneRow.getProjects().size() == 1
                                                                                 && oneRow.getProjects().get(0).child(0)
                                                                                                 .equals(expected)));
-        }
+    }
 
-        @Test
-        public void testReadFromStream() throws Exception {
-                createFunction("create global alias function f8(int) with parameter(n) as hours_add(now(3), n)");
-                Env.getCurrentEnv().getFunctionRegistry().dropUdf(null, "f8",
-                                ImmutableList.of(IntegerType.INSTANCE));
+    @Test
+    public void testReadFromStream() throws Exception {
+        createFunction("create global alias function f8(int) with parameter(n) as hours_add(now(3), n)");
+        Env.getCurrentEnv().getFunctionRegistry().dropUdf(null, "f8",
+                ImmutableList.of(IntegerType.INSTANCE));
 
-                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                Env.getCurrentEnv().getGlobalFunctionMgr().write(new DataOutputStream(outputStream));
-                byte[] buffer = outputStream.toByteArray();
-                ByteArrayInputStream inputStream = new ByteArrayInputStream(buffer);
-                GlobalFunctionMgr newMgr = GlobalFunctionMgr.read(new DataInputStream(inputStream));
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        Env.getCurrentEnv().getGlobalFunctionMgr().write(new DataOutputStream(outputStream));
+        byte[] buffer = outputStream.toByteArray();
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(buffer);
+        GlobalFunctionMgr newMgr = GlobalFunctionMgr.read(new DataInputStream(inputStream));
 
-                List<Function> functions = newMgr.getFunctions();
-                Assertions.assertEquals(1, functions.stream()
-                                .map(f -> f.getFunctionName().getFunction())
-                                .filter(name -> name.equals("f8"))
-                                .count());
-                Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
-                                .findUdfBuilder(connectContext.getDatabase(), "f8").size());
-        }
+        List<Function> functions = newMgr.getFunctions();
+        Assertions.assertEquals(1, functions.stream()
+                .map(f -> f.getFunctionName().getFunction())
+                .filter(name -> name.equals("f8"))
+                .count());
+        Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
+                .findUdfBuilder(connectContext.getDatabase(), "f8").size());
+    }
 }
