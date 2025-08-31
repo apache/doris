@@ -2167,10 +2167,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     // for inverted index, light schema change is supported in both cloud and local mode;
                     // for ngram index, light schema change is supported only in cloud mode;
                     boolean supportLightIndexChange = false;
-                    if (Config.isCloudMode() && enableAddIndexForNewData) {
-                        supportLightIndexChange = (
-                                found.getIndexType() == IndexType.NGRAM_BF
-                                        || found.getIndexType() == IndexDef.IndexType.INVERTED);
+                    if (Config.isCloudMode()) {
+                        if (enableAddIndexForNewData) {
+                            supportLightIndexChange = (
+                                    found.getIndexType() == IndexType.NGRAM_BF
+                                            || found.getIndexType() == IndexDef.IndexType.INVERTED);
+                        }
                     } else {
                         supportLightIndexChange = found.getIndexType() == IndexDef.IndexType.INVERTED
                                 || found.getIndexType() == IndexDef.IndexType.ANN;
