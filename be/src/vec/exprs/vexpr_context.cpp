@@ -71,6 +71,10 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
     return st;
 }
 
+bool VExprContext::is_blockable() const {
+    return _root->is_blockable();
+}
+
 Status VExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     _prepared = true;
     Status st;

@@ -341,37 +341,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         return;
     }
     // TODO add more types
-    if (type.is_value_represented_by_number() && !is_string_type(src.get_type())) {
-        switch (type.get_primitive_type()) {
-        case PrimitiveType::TYPE_BOOLEAN:
-            return convert_numric_type<TYPE_BOOLEAN>(src, type, to);
-        case PrimitiveType::TYPE_TINYINT:
-            return convert_numric_type<TYPE_TINYINT>(src, type, to);
-        case PrimitiveType::TYPE_SMALLINT:
-            return convert_numric_type<TYPE_SMALLINT>(src, type, to);
-        case PrimitiveType::TYPE_INT:
-            return convert_numric_type<TYPE_INT>(src, type, to);
-        case PrimitiveType::TYPE_BIGINT:
-            return convert_numric_type<TYPE_BIGINT>(src, type, to);
-        case PrimitiveType::TYPE_LARGEINT:
-            return convert_numric_type<TYPE_LARGEINT>(src, type, to);
-        case PrimitiveType::TYPE_FLOAT:
-            return convert_numric_type<TYPE_FLOAT>(src, type, to);
-        case PrimitiveType::TYPE_DOUBLE:
-            return convert_numric_type<TYPE_DOUBLE>(src, type, to);
-        case PrimitiveType::TYPE_DATE:
-        case PrimitiveType::TYPE_DATETIME: {
-            /// We don't need any conversion UInt64 is under type of Date and DateTime
-            if (is_date_type(src.get_type())) {
-                *to = src;
-                return;
-            }
-            break;
-        }
-        default:
-            break;
-        }
-    } else if (is_string_type(type.get_primitive_type())) {
+    if (is_string_type(type.get_primitive_type())) {
         if (is_string_type(src.get_type())) {
             *to = src;
             return;
@@ -401,9 +371,9 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
                                "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
                                type.get_name(), src.get_type());
         return;
-    } else if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(&type)) {
+    } else if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         if (src.get_type() == PrimitiveType::TYPE_ARRAY) {
-            const Array& src_arr = src.get<Array>();
+            const auto& src_arr = src.get<Array>();
             size_t src_arr_size = src_arr.size();
             const auto& element_type = *(type_array->get_nested_type());
             Array res(src_arr_size);
@@ -416,6 +386,52 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
             }
             *to = Field::create_field<TYPE_ARRAY>(res);
             return;
+        }
+    } else if (!is_string_type(src.get_type())) {
+        switch (type.get_primitive_type()) {
+        case PrimitiveType::TYPE_BOOLEAN: {
+            convert_numric_type<TYPE_BOOLEAN>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_TINYINT: {
+            convert_numric_type<TYPE_TINYINT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_SMALLINT: {
+            convert_numric_type<TYPE_SMALLINT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_INT: {
+            convert_numric_type<TYPE_INT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_BIGINT: {
+            convert_numric_type<TYPE_BIGINT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_LARGEINT: {
+            convert_numric_type<TYPE_LARGEINT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_FLOAT: {
+            convert_numric_type<TYPE_FLOAT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_DOUBLE: {
+            convert_numric_type<TYPE_DOUBLE>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_DATE:
+        case PrimitiveType::TYPE_DATETIME: {
+            /// We don't need any conversion UInt64 is under type of Date and DateTime
+            if (is_date_type(src.get_type())) {
+                *to = src;
+                return;
+            }
+            break;
+        }
+        default:
+            break;
         }
     }
     throw doris::Exception(ErrorCode::INVALID_ARGUMENT,

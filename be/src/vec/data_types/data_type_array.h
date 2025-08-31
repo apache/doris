@@ -82,12 +82,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool have_subtypes() const override { return true; }
-    bool text_can_contain_only_valid_utf8() const override {
-        return nested->text_can_contain_only_valid_utf8();
-    }
-    bool is_comparable() const override { return nested->is_comparable(); }
-
     const DataTypePtr& get_nested_type() const { return nested; }
 
     /// 1 for plain array, 2 for array of arrays and so on.
