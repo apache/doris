@@ -103,7 +103,11 @@ import java.util.stream.Collectors;
  * create synchronized materialized view
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
+    public static final String MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
+    public static final String MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX = "mva_";
+    public static final String MATERIALIZED_VIEW_AGGREGATE_NAME_LINK = "__";
     private static final String SYNC_MV_PLANER_DISABLE_RULES = "HAVING_TO_FILTER";
+
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
