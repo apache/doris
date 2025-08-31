@@ -126,14 +126,11 @@ public class AdminCopyTabletCommand extends ShowCommand {
                 Map.Entry<String, String> entry = iter.next();
                 if (entry.getKey().equalsIgnoreCase(PROP_VERSION)) {
                     version = Long.valueOf(entry.getValue());
-                    iter.remove();
                 } else if (entry.getKey().equalsIgnoreCase(PROP_BACKEND_ID)) {
                     backendId = Long.valueOf(entry.getValue());
-                    iter.remove();
                 } else if (entry.getKey().equalsIgnoreCase(PROP_EXPIRATION)) {
                     expirationMinutes = Long.valueOf(entry.getValue());
                     expirationMinutes = Math.min(DEFAULT_EXPIRATION_MINUTES, expirationMinutes);
-                    iter.remove();
                 }
             }
         } catch (NumberFormatException e) {
