@@ -152,7 +152,7 @@ public:
                                     std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
                                     bool snapshot = false);
 
-    // Get the rowset meta for the given tablet_id and version range.
+    // Get the rowset meta for the given tablet_id and version range [start_version, end_version].
     //
     // The `rowset_metas` will be filled with the RowsetMetaCloudPB for each version in the range,
     // in ascending order.
