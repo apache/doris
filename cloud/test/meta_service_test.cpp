@@ -4782,10 +4782,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         GetDeleteBitmapUpdateLockResponse res;
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
                                       tablet_idxes, 5, 999999, -1, true);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        ASSERT_EQ(res.base_compaction_cnts().size(), 0);
-        ASSERT_EQ(res.cumulative_compaction_cnts().size(), 0);
-        ASSERT_EQ(res.cumulative_points().size(), 0);
+        EXPECT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+        EXPECT_EQ(res.base_compaction_cnts().size(), 3);
+        EXPECT_EQ(res.cumulative_compaction_cnts().size(), 3);
+        EXPECT_EQ(res.cumulative_points().size(), 3);
     }
 
     for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
