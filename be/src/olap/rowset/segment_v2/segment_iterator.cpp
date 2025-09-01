@@ -1873,36 +1873,17 @@ Status SegmentIterator::_init_current_block(
 
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
-        const auto* column_desc = _schema->column(cid);
-        if (!_is_pred_column[cid] &&
-            !_segment->same_with_storage_type(
-                    cid, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
-            // The storage layer type is different from schema needed type, so we use storage
-            // type to read columns instead of schema type for safety
-            auto file_column_type = _storage_name_and_type[cid].second;
-            VLOG_DEBUG << fmt::format(
-                    "Recreate column with expected type {}, file column type {}, col_name {}, "
-                    "col_path {}",
-                    block->get_by_position(i).type->get_name(), file_column_type->get_name(),
-                    column_desc->name(),
-                    column_desc->path() == nullptr ? "" : column_desc->path()->get_path());
-            // TODO reuse
-            current_columns[cid] = file_column_type->create_column();
-            current_columns[cid]->reserve(nrows_read_limit);
-        } else {
-            // the column in block must clear() here to insert new data
-            if (_is_pred_column[cid] ||
-                i >= block->columns()) { //todo(wb) maybe we can release it after output block
-                if (current_columns[cid].get() == nullptr) {
-                    return Status::InternalError(
-                            "SegmentIterator meet invalid column, id={}, name={}", cid,
-                            _schema->column(cid)->name());
-                }
-                current_columns[cid]->clear();
-            } else { // non-predicate column
-                current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
-                current_columns[cid]->reserve(nrows_read_limit);
+        // the column in block must clear() here to insert new data
+        if (_is_pred_column[cid] ||
+            i >= block->columns()) { //todo(wb) maybe we can release it after output block
+            if (current_columns[cid].get() == nullptr) {
+                return Status::InternalError("SegmentIterator meet invalid column, id={}, name={}",
+                                             cid, _schema->column(cid)->name());
             }
+            current_columns[cid]->clear();
+        } else { // non-predicate column
+            current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
+            current_columns[cid]->reserve(nrows_read_limit);
         }
     }
 
@@ -2287,33 +2268,6 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     return status;
 }
 
-Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& col_ids) {
-    for (ColumnId i : col_ids) {
-        if (!_current_return_columns[i] || _converted_column_ids[i] || _is_pred_column[i]) {
-            continue;
-        }
-        if (!_segment->same_with_storage_type(
-                    i, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
-            const Field* field_type = _schema->column(i);
-            vectorized::DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
-            vectorized::DataTypePtr file_column_type = _storage_name_and_type[i].second;
-            vectorized::ColumnPtr expected;
-            vectorized::ColumnPtr original =
-                    _current_return_columns[i]->assume_mutable()->get_ptr();
-            RETURN_IF_ERROR(vectorized::schema_util::cast_column({original, file_column_type, ""},
-                                                                 expected_type, &expected));
-            _current_return_columns[i] = expected->assume_mutable();
-            _converted_column_ids[i] = 1;
-            VLOG_DEBUG << fmt::format(
-                    "Convert {} fom file column type {} to {}, num_rows {}",
-                    field_type->path() == nullptr ? "" : field_type->path()->get_path(),
-                    file_column_type->get_name(), expected_type->get_name(),
-                    _current_return_columns[i]->size());
-        }
-    }
-    return Status::OK();
-}
-
 Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
                                                      vectorized::MutableColumnPtr& output_col,
                                                      uint16_t* sel_rowid_idx, uint16_t select_size,
@@ -2438,8 +2392,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     _opts.stats->raw_rows_read += _current_batch_rows_read;
 
     if (_current_batch_rows_read == 0) {
-        // Convert all columns in _current_return_columns to schema column
-        RETURN_IF_ERROR(_convert_to_expected_type(_schema->column_ids()));
         for (int i = 0; i < block->columns(); i++) {
             auto cid = _schema->column_id(i);
             // todo(wb) abstract make column where
@@ -2457,8 +2409,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         if (_non_predicate_columns.empty()) {
             return Status::InternalError("_non_predicate_columns is empty");
         }
-        RETURN_IF_ERROR(_convert_to_expected_type(_predicate_column_ids));
-        RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         VLOG_DEBUG << fmt::format(
                 "No need to evaluate any predicates or filter block rows {}, "
                 "_current_batch_rows_read {}",
@@ -2503,7 +2453,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                             _non_predicate_column_ids.end()) {
                             _replace_version_col(selected_size);
                         }
-                        RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_column_ids));
                         for (auto cid : _non_predicate_column_ids) {
                             auto loc = _schema_block_id_map[cid];
                             block->replace_by_position(loc,
@@ -2556,7 +2505,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
                 if (_is_need_expr_eval) {
                     // rows of this batch are all filtered by column predicates.
-                    RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_column_ids));
 
                     for (auto cid : _non_predicate_column_ids) {
                         auto loc = _schema_block_id_map[cid];
@@ -2566,7 +2514,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         } else if (_is_need_expr_eval) {
             DCHECK(!_predicate_column_ids.empty());
-            RETURN_IF_ERROR(_convert_to_expected_type(_predicate_column_ids));
             // first read all rows are insert block, initialize sel_rowid_idx to all rows.
             for (auto cid : _predicate_column_ids) {
                 auto loc = _schema_block_id_map[cid];
@@ -2627,7 +2574,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         }
 
-        RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         // step5: output columns
         _output_non_pred_columns(block);
     }
