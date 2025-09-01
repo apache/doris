@@ -372,6 +372,7 @@ public enum RuleType {
     // adjust nullable
     ADJUST_NULLABLE(RuleTypeClass.REWRITE),
     ADJUST_CONJUNCTS_RETURN_TYPE(RuleTypeClass.REWRITE),
+    FOLD_CONSTANT_FOR_SQL_CACHE(RuleTypeClass.REWRITE),
 
     PULL_UP_CTE_ANCHOR(RuleTypeClass.REWRITE),
     CTE_INLINE(RuleTypeClass.REWRITE),

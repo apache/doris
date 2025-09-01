@@ -1032,6 +1032,9 @@ public class VariableMgr {
         if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_400) {
             // update to master
             // do nothing now
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_SQL_CACHE,
+                    String.valueOf(true));
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,

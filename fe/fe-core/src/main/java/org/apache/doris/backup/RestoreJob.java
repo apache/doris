@@ -2154,6 +2154,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
+        updateOlapTablesVersion(db);
+
         if (!isReplay) {
             restoredPartitions.clear();
             restoredTbls.clear();
@@ -2177,6 +2179,34 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
         return Status.OK;
+    }
+
+    private void updateOlapTablesVersion(Database db) {
+        if (Env.getCurrentEnv().invalidCacheForCloud()) {
+            return;
+        }
+
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
+            if (tbl == null) {
+                continue;
+            }
+
+            if (tbl.getType() != TableType.OLAP) {
+                continue;
+            }
+
+            OlapTable olapTbl = (OlapTable) tbl;
+            if (!tbl.writeLockIfExist()) {
+                continue;
+            }
+            try {
+                long nextVersion = olapTbl.getNextVersion();
+                olapTbl.updateVisibleVersionAndTime(nextVersion, System.currentTimeMillis());
+            } finally {
+                olapTbl.writeUnlock();
+            }
+        }
     }
 
     private Status dropAllNonRestoredTableAndPartitions(Database db) {

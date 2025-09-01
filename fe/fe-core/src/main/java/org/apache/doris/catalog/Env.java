@@ -3280,6 +3280,17 @@ public class Env {
         }
     }
 
+    public boolean invalidCacheForCloud() {
+        if (Config.isCloudMode()) {
+            // the cloud mode will not update table version when use recover partition,
+            // so we should invalidate all cache to avoid bugs
+            getSqlCacheManager().invalidateAll();
+            getSortedPartitionsCacheManager().invalidateAll();
+            return true;
+        }
+        return false;
+    }
+
     private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
         if (removedFrontends.size() == 0) {
             return;

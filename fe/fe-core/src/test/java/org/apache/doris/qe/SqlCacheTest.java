@@ -40,16 +40,17 @@ public class SqlCacheTest extends TestWithFeService {
         queryId.setLo(uuid.getLeastSignificantBits());
         UserIdentity admin = new UserIdentity("admin", "127.0.0.1");
 
+        SessionVariable sessionVariable = new SessionVariable();
         SqlCacheContext cacheContext = new SqlCacheContext(admin);
         cacheContext.setOriginSql("SELECT * FROM tbl");
-        PUniqueId key1 = cacheContext.doComputeCacheKeyMd5(ImmutableSet.of());
+        PUniqueId key1 = cacheContext.doComputeCacheKeyMd5(ImmutableSet.of(), sessionVariable);
 
         SqlCacheContext cacheContext2 = new SqlCacheContext(admin);
         cacheContext2.setOriginSql(
                 "-- Same query with comments and extra spaces\n"
                     + "/* Comment */  SELECT   *   FROM   tbl  "
         );
-        PUniqueId key2 = cacheContext2.doComputeCacheKeyMd5(ImmutableSet.of());
+        PUniqueId key2 = cacheContext2.doComputeCacheKeyMd5(ImmutableSet.of(), sessionVariable);
         Assertions.assertEquals(key1, key2);
 
         SqlCacheContext cacheContext3 = new SqlCacheContext(admin);
@@ -57,7 +58,7 @@ public class SqlCacheTest extends TestWithFeService {
                 "-- Same query with comments and extra spaces\n"
                         + "/* Comment */  SELeCT   *   FROM   tbl  "
         );
-        PUniqueId key3 = cacheContext3.doComputeCacheKeyMd5(ImmutableSet.of());
+        PUniqueId key3 = cacheContext3.doComputeCacheKeyMd5(ImmutableSet.of(), sessionVariable);
         Assertions.assertNotEquals(key1, key3);
     }
 
