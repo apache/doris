@@ -135,7 +135,7 @@ public:
             _task = task_ref.to_string();
 
             std::string resource_name = resource_name_ref.to_string();
-            std::map<std::string, TLLMResource> llm_resources = _ctx->get_llm_resources();
+            const std::map<std::string, TLLMResource>& llm_resources = _ctx->get_llm_resources();
             auto it = llm_resources.find(resource_name);
             DCHECK(it != llm_resources.end()) << "LLM resource not found: " << resource_name;
             _llm_config = it->second;

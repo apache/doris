@@ -39,7 +39,7 @@ namespace doris::vectorized {
 
 struct LLMResource {
     LLMResource() = default;
-    LLMResource(TLLMResource& tllm)
+    LLMResource(const TLLMResource& tllm)
             : endpoint(tllm.endpoint),
               provider_type(tllm.provider_type),
               model_name(tllm.model_name),
