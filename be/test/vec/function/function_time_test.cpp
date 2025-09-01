@@ -1656,7 +1656,7 @@ TEST(VTimestampFunctionsTest, hours_add_v2_test) {
     std::string func_name = "hours_add";
 
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2, PrimitiveType::TYPE_INT};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2, PrimitiveType::TYPE_BIGINT};
 
         DataSet data_set = {{{std::string("2020-10-23 10:00:00.123"), -4},
                              std::string("2020-10-23 06:00:00.123")},

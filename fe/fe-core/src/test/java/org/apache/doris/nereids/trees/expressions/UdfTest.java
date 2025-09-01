@@ -40,7 +40,6 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
@@ -72,8 +71,21 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
     public void testSimpleAliasFunction() throws Exception {
         // alias udf should not check java_udf
         Config.enable_java_udf = false;
-        createFunction("create global alias function f(int) with parameter(n) as hours_add(now(3), n)");
-        createFunction("create alias function f(int) with parameter(n) as hours_sub(now(3), n)");
+        createFunction("create alias function f() as 1");
+
+        String sql = "select f()";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .matches(
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().get(0).child(0)
+                                        .equals(new IntegerLiteral(1))));
+    }
+
+    @Test
+    public void testGlobalFunction() throws Exception {
+        createFunction("create global alias function f(bigint) with parameter(n) as hours_add(now(3), n)");
+        createFunction("create alias function f(bigint) with parameter(n) as hours_sub(now(3), n)");
 
         String sql = "select f(3)";
         Expression expected = new HoursSub(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
@@ -105,8 +117,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
 
     @Test
     public void testNestedAliasFunction() throws Exception {
-        createFunction("create global alias function f1(int) with parameter(n) as hours_add(now(3), n)");
-        createFunction("create global alias function f2(int) with parameter(n) as dayofweek(days_add(f1(3), n))");
+        createFunction("create global alias function f1(bigint) with parameter(n) as hours_add(now(3), n)");
+        createFunction("create global alias function f2(bigint) with parameter(n) as dayofweek(days_add(f1(3), n))");
         createFunction("create global alias function f3(date) with parameter(dt) as hours_sub(days_sub(dt, f2(3)), dayofmonth(f1(f2(4))))");
 
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
@@ -141,7 +153,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
 
     @Test
     public void testParameterUseMoreThanOneTime() throws Exception {
-        createFunction("CREATE ALIAS FUNCTION f7(DATETIMEV2(3), INT) with PARAMETER (datetime1, int1) as\n"
+        createFunction("CREATE ALIAS FUNCTION f7(DATETIMEV2(3), BIGINT) with PARAMETER (datetime1, int1) as\n"
                 + "        DATE_FORMAT(HOURS_ADD(\n"
                 + "            date_trunc(datetime1, 'day'),\n"
                 + "            add(multiply(floor(divide(HOUR(datetime1), divide(24, int1))), 1), 1)), '%Y%m%d:%H')");
@@ -188,9 +200,9 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
 
     @Test
     public void testReadFromStream() throws Exception {
-        createFunction("create global alias function f8(int) with parameter(n) as hours_add(now(3), n)");
+        createFunction("create global alias function f8(bigint) with parameter(n) as hours_add(now(3), n)");
         Env.getCurrentEnv().getFunctionRegistry().dropUdf(null, "f8",
-                ImmutableList.of(IntegerType.INSTANCE));
+                ImmutableList.of(BigIntType.INSTANCE));
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         Env.getCurrentEnv().getGlobalFunctionMgr().write(new DataOutputStream(outputStream));
