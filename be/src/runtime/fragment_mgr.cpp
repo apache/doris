@@ -437,7 +437,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
             if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
-                req.runtime_state->num_finished_range() > 0) {
+                rs->num_finished_range() > 0) {
                 params.__isset.load_counters = true;
                 num_rows_load_success += rs->num_rows_load_success();
                 num_rows_load_filtered += rs->num_rows_load_filtered();
