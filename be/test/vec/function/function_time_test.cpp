@@ -1187,8 +1187,7 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 3},
-                                    PrimitiveType::TYPE_INT};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 3}, PrimitiveType::TYPE_INT};
 
         DataSet data_set = {{{std::string("2020-10-23 00:00:11.1234"), -4},
                              std::string("2020-06-23 00:00:11.123")},
@@ -1204,8 +1203,7 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
 
     // eq
     {
-        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 2},
-                                    PrimitiveType::TYPE_INT};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 2}, PrimitiveType::TYPE_INT};
 
         DataSet data_set = {{{std::string("2020-10-23 00:00:11.1234"), -4},
                              std::string("2020-06-23 00:00:11.1200")},
@@ -1217,8 +1215,7 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
     }
     // negative case
     {
-        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 2},
-                                    PrimitiveType::TYPE_INT};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 2}, PrimitiveType::TYPE_INT};
 
         DataSet data_set = {
                 // input truncated to 2 decimal so output should be .12
