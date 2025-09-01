@@ -160,7 +160,7 @@ public class PlanUtils {
     /**
      * replace targetExpressions with project.
      * if the target expression contains a slot which is an alias and its origin expression contains
-     * non-foldable expression and the slot exits multiple times, then can not replace.
+     * unique function and the slot exits multiple times, then can not replace.
      * for example, target expressions: [a, a + 10],  child project: [ t + random() as a ],
      * if replace with the projects, then result expressions: [ t + random(),  t + random() + 10 ],
      * it will calculate random two times, this is error.
