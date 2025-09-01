@@ -80,6 +80,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 
 
 /**
@@ -88,6 +89,7 @@ import java.util.concurrent.TimeUnit;
 public class SessionVariable implements Serializable, Writable {
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
+    public static final List<Field> affectQueryResultFields;
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
@@ -161,6 +163,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
+    public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
     public static final String QUERY_CACHE_ENTRY_MAX_BYTES = "query_cache_entry_max_bytes";
@@ -837,11 +840,23 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
 
+    static {
+        affectQueryResultFields = Arrays.stream(SessionVariable.class.getDeclaredFields())
+                .filter(f -> {
+                    VarAttr varAttr = f.getAnnotation(VarAttr.class);
+                    if (varAttr == null) {
+                        return false;
+                    }
+                    f.setAccessible(true);
+                    return varAttr.affectQueryResult();
+                }).collect(ImmutableList.toImmutableList());
+    }
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
     @VariableMgr.VarAttr(name = ENABLE_STATS)
-    public  boolean enableStats = true;
+    public boolean enableStats = true;
 
     // session origin value
     public Map<SessionVariableField, String> sessionOriginValue = new HashMap<>();
@@ -1201,7 +1216,10 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableBinarySearchFilteringPartitions = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
-    public boolean enableSqlCache = false;
+    public boolean enableSqlCache = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_HIVE_SQL_CACHE, fuzzy = false)
+    public boolean enableHiveSqlCache = false;
 
     @VariableMgr.VarAttr(name = ENABLE_QUERY_CACHE)
     public boolean enableQueryCache = false;
@@ -1575,7 +1593,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
     private boolean returnObjectDataAsBinary = false;
 
-    @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
+    @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE, affectQueryResult = true)
     private String blockEncryptionMode = "";
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
@@ -2210,7 +2228,9 @@ public class SessionVariable implements Serializable, Writable {
     public boolean invertedIndexCompatibleRead = false;
 
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
-            description = {"解析sql使用的方言", "The dialect used to parse sql."})
+            description = {"解析sql使用的方言", "The dialect used to parse sql."},
+            affectQueryResult = true
+    )
     public String sqlDialect = "doris";
 
     @VariableMgr.VarAttr(name = RETRY_ORIGIN_SQL_ON_CONVERT_FAIL, needForward = true,
@@ -2221,7 +2241,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
             description = {"返回给 MySQL 客户端时各数据类型的输出格式方言",
                     "The output format dialect of each data type returned to the MySQL client."},
-            options = {"doris", "presto", "trino"})
+            options = {"doris", "presto", "trino"},
+            affectQueryResult = true
+    )
     public String serdeDialect = "doris";
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
@@ -2490,7 +2512,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
-            description = {"cast使用严格模式", "Use strict mode for cast"})
+            description = {"cast使用严格模式", "Use strict mode for cast"}, affectQueryResult = true)
     public boolean enableStrictCast = false;
 
     @VariableMgr.VarAttr(name = MULTI_DISTINCT_STRATEGY, description = {"用于控制在包含多个 DISTINCT 函数的 SQL 查询中所采用的"
@@ -3633,6 +3655,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableSqlCache(boolean enableSqlCache) {
         this.enableSqlCache = enableSqlCache;
+    }
+
+    public boolean isEnableHiveSqlCache() {
+        return enableHiveSqlCache;
+    }
+
+    public void setEnableHiveSqlCache(boolean enableHiveSqlCache) {
+        this.enableHiveSqlCache = enableHiveSqlCache;
     }
 
     public boolean getEnableQueryCache() {
@@ -5355,6 +5385,18 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantMaxSparseColumnStatisticsSize() {
         return defaultVariantMaxSparseColumnStatisticsSize;
+    }
+
+    public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {
+        for (Field affectQueryResultField : affectQueryResultFields) {
+            String name = affectQueryResultField.getName();
+            try {
+                Object value = affectQueryResultField.get(this);
+                variablesReader.accept(name, value);
+            } catch (Throwable t) {
+                throw new IllegalStateException("Can not access SessionVariable." + name, t);
+            }
+        }
     }
 
     public static boolean isFeDebug() {

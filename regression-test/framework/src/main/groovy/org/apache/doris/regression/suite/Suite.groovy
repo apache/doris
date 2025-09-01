@@ -22,7 +22,6 @@ import com.amazonaws.auth.BasicAWSCredentials
 import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
-
 import com.google.common.base.Strings
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
@@ -34,8 +33,6 @@ import com.google.gson.Gson
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
-
-import org.awaitility.Awaitility
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.RegressionTest
@@ -43,6 +40,7 @@ import org.apache.doris.regression.action.FlightRecordAction
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
+import org.apache.doris.regression.util.GlobalLock
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
 import org.apache.doris.regression.action.ExplainAction
@@ -59,6 +57,7 @@ import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
 import org.apache.hadoop.fs.FileSystem
+import org.awaitility.Awaitility
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
@@ -1850,6 +1849,11 @@ class Suite implements GroovyInterceptable {
             logger.info("partition status is not expected")
         }
         Assert.assertEquals(expectedStatus, status)
+
+        // in cloud mode, the partition maybe update visible time after a few hundred milliseconds,
+        // so we should sleep 1 seconds to let sql cache use the new partition's data
+        JdbcUtils.executeToList(context.getConn(), "sync")
+        sleep(1000)
     }
 
     void waitingMTMVTaskFinished(String jobName) {
@@ -2051,7 +2055,7 @@ class Suite implements GroovyInterceptable {
             logger.info("frontends ${frontends}")
             boolean matched = false
             String expcetedFE = "${host}:${port}"
-            for (frontend: frontends) {
+            for (def frontend : frontends) {
                 logger.info("checking fe ${frontend}, expectedFe ${expcetedFE}")
                 if (frontend.equals(expcetedFE)) {
                     matched = true;
@@ -2066,7 +2070,7 @@ class Suite implements GroovyInterceptable {
         awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             boolean matched = false
-            for (frontend: frontends) {
+            for (def frontend : frontends) {
                 if (frontend == "$host:$port") {
                     matched = true
                 }
@@ -2641,7 +2645,7 @@ class Suite implements GroovyInterceptable {
             respCode, body ->
                 log.info("get be metric resp: ${respCode}".toString())
                 def json = parseJson(body)
-                for (item : json) {
+                for (def item : json) {
                     if (item.tags.metric == field && (type.isEmpty() || type == item.tags.type)) {
                         log.info("get be metric resp: ${item}".toString())
                         ret = item.value
@@ -2950,14 +2954,14 @@ class Suite implements GroovyInterceptable {
 
     def checkProfile = { addrSet, fragNum ->
         List<List<Object>> profileRes = sql " show query profile '/' "
-        for (row : profileRes) {
+        for (def row : profileRes) {
             //println row
         }
 
         for (int i = 0; i < fragNum; ++i) {
             String exec_sql = "show query profile '/" + profileRes[0][0] + "/" + i.toString() + "'"
             List<List<Object>> result = sql exec_sql
-            for (row : result) {
+            for (def row : result) {
                 println row
             }
 
@@ -3347,6 +3351,32 @@ class Suite implements GroovyInterceptable {
         if (sleepSeconds > 0) {
             logger.info("test sleeps ${sleepSeconds} to satisfy ${caseSpanConstraint}")
             Thread.sleep(sleepSeconds * 1000)
+        }
+    }
+
+    void retryUntilHasSqlCache(String sql) {
+        for (int i = 0; i < 120; ++i) {
+            try {
+                this.sql(sql)
+                def (r, _) = JdbcUtils.executeToList(context.getConn(), "explain physical plan " + sql)
+                def explainString = r.stream().map({row -> row.get(0).toString()}).collect(Collectors.joining("\n"))
+                if (explainString.contains("PhysicalSqlCache")) {
+                    return
+                }
+                sleep(1000)
+            } catch (Throwable t) {
+                logger.warn(t.toString(), t)
+            }
+        }
+        throw new IllegalStateException("no sql cache: " + sql)
+    }
+
+    static <T> T withGlobalLock(String lockName, Closure<T> action) {
+        GlobalLock.lock(lockName)
+        try {
+            return action()
+        } finally {
+            GlobalLock.unlock(lockName)
         }
     }
 }
