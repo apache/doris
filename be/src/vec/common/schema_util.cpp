@@ -438,21 +438,15 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     }
 
     // 2. inverted index
-    std::vector<TabletIndex> indexes_to_update;
+    TabletIndexes indexes_to_add;
     auto source_indexes = (*target_schema)->inverted_indexs(source.unique_id());
-    for (const auto& source_index_meta : source_indexes) {
-        TabletIndex index_info = *source_index_meta;
-        index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        indexes_to_update.emplace_back(std::move(index_info));
-    }
+    inherit_index(source_indexes, indexes_to_add, source);
     auto target_indexes = (*target_schema)
                                   ->inverted_indexs(target.parent_unique_id(),
                                                     target.path_info_ptr()->get_path());
-    if (!target_indexes.empty()) {
-        (*target_schema)->update_index(target, IndexType::INVERTED, std::move(indexes_to_update));
-    } else {
-        for (auto& index_info : indexes_to_update) {
-            (*target_schema)->append_index(std::move(index_info));
+    if (target_indexes.empty()) {
+        for (auto& index_info : indexes_to_add) {
+            (*target_schema)->append_index(std::move(*index_info));
         }
     }
 
