@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -120,7 +121,23 @@ public class PlanUtils {
     }
 
     /**
-     * merge childProjects with parentProjects
+     * try merge childProjects with parentProjects. if merged expression exceeds limit, return empty.
+     */
+    public static Optional<List<NamedExpression>> tryMergeProjections(List<? extends NamedExpression> childProjects,
+            List<? extends NamedExpression> parentProjects) {
+        try {
+            return Optional.of(mergeProjections(childProjects, parentProjects));
+        } catch (AnalysisException e) {
+            if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                return Optional.empty();
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * merge childProjects with parentProjects. if merged expression exceeds limit, will throw AnalysisException.
      */
     public static List<NamedExpression> mergeProjections(List<NamedExpression> childProjects,
             List<NamedExpression> parentProjects) {

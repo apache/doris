@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * merge consecutive projects
@@ -34,10 +35,12 @@ public class MergeProjectPostProcessor extends PlanPostProcessor {
         project = (PhysicalProject<? extends Plan>) super.visit(project, ctx);
         Plan child = project.child();
         if (child instanceof PhysicalProject && project.canMergeProjections((PhysicalProject) child)) {
-            List<NamedExpression> projections = project.mergeProjections((PhysicalProject) child);
-            return (PhysicalProject) project
-                    .withProjectionsAndChild(projections, child.child(0))
-                    .copyStatsAndGroupIdFrom(project);
+            Optional<List<NamedExpression>> projections = project.mergeProjections((PhysicalProject) child);
+            if (projections.isPresent()) {
+                return (PhysicalProject) project
+                        .withProjectionsAndChild(projections.get(), child.child(0))
+                        .copyStatsAndGroupIdFrom(project);
+            }
         }
         return project;
     }

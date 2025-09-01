@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * this rule aims to merge consecutive project. For example:
@@ -43,13 +44,17 @@ public class MergeProjects extends OneRewriteRuleFactory {
         // here we just don't merge two projects if there is any window function
         return logicalProject(logicalProject())
                 .when(project -> project.canMergeProjections(project.child()))
-                .then(MergeProjects::mergeProjects).toRule(RuleType.MERGE_PROJECTS);
+                .then(MergeProjects::mergeProjects)
+                .toRule(RuleType.MERGE_PROJECTS);
     }
 
     /** merge projects */
     public static Plan mergeProjects(LogicalProject<?> project) {
         LogicalProject<? extends Plan> childProject = (LogicalProject<?>) project.child();
-        List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
-        return project.withProjectsAndChild(projectExpressions, childProject.child(0));
+        Optional<List<NamedExpression>> projectExpressions = project.mergeProjections(childProject);
+        if (!projectExpressions.isPresent()) {
+            return project;
+        }
+        return project.withProjectsAndChild(projectExpressions.get(), childProject.child(0));
     }
 }
