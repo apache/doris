@@ -498,9 +498,9 @@ public class StatsCalculatorTest {
                 true,
                 ImmutableList.of(new DummyPlan(), new DummyPlan())
         );
-        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 30,
                 rowCount, "1", "10", 0, ImmutableMap.of("0", 0.40f, "1", 0.50f));
-        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ia", 30,
                 rowCount, "1", "10", 0, ImmutableMap.of("1", 0.40f, "2", 0.40f));
         Statistics child0Stats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats));
         Statistics child1Stats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
