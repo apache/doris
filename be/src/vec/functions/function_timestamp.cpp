@@ -375,18 +375,16 @@ private:
             TimeInterval interval(DAY, r - 1, false);
             res_val = ts_value;
             if (!res_val.template date_add_interval<DAY>(interval)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND,
-                                "The function {} with input {} , {} result is out of range", name,
-                                l, r);
+                throw Exception(Status::InternalError(
+                        "The function {} with input {} , {} result is out of range", name, l, r));
             }
             res_val.cast_to_date();
         } else {
             res_val.unchecked_set_time(l, 1, 1, 0, 0, 0, 0);
             TimeInterval interval(DAY, r - 1, false);
             if (!res_val.template date_add_interval<DAY>(interval)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND,
-                                "The function {} with input {} , {} result is out of range", name,
-                                l, r);
+                throw Exception(Status::InternalError(
+                        "The function {} with input {} , {} result is out of range", name, l, r));
             }
         }
     }

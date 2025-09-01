@@ -122,13 +122,13 @@ public:
         }
     }
 
-    static void throw_if_out_bound(NativeType date, bool in_bound, Int32 period = 1) {
+    static void throw_out_of_date_range(NativeType date, bool in_range, Int32 period = 1) {
         auto date_value = binary_cast<NativeType, DateValueType>(date);
         char buf[40];
         char* end = date_value.to_string(buf);
-        if (!in_bound) {
-            throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {}, {} out of range", name,
-                            std::string_view {buf, end - 1}, period);
+        if (UNLIKELY(!in_range)) {
+            throw Exception(Status::InternalError("Operation {} of {}, {} out of range", name,
+                                                  std::string_view {buf, end - 1}, period));
         }
     }
 
@@ -252,7 +252,7 @@ private:
                        NullMap& null_map) {
         // time_round(datetime)
         for (int i = 0; i < dates.size(); ++i) {
-            throw_if_out_bound(dates[i], time_round_reinterpret_one_arg(dates[i], res[i]));
+            throw_out_of_date_range(dates[i], time_round_reinterpret_one_arg(dates[i], res[i]));
         }
     }
 
@@ -260,23 +260,23 @@ private:
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, const(origin))
         for (int i = 0; i < dates.size(); ++i) {
-            throw_if_out_bound(dates[i],
-                               time_round_reinterpret_three_args(dates[i], 1, origin_date, res[i]));
+            throw_out_of_date_range(
+                    dates[i], time_round_reinterpret_three_args(dates[i], 1, origin_date, res[i]));
         }
     }
 
     static void vector_const_period(const PaddedPODArray<NativeType>& dates, Int32 period,
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // expand codes for const input periods
-#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                         \
-    case X: {                                                                                  \
-        for (int i = 0; i < dates.size(); ++i) {                                               \
-            throw_if_illegal_period(dates[i], period);                                         \
-            throw_if_out_bound(dates[i],                                                       \
-                               (time_round_reinterpret_two_args<X>(dates[i], period, res[i])), \
-                               period);                                                        \
-        }                                                                                      \
-        return;                                                                                \
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                        \
+    case X: {                                                                                 \
+        for (int i = 0; i < dates.size(); ++i) {                                              \
+            throw_if_illegal_period(dates[i], period);                                        \
+            throw_out_of_date_range(                                                          \
+                    dates[i], (time_round_reinterpret_two_args<X>(dates[i], period, res[i])), \
+                    period);                                                                  \
+        }                                                                                     \
+        return;                                                                               \
     }
 #define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
         switch (period) {
@@ -285,9 +285,9 @@ private:
         default:
             for (int i = 0; i < dates.size(); ++i) {
                 throw_if_illegal_period(dates[i], period);
-                throw_if_out_bound(dates[i],
-                                   (time_round_reinterpret_two_args(dates[i], period, res[i])),
-                                   period);
+                throw_out_of_date_range(dates[i],
+                                        (time_round_reinterpret_two_args(dates[i], period, res[i])),
+                                        period);
             }
         }
 #undef EXPAND_CODE_FOR_CONST_INPUT
@@ -303,17 +303,17 @@ private:
             return;
         }
         // expand codes for const input periods
-#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                 \
-    case X: {                                                                          \
-        for (int i = 0; i < dates.size(); ++i) {                                       \
-            /* expand time_round_reinterpret_three_args*/                              \
-            res[i] = origin_date;                                                      \
-            auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]);               \
-            auto& ts1 = (DateValueType&)(res[i]);                                      \
-            throw_if_illegal_period(dates[i], period);                                 \
-            throw_if_out_bound(dates[i], time_round_two_args<X>(ts2, X, ts1), period); \
-        }                                                                              \
-        return;                                                                        \
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                      \
+    case X: {                                                                               \
+        for (int i = 0; i < dates.size(); ++i) {                                            \
+            /* expand time_round_reinterpret_three_args*/                                   \
+            res[i] = origin_date;                                                           \
+            auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]);                    \
+            auto& ts1 = (DateValueType&)(res[i]);                                           \
+            throw_if_illegal_period(dates[i], period);                                      \
+            throw_out_of_date_range(dates[i], time_round_two_args<X>(ts2, X, ts1), period); \
+        }                                                                                   \
+        return;                                                                             \
     }
 #define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
         switch (period) {
@@ -323,7 +323,7 @@ private:
             for (int i = 0; i < dates.size(); ++i) {
                 throw_if_illegal_period(dates[i], period);
                 // always inline here
-                throw_if_out_bound(
+                throw_out_of_date_range(
                         dates[i],
                         (time_round_reinterpret_three_args(dates[i], period, origin_date, res[i])),
                         period);
@@ -338,7 +338,7 @@ private:
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         for (int i = 0; i < dates.size(); ++i) {
             throw_if_illegal_period(dates[i], period);
-            throw_if_out_bound(
+            throw_out_of_date_range(
                     dates[i],
                     (time_round_reinterpret_three_args(dates[i], period, origin_dates[i], res[i])),
                     period);
@@ -350,7 +350,7 @@ private:
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         for (int i = 0; i < dates.size(); ++i) {
             throw_if_illegal_period(dates[i], periods[i]);
-            throw_if_out_bound(
+            throw_out_of_date_range(
                     dates[i],
                     (time_round_reinterpret_three_args(dates[i], periods[i], origin_date, res[i])),
                     periods[i]);
@@ -362,8 +362,8 @@ private:
                                      PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, origin)
         for (int i = 0; i < dates.size(); ++i) {
-            throw_if_out_bound(dates[i], (time_round_reinterpret_three_args(
-                                                 dates[i], 1, origin_dates[i], res[i])));
+            throw_out_of_date_range(dates[i], (time_round_reinterpret_three_args(
+                                                      dates[i], 1, origin_dates[i], res[i])));
         }
     }
 
@@ -373,9 +373,9 @@ private:
         // time_round(datetime, period)
         for (int i = 0; i < dates.size(); ++i) {
             throw_if_illegal_period(dates[i], periods[i]);
-            throw_if_out_bound(dates[i],
-                               (time_round_reinterpret_two_args(dates[i], periods[i], res[i])),
-                               periods[i]);
+            throw_out_of_date_range(dates[i],
+                                    (time_round_reinterpret_two_args(dates[i], periods[i], res[i])),
+                                    periods[i]);
         }
     }
 
@@ -386,10 +386,10 @@ private:
         // time_round(datetime, period, origin)
         for (int i = 0; i < dates.size(); ++i) {
             throw_if_illegal_period(dates[i], periods[i]);
-            throw_if_out_bound(dates[i],
-                               (time_round_reinterpret_three_args(dates[i], periods[i],
-                                                                  origin_dates[i], res[i])),
-                               periods[i]);
+            throw_out_of_date_range(dates[i],
+                                    (time_round_reinterpret_three_args(dates[i], periods[i],
+                                                                       origin_dates[i], res[i])),
+                                    periods[i]);
         }
     }
 

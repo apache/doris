@@ -120,9 +120,8 @@ public:
                 time_format_type::rewrite_specific_format(string_vale.data, string_vale.size);
         if (format_str.size > 128) {
             //  exceeds the length limit.
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "The length of format string in function {} exceeds the limit 128.",
-                            get_name());
+            state->is_valid = false;
+            return IFunction::open(context, scope);
         }
 
         // Preprocess special format strings.
@@ -177,8 +176,8 @@ public:
         auto* format_state = reinterpret_cast<FormatState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!format_state) {
-            return Status::RuntimeError("funciton context for function '{}' must have FormatState;",
-                                        get_name());
+            return Status::InternalError(
+                    "funciton context for function '{}' must have FormatState;", get_name());
         }
 
         StringRef format(format_state->format_str);

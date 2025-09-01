@@ -318,8 +318,8 @@ struct FromUnixTimeImpl {
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(val, time_zone);
         if (!dt.is_valid_date()) {
-            throw Exception(ErrorCode::OUT_OF_BOUND, "Cannot convert timestamp {} to valid date",
-                            val);
+            throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                            "Cannot convert timestamp {} to valid date", val);
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
@@ -388,9 +388,9 @@ struct FromUnixTimeDecimalImpl {
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(interger, fraction, time_zone);
         if (!dt.is_valid_date()) {
-            throw Exception(ErrorCode::OUT_OF_BOUND,
-                            "Cannot convert timestamp to valid date: integer={}, fraction={}",
-                            interger, fraction);
+            throw Exception(Status::InternalError(
+                    "Cannot convert timestamp to valid date: integer={}, fraction={}", interger,
+                    fraction));
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
