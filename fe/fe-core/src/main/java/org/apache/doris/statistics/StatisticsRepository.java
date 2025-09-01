@@ -135,7 +135,7 @@ public class StatisticsRepository {
             return columnStatistic;
         }
         try {
-            columnStatistic = ColumnStatistic.fromResultRow(resultRow);
+            columnStatistic = ColumnStatistic.fromResultRow(resultRow, true);
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), resultRow);
             if (LOG.isDebugEnabled()) {

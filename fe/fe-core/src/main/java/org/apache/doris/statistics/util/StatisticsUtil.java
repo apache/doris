@@ -193,7 +193,7 @@ public class StatisticsUtil {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return null;
         }
-        return ColumnStatistic.fromResultRow(resultBatches);
+        return ColumnStatistic.fromResultRowList(resultBatches);
     }
 
     public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches) {

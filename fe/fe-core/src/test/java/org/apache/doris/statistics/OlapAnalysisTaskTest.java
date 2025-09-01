@@ -152,10 +152,10 @@ public class OlapAnalysisTaskTest {
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM cte1), "
                         + "cte3 AS (SELECT GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t.`column_key`, "
-                        + "\":\", \"\\\\:\"), \";\", \"\\\\;\"), \" :\", ROUND(t.`count` * 100.0 / ${rowCount2}, 2)), "
+                        + "\":\", \"\\\\:\"), \";\", \"\\\\;\"), \" :\", ROUND(t.`count` / ${rowCount2}, 2)), "
                         + "\" ;\") as `hot_value` FROM (SELECT ${subStringColName} as `hash_value`, "
                         + "MAX(`null`) as `column_key`, COUNT(1) AS `count` FROM cte1 "
-                        + "WHERE `null` IS NOT NULL GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 3) t) "
+                        + "WHERE `null` IS NOT NULL GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 10) t) "
                         + "SELECT * FROM cte2 CROSS JOIN cte3", sql);
             }
         };
@@ -178,7 +178,7 @@ public class OlapAnalysisTaskTest {
                 Assertions.assertEquals("WITH cte1 AS (SELECT MAX(t0.`col_value`) as `col_value`, COUNT(1) as `count`,"
                         + " SUM(`len`) as `column_length` FROM (SELECT ${subStringColName} AS `hash_value`, "
                         + "`null` AS `col_value`, LENGTH(`null`) as `len` FROM `catalogName`.`${dbName}`.`null`  "
-                        + "${sampleHints} ${limit}) as `t0`  GROUP BY `t0`.`hash_value`), "
+                        + "${sampleHints} $s{limit}) as `t0`  GROUP BY `t0`.`hash_value`), "
                         + "cte2 AS ( SELECT CONCAT('30001', '-', '-1', '-', 'null') AS `id`, 10001 AS `catalog_id`, "
                         + "20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, 'null' AS `col_id`, NULL AS `part_id`, "
                         + "${rowCount} AS `row_count`, ${ndvFunction} as `ndv`, IFNULL(SUM(IF(`t1`.`col_value` "
@@ -186,8 +186,8 @@ public class OlapAnalysisTaskTest {
                         + "AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM cte1 t1), cte3 AS (SELECT "
                         + "GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t2.`col_value`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
-                        + "\" :\", ROUND(t2.`count` * 100.0 / ${rowCount2}, 2)), \" ;\") as `hot_value` FROM (SELECT "
-                        + "`col_value`, `count` FROM cte1 WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT 3) "
+                        + "\" :\", ROUND(t2.`count` / ${rowCount2}, 2)), \" ;\") as `hot_value` FROM (SELECT "
+                        + "`col_value`, `count` FROM cte1 WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT 10) "
                         + "t2) SELECT * FROM cte2 CROSS JOIN cte3", sql);
             }
 

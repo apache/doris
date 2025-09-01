@@ -774,7 +774,7 @@ public class SessionVariable implements Serializable, Writable {
                 description = {"列统计信息收集时，收集占比排名前 HOT_VALUE_COLLECT_COUNT 的值作为hot value",
                         "When collecting column statistics, collect the top values ranked by their "
                                 + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT."})
-    public int hotValueCollectCount = 11; // Select the values that account for at least 10% of the column
+    public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
 
     public void setHotValueCollectCount(int count) {
         this.hotValueCollectCount = count;
@@ -800,7 +800,7 @@ public class SessionVariable implements Serializable, Writable {
                                 + "hotValueThreshold tmies of average occurences "
                                 + "(occurrences >= hotValueThreshold * rowCount / ndv), "
                                 + "the value is regarded as hot value"})
-    private int hotValueThreshold = 10;
+    private double hotValueThreshold = 10;
 
     public void setHotValueThreshold(int threshold) {
         this.hotValueThreshold = threshold;

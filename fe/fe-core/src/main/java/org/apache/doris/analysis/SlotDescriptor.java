@@ -77,6 +77,7 @@ public class SlotDescriptor {
     private Expr virtualColumn = null;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
+
         this.id = id;
         this.parent = parent;
         this.byteOffset = -1;  // invalid
