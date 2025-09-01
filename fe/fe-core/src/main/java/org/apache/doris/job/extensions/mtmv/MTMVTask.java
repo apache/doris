@@ -469,7 +469,7 @@ public class MTMVTask extends AbstractTask {
             }
             if (tableIf instanceof MvccTable) {
                 MvccTable mvccTable = (MvccTable) tableIf;
-                MvccSnapshot mvccSnapshot = mvccTable.loadSnapshot(Optional.empty(), null);
+                MvccSnapshot mvccSnapshot = mvccTable.loadSnapshot(Optional.empty(), Optional.empty());
                 snapshots.put(new MvccTableInfo(mvccTable), mvccSnapshot);
             }
         }

@@ -259,14 +259,13 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
                     read_options.topn_filter_target_node_id);
 
-            int32_t uid =
-                    read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
             AndBlockColumnPredicate and_predicate;
             and_predicate.add_column_predicate(
                     SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
             std::shared_ptr<ColumnReader> reader;
-            RETURN_IF_ERROR(get_column_reader(read_options.tablet_schema->column(uid), &reader,
-                                              read_options.stats));
+            RETURN_IF_ERROR(get_column_reader(
+                    read_options.tablet_schema->column(runtime_predicate->column_id()), &reader,
+                    read_options.stats));
             if (reader &&
                 can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
                                            *schema, read_options.io_ctx.reader_type) &&

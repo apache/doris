@@ -18,9 +18,11 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
@@ -45,6 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class SplitAssignment {
     private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
+    private final TUniqueId queryId;
     private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
@@ -62,11 +65,13 @@ public class SplitAssignment {
     private final List<Closeable> closeableResources = new ArrayList<>();
 
     public SplitAssignment(
+            TUniqueId queryId,
             FederationBackendPolicy backendPolicy,
             SplitGenerator splitGenerator,
             SplitToScanRange splitToScanRange,
             Map<String, String> locationProperties,
             List<String> pathPartitionKeys) {
+        this.queryId = queryId;
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;
@@ -108,6 +113,10 @@ public class SplitAssignment {
             List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
             for (Split split : splits) {
                 locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to add num of splits: {} to backend: {}, need more split: {}, query id: {}",
+                        locations.size(), backend.getAddress(), needMoreSplit(), DebugUtil.printId(queryId));
             }
             while (needMoreSplit()) {
                 BlockingQueue<Collection<TScanRangeLocations>> queue =

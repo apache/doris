@@ -65,10 +65,108 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             SELECT * FROM ${table_name};
         """
         assert queryResult.size() == 1
+        def branch_name = prefix + "_branch"
+        def tag_name = prefix + "_tag"
+        sql """
+            ALTER TABLE ${table_name} CREATE BRANCH ${branch_name};
+        """
+        sql """
+            ALTER TABLE ${table_name} CREATE TAG ${tag_name};
+        """
+        sql """
+            INSERT OVERWRITE  TABLE ${table_name} VALUES (1, 'a', 10),(2, 'b', 20), (3, 'c', 30)
+        """
+        def originalQueryResult = sql """
+            SELECT * FROM ${table_name};
+        """
+        assert originalQueryResult.size() == 3
+        sql """
+            insert into ${table_name}@branch(${branch_name}) values (4, 'd', 40)
+        """
+        def branchQueryResult = sql """
+            SELECT * FROM ${table_name}@branch(${branch_name});
+        """
+        assert branchQueryResult.size() == 2
+
+
+        def tagQueryResult = sql """
+            SELECT * FROM ${table_name}@tag(${tag_name});
+        """
+        assert tagQueryResult.size() == 1
+        sql """
+            ALTER TABLE ${table_name} drop branch ${branch_name};
+        """
+        sql """
+            ALTER TABLE ${table_name} drop tag ${tag_name};
+        """
+        try {
+            def sys_query_result = sql """
+            SELECT * FROM ${table_name}\$files;
+        """
+            println sys_query_result
+            println "iceberg_meta_result SUCCESS" + catalog_name
+
+            def iceberg_meta_result = sql """
+        SELECT snapshot_id FROM iceberg_meta(
+                'table' = '${catalog_name}.${db_name}.${table_name}',
+                'query_type' = 'snapshots'
+        ) order by committed_at desc;
+        
+        """
+            def first_snapshot_id = iceberg_meta_result.get(0).get(0);
+            def time_travel =sql """
+            SELECT * FROM ${table_name} FOR VERSION AS OF ${first_snapshot_id};
+        """
+            println time_travel
+
+            println "iceberg_time_travel SUCCESS" + catalog_name
+        }catch (Exception e) {
+            println catalog_name + "system info error"
+        }
+
 
         sql """
             DROP TABLE ${table_name};
         """
+        //partition table
+        table_name = prefix + "_partition_table"
+        sql """
+            CREATE TABLE ${table_name} (
+              `ts` DATETIME COMMENT 'ts',
+              `col1` BOOLEAN COMMENT 'col1',
+              `col2` INT COMMENT 'col2',
+              `col3` BIGINT COMMENT 'col3',
+              `col4` FLOAT COMMENT 'col4',
+              `col5` DOUBLE COMMENT 'col5',
+              `col6` DECIMAL(9,4) COMMENT 'col6',
+              `col7` STRING COMMENT 'col7',
+              `col8` DATE COMMENT 'col8',
+              `col9` DATETIME COMMENT 'col9',
+              `pt1` STRING COMMENT 'pt1',
+              `pt2` STRING COMMENT 'pt2'
+            )
+            PARTITION BY LIST (day(ts), pt1, pt2) ()
+            PROPERTIES (
+              'write-format'='orc',
+              'compression-codec'='zlib'
+            );
+        """
+
+        sql """
+            INSERT OVERWRITE  TABLE ${table_name} values 
+            ('2023-01-01 00:00:00', true, 1, 1, 1.0, 1.0, 1.0000, '1', '2023-01-01', '2023-01-01 00:00:00', 'a', '1'),
+            ('2023-01-02 00:00:00', false, 2, 2, 2.0, 2.0, 2.0000, '2', '2023-01-02', '2023-01-02 00:00:00', 'b', '2'),
+            ('2023-01-03 00:00:00', true, 3, 3, 3.0, 3.0, 3.0000, '3', '2023-01-03', '2023-01-03 00:00:00', 'c', '3');
+        """
+        def partitionQueryResult = sql """
+            SELECT * FROM ${table_name} WHERE pt1='a' and pt2='1';
+        """
+        assert partitionQueryResult.size() == 1
+
+        sql """
+            DROP TABLE ${table_name};
+        """
+
         sql """
             DROP DATABASE ${db_name} FORCE;
         """
@@ -232,7 +330,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop+ warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
 
 
-   /*--------HMS on COS-----------*/
+    /*--------HMS on COS-----------*/
     warehouse = """
                    'warehouse' = 'cosn://${cos_parent_path}/iceberg-hms-cos-warehouse',
     """
@@ -270,7 +368,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
       """
     testQueryAndInsert(iceberg_hms_type_prop + hms_prop
             + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
- 
+
     /*--------HMS on HDFS-----------*/
     warehouse = """
      'warehouse' = '${hdfs_parent_path}/iceberg-hms-hdfs-warehouse',
@@ -281,10 +379,10 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
      'warehouse' = 'hdfs://${externalEnvIp}:8520/iceberg-hms-hdfs-warehouse',
     """
     //old kerberos
-   testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop_not_include_kerberos_prop+ warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_old")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop_not_include_kerberos_prop+ warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_old")
     //new  kerberos
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_hdfs")
-     
+
 
     /*--------HMS END-----------*/
 

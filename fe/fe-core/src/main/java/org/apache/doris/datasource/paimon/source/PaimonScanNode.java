@@ -49,7 +49,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
@@ -383,20 +382,16 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @VisibleForTesting
     public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() throws UserException {
-        if (!source.getPaimonTable().options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())) {
-            // an empty table in PaimonSnapshotCacheValue
-            return Collections.emptyList();
-        }
-        int[] projected = desc.getSlots().stream().mapToInt(
-                        slot -> source.getPaimonTable().rowType()
-                                .getFieldNames()
-                                .stream()
-                                .map(String::toLowerCase)
-                                .collect(Collectors.toList())
-                                .indexOf(slot.getColumn().getName()))
-                .toArray();
-
         Table paimonTable = getProcessedTable();
+        int[] projected = desc.getSlots().stream().mapToInt(
+                slot -> paimonTable.rowType()
+                        .getFieldNames()
+                        .stream()
+                        .map(String::toLowerCase)
+                        .collect(Collectors.toList())
+                        .indexOf(slot.getColumn().getName()))
+                .filter(i -> i >= 0)
+                .toArray();
         ReadBuilder readBuilder = paimonTable.newReadBuilder();
         return readBuilder.withFilter(predicates)
                 .withProjection(projected)
@@ -712,5 +707,3 @@ public class PaimonScanNode extends FileQueryScanNode {
         return baseTable;
     }
 }
-
-

@@ -28,6 +28,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.paimon.source.PaimonSource;
@@ -49,6 +50,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.CoreOptions.StartupMode;
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
@@ -58,9 +60,11 @@ import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
@@ -75,8 +79,10 @@ import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -87,6 +93,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -575,6 +582,75 @@ public class PaimonUtil {
         options.putAll(excludePaimonConflictOptions(PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS));
 
         return baseTable.copy(options);
+    }
+
+    // get snapshot info from query like 'for version/time as of' or '@tag'
+    public static Snapshot getPaimonSnapshot(Table table, Optional<TableSnapshot> querySnapshot,
+            Optional<TableScanParams> scanParams) throws UserException {
+        Preconditions.checkArgument(querySnapshot.isPresent() || (scanParams.isPresent() && scanParams.get().isTag()),
+                "should spec version or time or tag");
+        Preconditions.checkArgument(!(querySnapshot.isPresent() && scanParams.isPresent()),
+                "should not spec both snapshot and scan params");
+
+        DataTable dataTable = (DataTable) table;
+        if (querySnapshot.isPresent()) {
+            return getPaimonSnapshotByTableSnapshot(dataTable, querySnapshot.get());
+        } else if (scanParams.isPresent() && scanParams.get().isTag()) {
+            return getPaimonSnapshotByTag(dataTable, extractBranchOrTagName(scanParams.get()));
+        } else {
+            throw new UserException("should spec version or time or tag");
+        }
+    }
+
+    private static Snapshot getPaimonSnapshotByTableSnapshot(DataTable table, TableSnapshot tableSnapshot)
+            throws UserException {
+        final String value = tableSnapshot.getValue();
+        final TableSnapshot.VersionType type = tableSnapshot.getType();
+        final boolean isDigital = DIGITAL_REGEX.matcher(value).matches();
+
+        switch (type) {
+            case TIME:
+                return getPaimonSnapshotByTimestamp(table, value, isDigital);
+            case VERSION:
+                return isDigital ? getPaimonSnapshotBySnapshotId(table, value) : getPaimonSnapshotByTag(table, value);
+            default:
+                throw new UserException("Unsupported snapshot type: " + type);
+        }
+    }
+
+    private static Snapshot getPaimonSnapshotByTimestamp(DataTable table, String timestamp, boolean isDigital)
+            throws UserException {
+        long timestampMillis = 0;
+        if (isDigital) {
+            timestampMillis = Long.parseLong(timestamp);
+        } else {
+            timestampMillis = TimeUtils.msTimeStringToLong(timestamp, TimeUtils.getTimeZone());
+            if (timestampMillis < 0) {
+                throw new DateTimeException("can't parse time: " + timestamp);
+            }
+        }
+        Snapshot snapshot = table.snapshotManager().earlierOrEqualTimeMills(timestampMillis);
+        if (snapshot == null) {
+            throw new UserException("can't find snapshot older than : " + timestamp);
+        }
+        return snapshot;
+    }
+
+    private static Snapshot getPaimonSnapshotBySnapshotId(DataTable table, String snapshotString)
+            throws UserException {
+        long snapshotId = Long.parseLong(snapshotString);
+        try {
+            Snapshot snapshot = table.snapshotManager().tryGetSnapshot(snapshotId);
+            return snapshot;
+        } catch (FileNotFoundException e) {
+            throw new UserException("can't find snapshot by id: " + snapshotId, e);
+        }
+    }
+
+    private static Snapshot getPaimonSnapshotByTag(DataTable table, String tagName)
+            throws UserException {
+        Optional<Tag> tag = table.tagManager().get(tagName);
+        return tag.orElseThrow(() -> new UserException("can't find snapshot by tag: " + tagName));
     }
 
     /**

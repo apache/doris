@@ -328,6 +328,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(
+                    ConnectContext.get().queryId(),
                     backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
             splitAssignment.init();
             if (executor != null) {

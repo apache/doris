@@ -2706,6 +2706,7 @@ int InstanceRecycler::recycle_restore_jobs() {
                 LOG_WARNING("failed to commit txn: {}", err);
                 return -1;
             }
+            return 0;
         }
 
         std::string restore_job_rs_key0 = job_restore_rowset_key({instance_id_, tablet_id, 0});
