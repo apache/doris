@@ -285,6 +285,10 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 msg = fmt::format("failed to get partition version, err={} table_id={}", err,
                                   table_id);
                 return;
+            } else if (!partition_version.has_version()) {
+                msg = "partition version not found";
+                code = MetaServiceCode::VERSION_NOT_FOUND;
+                return;
             }
             response->set_version(partition_version.version());
             response->add_version_update_time_ms(partition_version.update_time_ms());
@@ -3117,6 +3121,22 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                           google::protobuf::RepeatedPtrFieldBackInserter(
                                   response->mutable_rowset_meta()));
             }
+            int64_t next_version = request->start_version();
+            for (auto& rowset_meta : response->rowset_meta()) {
+                if (rowset_meta.start_version() > next_version) {
+                    LOG(ERROR) << "there is a hold in versioned rowsets, tablet_id=" << tablet_id
+                               << ", next_version=" << next_version << ", rowset_version=["
+                               << rowset_meta.start_version() << "-" << rowset_meta.end_version()
+                               << "], acquired range [" << request->start_version() << "-"
+                               << request->end_version() << "]";
+                }
+                next_version = rowset_meta.end_version();
+            }
+            if (next_version != request->end_version()) {
+                LOG(ERROR) << "there is a hold in versioned rowsets, tablet_id=" << tablet_id
+                           << ", next_version=" << next_version << ", acquired range ["
+                           << request->start_version() << "-" << request->end_version() << "]";
+            }
         }
 
         // get referenced schema
@@ -4287,7 +4307,6 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
     auto table_id = request->table_id();
     std::stringstream ss;
     bool is_versioned_read = is_version_read_enabled(instance_id);
-    is_versioned_read = false;
     if (!config::enable_batch_get_mow_tablet_stats_and_meta) {
         MetaReader reader(instance_id, txn_kv_.get());
         for (const auto& tablet_idx : request->tablet_indexes()) {
