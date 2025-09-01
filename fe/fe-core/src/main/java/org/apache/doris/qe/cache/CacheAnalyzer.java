@@ -269,12 +269,16 @@ public class CacheAnalyzer {
             PUniqueId existsMd5 = null;
             if (planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
-                Optional<SqlCacheContext> sqlCacheContext = nereidsPlanner
+                Optional<SqlCacheContext> sqlCacheContextOpt = nereidsPlanner
                         .getCascadesContext()
                         .getStatementContext()
                         .getSqlCacheContext();
-                if (sqlCacheContext.isPresent()) {
-                    existsMd5 = sqlCacheContext.get().getOrComputeCacheKeyMd5();
+                if (sqlCacheContextOpt.isPresent()) {
+                    SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
+                    if (!sqlCacheContext.supportSqlCache()) {
+                        return CacheMode.NoNeed;
+                    }
+                    existsMd5 = sqlCacheContext.getOrComputeCacheKeyMd5(context.getSessionVariable());
                 }
             }
 

@@ -31,6 +31,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
@@ -61,6 +63,7 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
 import org.apache.doris.rpc.RpcException;
@@ -71,6 +74,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,6 +82,7 @@ import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
@@ -152,14 +157,19 @@ public class NereidsSqlCacheManager {
         if (!sqlCacheContextOpt.isPresent()) {
             return;
         }
-
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
+        if (!sqlCacheContext.supportSqlCache()) {
+            return;
+        }
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
         sqlCacheContext.setQueryId(connectContext.queryId());
         String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
                 ? generateCacheKey(connectContext, normalizeSql(sql))
-                : generateCacheKey(connectContext, DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5()));
-        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null
+                : generateCacheKey(connectContext,
+                        DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable)));
+        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable) != null
                 && sqlCacheContext.getResultSetInFe().isPresent()) {
+            sqlCacheContext.setAffectQueryResultVariables(sessionVariable);
             sqlCaches.put(key, sqlCacheContext);
         }
     }
@@ -182,17 +192,24 @@ public class NereidsSqlCacheManager {
             return;
         }
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
+        if (!sqlCacheContext.supportSqlCache()) {
+            return;
+        }
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
         sqlCacheContext.setQueryId(connectContext.queryId());
         String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
                 ? generateCacheKey(connectContext, normalizeSql(sql))
-                : generateCacheKey(connectContext, DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5()));
-        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
+                : generateCacheKey(connectContext,
+                        DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable))
+                );
+        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable) != null) {
             SqlCache cache = (SqlCache) analyzer.getCache();
             sqlCacheContext.setSumOfPartitionNum(cache.getSumOfPartitionNum());
             sqlCacheContext.setLatestPartitionId(cache.getLatestId());
             sqlCacheContext.setLatestPartitionVersion(cache.getLatestVersion());
             sqlCacheContext.setLatestPartitionTime(cache.getLatestTime());
             sqlCacheContext.setCacheProxy(cache.getProxy());
+            sqlCacheContext.setAffectQueryResultVariables(sessionVariable);
 
             for (ScanTable scanTable : analyzer.getScanTables()) {
                 sqlCacheContext.addScanTable(scanTable);
@@ -221,9 +238,10 @@ public class NereidsSqlCacheManager {
         // LOG.info("Total size: " + GraphLayout.parseInstance(sqlCacheContext).totalSize());
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         List<Variable> currentVariables = resolveUserVariables(sqlCacheContext);
-        if (usedVariablesChanged(currentVariables, sqlCacheContext)) {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        if (usedVariablesChanged(currentVariables, sqlCacheContext, sessionVariable)) {
             String md5 = DebugUtil.printId(
-                    sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables)));
+                    sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables), sessionVariable));
             String md5CacheKey = generateCacheKey(connectContext, md5);
             SqlCacheContext sqlCacheContextWithVariable = sqlCaches.getIfPresent(md5CacheKey);
 
@@ -277,6 +295,9 @@ public class NereidsSqlCacheManager {
             if (viewsChanged(env, sqlCacheContext)) {
                 return invalidateCache(key);
             }
+            if (externalCatalogChanged(env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
 
             LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
             if (nondeterministicFunctionChanged(whateverPlan, connectContext, sqlCacheContext)) {
@@ -296,8 +317,9 @@ public class NereidsSqlCacheManager {
             if (checkUserVariable) {
                 currentVariables = resolveUserVariables(sqlCacheContext);
             }
+            SessionVariable sessionVariable = connectContext.getSessionVariable();
             boolean usedVariablesChanged
-                    = checkUserVariable && usedVariablesChanged(currentVariables, sqlCacheContext);
+                    = checkUserVariable && usedVariablesChanged(currentVariables, sqlCacheContext, sessionVariable);
             if (resultSetInFe.isPresent() && !usedVariablesChanged) {
                 MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
 
@@ -315,9 +337,11 @@ public class NereidsSqlCacheManager {
             PUniqueId cacheKeyMd5;
             if (usedVariablesChanged) {
                 invalidateCache(key);
-                cacheKeyMd5 = sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables));
+                cacheKeyMd5 = sqlCacheContext.doComputeCacheKeyMd5(
+                        Utils.fastToImmutableSet(currentVariables), sessionVariable
+                );
             } else {
-                cacheKeyMd5 = sqlCacheContext.getOrComputeCacheKeyMd5();
+                cacheKeyMd5 = sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable);
             }
 
             InternalService.PFetchCacheResult cacheData =
@@ -356,25 +380,35 @@ public class NereidsSqlCacheManager {
         // check table type and version
         for (Entry<FullTableName, TableVersion> scanTable : sqlCacheContext.getUsedTables().entrySet()) {
             TableVersion tableVersion = scanTable.getValue();
-            if (tableVersion.type != TableType.OLAP && tableVersion.type != TableType.MATERIALIZED_VIEW) {
+            if (tableVersion.type != TableType.OLAP && tableVersion.type != TableType.MATERIALIZED_VIEW
+                    && tableVersion.type != TableType.HMS_EXTERNAL_TABLE) {
                 return true;
             }
             TableIf tableIf = findTableIf(env, scanTable.getKey());
-            if (!(tableIf instanceof OlapTable) || tableVersion.id != tableIf.getId()) {
+            if (tableIf == null || tableVersion.id != tableIf.getId()) {
                 return true;
             }
-
-            OlapTable olapTable = (OlapTable) tableIf;
-            long currentTableVersion = 0L;
-            try {
-                currentTableVersion = olapTable.getVisibleVersion();
-            } catch (RpcException e) {
-                LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
-                return true;
-            }
-            long cacheTableVersion = tableVersion.version;
-            // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
-            if (currentTableVersion != cacheTableVersion) {
+            if (tableIf instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) tableIf;
+                long currentTableVersion = 0L;
+                try {
+                    currentTableVersion = olapTable.getVisibleVersion();
+                } catch (RpcException e) {
+                    LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
+                    return true;
+                }
+                long cacheTableVersion = tableVersion.version;
+                // some partitions have been dropped, or delete or updated or replaced,
+                // or insert rows into new partition?
+                if (currentTableVersion != cacheTableVersion) {
+                    return true;
+                }
+            } else if (tableIf instanceof HMSExternalTable) {
+                HMSExternalTable hiveTable = (HMSExternalTable) tableIf;
+                if (tableVersion.version != hiveTable.getUpdateTime()) {
+                    return true;
+                }
+            } else {
                 return true;
             }
         }
@@ -383,24 +417,27 @@ public class NereidsSqlCacheManager {
         for (ScanTable scanTable : sqlCacheContext.getScanTables()) {
             FullTableName fullTableName = scanTable.fullTableName;
             TableIf tableIf = findTableIf(env, fullTableName);
-            if (!(tableIf instanceof OlapTable)) {
-                return true;
-            }
-            OlapTable olapTable = (OlapTable) tableIf;
-            Collection<Long> partitionIds = scanTable.getScanPartitions();
-            try {
-                olapTable.getVersionInBatchForCloudMode(partitionIds);
-            } catch (RpcException e) {
-                LOG.warn("failed to get version in batch for table {}", fullTableName, e);
-                return true;
-            }
-
-            for (Long scanPartitionId : scanTable.getScanPartitions()) {
-                Partition partition = olapTable.getPartition(scanPartitionId);
-                // partition == null: is this partition truncated?
-                if (partition == null) {
+            if (tableIf instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) tableIf;
+                Collection<Long> partitionIds = scanTable.getScanPartitions();
+                try {
+                    olapTable.getVersionInBatchForCloudMode(partitionIds);
+                } catch (RpcException e) {
+                    LOG.warn("failed to get version in batch for table {}", fullTableName, e);
                     return true;
                 }
+
+                for (Long scanPartitionId : scanTable.getScanPartitions()) {
+                    Partition partition = olapTable.getPartition(scanPartitionId);
+                    // partition == null: is this partition truncated?
+                    if (partition == null) {
+                        return true;
+                    }
+                }
+            } else if (tableIf instanceof HMSExternalTable) {
+                continue;
+            } else {
+                return true;
             }
         }
         return false;
@@ -507,7 +544,8 @@ public class NereidsSqlCacheManager {
         return currentVariables;
     }
 
-    private boolean usedVariablesChanged(List<Variable> currentVariables, SqlCacheContext sqlCacheContext) {
+    private boolean usedVariablesChanged(
+            List<Variable> currentVariables, SqlCacheContext sqlCacheContext, SessionVariable sessionVariable) {
         List<Variable> cachedUsedVariables = sqlCacheContext.getUsedVariables();
         for (int i = 0; i < cachedUsedVariables.size(); i++) {
             Variable currentVariable = currentVariables.get(i);
@@ -518,7 +556,9 @@ public class NereidsSqlCacheManager {
                 return true;
             }
         }
-        return false;
+        String cachedAffectQueryResultVariables = sqlCacheContext.getAffectQueryResultVariables();
+        String currentAffectQueryResultVariables = SqlCacheContext.computeAffectQueryResultVariables(sessionVariable);
+        return !StringUtils.equals(cachedAffectQueryResultVariables, currentAffectQueryResultVariables);
     }
 
     private boolean nondeterministicFunctionChanged(
@@ -541,6 +581,22 @@ public class NereidsSqlCacheManager {
             Expression deterministic = foldPair.second;
             Expression fold = nondeterministic.accept(FoldConstantRuleOnFE.VISITOR_INSTANCE, rewriteContext);
             if (!Objects.equals(deterministic, fold)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean externalCatalogChanged(Env env, SqlCacheContext sqlCacheContext) {
+        Map<String, String> externalCatalogConfigs = sqlCacheContext.getExternalCatalogConfigs();
+        CatalogMgr catalogMgr = env.getCatalogMgr();
+        for (Entry<String, String> kv : externalCatalogConfigs.entrySet()) {
+            CatalogIf catalog = catalogMgr.getCatalog(kv.getKey());
+            if (catalog == null) {
+                return true;
+            }
+            String catalogConfigs = SqlCacheContext.getCatalogConfigs(catalog);
+            if (!StringUtils.equals(catalogConfigs, kv.getValue())) {
                 return true;
             }
         }
