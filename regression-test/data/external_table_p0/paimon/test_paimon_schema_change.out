@@ -232,7 +232,7 @@ new_col1	array<int>	Yes	true	\N
 
 -- !desc_latest_schema --
 id	int	Yes	true	\N	
-name	text	Yes	true	\N
+name	text	Yes	true	\N	
 
 -- !query_latest_schema --
 1	\N
