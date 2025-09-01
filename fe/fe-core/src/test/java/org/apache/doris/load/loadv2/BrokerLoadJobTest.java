@@ -20,12 +20,10 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
@@ -36,6 +34,10 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
 
@@ -63,7 +65,7 @@ public class BrokerLoadJobTest {
     }
 
     @Test
-    public void testFromLoadStmt(@Injectable LoadStmt loadStmt, @Injectable LabelName labelName,
+    public void testFromLoadStmt(@Injectable LoadCommand loadCommand, @Injectable LabelName labelName,
                                  @Injectable DataDescription dataDescription, @Mocked Env env, @Mocked InternalCatalog catalog,
                                  @Injectable Database database) {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
@@ -73,7 +75,7 @@ public class BrokerLoadJobTest {
         String databaseName = "database";
         new Expectations() {
             {
-                loadStmt.getLabel();
+                loadCommand.getLabel();
                 minTimes = 0;
                 result = labelName;
                 labelName.getDbName();
@@ -85,7 +87,7 @@ public class BrokerLoadJobTest {
                 catalog.getDbNullable(databaseName);
                 minTimes = 0;
                 result = database;
-                loadStmt.getDataDescriptions();
+                loadCommand.getDataDescriptions();
                 minTimes = 0;
                 result = dataDescriptionList;
                 dataDescription.getTableName();
@@ -98,16 +100,18 @@ public class BrokerLoadJobTest {
         };
 
         try {
-            BulkLoadJob.fromLoadStmt(loadStmt);
+            OriginStatement stmt = new OriginStatement("", 1);
+            ConnectContext ctx = new ConnectContext();
+            StmtExecutor executor = new StmtExecutor(ctx, stmt, false);
+            BulkLoadJob.fromLoadCommand(loadCommand, executor, ctx);
             Assert.fail();
-        } catch (DdlException e) {
-            System.out.println("could not find table named " + tableName);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
         }
-
     }
 
     @Test
-    public void testFromLoadStmt2(@Injectable LoadStmt loadStmt, @Injectable DataDescription dataDescription,
+    public void testFromLoadStmt2(@Injectable LoadCommand loadCommand, @Injectable DataDescription dataDescription,
                                   @Injectable LabelName labelName, @Injectable Database database, @Injectable OlapTable olapTable,
                                   @Mocked Env env, @Mocked InternalCatalog catalog) {
 
@@ -119,11 +123,11 @@ public class BrokerLoadJobTest {
         dataDescriptionList.add(dataDescription);
         BrokerDesc brokerDesc = new BrokerDesc("broker0", Maps.newHashMap());
         Map<String, String> properties = new HashMap<>();
-        properties.put(LoadStmt.PRIORITY, "HIGH");
+        properties.put(LoadCommand.PRIORITY, "HIGH");
 
         new Expectations() {
             {
-                loadStmt.getLabel();
+                loadCommand.getLabel();
                 minTimes = 0;
                 result = labelName;
                 labelName.getDbName();
@@ -138,7 +142,7 @@ public class BrokerLoadJobTest {
                 catalog.getDbNullable(databaseName);
                 minTimes = 0;
                 result = database;
-                loadStmt.getDataDescriptions();
+                loadCommand.getDataDescriptions();
                 minTimes = 0;
                 result = dataDescriptionList;
                 dataDescription.getTableName();
@@ -153,29 +157,31 @@ public class BrokerLoadJobTest {
                 database.getId();
                 minTimes = 0;
                 result = dbId;
-                loadStmt.getBrokerDesc();
+                loadCommand.getBrokerDesc();
                 minTimes = 0;
                 result = brokerDesc;
-                loadStmt.getEtlJobType();
+                loadCommand.getEtlJobType();
                 minTimes = 0;
                 result = EtlJobType.BROKER;
-                loadStmt.getProperties();
+                loadCommand.getProperties();
                 minTimes = 0;
                 result = properties;
             }
         };
 
         try {
-            BrokerLoadJob brokerLoadJob = (BrokerLoadJob) BulkLoadJob.fromLoadStmt(loadStmt);
+            OriginStatement stmt = new OriginStatement("", 1);
+            ConnectContext ctx = new ConnectContext();
+            StmtExecutor executor = new StmtExecutor(ctx, stmt, false);
+            BrokerLoadJob brokerLoadJob = (BrokerLoadJob) BulkLoadJob.fromLoadCommand(loadCommand, executor, ctx);
             Assert.assertEquals(Long.valueOf(dbId), Deencapsulation.getField(brokerLoadJob, "dbId"));
             Assert.assertEquals(label, Deencapsulation.getField(brokerLoadJob, "label"));
             Assert.assertEquals(JobState.PENDING, Deencapsulation.getField(brokerLoadJob, "state"));
             Assert.assertEquals(EtlJobType.BROKER, Deencapsulation.getField(brokerLoadJob, "jobType"));
             Assert.assertEquals(brokerLoadJob.getPriority(), LoadTask.Priority.HIGH);
-        } catch (DdlException e) {
+        } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
-
     }
 
     @Test

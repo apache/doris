@@ -19,7 +19,6 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
@@ -38,6 +37,7 @@ import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.nereids.load.NereidsDataDescription;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.MysqlDataDescription;
 import org.apache.doris.nereids.trees.plans.commands.load.MysqlLoadCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -232,11 +232,6 @@ public class MysqlLoadManager {
         return loadResult;
     }
 
-    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt, String loadId)
-            throws IOException, UserException {
-        return executeMySqlLoadJobFromStmt(context, stmt.getDataDescriptions().get(0), loadId);
-    }
-
     public LoadJobRowResult executeMySqlLoadJobFromCommand(ConnectContext context, NereidsDataDescription dataDesc,
                                                                String loadId) throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
@@ -397,8 +392,8 @@ public class MysqlLoadManager {
     }
 
     private int extractTimeOut(NereidsDataDescription desc) {
-        if (desc.getProperties() != null && desc.getProperties().containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-            return Integer.parseInt(desc.getProperties().get(LoadStmt.TIMEOUT_PROPERTY));
+        if (desc.getProperties() != null && desc.getProperties().containsKey(LoadCommand.TIMEOUT_PROPERTY)) {
+            return Integer.parseInt(desc.getProperties().get(LoadCommand.TIMEOUT_PROPERTY));
         }
         return -1;
     }
@@ -411,8 +406,8 @@ public class MysqlLoadManager {
     }
 
     private int extractTimeOut(DataDescription desc) {
-        if (desc.getProperties() != null && desc.getProperties().containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-            return Integer.parseInt(desc.getProperties().get(LoadStmt.TIMEOUT_PROPERTY));
+        if (desc.getProperties() != null && desc.getProperties().containsKey(LoadCommand.TIMEOUT_PROPERTY)) {
+            return Integer.parseInt(desc.getProperties().get(LoadCommand.TIMEOUT_PROPERTY));
         }
         return -1;
     }
@@ -549,55 +544,56 @@ public class MysqlLoadManager {
         FileFormatProperties fileFormatProperties = desc.getFileFormatProperties();
         if (props != null) {
             // max_filter_ratio
-            if (props.containsKey(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
-                String maxFilterRatio = props.get(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO);
-                httpPut.addHeader(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO, maxFilterRatio);
+            if (props.containsKey(LoadCommand.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
+                String maxFilterRatio = props.get(LoadCommand.KEY_IN_PARAM_MAX_FILTER_RATIO);
+                httpPut.addHeader(LoadCommand.KEY_IN_PARAM_MAX_FILTER_RATIO, maxFilterRatio);
             }
 
             // exec_mem_limit
-            if (props.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
-                String memory = props.get(LoadStmt.EXEC_MEM_LIMIT);
-                httpPut.addHeader(LoadStmt.EXEC_MEM_LIMIT, memory);
+            if (props.containsKey(LoadCommand.EXEC_MEM_LIMIT)) {
+                String memory = props.get(LoadCommand.EXEC_MEM_LIMIT);
+                httpPut.addHeader(LoadCommand.EXEC_MEM_LIMIT, memory);
             }
 
             // strict_mode
-            if (props.containsKey(LoadStmt.STRICT_MODE)) {
-                String strictMode = props.get(LoadStmt.STRICT_MODE);
-                httpPut.addHeader(LoadStmt.STRICT_MODE, strictMode);
+            if (props.containsKey(LoadCommand.STRICT_MODE)) {
+                String strictMode = props.get(LoadCommand.STRICT_MODE);
+                httpPut.addHeader(LoadCommand.STRICT_MODE, strictMode);
             }
 
             // timeout
-            if (props.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-                String timeout = props.get(LoadStmt.TIMEOUT_PROPERTY);
-                httpPut.addHeader(LoadStmt.TIMEOUT_PROPERTY, timeout);
+            if (props.containsKey(LoadCommand.TIMEOUT_PROPERTY)) {
+                String timeout = props.get(LoadCommand.TIMEOUT_PROPERTY);
+                httpPut.addHeader(LoadCommand.TIMEOUT_PROPERTY, timeout);
             }
 
             // timezone
-            if (props.containsKey(LoadStmt.TIMEZONE)) {
-                String timezone = props.get(LoadStmt.TIMEZONE);
-                httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
+            if (props.containsKey(LoadCommand.TIMEZONE)) {
+                String timezone = props.get(LoadCommand.TIMEZONE);
+                httpPut.addHeader(LoadCommand.TIMEZONE, timezone);
             }
 
             if (fileFormatProperties instanceof CsvFileFormatProperties) {
                 CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
-                httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES,
+                httpPut.addHeader(LoadCommand.KEY_TRIM_DOUBLE_QUOTES,
                         String.valueOf(csvFileFormatProperties.isTrimDoubleQuotes()));
-                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
-                httpPut.addHeader(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
+                httpPut.addHeader(LoadCommand.KEY_ENCLOSE,
+                        new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+                httpPut.addHeader(LoadCommand.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
             }
         }
 
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
             CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
-            httpPut.addHeader(LoadStmt.KEY_SKIP_LINES, Integer.toString(csvFileFormatProperties.getSkipLines()));
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, csvFileFormatProperties.getColumnSeparator());
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, csvFileFormatProperties.getLineDelimiter());
+            httpPut.addHeader(LoadCommand.KEY_SKIP_LINES, Integer.toString(csvFileFormatProperties.getSkipLines()));
+            httpPut.addHeader(LoadCommand.KEY_IN_PARAM_COLUMN_SEPARATOR, csvFileFormatProperties.getColumnSeparator());
+            httpPut.addHeader(LoadCommand.KEY_IN_PARAM_LINE_DELIMITER, csvFileFormatProperties.getLineDelimiter());
         }
 
         // columns
         String columns = getColumns(desc);
         if (columns != null) {
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMNS, columns);
+            httpPut.addHeader(LoadCommand.KEY_IN_PARAM_COLUMNS, columns);
         }
 
         // partitions
@@ -605,9 +601,9 @@ public class MysqlLoadManager {
             List<String> ps = desc.getPartitionNames().getPartitionNames();
             String pNames = Joiner.on(",").join(ps);
             if (desc.getPartitionNames().isTemp()) {
-                httpPut.addHeader(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS, pNames);
+                httpPut.addHeader(LoadCommand.KEY_IN_PARAM_TEMP_PARTITIONS, pNames);
             } else {
-                httpPut.addHeader(LoadStmt.KEY_IN_PARAM_PARTITIONS, pNames);
+                httpPut.addHeader(LoadCommand.KEY_IN_PARAM_PARTITIONS, pNames);
             }
         }
 
@@ -623,7 +619,7 @@ public class MysqlLoadManager {
             if (Strings.isNullOrEmpty(clusterName)) {
                 throw new LoadException("cloud compute group is empty");
             }
-            httpPut.addHeader(LoadStmt.KEY_CLOUD_CLUSTER, clusterName);
+            httpPut.addHeader(LoadCommand.KEY_CLOUD_CLUSTER, clusterName);
         }
 
         httpPut.setEntity(entity);
@@ -787,55 +783,56 @@ public class MysqlLoadManager {
         FileFormatProperties fileFormatProperties = desc.getFileFormatProperties();
         if (props != null) {
             // max_filter_ratio
-            if (props.containsKey(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
-                String maxFilterRatio = props.get(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO);
-                httpPut.addHeader(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO, maxFilterRatio);
+            if (props.containsKey(LoadCommand.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
+                String maxFilterRatio = props.get(LoadCommand.KEY_IN_PARAM_MAX_FILTER_RATIO);
+                httpPut.addHeader(LoadCommand.KEY_IN_PARAM_MAX_FILTER_RATIO, maxFilterRatio);
             }
 
             // exec_mem_limit
-            if (props.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
-                String memory = props.get(LoadStmt.EXEC_MEM_LIMIT);
-                httpPut.addHeader(LoadStmt.EXEC_MEM_LIMIT, memory);
+            if (props.containsKey(LoadCommand.EXEC_MEM_LIMIT)) {
+                String memory = props.get(LoadCommand.EXEC_MEM_LIMIT);
+                httpPut.addHeader(LoadCommand.EXEC_MEM_LIMIT, memory);
             }
 
             // strict_mode
-            if (props.containsKey(LoadStmt.STRICT_MODE)) {
-                String strictMode = props.get(LoadStmt.STRICT_MODE);
-                httpPut.addHeader(LoadStmt.STRICT_MODE, strictMode);
+            if (props.containsKey(LoadCommand.STRICT_MODE)) {
+                String strictMode = props.get(LoadCommand.STRICT_MODE);
+                httpPut.addHeader(LoadCommand.STRICT_MODE, strictMode);
             }
 
             // timeout
-            if (props.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-                String timeout = props.get(LoadStmt.TIMEOUT_PROPERTY);
-                httpPut.addHeader(LoadStmt.TIMEOUT_PROPERTY, timeout);
+            if (props.containsKey(LoadCommand.TIMEOUT_PROPERTY)) {
+                String timeout = props.get(LoadCommand.TIMEOUT_PROPERTY);
+                httpPut.addHeader(LoadCommand.TIMEOUT_PROPERTY, timeout);
             }
 
             // timezone
-            if (props.containsKey(LoadStmt.TIMEZONE)) {
-                String timezone = props.get(LoadStmt.TIMEZONE);
-                httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
+            if (props.containsKey(LoadCommand.TIMEZONE)) {
+                String timezone = props.get(LoadCommand.TIMEZONE);
+                httpPut.addHeader(LoadCommand.TIMEZONE, timezone);
             }
 
             if (fileFormatProperties instanceof CsvFileFormatProperties) {
                 CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
-                httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES,
+                httpPut.addHeader(LoadCommand.KEY_TRIM_DOUBLE_QUOTES,
                         String.valueOf(csvFileFormatProperties.isTrimDoubleQuotes()));
-                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
-                httpPut.addHeader(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
+                httpPut.addHeader(LoadCommand.KEY_ENCLOSE,
+                        new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+                httpPut.addHeader(LoadCommand.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
             }
         }
 
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
             CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
-            httpPut.addHeader(LoadStmt.KEY_SKIP_LINES, Integer.toString(csvFileFormatProperties.getSkipLines()));
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, csvFileFormatProperties.getColumnSeparator());
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, csvFileFormatProperties.getLineDelimiter());
+            httpPut.addHeader(LoadCommand.KEY_SKIP_LINES, Integer.toString(csvFileFormatProperties.getSkipLines()));
+            httpPut.addHeader(LoadCommand.KEY_IN_PARAM_COLUMN_SEPARATOR, csvFileFormatProperties.getColumnSeparator());
+            httpPut.addHeader(LoadCommand.KEY_IN_PARAM_LINE_DELIMITER, csvFileFormatProperties.getLineDelimiter());
         }
 
         // columns
         String columns = getColumns(desc);
         if (columns != null) {
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMNS, columns);
+            httpPut.addHeader(LoadCommand.KEY_IN_PARAM_COLUMNS, columns);
         }
 
         // partitions
@@ -843,9 +840,9 @@ public class MysqlLoadManager {
             List<String> ps = desc.getPartitionNames().getPartitionNames();
             String pNames = Joiner.on(",").join(ps);
             if (desc.getPartitionNames().isTemp()) {
-                httpPut.addHeader(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS, pNames);
+                httpPut.addHeader(LoadCommand.KEY_IN_PARAM_TEMP_PARTITIONS, pNames);
             } else {
-                httpPut.addHeader(LoadStmt.KEY_IN_PARAM_PARTITIONS, pNames);
+                httpPut.addHeader(LoadCommand.KEY_IN_PARAM_PARTITIONS, pNames);
             }
         }
 
@@ -861,7 +858,7 @@ public class MysqlLoadManager {
             if (Strings.isNullOrEmpty(clusterName)) {
                 throw new LoadException("cloud compute group is empty");
             }
-            httpPut.addHeader(LoadStmt.KEY_CLOUD_CLUSTER, clusterName);
+            httpPut.addHeader(LoadCommand.KEY_CLOUD_CLUSTER, clusterName);
         }
 
         httpPut.setEntity(entity);
