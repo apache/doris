@@ -137,6 +137,11 @@ public class ColumnStatistic {
         return columnStatistic;
     }
 
+    /**
+     * this function is used by analyze job and cbo job.
+     *
+     *
+     */
     public static ColumnStatistic fromResultRow(ResultRow row, boolean showAnalyzeResult) {
         double count = Double.parseDouble(row.get(7));
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
@@ -201,9 +206,9 @@ public class ColumnStatistic {
         if (showAnalyzeResult) {
             columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(), 0));
         } else {
-            if (ndv > 0 && count > 0) {
+            if (ndv > 0) {
                 columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(),
-                        count / ndv));
+                        1 / ndv));
             }
         }
         return columnStatisticBuilder.build();

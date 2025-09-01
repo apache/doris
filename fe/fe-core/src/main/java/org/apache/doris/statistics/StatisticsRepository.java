@@ -361,7 +361,7 @@ public class StatisticsRepository {
         }
         if (ndv != null) {
             try {
-                double avgOccurrences = Double.parseDouble(rowCount) / Double.parseDouble(ndv);
+                double avgOccurrences = 1 / Double.parseDouble(ndv);
                 builder.setHotValues(StatisticsUtil.getHotValues(hotValues, column.getType(), avgOccurrences));
             } catch (Exception e) {
                 if (SessionVariable.isFeDebug()) {

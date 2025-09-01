@@ -181,9 +181,9 @@ public class ColStatsData {
                 columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
             }
             columnStatisticBuilder.setUpdatedTime(updateTime);
-            if (ndv > 0 && count > 0) {
+            if (ndv > 0) {
                 columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(hotValues, col.getType(),
-                        ((double) count) / ndv));
+                        (1 / ndv)));
             }
             return columnStatisticBuilder.build();
         } catch (Exception e) {
