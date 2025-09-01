@@ -65,7 +65,7 @@ public class LLMAgg extends NullableAggregateFunction
         super("llm_agg", false, false, arg0, arg1, arg2);
     }
 
-    /** 
+    /**
      * constructor for withChildren and reuse signature
      */
     private LLMAgg(NullableAggregateFunctionParams functionParams) {

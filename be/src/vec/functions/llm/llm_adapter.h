@@ -32,6 +32,7 @@
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
+#include "vec/common/string_buffer.hpp"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -58,6 +59,30 @@ struct LLMResource {
     int64_t max_retries;
     int64_t retry_delay_second;
     std::string anthropic_version;
+
+    void serialize(BufferWritable& buf) const {
+        buf.write_binary(endpoint);
+        buf.write_binary(provider_type);
+        buf.write_binary(model_name);
+        buf.write_binary(api_key);
+        buf.write_binary(temperature);
+        buf.write_binary(max_tokens);
+        buf.write_binary(max_retries);
+        buf.write_binary(retry_delay_second);
+        buf.write_binary(anthropic_version);
+    }
+
+    void deserialize(BufferReadable& buf) {
+        buf.read_binary(endpoint);
+        buf.read_binary(provider_type);
+        buf.read_binary(model_name);
+        buf.read_binary(api_key);
+        buf.read_binary(temperature);
+        buf.read_binary(max_tokens);
+        buf.read_binary(max_retries);
+        buf.read_binary(retry_delay_second);
+        buf.read_binary(anthropic_version);
+    }
 };
 
 class LLMAdapter {
