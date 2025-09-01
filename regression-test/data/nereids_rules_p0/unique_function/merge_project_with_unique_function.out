@@ -27,3 +27,80 @@ PhysicalResultSink
 ----PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
 ------PhysicalOlapScan[t1]
 
+-- !merge_one_row_1 --
+PhysicalResultSink
+--PhysicalOneRowRelation[100 AS `b`, 100 AS `c`]
+
+-- !merge_one_row_2 --
+PhysicalResultSink
+--PhysicalProject[a AS `b`, a AS `c`]
+----PhysicalOneRowRelation[random(1, 10) AS `a`]
+
+-- !merge_one_row_3 --
+PhysicalResultSink
+--PhysicalOneRowRelation[random(1, 10) AS `b`]
+
+-- !merge_one_row_4 --
+PhysicalResultSink
+--PhysicalProject[((a + a) + 10) AS `b`]
+----PhysicalOneRowRelation[random(1, 10) AS `a`]
+
+-- !merge_one_row_5 --
+PhysicalResultSink
+--PhysicalProject[(a + 10) AS `c`, a AS `b`]
+----PhysicalOneRowRelation[random(1, 10) AS `a`]
+
+-- !merge_empty_1 --
+PhysicalResultSink
+--PhysicalEmptyRelation
+
+-- !merge_empty_2 --
+PhysicalResultSink
+--PhysicalEmptyRelation
+
+-- !merge_empty_3 --
+PhysicalResultSink
+--PhysicalEmptyRelation
+
+-- !merge_empty_4 --
+PhysicalResultSink
+--PhysicalEmptyRelation
+
+-- !merge_empty_5 --
+PhysicalResultSink
+--PhysicalEmptyRelation
+
+-- !merge_union_1 --
+PhysicalResultSink
+--PhysicalProject[a AS `b`, a AS `c`]
+----PhysicalUnion
+------PhysicalProject[(cast(id as BIGINT) + 100) AS `a`]
+--------PhysicalOlapScan[t1]
+
+-- !merge_union_2 --
+PhysicalResultSink
+--PhysicalProject[a AS `b`, a AS `c`]
+----PhysicalUnion
+------PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
+--------PhysicalOlapScan[t1]
+
+-- !merge_union_3 --
+PhysicalResultSink
+--PhysicalUnion
+----PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `b`]
+------PhysicalOlapScan[t1]
+
+-- !merge_union_4 --
+PhysicalResultSink
+--PhysicalProject[((a + a) + 10) AS `b`]
+----PhysicalUnion
+------PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
+--------PhysicalOlapScan[t1]
+
+-- !merge_union_5 --
+PhysicalResultSink
+--PhysicalProject[(a + 10) AS `c`, a AS `b`]
+----PhysicalUnion
+------PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
+--------PhysicalOlapScan[t1]
+

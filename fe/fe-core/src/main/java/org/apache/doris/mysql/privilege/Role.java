@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -449,7 +450,8 @@ public class Role implements GsonPostProcessable {
         }
 
         if (checkGlobalInternal(wanted, savedPrivs)
-                || checkCloudInternal(cloudName, wanted, savedPrivs, cloudPrivTable, type)) {
+                || checkCloudInternal(cloudName, wanted, savedPrivs, cloudPrivTable, type)
+                || checkCloudVirtualComputeGroup(cloudName, wanted, savedPrivs, cloudPrivTable)) {
             return true;
         }
 
@@ -518,6 +520,17 @@ public class Role implements GsonPostProcessable {
     private boolean checkCloudInternal(String cloudName, PrivPredicate wanted,
             PrivBitSet savedPrivs, ResourcePrivTable table, ResourceTypeEnum type) {
         table.getPrivs(cloudName, savedPrivs);
+        return Privilege.satisfy(savedPrivs, wanted);
+    }
+
+    private boolean checkCloudVirtualComputeGroup(String cloudName, PrivPredicate wanted,
+                                       PrivBitSet savedPrivs, ResourcePrivTable table) {
+        String virtualComputeGroupName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .ownedByVirtualComputeGroup(cloudName);
+        if (virtualComputeGroupName == null) {
+            return false;
+        }
+        table.getPrivs(virtualComputeGroupName, savedPrivs);
         return Privilege.satisfy(savedPrivs, wanted);
     }
 

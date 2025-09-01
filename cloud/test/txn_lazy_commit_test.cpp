@@ -900,7 +900,31 @@ TEST(TxnLazyCommitVersionedReadTest, CommitTxnEventually) {
             check_tablet_idx_db_id(txn, db_id, tablet_id);
             check_tmp_rowset_not_exist(txn, tablet_id, txn_id);
             check_rowset_meta_exist(txn, tablet_id, 2);
+
+            // Check versioned rowset meta exists.
+            std::string rowset_key = versioned::meta_rowset_load_key({mock_instance, tablet_id, 2});
+            doris::RowsetMetaCloudPB rowset_val;
+            Versionstamp versionstamp;
+            ASSERT_EQ(versioned::document_get(txn.get(), rowset_key, &rowset_val, &versionstamp),
+                      TxnErrorCode::TXN_OK);
         }
+    }
+
+    {
+        // Get the partition version
+        brpc::Controller ctrl;
+        GetVersionRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(1);
+        req.set_table_id(table_id);
+        req.set_partition_id(partition_id);
+
+        GetVersionResponse resp;
+        meta_service->get_version(&ctrl, &req, &resp, nullptr);
+
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+                << " status is " << resp.status().DebugString();
+        ASSERT_GT(resp.version(), 1);
     }
 
     sp->clear_all_call_backs();
