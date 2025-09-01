@@ -204,9 +204,11 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
+    // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats);
 
+    // get the column reader by column unique id, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats);
 

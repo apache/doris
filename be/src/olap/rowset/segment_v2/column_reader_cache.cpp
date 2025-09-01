@@ -20,7 +20,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 
-bvar::Adder<int64_t> g_segment_column_cache_count("segment_column_cache_count");
+bvar::Adder<int64_t> g_segment_column_reader_cache_count("segment_column_cache_count");
 bvar::Adder<int64_t> g_segment_column_cache_hit_count("segment_column_cache_hit_count");
 bvar::Adder<int64_t> g_segment_column_cache_miss_count("segment_column_cache_miss_count");
 bvar::Adder<int64_t> g_segment_column_cache_evict_count("segment_column_cache_evict_count");
@@ -30,7 +30,7 @@ namespace doris::segment_v2 {
 ColumnReaderCache::ColumnReaderCache(Segment* segment) : _segment(segment) {}
 
 ColumnReaderCache::~ColumnReaderCache() {
-    g_segment_column_cache_count << -_cache_map.size();
+    g_segment_column_reader_cache_count << -_cache_map.size();
 }
 
 std::shared_ptr<ColumnReader> ColumnReaderCache::_lookup(const ColumnReaderCacheKey& key) {
@@ -63,7 +63,7 @@ Status ColumnReaderCache::_insert(const ColumnReaderCacheKey& key, const ColumnR
     }
     // If capacity exceeded, remove least recently used (tail)
     if (_cache_map.size() >= config::max_segment_partial_column_cache_size) {
-        g_segment_column_cache_count << -1;
+        g_segment_column_reader_cache_count << -1;
         g_segment_column_cache_evict_count << 1;
         auto last_it = _lru_list.end();
         --last_it;
@@ -74,7 +74,7 @@ Status ColumnReaderCache::_insert(const ColumnReaderCacheKey& key, const ColumnR
     RETURN_IF_ERROR(ColumnReader::create(opts, footer, column_id, num_rows, file_reader, &reader));
     // Insert new node at the front
     std::shared_ptr<ColumnReader> reader_ptr = std::move(reader);
-    g_segment_column_cache_count << 1;
+    g_segment_column_reader_cache_count << 1;
     DCHECK(key.first >= 0) << " col_uid: " << key.first
                            << " relative_path: " << key.second.get_path();
     _lru_list.push_front(CacheNode {key, reader_ptr, std::chrono::steady_clock::now()});
@@ -111,7 +111,7 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     if (it == _segment->_column_uid_to_footer_ordinal.end()) {
         // no such column in this segment, return nullptr
         *column_reader = nullptr;
-        return Status::OK();
+        return Status::NotFound("column not found in segment, col_uid={}", col_uid);
     }
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     {
@@ -129,9 +129,8 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     VLOG_DEBUG << "insert cache: " << col_uid << " "
                << ""
                << ", type: " << (int)col_footer_pb.type() << ", footer_ordinal: " << it->second;
-    RETURN_IF_ERROR(_insert({col_uid, {}}, opts, *footer_pb_shared, it->second,
-                            _segment->_file_reader, _segment->num_rows(), column_reader));
-    return Status::OK();
+    return _insert({col_uid, {}}, opts, *footer_pb_shared, it->second, _segment->_file_reader,
+                   _segment->num_rows(), column_reader);
 }
 
 Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
@@ -179,7 +178,7 @@ Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
     }
     // no such column in this segment, return nullptr
     *column_reader = nullptr;
-    return Status::OK();
+    return Status::NotFound("column not found in segment, col_uid={}", col_uid);
 }
 
 } // namespace doris::segment_v2

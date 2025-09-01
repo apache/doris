@@ -1590,7 +1590,7 @@ DEFINE_mInt32(llm_max_concurrent_requests, "1");
 // Doris threads are executing OpenMP-accelerated operations simultaneously.
 DEFINE_mInt32(omp_threads_limit, "8");
 // The capacity of segment partial column cache, used to cache column readers for each segment.
-DEFINE_mInt32(max_segment_partial_column_cache_size, "500");
+DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
 // clang-format off
 #ifdef BE_TEST

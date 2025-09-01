@@ -238,8 +238,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
         const TabletColumn& col = read_options.tablet_schema->column(column_id);
         std::shared_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(get_column_reader(col, &reader, read_options.stats));
-        if (!reader || !reader->has_zone_map()) {
+        Status st = get_column_reader(col, &reader, read_options.stats);
+        // not found in this segment, skip
+        if (st.is<ErrorCode::NOT_FOUND>()) {
+            continue;
+        }
+        RETURN_IF_ERROR(st);
+        // should be OK
+        DCHECK(reader != nullptr);
+        if (!reader->has_zone_map()) {
             continue;
         }
         if (read_options.col_id_to_predicates.contains(column_id) &&
@@ -264,11 +271,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             and_predicate.add_column_predicate(
                     SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
             std::shared_ptr<ColumnReader> reader;
-            RETURN_IF_ERROR(get_column_reader(
+            Status st = get_column_reader(
                     read_options.tablet_schema->column(runtime_predicate->column_id()), &reader,
-                    read_options.stats));
-            if (reader &&
-                can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
+                    read_options.stats);
+            if (st.is<ErrorCode::NOT_FOUND>()) {
+                continue;
+            }
+            RETURN_IF_ERROR(st);
+            DCHECK(reader != nullptr);
+            if (can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
                                            *schema, read_options.io_ctx.reader_type) &&
                 !reader->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
@@ -588,6 +599,7 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     OlapReaderStatistics stats;
     // If status is not ok, it will throw exception(data corruption)
     THROW_IF_ERROR(get_column_reader(unique_id, &reader, &stats));
+    DCHECK(reader != nullptr);
     const auto* variant_reader = static_cast<const VariantColumnReader*>(reader.get());
 
     // Find the specific node within the variant structure using the relative path.
@@ -733,7 +745,7 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
     // The column is not in this segment, return nullptr
     if (!_tablet_schema->has_column_unique_id(col_uid)) {
         *column_reader = nullptr;
-        return Status::OK();
+        return Status::NotFound("column not found in segment, col_uid={}", col_uid);
     }
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
 }
@@ -747,7 +759,7 @@ Status Segment::get_column_reader(const TabletColumn& col,
     // The column is not in this segment, return nullptr
     if (!_tablet_schema->has_column_unique_id(col_uid)) {
         *column_reader = nullptr;
-        return Status::OK();
+        return Status::NotFound("column not found in segment, col_uid={}", col_uid);
     }
     if (col.has_path_info()) {
         vectorized::PathInData relative_path = col.path_info_ptr()->copy_pop_front();
@@ -762,8 +774,13 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
                                           std::unique_ptr<BitmapIndexIterator>* iter) {
     RETURN_IF_ERROR(_create_column_meta_once(read_options.stats));
     std::shared_ptr<ColumnReader> reader;
-    RETURN_IF_ERROR(get_column_reader(tablet_column, &reader, read_options.stats));
-    if (reader != nullptr && reader->has_bitmap_index()) {
+    auto st = get_column_reader(tablet_column, &reader, read_options.stats);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(st);
+    DCHECK(reader != nullptr);
+    if (reader->has_bitmap_index()) {
         BitmapIndexIterator* it;
         RETURN_IF_ERROR(reader->new_bitmap_index_iterator(&it));
         iter->reset(it);
@@ -780,8 +797,13 @@ Status Segment::new_index_iterator(const TabletColumn& tablet_column, const Tabl
     }
     RETURN_IF_ERROR(_create_column_meta_once(read_options.stats));
     std::shared_ptr<ColumnReader> reader;
-    RETURN_IF_ERROR(get_column_reader(tablet_column, &reader, read_options.stats));
-    if (reader != nullptr && index_meta) {
+    auto st = get_column_reader(tablet_column, &reader, read_options.stats);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(st);
+    DCHECK(reader != nullptr);
+    if (index_meta) {
         // call DorisCallOnce.call without check if _index_file_reader is nullptr
         // to avoid data race during parallel method calls
         RETURN_IF_ERROR(_index_file_reader_open.call([&] { return _open_index_file_reader(); }));
