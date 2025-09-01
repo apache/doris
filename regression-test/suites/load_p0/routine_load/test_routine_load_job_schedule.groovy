@@ -22,7 +22,7 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 import java.util.Collections
 
-suite("test_routine_load_job_schedule","p0") {
+suite("test_routine_load_job_schedule","nonConcurrent") {
     def kafkaCsvTpoics = [
                   "test_routine_load_job_schedule",
                 ]
