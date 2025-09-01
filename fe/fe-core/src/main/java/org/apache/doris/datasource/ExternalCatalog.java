@@ -55,7 +55,9 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
@@ -1092,6 +1094,32 @@ public abstract class ExternalCatalog
     public void replayDropDb(String dbName) {
         if (metadataOps != null) {
             metadataOps.afterDropDb(dbName);
+        }
+    }
+
+    @Override
+    public boolean createTable(CreateMTMVCommand command) throws UserException {
+        makeSureInitialized();
+        CreateMTMVInfo createMTMVInfo = command.getCreateMTMVInfo();
+        if (metadataOps == null) {
+            throw new DdlException("Create table is not supported for catalog: " + getName());
+        }
+
+        try {
+            boolean res = metadataOps.createTable(createMTMVInfo);
+            if (!res) {
+                // res == false means the table does not exist before, and we create it.
+                // we should get the table stored in Doris, and use local name in edit log.
+                CreateTableInfo info = new CreateTableInfo(getName(), createMTMVInfo.getDbName(),
+                        createMTMVInfo.getTableName());
+                Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                LOG.info("finished to create table {}.{}.{}", getName(), createMTMVInfo.getDbName(),
+                        createMTMVInfo.getTableName());
+            }
+            return res;
+        } catch (Exception e) {
+            LOG.warn("Failed to create a table.", e);
+            throw e;
         }
     }
 

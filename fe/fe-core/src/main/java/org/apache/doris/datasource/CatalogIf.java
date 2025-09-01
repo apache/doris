@@ -30,6 +30,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
@@ -190,6 +191,13 @@ public interface CatalogIf<T extends DatabaseIf> {
     void createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException;
 
     void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
+
+    /**
+     * @return if org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo.ifNotExists is true,
+     * return true if table exists,
+     * return false otherwise
+     */
+    boolean createTable(CreateMTMVCommand command) throws UserException;
 
     /**
      * @return if org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo.ifNotExists is true,

@@ -35,6 +35,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -256,6 +257,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public boolean createTableImpl(CreateMTMVInfo createMTMVInfo) throws UserException {
+        try {
+            return executionAuthenticator.execute(() -> performCreateTable(createMTMVInfo));
+        } catch (Exception e) {
+            throw new DdlException(
+                "Failed to create table: " + createMTMVInfo.getTableName() + ", error message is:" + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
         try {
             return executionAuthenticator.execute(() -> performCreateTable(createTableInfo));
@@ -264,6 +275,53 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 "Failed to create table: " + createTableInfo.getTableName() + ", error message is:" + e.getMessage(),
                     e);
         }
+    }
+
+    public boolean performCreateTable(CreateMTMVInfo createMTMVInfo) throws UserException {
+        String dbName = createMTMVInfo.getDbName();
+        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
+        }
+        String tableName = createMTMVInfo.getTableName();
+        // 1. first, check if table exist in remote
+        if (tableExist(db.getRemoteName(), tableName)) {
+            if (createMTMVInfo.isIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableName);
+                return true;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+            }
+        }
+        // 2. second, check fi table exist in local.
+        // This is because case sensibility issue, eg:
+        // 1. lower_case_table_name = 1
+        // 2. create table tbl1;
+        // 3. create table TBL1;  TBL1 does not exist in remote because the remote system is case-sensitive.
+        //    but because lower_case_table_name = 1, the table can not be created in Doris because it is conflict with
+        //    tbl1
+        ExternalTable dorisTable = db.getTableNullable(tableName);
+        if (dorisTable != null) {
+            if (createMTMVInfo.isIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableName);
+                return true;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+            }
+        }
+        List<Column> columns = createMTMVInfo.getColumns();
+        List<StructField> collect = columns.stream()
+                .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
+                .collect(Collectors.toList());
+        StructType structType = new StructType(new ArrayList<>(collect));
+        Type visit =
+                DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
+        Schema schema = new Schema(visit.asNestedType().asStructType().fields());
+        Map<String, String> properties = createMTMVInfo.getProperties();
+        properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
+        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(createMTMVInfo.getPartitionDesc(), schema);
+        catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
+        return false;
     }
 
     public boolean performCreateTable(CreateTableInfo createTableInfo) throws UserException {
