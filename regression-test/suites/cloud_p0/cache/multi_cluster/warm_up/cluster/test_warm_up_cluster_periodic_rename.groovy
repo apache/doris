@@ -77,6 +77,11 @@ suite('test_warm_up_cluster_periodic_rename', 'docker') {
             def failed = getBrpcMetrics(ip, port, "file_cache_download_failed_num")
             logger.info("${cluster} be ${ip}:${port}, downloader submitted=${submitted}"
                     + ", finished=${finished}, failed=${failed}")
+            
+            def submitted_segment = getBrpcMetrics(ip, port, "file_cache_once_or_periodic_warm_up_submitted_segment_num")
+            def finished_segment = getBrpcMetrics(ip, port, "file_cache_once_or_periodic_warm_up_finished_segment_num")
+            logger.info("${cluster} be ${ip}:${port}, warmup submitted=${submitted_segment}"
+                    + ", finished=${finished_segment}")
         }
     }
 
@@ -128,6 +133,16 @@ suite('test_warm_up_cluster_periodic_rename', 'docker') {
         logger.info("ttl_cache_size: src=${srcSum} dst=${tgtSum}")
         assertTrue(srcSum > 0, "ttl_cache_size should > 0")
         assertEquals(srcSum, tgtSum)
+    }
+
+    def waitUntil = { condition, timeoutMs ->
+        long start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            if (condition()) {
+                return
+            }
+            sleep(1000)
+        }
     }
 
     docker(options) {
@@ -184,7 +199,7 @@ suite('test_warm_up_cluster_periodic_rename', 'docker') {
             sql """SELECT * FROM customer"""
         }
 
-        sleep(5000)
+        waitUntil({ getClusterTTLCacheSizeSum(clusterName1) > 0 }, 60000)
 
         def hotspot = sql """select * from __internal_schema.cloud_cache_hotspot;"""
         logger.info("hotspot: {}", hotspot)
@@ -194,7 +209,7 @@ suite('test_warm_up_cluster_periodic_rename', 'docker') {
         assertEquals(0, getClusterTTLCacheSizeSum(clusterName3))
 
         sql """ALTER SYSTEM RENAME COMPUTE GROUP ${clusterName3} ${clusterName2}"""
-        sleep(5000)
+        waitUntil({ getClusterTTLCacheSizeSum(clusterName1) == getClusterTTLCacheSizeSum(clusterName2) }, 60000)
 
         logFileCacheDownloadMetrics(clusterName2)
         checkTTLCacheSizeSumEqual(clusterName1, clusterName2)

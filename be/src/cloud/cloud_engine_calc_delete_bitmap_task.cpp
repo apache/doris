@@ -145,7 +145,8 @@ void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
 }
 
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
-    VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id;
+    VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id
+               << ", txn_id=" << _transaction_id;
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
     auto base_tablet = DORIS_TRY(_engine.get_tablet(_tablet_id));
@@ -326,7 +327,7 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         int64_t next_visible_version =
                 txn_info.is_txn_load ? txn_info.next_visible_version : version;
         RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(version, transaction_id, delete_bitmap,
-                                                         lock_id, next_visible_version));
+                                                         lock_id, next_visible_version, rowset));
 
         LOG(INFO) << "tablet=" << _tablet_id << ", " << txn_str
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
