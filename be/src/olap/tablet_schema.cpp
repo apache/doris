@@ -1041,6 +1041,7 @@ void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_
                 size_t pos = iter->second[i];
                 if (pos < _indexes.size()) {
                     _indexes[pos] = std::make_shared<TabletIndex>(std::move(indexes[i]));
+                    return;
                 }
             }
         }
