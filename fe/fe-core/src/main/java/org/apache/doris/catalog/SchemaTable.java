@@ -493,6 +493,7 @@ public class SchemaTable extends Table {
                             .column("QUEUE_START_TIME", ScalarType.createVarchar(256))
                             .column("QUEUE_END_TIME", ScalarType.createVarchar(256))
                             .column("QUERY_STATUS", ScalarType.createVarchar(256))
+                            .column("USER", ScalarType.createVarchar(256))
                             .column("SQL", ScalarType.createStringType())
                             .build()))
             .put("workload_groups", new SchemaTable(SystemIdGenerator.getNextId(), "workload_groups", TableType.SCHEMA,

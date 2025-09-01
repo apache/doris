@@ -39,6 +39,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaActiveQueriesScanner::_s_tbls_colum
         {"QUEUE_START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"QUEUE_END_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"QUERY_STATUS", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"USER", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SQL", TYPE_STRING, sizeof(StringRef), true}};
 
 SchemaActiveQueriesScanner::SchemaActiveQueriesScanner()

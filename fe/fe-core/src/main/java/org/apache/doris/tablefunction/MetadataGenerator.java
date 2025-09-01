@@ -811,6 +811,13 @@ public class MetadataGenerator {
             String queueMsg = queryInfo.getQueueStatus();
             trow.addToColumnValue(new TCell().setStringVal(queueMsg));
 
+            if (queryInfo.getConnectContext() != null) {
+                String user = queryInfo.getConnectContext().getQualifiedUser();
+                trow.addToColumnValue(new TCell().setStringVal(user != null ? user : ""));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal(""));
+            }
+
             trow.addToColumnValue(new TCell().setStringVal(queryInfo.getSql()));
             dataBatch.add(trow);
         }
