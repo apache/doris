@@ -97,11 +97,11 @@ public class StatisticsMetricCollector extends MasterDaemon {
                             tmpUnhealthyColumnCount += columnIndexPairs.size();
                         }
                     } catch (Exception e) {
-                        LOG.info("Failed to get metrics for table {}. Reason {}", table.getName(), e.getMessage());
+                        LOG.warn("Failed to get metrics for table {}. Reason {}", table.getName(), e.getMessage());
                     }
                 }
             } catch (Exception e) {
-                LOG.info("Failed to get metrics for db {}. Reason {}", db.getFullName(), e.getMessage());
+                LOG.warn("Failed to get metrics for db {}. Reason {}", db.getFullName(), e.getMessage());
             }
         }
         unhealthyTableCount = tmpUnhealthyTableCount;
