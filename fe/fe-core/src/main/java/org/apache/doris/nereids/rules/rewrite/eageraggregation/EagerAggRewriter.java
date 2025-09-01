@@ -276,13 +276,21 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private Plan genAggregate(Plan child, PushDownAggContext context) {
-        List<NamedExpression> aggOutputExpressions = new ArrayList<>();
-        aggOutputExpressions.addAll(context.getAliasMap().values());
-        aggOutputExpressions.addAll(context.getGroupKeys().stream()
-                .map(e -> (NamedExpression) e).collect(Collectors.toList()));
-        for (NamedExpression key : context.getGroupKeys()) {
-            context.addFinalGroupKey((SlotReference) key.toSlot());
+        if (checkStats(child, context)) {
+            List<NamedExpression> aggOutputExpressions = new ArrayList<>();
+            aggOutputExpressions.addAll(context.getAliasMap().values());
+            aggOutputExpressions.addAll(context.getGroupKeys().stream()
+                    .map(e -> (NamedExpression) e).collect(Collectors.toList()));
+            for (NamedExpression key : context.getGroupKeys()) {
+                context.addFinalGroupKey((SlotReference) key.toSlot());
+            }
+            return new LogicalAggregate(context.getGroupKeys(), aggOutputExpressions, child);
+        } else {
+            return child;
         }
-        return new LogicalAggregate(context.getGroupKeys(), aggOutputExpressions, child);
+    }
+
+    private boolean checkStats(Plan plan, PushDownAggContext context) {
+        return true;
     }
 }
