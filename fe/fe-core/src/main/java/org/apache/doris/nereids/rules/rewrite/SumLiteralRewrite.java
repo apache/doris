@@ -194,8 +194,8 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
 
         Expression left = ((BinaryArithmetic) child).left();
         Expression right = ((BinaryArithmetic) child).right();
-        if (!(right.isLiteral() && left instanceof Slot)) {
-            // right now, only support slot +/- literal
+        if (!(right.isLiteral())) {
+            // right now, only support expr +/- literal
             return null;
         }
         if (!(right.getDataType().isIntegerLikeType() || right.getDataType().isFloatLikeType())) {
