@@ -294,7 +294,7 @@ TxnErrorCode MetaReader::get_tablet_compact_stats(
 
         if (tablet_stats) {
             TabletStatsPB tablet_stat;
-            if (tablet_stat.ParseFromString(value)) {
+            if (!tablet_stat.ParseFromString(value)) {
                 LOG_ERROR("Failed to parse TabletStatsPB")
                         .tag("instance_id", instance_id_)
                         .tag("tablet_id", tablet_id)
