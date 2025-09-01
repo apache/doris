@@ -119,6 +119,20 @@ TEST_F(CloudIndexChangeCompactionTest, ms_ret_status_test) {
 
     std::vector<TColumn> columns;
 
+    {
+        Status ret_set = tablet->set_tablet_state(TabletState::TABLET_TOMBSTONED);
+        std::shared_ptr<CloudIndexChangeCompaction> index_change_compact =
+                std::make_shared<CloudIndexChangeCompaction>(*_engine, tablet, 0, index_list,
+                                                             columns);
+        Status prepare_ret = index_change_compact->prepare_compact();
+        ASSERT_TRUE(!prepare_ret.ok());
+        ASSERT_TRUE(contains_str(prepare_ret.to_string(), "invalid tablet state"));
+        ASSERT_TRUE(ret_set.ok());
+    }
+
+    Status ret_set2 = tablet->set_tablet_state(TabletState::TABLET_RUNNING);
+    ASSERT_TRUE(ret_set2.ok());
+
     // 1 test prepare
     {
         auto sp = SyncPoint::get_instance();
@@ -357,8 +371,15 @@ TEST_F(CloudIndexChangeCompactionTest, basic_compaction_test) {
 
     std::vector<TOlapTableIndex> index_list;
     std::vector<TColumn> columns;
-    CloudIndexChangeCompaction cloud_index_change_compaction(*_engine, tablet, 0, index_list,
+    CloudIndexChangeCompaction cloud_index_change_compaction(*_engine, tablet, 123, index_list,
                                                              columns);
+
+    cloud_index_change_compaction._input_rowsets.clear();
+    cloud_index_change_compaction._input_rowsets.push_back(rowset_ptr);
+    Status re_build_schema = cloud_index_change_compaction.rebuild_tablet_schema();
+    ASSERT_TRUE(cloud_index_change_compaction._final_tablet_schema != nullptr);
+    ASSERT_TRUE(cloud_index_change_compaction._cur_tablet_schema->schema_version() == 123);
+    ASSERT_TRUE(re_build_schema.ok());
 
     // test is_index_change_compaction
     CloudBaseCompaction cloud_base_compaction(*_engine, tablet);
@@ -390,6 +411,117 @@ TEST_F(CloudIndexChangeCompactionTest, basic_compaction_test) {
     ASSERT_TRUE(in_predicates[0].column_name() == "col1");
     ASSERT_TRUE(in_predicates[0].is_not_in() == true);
     ASSERT_TRUE(in_predicates[0].values().size() == 2);
+}
+
+TEST_F(CloudIndexChangeCompactionTest, test_cloud_tablet) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+
+    ColumnPB* column_pb = schema_pb.add_column();
+    column_pb->set_unique_id(10000);
+    column_pb->set_name("col1");
+    column_pb->set_type("int");
+    column_pb->set_is_key(true);
+    column_pb->set_is_nullable(true);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+    tablet_schema->set_schema_version(10);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_num_segments(2);
+    rowset_meta->set_num_rows(0);
+    RowsetSharedPtr rowset_ptr = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
+
+    TabletMetaPB input_meta_pb;
+    input_meta_pb.set_tablet_id(1000);
+    input_meta_pb.set_schema_hash(123456);
+    input_meta_pb.set_tablet_state(PB_RUNNING);
+    *input_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
+
+    auto tablet_meta = std::make_shared<TabletMeta>();
+    tablet_meta->init_from_pb(input_meta_pb);
+
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(*_engine, tablet_meta);
+
+    Version v1;
+    v1.first = 1;
+    v1.second = 2;
+    tablet->_rs_version_map[v1] = rowset_ptr;
+
+    {
+        bool is_base_rowset = false;
+        auto ret = tablet->pick_a_rowset_for_index_change(1, is_base_rowset);
+        ASSERT_TRUE(ret.value() == nullptr);
+        ASSERT_TRUE(!is_base_rowset);
+    }
+
+    {
+        std::vector<TColumn> t_columns;
+        TColumn col1;
+        col1.__set_column_name("col2");
+        col1.__set_col_unique_id(123);
+
+        TColumnType column_type;
+        column_type.__set_type(TPrimitiveType::STRING);
+        col1.__set_column_type(column_type);
+
+        t_columns.emplace_back(std::move(col1));
+
+        Status ret1 = tablet->check_rowset_schema_for_build_index(t_columns, 1000);
+        ASSERT_TRUE(!ret1.ok());
+        ASSERT_TRUE(contains_str(ret1.to_string(), "col is dropped"));
+    }
+
+    {
+        std::vector<TColumn> t_columns;
+        TColumn col1;
+        col1.__set_column_name("col1");
+        col1.__set_col_unique_id(123);
+
+        TColumnType column_type;
+        column_type.__set_type(TPrimitiveType::STRING);
+        col1.__set_column_type(column_type);
+
+        t_columns.emplace_back(std::move(col1));
+
+        Status ret1 = tablet->check_rowset_schema_for_build_index(t_columns, 1000);
+        ASSERT_TRUE(!ret1.ok());
+        ASSERT_TRUE(contains_str(ret1.to_string(), "col id not match"));
+    }
+
+    {
+        std::vector<TColumn> t_columns;
+        TColumn col1;
+        col1.__set_column_name("col1");
+        col1.__set_col_unique_id(10000);
+
+        TColumnType column_type;
+        column_type.__set_type(TPrimitiveType::STRING);
+        col1.__set_column_type(column_type);
+
+        t_columns.emplace_back(std::move(col1));
+
+        Status ret1 = tablet->check_rowset_schema_for_build_index(t_columns, 1000);
+        ASSERT_TRUE(!ret1.ok());
+        ASSERT_TRUE(contains_str(ret1.to_string(), "col type not match"));
+    }
+
+    {
+        std::vector<TColumn> t_columns;
+        TColumn col1;
+        col1.__set_column_name("col1");
+        col1.__set_col_unique_id(10000);
+
+        TColumnType column_type;
+        column_type.__set_type(TPrimitiveType::INT);
+        col1.__set_column_type(column_type);
+
+        t_columns.emplace_back(std::move(col1));
+
+        Status ret1 = tablet->check_rowset_schema_for_build_index(t_columns, 1000);
+        ASSERT_TRUE(ret1.ok());
+    }
 }
 
 } // namespace doris

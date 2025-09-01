@@ -144,6 +144,16 @@ TEST_F(CloudIndexChangeTaskTest, task_execute_err_exit) {
         pairs->first = Status::OK();
     });
 
+    {
+        config::cloud_index_change_task_timeout_second = -1;
+        TAlterInvertedIndexReq request;
+        EngineCloudIndexChangeTask task(*_engine, request);
+        Status ret = task.execute();
+        ASSERT_TRUE(!ret.ok());
+        ASSERT_TRUE(contains_str(ret.to_string(), "timeout"));
+        config::cloud_index_change_task_timeout_second = 3600;
+    }
+
     // test get null rowset
     sp->set_call_back("CloudTablet::pick_a_rowset_for_index_change", [](auto&& outcome) {
         auto* pairs = try_any_cast_ret<Result<RowsetSharedPtr>>(outcome);
@@ -180,6 +190,19 @@ TEST_F(CloudIndexChangeTaskTest, task_execute_err_exit) {
         Status ret = task.execute();
         ASSERT_TRUE(!ret.ok());
         ASSERT_TRUE(contains_str(ret.to_string(), "prepare compact failed"));
+    }
+
+    sp->set_call_back("CloudIndexChangeCompaction::prepare_compact", [](auto&& outcome) {
+        auto* pairs = try_any_cast_ret<Status>(outcome);
+        pairs->second = true;
+        pairs->first = Status::OK();
+    });
+
+    {
+        TAlterInvertedIndexReq request;
+        EngineCloudIndexChangeTask task(*_engine, request);
+        Status ret = task.execute();
+        ASSERT_TRUE(ret.ok());
     }
 }
 
