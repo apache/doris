@@ -46,8 +46,8 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(logicalUnion())
-                .when(this::canPushProjectIntoUnion)
-                .thenApply(ctx -> {
+                .when(this::canPushProjectIntoUnion
+        ).thenApply(ctx -> {
             LogicalProject<LogicalUnion> p = ctx.root;
             ExpressionRewriteContext expressionRewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
             LogicalUnion union = p.child();
