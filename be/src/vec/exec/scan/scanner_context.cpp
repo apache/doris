@@ -491,8 +491,8 @@ void ScannerContext::update_peak_running_scanner(int num) {
 int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
                                     std::unique_lock<std::shared_mutex>& scheduler_lock) {
     // margin_1 is used to ensure each scan operator could have at least _min_scan_concurrency scan tasks.
-    int32_t margin_1 = cast_set<int32_t>(_min_scan_concurrency -
-                                         (_tasks_queue.size() + _num_scheduled_scanners));
+    int32_t margin_1 = _min_scan_concurrency -
+                       (cast_set<int32_t>(_tasks_queue.size()) + _num_scheduled_scanners);
 
     // margin_2 is used to ensure the scan scheduler could have at least _min_scan_concurrency_of_scan_scheduler scan tasks.
     int32_t margin_2 =
