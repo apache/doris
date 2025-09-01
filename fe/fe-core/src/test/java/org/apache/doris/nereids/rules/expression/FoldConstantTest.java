@@ -1156,6 +1156,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     void testDateTimeTypeDateTimeArithmeticFunctions() {
         DateTimeLiteral dateLiteral = new DateTimeLiteral("1999-12-31 23:59:59");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
+        BigIntLiteral bigIntLiteral = new BigIntLiteral(30);
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
@@ -1178,13 +1179,13 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.hoursAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.hoursSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.minutesAdd(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.minutesAdd(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.minutesSub(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.minutesSub(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.secondsAdd(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.secondsAdd(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.secondsSub(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.secondsSub(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
 
         Assertions.assertEquals(DateTimeExtractAndTransform.year(dateLiteral).toSql(), answer[answerIdx++]);
@@ -1260,6 +1261,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     void testDateTimeV2TypeDateTimeArithmeticFunctions() {
         DateTimeV2Literal dateLiteral = new DateTimeV2Literal(DateTimeV2Type.SYSTEM_DEFAULT, "1999-12-31 23:59:59");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
+        BigIntLiteral bigIntLiteral = new BigIntLiteral(30);
         VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
 
         String[] answer = {
@@ -1287,21 +1289,21 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeArithmetic.daysSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.hoursAdd(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeArithmetic.hoursSub(dateLiteral, integerLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.minutesAdd(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.minutesAdd(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.minutesSub(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.minutesSub(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.secondsAdd(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.secondsAdd(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.secondsSub(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.secondsSub(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.microSecondsAdd(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.microSecondsAdd(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.microSecondsSub(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.microSecondsSub(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.milliSecondsAdd(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.milliSecondsAdd(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeArithmetic.milliSecondsSub(dateLiteral, integerLiteral).toSql(),
+        Assertions.assertEquals(DateTimeArithmetic.milliSecondsSub(dateLiteral, bigIntLiteral).toSql(),
                 answer[answerIdx++]);
 
         Assertions.assertEquals(DateTimeExtractAndTransform.year(dateLiteral).toSql(), answer[answerIdx++]);

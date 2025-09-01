@@ -32,14 +32,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
@@ -71,24 +70,11 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
     public void testSimpleAliasFunction() throws Exception {
         // alias udf should not check java_udf
         Config.enable_java_udf = false;
-        createFunction("create alias function f() as 1");
-
-        String sql = "select f()";
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .matches(
-                        logicalOneRowRelation()
-                                .when(oneRow -> oneRow.getProjects().get(0).child(0)
-                                        .equals(new IntegerLiteral(1))));
-    }
-
-    @Test
-    public void testGlobalFunction() throws Exception {
-        createFunction("create global alias function f(bigint) with parameter(n) as hours_add(now(3), n)");
-        createFunction("create alias function f(bigint) with parameter(n) as hours_sub(now(3), n)");
+        createFunction("create global alias function f(int) with parameter(n) as hours_add(now(3), n)");
+        createFunction("create alias function f(int) with parameter(n) as hours_sub(now(3), n)");
 
         String sql = "select f(3)";
-        Expression expected = new HoursSub(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
+        Expression expected = new HoursSub(new Now(new IntegerLiteral(3)), new IntegerLiteral(3));
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
@@ -97,7 +83,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                         .equals(expected)));
 
         connectContext.setDatabase("test_1");
-        Expression expected1 = new HoursAdd(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
+        Expression expected1 = new HoursAdd(new Now(new IntegerLiteral(3)), new IntegerLiteral(3));
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
@@ -106,7 +92,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                         .equals(expected1)));
 
         sql = "select test.f(3)";
-        Expression expected2 = new HoursSub(new Now(new IntegerLiteral(3)), new BigIntLiteral(3));
+        Expression expected2 = new HoursSub(new Now(new IntegerLiteral(3)), new IntegerLiteral(3));
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .matches(
@@ -117,8 +103,8 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
 
     @Test
     public void testNestedAliasFunction() throws Exception {
-        createFunction("create global alias function f1(bigint) with parameter(n) as hours_add(now(3), n)");
-        createFunction("create global alias function f2(bigint) with parameter(n) as dayofweek(days_add(f1(3), n))");
+        createFunction("create global alias function f1(int) with parameter(n) as hours_add(now(3), n)");
+        createFunction("create global alias function f2(int) with parameter(n) as dayofweek(days_add(f1(3), n))");
         createFunction("create global alias function f3(date) with parameter(dt) as hours_sub(days_sub(dt, f2(3)), dayofmonth(f1(f2(4))))");
 
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
@@ -131,16 +117,16 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                         new Cast(new DayOfWeek(new DaysAdd(
                                 new HoursAdd(
                                         new Now(new IntegerLiteral(3)),
-                                        new BigIntLiteral(3)),
-                                new BigIntLiteral(3))), BigIntType.INSTANCE)),
+                                        new IntegerLiteral(3)),
+                                new IntegerLiteral(3))), IntegerType.INSTANCE)),
                 new Cast(new DayOfMonth(new HoursAdd(
                         new Now(new IntegerLiteral(3)),
                         new Cast(new DayOfWeek(new DaysAdd(
                                 new HoursAdd(
                                         new Now(new IntegerLiteral(3)),
-                                        new BigIntLiteral(3)),
-                                new BigIntLiteral(4))), BigIntType.INSTANCE))),
-                        BigIntType.INSTANCE));
+                                        new IntegerLiteral(3)),
+                                new IntegerLiteral(4))), IntegerType.INSTANCE))),
+                        IntegerType.INSTANCE));
 
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -153,7 +139,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
 
     @Test
     public void testParameterUseMoreThanOneTime() throws Exception {
-        createFunction("CREATE ALIAS FUNCTION f7(DATETIMEV2(3), BIGINT) with PARAMETER (datetime1, int1) as\n"
+        createFunction("CREATE ALIAS FUNCTION f7(DATETIMEV2(3), INT) with PARAMETER (datetime1, int1) as\n"
                 + "        DATE_FORMAT(HOURS_ADD(\n"
                 + "            date_trunc(datetime1, 'day'),\n"
                 + "            add(multiply(floor(divide(HOUR(datetime1), divide(24, int1))), 1), 1)), '%Y%m%d:%H')");
@@ -161,48 +147,48 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         String sql = "select f7('2023-05-20 12:23:45', 3)";
 
         Expression expected = new DateFormat(
-                                new HoursAdd(
-                                                new DateTrunc(
-                                                                new Cast(new VarcharLiteral("2023-05-20 12:23:45"),
-                                                                                DateTimeV2Type.SYSTEM_DEFAULT),
-                                                                new VarcharLiteral("day")),
-                                                new Cast(new Add(
-                                                                new Multiply(
-                                                                                new Floor(new Divide(
-                                                                                                new Cast(
-                                                                                                                new Hour(new Cast(
-                                                                                                                                new VarcharLiteral(
-                                                                                                                                                "2023-05-20 12:23:45"),
-                                                                                                                                DateTimeV2Type.SYSTEM_DEFAULT)),
-                                                                                                                DoubleType.INSTANCE),
-                                                                                                new Divide(
-                                                                                                                new Cast(new TinyIntLiteral(
-                                                                                                                                ((byte) 24)),
-                                                                                                                                DoubleType.INSTANCE),
-                                                                                                                new Cast(new IntegerLiteral(
-                                                                                                                                ((byte) 3)),
-                                                                                                                                DoubleType.INSTANCE)))),
-                                                                                new Cast(new TinyIntLiteral(((byte) 1)),
-                                                                                                DoubleType.INSTANCE)),
-                                                                new Cast(new TinyIntLiteral(((byte) 1)),
-                                                                                DoubleType.INSTANCE)),
-                                                                BigIntType.INSTANCE)),
-                                new VarcharLiteral("%Y%m%d:%H"));
+                new HoursAdd(
+                        new DateTrunc(
+                                new Cast(new VarcharLiteral("2023-05-20 12:23:45"),
+                                        DateTimeV2Type.SYSTEM_DEFAULT),
+                                new VarcharLiteral("day")),
+                        new Cast(new Add(
+                                new Multiply(
+                                        new Floor(new Divide(
+                                                new Cast(
+                                                        new Hour(new Cast(
+                                                                new VarcharLiteral(
+                                                                        "2023-05-20 12:23:45"),
+                                                                DateTimeV2Type.SYSTEM_DEFAULT)),
+                                                        DoubleType.INSTANCE),
+                                                new Divide(
+                                                        new Cast(new TinyIntLiteral(
+                                                                ((byte) 24)),
+                                                                DoubleType.INSTANCE),
+                                                        new Cast(new IntegerLiteral(
+                                                                ((byte) 3)),
+                                                                DoubleType.INSTANCE)))),
+                                        new Cast(new TinyIntLiteral(((byte) 1)),
+                                                DoubleType.INSTANCE)),
+                                new Cast(new TinyIntLiteral(((byte) 1)),
+                                        DoubleType.INSTANCE)),
+                                IntegerType.INSTANCE)),
+                new VarcharLiteral("%Y%m%d:%H"));
 
         PlanChecker.from(connectContext)
-                                .analyze(sql)
-                                .matches(
-                                                logicalOneRowRelation()
-                                                                .when(oneRow -> oneRow.getProjects().size() == 1
-                                                                                && oneRow.getProjects().get(0).child(0)
-                                                                                                .equals(expected)));
+                .analyze(sql)
+                .matches(
+                        logicalOneRowRelation()
+                                .when(oneRow -> oneRow.getProjects().size() == 1
+                                        && oneRow.getProjects().get(0).child(0)
+                                                .equals(expected)));
     }
 
     @Test
     public void testReadFromStream() throws Exception {
-        createFunction("create global alias function f8(bigint) with parameter(n) as hours_add(now(3), n)");
+        createFunction("create global alias function f8(int) with parameter(n) as hours_add(now(3), n)");
         Env.getCurrentEnv().getFunctionRegistry().dropUdf(null, "f8",
-                ImmutableList.of(BigIntType.INSTANCE));
+                ImmutableList.of(IntegerType.INSTANCE));
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         Env.getCurrentEnv().getGlobalFunctionMgr().write(new DataOutputStream(outputStream));

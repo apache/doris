@@ -22,9 +22,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.IntegerType;
 
 /**
  * use for date arithmetic, such as date_sub('2024-05-28', INTERVAL 1 day).
@@ -46,9 +46,9 @@ public interface ComputeSignatureForDateArithmetic extends ComputeSignature {
                     new DateV2Literal(s);
                     if (Config.enable_date_conversion) {
                         return FunctionSignature.ret(DateV2Type.INSTANCE)
-                                .args(DateV2Type.INSTANCE, BigIntType.INSTANCE);
+                                .args(DateV2Type.INSTANCE, IntegerType.INSTANCE);
                     } else {
-                        return FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, BigIntType.INSTANCE);
+                        return FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, IntegerType.INSTANCE);
                     }
                 }
             } catch (Exception e) {
