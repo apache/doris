@@ -76,6 +76,24 @@ public abstract class StringLikeLiteral extends Literal {
     }
 
     @Override
+    public int fastChildrenHashCode() {
+        return doComputeHashCode();
+    }
+
+    @Override
+    protected int computeHashCode() {
+        return doComputeHashCode();
+    }
+
+    private int doComputeHashCode() {
+        if (value != null && value.length() > 36) {
+            return value.substring(0, 36).hashCode();
+        } else {
+            return Objects.hashCode(getValue());
+        }
+    }
+
+    @Override
     public String toString() {
         return "'" + value + "'";
     }
