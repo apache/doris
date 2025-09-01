@@ -243,6 +243,72 @@ TxnErrorCode MetaReader::get_tablet_compact_stats(Transaction* txn, int64_t tabl
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode MetaReader::get_tablet_compact_stats(
+        const std::vector<int64_t>& tablet_ids,
+        std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+        std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_tablet_compact_stats(txn.get(), tablet_ids, tablet_stats, versionstamps, snapshot);
+}
+
+TxnErrorCode MetaReader::get_tablet_compact_stats(
+        Transaction* txn, const std::vector<int64_t>& tablet_ids,
+        std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+        std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot) {
+    if (tablet_ids.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+
+    std::vector<std::string> tablet_compact_stats_keys;
+    for (size_t i = 0; i < tablet_ids.size(); ++i) {
+        int64_t tablet_id = tablet_ids[i];
+        std::string tablet_compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id_, tablet_id});
+        tablet_compact_stats_keys.push_back(std::move(tablet_compact_stats_key));
+    }
+
+    std::vector<std::optional<std::pair<std::string, Versionstamp>>> versioned_values;
+    TxnErrorCode err = versioned_batch_get(txn, tablet_compact_stats_keys, snapshot_version_,
+                                           &versioned_values, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    for (size_t i = 0; i < versioned_values.size(); ++i) {
+        const auto& kv = versioned_values[i];
+        if (!kv.has_value()) {
+            continue; // Key not found, skip
+        }
+
+        const std::string& value = kv->first;
+        Versionstamp versionstamp = kv->second;
+        int64_t tablet_id = tablet_ids[i];
+
+        if (versionstamps) {
+            versionstamps->emplace(tablet_id, versionstamp);
+        }
+
+        if (tablet_stats) {
+            TabletStatsPB tablet_stat;
+            if (tablet_stat.ParseFromString(value)) {
+                LOG_ERROR("Failed to parse TabletStatsPB")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("key", hex(tablet_compact_stats_keys[i]))
+                        .tag("value", hex(value));
+                return TxnErrorCode::TXN_INVALID_DATA;
+            }
+            tablet_stats->emplace(tablet_id, std::move(tablet_stat));
+        }
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode MetaReader::get_tablet_merged_stats(int64_t tablet_id, TabletStatsPB* tablet_stats,
                                                  Versionstamp* versionstamp, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";

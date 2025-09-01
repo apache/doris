@@ -50,13 +50,11 @@ struct SubstreamIterator {
 // path -> SubstreamIterator
 using SubstreamReaderTree = vectorized::SubcolumnsTree<SubstreamIterator, false>;
 
-// Reader for the storage layer, the file_column_type indicates the read type of the column in segment file
-struct SubcolumnReader {
-    std::unique_ptr<ColumnReader> reader;
+// Meta for the storage layer, the file_column_type indicates the read type of the column in segment file
+struct SubcolumnMeta {
     std::shared_ptr<const vectorized::IDataType> file_column_type;
+    int32_t footer_ordinal = -1;
 };
-
-// path -> SubcolumnReader
-using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader, true>;
+using SubcolumnColumnMetaInfo = vectorized::SubcolumnsTree<SubcolumnMeta, true>;
 
 } // namespace doris::segment_v2

@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/columns/column_array.h"
+#include "vec/functions/llm/embed.h"
 #include "vec/functions/llm/llm_classify.h"
 #include "vec/functions/llm/llm_extract.h"
 #include "vec/functions/llm/llm_filter.h"
@@ -113,24 +114,6 @@ Status FunctionLLMExtract::build_prompt(const Block& block, const ColumnNumbers&
     return Status::OK();
 }
 
-Status FunctionLLMFilter::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                       size_t row_num, std::string& prompt) const {
-    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    StringRef text_ref = text_column.column->get_data_at(row_num);
-    prompt = std::string(text_ref.data, text_ref.size);
-
-    return Status::OK();
-}
-
-Status FunctionLLMFixGrammar::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                           size_t row_num, std::string& prompt) const {
-    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    StringRef text_ref = text_column.column->get_data_at(row_num);
-    prompt = std::string(text_ref.data, text_ref.size);
-
-    return Status::OK();
-}
-
 Status FunctionLLMGenerate::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                          size_t row_num, std::string& prompt) const {
     const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
@@ -182,15 +165,6 @@ Status FunctionLLMMask::build_prompt(const Block& block, const ColumnNumbers& ar
     return Status::OK();
 }
 
-Status FunctionLLMSentiment::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                          size_t row_num, std::string& prompt) const {
-    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    StringRef text_ref = text_column.column->get_data_at(row_num);
-    prompt = std::string(text_ref.data, text_ref.size);
-
-    return Status::OK();
-}
-
 Status FunctionLLMSimilarity::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                            size_t row_num, std::string& prompt) const {
     // text1
@@ -204,15 +178,6 @@ Status FunctionLLMSimilarity::build_prompt(const Block& block, const ColumnNumbe
     std::string text_str_2 = std::string(text_2.data, text_2.size);
 
     prompt = "Text 1: " + text_str_1 + "\nText 2: " + text_str_2;
-
-    return Status::OK();
-}
-
-Status FunctionLLMSummarize::build_prompt(const Block& block, const ColumnNumbers& arguments,
-                                          size_t row_num, std::string& prompt) const {
-    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-    StringRef text_ref = text_column.column->get_data_at(row_num);
-    prompt = std::string(text_ref.data, text_ref.size);
 
     return Status::OK();
 }
@@ -234,43 +199,18 @@ Status FunctionLLMTranslate::build_prompt(const Block& block, const ColumnNumber
     return Status::OK();
 }
 
-void register_function_llm_classify(SimpleFunctionFactory& factory) {
+void register_function_llm(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionEmbed>();
     factory.register_function<FunctionLLMClassify>();
-}
-
-void register_function_llm_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMExtract>();
-}
-
-void register_function_llm_filter(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMFilter>();
-}
-
-void register_function_llm_fixgrammar(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMFixGrammar>();
-}
-
-void register_function_llm_generate(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMGenerate>();
-}
-
-void register_function_llm_mask(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMMask>();
-}
-
-void register_function_llm_sentiment(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMSentiment>();
-}
-
-void register_function_llm_similarity(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMSimilarity>();
-}
-
-void register_function_llm_summarize(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMSummarize>();
-}
-
-void register_function_llm_translate(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMTranslate>();
 }
+
 } // namespace doris::vectorized

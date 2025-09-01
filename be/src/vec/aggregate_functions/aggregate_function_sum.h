@@ -50,7 +50,7 @@ template <PrimitiveType T>
 struct AggregateFunctionSumData {
     typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
 
-    void add(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
+    NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif

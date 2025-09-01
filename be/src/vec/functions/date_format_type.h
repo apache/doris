@@ -60,9 +60,13 @@ void put_two_digits(T m, char* buf, int& i) {
 }
 
 // UserDefinedImpl indicates that no specific optimization has been applied, and the general logic is used for processing.
-struct UserDefinedImpl {};
+struct UserDefinedImpl {
+    // Pre-allocated size for performance.
+    constexpr static size_t row_size = 26;
+};
 
 struct yyyyMMddImpl {
+    constexpr static size_t row_size = 8;
     template <typename DateType>
     size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
@@ -74,6 +78,7 @@ struct yyyyMMddImpl {
 };
 
 struct yyyy_MM_ddImpl {
+    constexpr static size_t row_size = 10;
     template <typename DateType>
     size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
@@ -87,6 +92,7 @@ struct yyyy_MM_ddImpl {
 };
 
 struct yyyy_MM_dd_HH_mm_ssImpl {
+    constexpr static size_t row_size = 19;
     template <typename DateType>
     size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
@@ -106,6 +112,7 @@ struct yyyy_MM_dd_HH_mm_ssImpl {
 };
 
 struct yyyy_MM_dd_HH_mm_ss_SSSSSSImpl {
+    constexpr static size_t row_size = 26;
     size_t static date_to_str(const DateV2Value<DateTimeV2ValueType>& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
@@ -128,6 +135,7 @@ struct yyyy_MM_dd_HH_mm_ss_SSSSSSImpl {
 };
 
 struct yyyy_MMImpl {
+    constexpr static size_t row_size = 7;
     template <typename DateType>
     size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
@@ -138,6 +146,7 @@ struct yyyy_MMImpl {
     }
 };
 struct yyyyMMImpl {
+    constexpr static size_t row_size = 6;
     template <typename DateType>
     size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
@@ -148,6 +157,7 @@ struct yyyyMMImpl {
 };
 
 struct yyyyImpl {
+    constexpr static size_t row_size = 4;
     template <typename DateType>
     size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
