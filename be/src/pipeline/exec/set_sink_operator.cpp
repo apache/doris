@@ -123,7 +123,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     vectorized::HashTableBuild<HashTableCtxType, is_intersect>
-                            hash_table_build_process(&local_state, rows, raw_ptrs, state);
+                    hash_table_build_process(&local_state, uint32_t(rows), raw_ptrs, state);
                     st = hash_table_build_process(arg, local_state._arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
