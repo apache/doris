@@ -111,7 +111,7 @@ public class SqlCache extends Cache {
                 latestTable.latestPartitionId, latestTable.latestPartitionVersion,
                 latestTable.latestPartitionTime, latestTable.sumOfPartitionNum, status);
         if (status.ok() && cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
-            MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
+            MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
             hitRange = HitRange.Full;
         }
         return cacheResult;

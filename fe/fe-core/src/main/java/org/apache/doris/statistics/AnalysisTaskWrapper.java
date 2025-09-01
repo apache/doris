@@ -76,9 +76,13 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
                 if (except != null) {
                     LOG.warn("Analyze {} failed.", task.toString(), except);
                     if (MetricRepo.isInit) {
-                        MetricRepo.COUNTER_FAILED_ANALYZE_TASK.increase(1L);
+                        MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_TASK.increase(1L);
                     }
                     task.job.taskFailed(task, Util.getRootCauseMessage(except));
+                } else {
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK.increase(1L);
+                    }
                 }
             }
         }

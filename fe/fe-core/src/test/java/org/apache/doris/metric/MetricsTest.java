@@ -85,7 +85,8 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("doris_fe_query_err{user=\"test_user\"} 1"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
-        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
+        Assert.assertTrue(
+                metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
 
     }
 
@@ -187,5 +188,54 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_num gauge"));
         Assert.assertTrue(
                 metricResult.contains("# TYPE doris_fe_async_materialized_view_task_duration_latency_ms summary"));
+    }
+
+    @Test
+    public void testStatisticsMetrics() {
+        // Test metrics in Prometheus format
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        // doris metrics and system metrics.
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        // histogram
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        String metricResult = visitor.finish();
+
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_succeed_analyze_job counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_failed_analyze_job counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_succeed_analyze_task counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_failed_analyze_task counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_invalid_stats counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_table_rate gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_column_rate gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_table_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_column_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_not_analyzed_table_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_empty_table_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_high_priority_queue_length gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_mid_priority_queue_length gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_low_priority_queue_length gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_very_low_priority_queue_length gauge"));
+    }
+
+    @Test
+    public void testSqlCacheMetrics() {
+        // Test metrics in Prometheus format
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        // doris metrics and system metrics.
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        // histogram
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        String metricResult = visitor.finish();
+
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_added counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_hit counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_not_hit counter"));
     }
 }

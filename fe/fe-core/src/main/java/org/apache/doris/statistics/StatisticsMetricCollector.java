@@ -49,7 +49,6 @@ public class StatisticsMetricCollector extends MasterDaemon {
     private volatile int totalTableCount;
     private volatile int totalColumnCount;
     private volatile int emptyTableCount;
-    private volatile int emptyTableColumnCount;
 
     public StatisticsMetricCollector() {
         super("Statistics Metric Collector", TimeUnit.SECONDS.toMillis(INTERVAL));
@@ -65,7 +64,6 @@ public class StatisticsMetricCollector extends MasterDaemon {
         int tmpTotalTableCount = 0;
         int tmpTotalColumnCount = 0;
         int tmpEmptyTableCount = 0;
-        int tmpEmptyTableColumnCount = 0;
         for (DatabaseIf<? extends TableIf> db : catalog.getAllDbs()) {
             try {
                 if (StatisticConstants.SYSTEM_DBS.contains(db.getFullName())) {
@@ -86,7 +84,6 @@ public class StatisticsMetricCollector extends MasterDaemon {
                         tmpTotalColumnCount += columns.size();
                         if (table.getRowCount() == 0) {
                             tmpEmptyTableCount += 1;
-                            tmpEmptyTableColumnCount += columns.size();
                         }
                         if (analysisManager.findTableStatsStatus(table.getId()) == null) {
                             tmpNotAnalyzedTableCount += 1;
@@ -113,7 +110,6 @@ public class StatisticsMetricCollector extends MasterDaemon {
         totalTableCount = tmpTotalTableCount;
         totalColumnCount = tmpTotalColumnCount;
         emptyTableCount = tmpEmptyTableCount;
-        emptyTableColumnCount = tmpEmptyTableColumnCount;
     }
 
     public int getUnhealthyTableCount() {
@@ -138,9 +134,5 @@ public class StatisticsMetricCollector extends MasterDaemon {
 
     public int getEmptyTableCount() {
         return emptyTableCount;
-    }
-
-    public int getEmptyTableColumnCount() {
-        return emptyTableColumnCount;
     }
 }

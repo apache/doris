@@ -102,11 +102,11 @@ public final class MetricRepo {
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_ALL;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_FAILED;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_SIZE;
-
-    public static LongCounterMetric COUNTER_CACHE_ADDED_SQL;
-    public static LongCounterMetric COUNTER_CACHE_ADDED_PARTITION;
-    public static LongCounterMetric COUNTER_CACHE_HIT_SQL;
-    public static LongCounterMetric COUNTER_CACHE_HIT_PARTITION;
+    // sql cache
+    public static GaugeMetric<Long> GAUGE_SQL_CACHE_NUM;
+    public static LongCounterMetric COUNTER_SQL_CACHE_ADDED;
+    public static LongCounterMetric COUNTER_SQL_CACHE_HIT;
+    public static LongCounterMetric COUNTER_SQL_CACHE_NOT_HIT;
 
     public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
 
@@ -188,19 +188,21 @@ public final class MetricRepo {
     public static GaugeMetric<Integer> GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_PENDING_NUM;
 
     // Statistics
-    public static GaugeMetric<Double> GAUGE_UNHEALTHY_TABLE_RATE;
-    public static GaugeMetric<Double> GAUGE_UNHEALTHY_COLUMN_RATE;
-    public static GaugeMetric<Integer> GAUGE_UNHEALTHY_TABLE_NUM;
-    public static GaugeMetric<Integer> GAUGE_UNHEALTHY_COLUMN_NUM;
-    public static GaugeMetric<Integer> GAUGE_HIGH_PRIORITY_QUEUE_LENGTH;
-    public static GaugeMetric<Integer> GAUGE_MID_PRIORITY_QUEUE_LENGTH;
-    public static GaugeMetric<Integer> GAUGE_LOW_PRIORITY_QUEUE_LENGTH;
-    public static GaugeMetric<Integer> GAUGE_VERY_LOW_PRIORITY_QUEUE_LENGTH;
-    public static GaugeMetric<Integer> GAUGE_NOT_ANALYZED_TABLE_NUM;
-    public static GaugeMetric<Integer> GAUGE_EMPTY_TABLE_NUM;
-    public static GaugeMetric<Integer> GAUGE_EMPTY_TABLE_COLUMN_NUM;
-    public static LongCounterMetric COUNTER_FAILED_ANALYZE_TASK;
-    public static LongCounterMetric COUNTER_INVALID_STATS;
+    public static GaugeMetric<Double> GAUGE_STATISTICS_UNHEALTHY_TABLE_RATE;
+    public static GaugeMetric<Double> GAUGE_STATISTICS_UNHEALTHY_COLUMN_RATE;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_UNHEALTHY_TABLE_NUM;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_UNHEALTHY_COLUMN_NUM;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_HIGH_PRIORITY_QUEUE_LENGTH;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_MID_PRIORITY_QUEUE_LENGTH;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_LOW_PRIORITY_QUEUE_LENGTH;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_VERY_LOW_PRIORITY_QUEUE_LENGTH;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_NOT_ANALYZED_TABLE_NUM;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_EMPTY_TABLE_NUM;
+    public static LongCounterMetric COUNTER_STATISTICS_SUCCEED_ANALYZE_JOB;
+    public static LongCounterMetric COUNTER_STATISTICS_FAILED_ANALYZE_JOB;
+    public static LongCounterMetric COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK;
+    public static LongCounterMetric COUNTER_STATISTICS_FAILED_ANALYZE_TASK;
+    public static LongCounterMetric COUNTER_STATISTICS_INVALID_STATS;
 
     // Table/Partition/Tablet DataSize
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLE_SIZE_BYTES;
@@ -444,23 +446,28 @@ public final class MetricRepo {
         BE_COUNTER_QUERY_RPC_SIZE = addLabeledMetrics("be", () ->
                 new LongCounterMetric("query_rpc_size", MetricUnit.BYTES, ""));
 
-        // cache
-        COUNTER_CACHE_ADDED_SQL = new LongCounterMetric("cache_added", MetricUnit.REQUESTS,
-                "Number of SQL mode cache added");
-        COUNTER_CACHE_ADDED_SQL.addLabel(new MetricLabel("type", "sql"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CACHE_ADDED_SQL);
-        COUNTER_CACHE_ADDED_PARTITION = new LongCounterMetric("cache_added", MetricUnit.REQUESTS,
-                "Number of Partition mode cache added");
-        COUNTER_CACHE_ADDED_PARTITION.addLabel(new MetricLabel("type", "partition"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CACHE_ADDED_PARTITION);
-        COUNTER_CACHE_HIT_SQL = new LongCounterMetric("cache_hit", MetricUnit.REQUESTS,
-                "total hits query by sql model");
-        COUNTER_CACHE_HIT_SQL.addLabel(new MetricLabel("type", "sql"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CACHE_HIT_SQL);
-        COUNTER_CACHE_HIT_PARTITION = new LongCounterMetric("cache_hit", MetricUnit.REQUESTS,
-                "total hits query by partition model");
-        COUNTER_CACHE_HIT_PARTITION.addLabel(new MetricLabel("type", "partition"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CACHE_HIT_PARTITION);
+        // sql cache
+        GAUGE_SQL_CACHE_NUM = new GaugeMetric<Long>(
+                "sql_cache_num",
+                MetricUnit.NOUNIT, "Number of SQL cache") {
+            @Override
+            public Long getValue() {
+                return Env.getCurrentEnv().getSqlCacheManager().getSqlCacheNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_SQL_CACHE_NUM);
+
+        COUNTER_SQL_CACHE_ADDED = new LongCounterMetric("sql_cache_added", MetricUnit.REQUESTS,
+                "Number of SQL cache added");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CACHE_ADDED);
+
+        COUNTER_SQL_CACHE_HIT = new LongCounterMetric("sql_cache_hit", MetricUnit.REQUESTS,
+                "total hits query by sql cache");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CACHE_HIT);
+
+        COUNTER_SQL_CACHE_NOT_HIT = new LongCounterMetric("sql_cache_not_hit", MetricUnit.REQUESTS,
+                "total not hits query by sql cache");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CACHE_NOT_HIT);
 
         // edit log
         COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log", MetricUnit.OPERATIONS,
@@ -685,114 +692,121 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_INTERNAL_TABLE_NUM);
 
         // statistics
-        String labelKey = "module";
-        String labelValue = "statistics";
+        // succeeed job num
+        COUNTER_STATISTICS_SUCCEED_ANALYZE_JOB = new LongCounterMetric("statistics_succeed_analyze_job",
+                MetricUnit.NOUNIT,
+                "succeed analyze job num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_SUCCEED_ANALYZE_JOB);
+        // failed job num
+        COUNTER_STATISTICS_FAILED_ANALYZE_JOB = new LongCounterMetric("statistics_failed_analyze_job",
+                MetricUnit.NOUNIT,
+                "failed analyze job num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_FAILED_ANALYZE_JOB);
+        // succeeed task num
+        COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK = new LongCounterMetric("statistics_succeed_analyze_task",
+                MetricUnit.NOUNIT,
+                "succeed analyze task num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK);
         // failed task num
-        COUNTER_FAILED_ANALYZE_TASK = new LongCounterMetric("failed_analyze_task", MetricUnit.NOUNIT, "");
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_FAILED_ANALYZE_TASK);
+        COUNTER_STATISTICS_FAILED_ANALYZE_TASK = new LongCounterMetric("statistics_failed_analyze_task",
+                MetricUnit.NOUNIT,
+                "failed analyze task num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_FAILED_ANALYZE_TASK);
         // skip by ndv/count
-        COUNTER_INVALID_STATS = new LongCounterMetric("invalid_stats", MetricUnit.NOUNIT, "");
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_INVALID_STATS);
+        COUNTER_STATISTICS_INVALID_STATS = new LongCounterMetric("statistics_invalid_stats", MetricUnit.NOUNIT,
+                "invalid stats");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_INVALID_STATS);
         // unhealthy table rate
-        GAUGE_UNHEALTHY_TABLE_RATE = new GaugeMetric<Double>("unhealthy_table_rate",
-                MetricUnit.NOUNIT, "") {
+        GAUGE_STATISTICS_UNHEALTHY_TABLE_RATE = new GaugeMetric<Double>("statistics_unhealthy_table_rate",
+                MetricUnit.NOUNIT, "unhealthy table rate") {
             @Override
             public Double getValue() {
                 return Env.getCurrentEnv().getStatisticsMetricCollector().getUnhealthyTableRate();
             }
         };
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_UNHEALTHY_TABLE_RATE);
-        //
-        GAUGE_UNHEALTHY_COLUMN_RATE = new GaugeMetric<Double>("unhealthy_column_rate",
-                MetricUnit.NOUNIT, "") {
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_UNHEALTHY_TABLE_RATE);
+        // unhealthy column rate
+        GAUGE_STATISTICS_UNHEALTHY_COLUMN_RATE = new GaugeMetric<Double>("statistics_unhealthy_column_rate",
+                MetricUnit.NOUNIT, "unhealthy column rate") {
             @Override
             public Double getValue() {
                 return Env.getCurrentEnv().getStatisticsMetricCollector().getUnhealthyColumnRate();
             }
         };
-        GAUGE_UNHEALTHY_COLUMN_RATE.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_UNHEALTHY_COLUMN_RATE);
-        GAUGE_UNHEALTHY_TABLE_NUM = new GaugeMetric<Integer>("unhealthy_table_num",
-                MetricUnit.NOUNIT, "") {
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_UNHEALTHY_COLUMN_RATE);
+        // unhealthy table num
+        GAUGE_STATISTICS_UNHEALTHY_TABLE_NUM = new GaugeMetric<Integer>("statistics_unhealthy_table_num",
+                MetricUnit.NOUNIT, "unhealthy table num") {
             @Override
             public Integer getValue() {
                 return Env.getCurrentEnv().getStatisticsMetricCollector().getUnhealthyTableCount();
             }
         };
-        GAUGE_UNHEALTHY_TABLE_NUM.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_UNHEALTHY_TABLE_NUM);
-        GAUGE_UNHEALTHY_COLUMN_NUM = new GaugeMetric<Integer>("unhealthy_column_num",
-                MetricUnit.NOUNIT, "") {
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_UNHEALTHY_TABLE_NUM);
+        // unhealthy column num
+        GAUGE_STATISTICS_UNHEALTHY_COLUMN_NUM = new GaugeMetric<Integer>("statistics_unhealthy_column_num",
+                MetricUnit.NOUNIT, "unhealthy column num") {
             @Override
             public Integer getValue() {
                 return Env.getCurrentEnv().getStatisticsMetricCollector().getUnhealthyColumnCount();
             }
         };
-        GAUGE_UNHEALTHY_COLUMN_NUM.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_UNHEALTHY_COLUMN_NUM);
-        GAUGE_NOT_ANALYZED_TABLE_NUM = new GaugeMetric<Integer>("not_analyzed_table_num",
-                MetricUnit.NOUNIT, "") {
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_UNHEALTHY_COLUMN_NUM);
+        // not analyzed table num
+        GAUGE_STATISTICS_NOT_ANALYZED_TABLE_NUM = new GaugeMetric<Integer>("statistics_not_analyzed_table_num",
+                MetricUnit.NOUNIT, "not analyzed table num") {
             @Override
             public Integer getValue() {
                 return Env.getCurrentEnv().getStatisticsMetricCollector().getNotAnalyzedTableCount();
             }
         };
-        GAUGE_NOT_ANALYZED_TABLE_NUM.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_NOT_ANALYZED_TABLE_NUM);
-        GAUGE_EMPTY_TABLE_NUM = new GaugeMetric<Integer>("empty_table_num",
-                MetricUnit.NOUNIT, "") {
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_NOT_ANALYZED_TABLE_NUM);
+        // empty table num
+        GAUGE_STATISTICS_EMPTY_TABLE_NUM = new GaugeMetric<Integer>("statistics_empty_table_num",
+                MetricUnit.NOUNIT, "empty table num") {
             @Override
             public Integer getValue() {
                 return Env.getCurrentEnv().getStatisticsMetricCollector().getEmptyTableCount();
             }
         };
-        GAUGE_EMPTY_TABLE_NUM.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_EMPTY_TABLE_NUM);
-        GAUGE_EMPTY_TABLE_COLUMN_NUM = new GaugeMetric<Integer>("empty_table_column_num",
-                MetricUnit.NOUNIT, "") {
-            @Override
-            public Integer getValue() {
-                return Env.getCurrentEnv().getStatisticsMetricCollector().getEmptyTableColumnCount();
-            }
-        };
-        GAUGE_EMPTY_TABLE_COLUMN_NUM.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_EMPTY_TABLE_COLUMN_NUM);
-        GAUGE_HIGH_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("high_priority_queue_length",
-                MetricUnit.NOUNIT, "") {
+        // high priority queue length
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_EMPTY_TABLE_NUM);
+        GAUGE_STATISTICS_HIGH_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("statistics_high_priority_queue_length",
+                MetricUnit.NOUNIT, "high priority queue length") {
             @Override
             public Integer getValue() {
                 return Env.getCurrentEnv().getAnalysisManager().highPriorityJobs.size();
             }
         };
-        GAUGE_HIGH_PRIORITY_QUEUE_LENGTH.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_HIGH_PRIORITY_QUEUE_LENGTH);
-        GAUGE_MID_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("mid_priority_queue_length",
-                MetricUnit.NOUNIT, "") {
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_HIGH_PRIORITY_QUEUE_LENGTH);
+        // mid priority queue length
+        GAUGE_STATISTICS_MID_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("statistics_mid_priority_queue_length",
+                MetricUnit.NOUNIT, "mid priority queue length") {
             @Override
             public Integer getValue() {
                 return Env.getCurrentEnv().getAnalysisManager().midPriorityJobs.size();
             }
         };
-        GAUGE_MID_PRIORITY_QUEUE_LENGTH.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_MID_PRIORITY_QUEUE_LENGTH);
-        GAUGE_LOW_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("low_priority_queue_length",
-                MetricUnit.NOUNIT, "") {
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_MID_PRIORITY_QUEUE_LENGTH);
+        // low priority queue length
+        GAUGE_STATISTICS_LOW_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("statistics_low_priority_queue_length",
+                MetricUnit.NOUNIT, "low priority queue length") {
             @Override
             public Integer getValue() {
                 return Env.getCurrentEnv().getAnalysisManager().lowPriorityJobs.size();
             }
         };
-        GAUGE_LOW_PRIORITY_QUEUE_LENGTH.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_LOW_PRIORITY_QUEUE_LENGTH);
-        GAUGE_VERY_LOW_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("very_low_priority_queue_length",
-                MetricUnit.NOUNIT, "") {
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_LOW_PRIORITY_QUEUE_LENGTH);
+        // very low priority queue length
+        GAUGE_STATISTICS_VERY_LOW_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>(
+                "statistics_very_low_priority_queue_length",
+                MetricUnit.NOUNIT, "very low priority queue length") {
             @Override
             public Integer getValue() {
                 return Env.getCurrentEnv().getAnalysisManager().veryLowPriorityJobs.size();
             }
         };
-        GAUGE_VERY_LOW_PRIORITY_QUEUE_LENGTH.addLabel(new MetricLabel(labelKey, labelValue));
-        DORIS_METRIC_REGISTER.addMetrics(GAUGE_VERY_LOW_PRIORITY_QUEUE_LENGTH);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_VERY_LOW_PRIORITY_QUEUE_LENGTH);
 
         // MTMV
         // count
