@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <cstdint>
+#include <limits>
 
 #include "common/status.h"
 #include "pipeline/exec/spill_utils.h"
@@ -30,6 +31,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 SpillSortLocalState::SpillSortLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
 
@@ -63,10 +65,15 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     }
     return Base::close(state);
 }
+
 int SpillSortLocalState::_calc_spill_blocks_to_merge(RuntimeState* state) const {
-    int count = state->spill_sort_mem_limit() / state->spill_sort_batch_bytes();
-    return std::max(2, count);
+    auto count = state->spill_sort_mem_limit() / state->spill_sort_batch_bytes();
+    if (count > std::numeric_limits<int>::max()) [[unlikely]] {
+        return std::numeric_limits<int>::max();
+    }
+    return std::max(2, static_cast<int32_t>(count));
 }
+
 Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* state) {
     auto& parent = Base::_parent->template cast<Parent>();
     VLOG_DEBUG << fmt::format("Query:{}, sort source:{}, task:{}, merge spill data",
@@ -119,10 +126,14 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
             }
 
             {
+                int32_t batch_size =
+                        _shared_state->spill_block_batch_row_count >
+                                        std::numeric_limits<int32_t>::max()
+                                ? std::numeric_limits<int32_t>::max()
+                                : static_cast<int32_t>(_shared_state->spill_block_batch_row_count);
                 status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                         state, tmp_stream, print_id(state->query_id()), "sort", _parent->node_id(),
-                        _shared_state->spill_block_batch_row_count, state->spill_sort_batch_bytes(),
-                        operator_profile());
+                        batch_size, state->spill_sort_batch_bytes(), operator_profile());
                 RETURN_IF_ERROR(status);
 
                 _shared_state->sorted_streams.emplace_back(tmp_stream);
@@ -283,4 +294,5 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
     local_state.reached_limit(block, eos);
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
