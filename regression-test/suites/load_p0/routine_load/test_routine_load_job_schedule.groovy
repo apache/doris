@@ -38,7 +38,6 @@ suite("test_routine_load_job_schedule","nonConcurrent") {
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
         def producer = new KafkaProducer<>(props)
         def adminClient = AdminClient.create(props)
-        def newTopic = new NewTopic(kafkaCsvTpoics[0], 5, (short)1)
         def testData = [
             "1,test_data_1,2023-01-01,value1,2023-01-01 10:00:00,extra1",
             "2,test_data_2,2023-01-02,value2,2023-01-02 11:00:00,extra2",
@@ -46,13 +45,11 @@ suite("test_routine_load_job_schedule","nonConcurrent") {
             "4,test_data_4,2023-01-04,value4,2023-01-04 13:00:00,extra4",
             "5,test_data_5,2023-01-05,value5,2023-01-05 14:00:00,extra5"
         ]
-        adminClient.createTopics(Collections.singletonList(newTopic))
-        testData.eachWithIndex { line, index ->
+        testData.each { line->
             logger.info("Sending data to kafka: ${line}")
-            def record = new ProducerRecord<>(newTopic.name(), index, null, line)
+            def record = new ProducerRecord<>(kafkaCsvTpoics[0], null, line)
             producer.send(record)
         }
-        producer.close()
 
         def tableName = "test_routine_load_job_schedule"
         def job = "test_routine_load_job_schedule"

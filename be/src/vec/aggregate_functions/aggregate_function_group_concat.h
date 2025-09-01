@@ -131,7 +131,9 @@ struct AggregateFunctionGroupConcatImplStrStr {
 template <typename Impl>
 class AggregateFunctionGroupConcat final
         : public IAggregateFunctionDataHelper<AggregateFunctionGroupConcatData,
-                                              AggregateFunctionGroupConcat<Impl>> {
+                                              AggregateFunctionGroupConcat<Impl>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionGroupConcat(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionGroupConcatData,

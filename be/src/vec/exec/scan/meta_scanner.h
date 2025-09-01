@@ -56,7 +56,7 @@ public:
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
+    Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -64,8 +64,6 @@ protected:
 private:
     Status _fill_block_with_remote_data(const std::vector<MutableColumnPtr>& columns);
     Status _fetch_metadata(const TMetaScanRange& meta_scan_range);
-    Status _build_iceberg_metadata_request(const TMetaScanRange& meta_scan_range,
-                                           TFetchSchemaTableDataRequest* request);
     Status _build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
                                         TFetchSchemaTableDataRequest* request);
     Status _build_backends_metadata_request(const TMetaScanRange& meta_scan_range,

@@ -19,13 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForArrayItemAgg;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -36,11 +35,11 @@ import java.util.List;
  * l2_distance function
  */
 public class L2Distance extends ScalarFunction implements ExplicitlyCastableSignature,
-        ComputePrecisionForArrayItemAgg, UnaryExpression, AlwaysNullable {
+        BinaryExpression, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(ArrayType.of(DoubleType.INSTANCE), ArrayType.of(DoubleType.INSTANCE))
+            FunctionSignature.ret(FloatType.INSTANCE)
+                    .args(ArrayType.of(FloatType.INSTANCE), ArrayType.of(FloatType.INSTANCE))
     );
 
     /**
@@ -50,13 +49,18 @@ public class L2Distance extends ScalarFunction implements ExplicitlyCastableSign
         super("l2_distance", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private L2Distance(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public L2Distance withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new L2Distance(children.get(0), children.get(1));
+        return new L2Distance(getFunctionParams(children));
     }
 
     @Override

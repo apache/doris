@@ -90,10 +90,10 @@ suite("test_llm_functions") {
 
     def test_query_timeout_exception = { sql_text ->
         try {
-            sql """set query_timeout=2;"""
+            sql """set query_timeout=1;"""
             test {
                 sql """${sql_text}"""
-                exception "query timeout"
+                exception "timeout"
             }
         } finally {
             sql """UNSET VARIABLE query_timeout;"""
@@ -108,7 +108,27 @@ suite("test_llm_functions") {
     test_query_timeout_exception("SELECT LLM_SUMMARIZE('${resourceName}', 'test,test,test,test')")
     test_query_timeout_exception("SELECT LLM_SENTIMENT('${resourceName}', 'this is a test');")
     test_query_timeout_exception("SELECT LLM_MASK('${resourceName}', 'this is a test', label) FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT LLM_FILTER('${resourceName}', text) FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT LLM_SIMILARITY('${resourceName}', 'this is a similarity test', text) FROM ${test_table_for_llm_functions};")
+
+    String embedResourceName = "embedResourceName"
+    try_sql("""DROP RESOURCE IF EXISTS '${embedResourceName}'""")
+    sql """CREATE RESOURCE 'embedResourceName'
+            PROPERTIES (
+            'type'='llm',
+            'llm.provider_type'='qwen',
+            'llm.endpoint'='https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings',
+            'llm.model_name' = 'text-embedding-v4',
+            'llm.api_key' = 'sk-xxxx',
+            'llm.dimensions' = '1024'
+        );"""
+    
+    res = sql """SHOW RESOURCES WHERE NAME = '${embedResourceName}'"""
+    assertTrue(res.size() > 0)
+
+    test_query_timeout_exception("SELECT EMBED('${embedResourceName}', text) FROM ${test_table_for_llm_functions};")
 
     try_sql("""DROP TABLE IF EXISTS ${test_table_for_llm_functions}""")
     try_sql("""DROP RESOURCE IF EXISTS '${resourceName}'""")
+    try_sql("""DROP RESOURCE IF EXISTS '${embedResourceName}'""")
 }

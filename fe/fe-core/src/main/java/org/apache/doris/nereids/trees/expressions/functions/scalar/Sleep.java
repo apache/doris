@@ -48,13 +48,18 @@ public class Sleep extends ScalarFunction
         super("sleep", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sleep(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sleep withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sleep(children.get(0));
+        return new Sleep(getFunctionParams(children));
     }
 
     @Override

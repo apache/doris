@@ -20,13 +20,18 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Due to the limitation on the data size in the memo, when optimizing large SQL queries, once this
@@ -62,23 +67,29 @@ public class InitJoinOrder extends OneRewriteRuleFactory {
             //  if we swap left semi/anti to right semi/anti, we lost the opportunity to optimize join order
             return null;
         }
-        JoinType swapType = join.getJoinType().swap();
-        if (swapType == null) {
-            return null;
-        }
-        AbstractPlan left = (AbstractPlan) join.left();
-        AbstractPlan right = (AbstractPlan) join.right();
-        if (left.getStats() == null) {
-            left.accept(derive, new DeriveContext());
-        }
-        if (right.getStats() == null) {
-            right.accept(derive, new DeriveContext());
-        }
+        List<CatalogRelation> scans = join.collectToList(CatalogRelation.class::isInstance);
+        Optional<String> disableReason = StatsCalculator.disableJoinReorderIfStatsInvalid(scans, null);
+        if (!disableReason.isPresent()) {
+            JoinType swapType = join.getJoinType().swap();
+            if (swapType == null) {
+                return null;
+            }
+            AbstractPlan left = (AbstractPlan) join.left();
+            AbstractPlan right = (AbstractPlan) join.right();
+            if (left.getStats() == null) {
+                left.accept(derive, new DeriveContext());
+            }
+            if (right.getStats() == null) {
+                right.accept(derive, new DeriveContext());
+            }
 
-        if (left.getStats().getRowCount() < right.getStats().getRowCount() * SWAP_THRESHOLD) {
-            join = join.withTypeChildren(swapType, right, left,
-                    join.getJoinReorderContext());
-            return join;
+            // requires "left.getStats().getRowCount() > 0" to avoid dead loop when negative row count is estimated.
+            if (left.getStats().getRowCount() < right.getStats().getRowCount() * SWAP_THRESHOLD
+                    && left.getStats().getRowCount() > 0) {
+                join = join.withTypeChildren(swapType, right, left,
+                        join.getJoinReorderContext());
+                return join;
+            }
         }
         return null;
     }

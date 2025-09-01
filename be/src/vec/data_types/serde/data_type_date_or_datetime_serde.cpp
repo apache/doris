@@ -78,9 +78,8 @@ Status DataTypeDateSerDe<T>::deserialize_one_cell_from_json(
         slice.trim_quote();
     }
     Int64 val = 0;
-    if (ReadBuffer rb(slice.data, slice.size); !read_date_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (StringRef str(slice.data, slice.size); !read_date_text_impl<Int64>(val, str)) {
+        return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
     return Status::OK();
@@ -127,9 +126,8 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
         slice.trim_quote();
     }
     Int64 val = 0;
-    if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse datetime fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (StringRef str(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, str)) {
+        return Status::InvalidArgument("parse datetime fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
     return Status::OK();
@@ -394,7 +392,11 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
         CastToDateOrDatetime::from_string_strict_mode<true, IsDatetime>(str, res, options.timezone,
                                                                         params);
         // only after we called something with `IS_STRICT = true`, params.status will be set
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to {} failed: ", str.to_string_view(), name()));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<CppType, NativeType>(res);
     }
@@ -433,7 +435,10 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& co
     CastToDateOrDatetime::from_string_strict_mode<true, IsDatetime>(str, res, options.timezone,
                                                                     params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
-    RETURN_IF_ERROR(params.status);
+    if (!params.status.ok()) [[unlikely]] {
+        params.status.prepend(fmt::format("parse {} to {} failed: ", str.to_string_view(), name()));
+        return params.status;
+    }
     col_data.insert_value(binary_cast<CppType, NativeType>(res));
 
     return Status::OK();
@@ -475,7 +480,11 @@ Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(const IntDataType::Colum
     for (size_t i = 0; i < int_col.size(); ++i) {
         CppType val;
         CastToDateOrDatetime::from_integer<true, IsDatetime>(int_col.get_element(i), val, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to {} failed: ", int_col.get_element(i), name()));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
     }
@@ -517,7 +526,11 @@ Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
     for (size_t i = 0; i < float_col.size(); ++i) {
         CppType val;
         CastToDateOrDatetime::from_float<true, IsDatetime>(float_col.get_data()[i], val, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to {} failed: ", float_col.get_data()[i], name()));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
     }
@@ -562,7 +575,12 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
         CastToDateOrDatetime::from_decimal<true, IsDatetime>(decimal_col.get_intergral_part(i),
                                                              decimal_col.get_fractional_part(i),
                                                              decimal_col.get_scale(), val, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {}.{} to {} failed: ", decimal_col.get_intergral_part(i),
+                                decimal_col.get_fractional_part(i), name()));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
     }

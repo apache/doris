@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.BoundType;
@@ -75,9 +76,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         if (right.isNullLiteral()) {
             return new UnknownValue(context, predicate);
         }
-        // only handle `NumericType` and `DateLikeType`
+        // only handle `NumericType` and `DateLikeType` and `StringLikeType`
+        DataType rightDataType = right.getDataType();
         if (right instanceof ComparableLiteral
-                && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())) {
+                && (rightDataType.isNumericType() || rightDataType.isDateLikeType()
+                    || rightDataType.isStringLikeType())) {
             return ValueDesc.range(context, predicate);
         }
         return new UnknownValue(context, predicate);

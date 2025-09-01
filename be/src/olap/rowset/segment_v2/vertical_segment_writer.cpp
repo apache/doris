@@ -75,7 +75,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
-#include "vec/io/reader_buffer.h"
 #include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
@@ -229,16 +228,19 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
         if (!inverted_indexs.empty()) {
-            // TODO(lihangyu) multi indexes
-            // for (const auto& index : inverted_indexs) {
-            //     opts.inverted_indexs.emplace_back(index);
-            // }
-            opts.inverted_index = inverted_indexs.front();
+            opts.inverted_indexes = inverted_indexs;
             opts.need_inverted_index = true;
             DCHECK(_index_file_writer != nullptr);
         }
     }
     opts.index_file_writer = _index_file_writer;
+
+    if (const auto& index = tablet_schema->ann_index(column); index != nullptr) {
+        opts.ann_index = index;
+        opts.need_ann_index = true;
+        DCHECK(_index_file_writer != nullptr);
+        opts.index_file_writer = _index_file_writer;
+    }
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
@@ -802,9 +804,9 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
     if (seq_column.has_default_value()) {
         auto idx = tablet_schema.sequence_col_idx() - tablet_schema.num_key_columns();
         const auto& default_value = info.default_values[idx];
-        vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()), default_value.size());
-        RETURN_IF_ERROR(block.get_by_position(0).type->from_string(
-                rb, block.get_by_position(0).column->assume_mutable().get()));
+        StringRef str {default_value};
+        RETURN_IF_ERROR(block.get_by_position(0).type->get_serde()->default_from_string(
+                str, *block.get_by_position(0).column->assume_mutable().get()));
 
     } else {
         block.get_by_position(0).column->assume_mutable()->insert_default();
@@ -1199,6 +1201,7 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
+    RETURN_IF_ERROR(_write_ann_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
 
     *index_size = _file_writer->bytes_appended() - index_start;
@@ -1290,6 +1293,13 @@ Status VerticalSegmentWriter::_write_bitmap_index() {
 Status VerticalSegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
+    }
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_write_ann_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_ann_index());
     }
     return Status::OK();
 }

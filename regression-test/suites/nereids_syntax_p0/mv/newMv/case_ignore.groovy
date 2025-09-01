@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("case_ignore") {
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS case_ignore; """
 
     sql """
@@ -37,7 +39,7 @@ suite ("case_ignore") {
     sql "insert into case_ignore select 3,-3,null,'c';"
 
 
-    createMV ("create materialized view k12a as select K1,abs(K2) from case_ignore;")
+    createMV ("create materialized view k12a as select K1 as a1,abs(K2) from case_ignore;")
     sleep(3000)
 
     sql "insert into case_ignore select -4,-4,-4,'d';"

@@ -728,9 +728,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         return Status::OK();
     }
     // init iterator by unique id
-    ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, &tablet_column, opt));
-    iter->reset(it);
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(iter, &tablet_column, opt));
 
     if (config::enable_column_type_check && !tablet_column.has_path_info() &&
         !tablet_column.is_agg_state_type() &&
@@ -759,10 +757,8 @@ Status Segment::get_column_reader(int32_t col_unique_id, ColumnReader** reader) 
 Status Segment::new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
                                     std::unique_ptr<ColumnIterator>* iter) {
     RETURN_IF_ERROR(_create_column_readers_once(opt->stats));
-    ColumnIterator* it;
     TabletColumn tablet_column = _tablet_schema->column_by_uid(unique_id);
-    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, &tablet_column));
-    iter->reset(it);
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(iter, &tablet_column));
     return Status::OK();
 }
 
@@ -814,8 +810,7 @@ Status Segment::new_index_iterator(const TabletColumn& tablet_column, const Tabl
         // to avoid data race during parallel method calls
         RETURN_IF_ERROR(_index_file_reader_open.call([&] { return _open_index_file_reader(); }));
         // after DorisCallOnce.call, _index_file_reader is guaranteed to be not nullptr
-        RETURN_IF_ERROR(
-                reader->new_index_iterator(_index_file_reader, index_meta, read_options, iter));
+        RETURN_IF_ERROR(reader->new_index_iterator(_index_file_reader, index_meta, iter));
         return Status::OK();
     }
     return Status::OK();
@@ -839,7 +834,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
 
     DCHECK(_pk_index_reader != nullptr);
     if (!_pk_index_reader->check_present(key_without_seq)) {
-        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
     }
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
@@ -849,7 +844,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
         return st;
     }
     if (st.is<ErrorCode::ENTRY_NOT_FOUND>() || (!has_seq_col && !has_rowid && !exact_match)) {
-        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
     }
     row_location->row_id = cast_set<uint32_t>(index_iterator->get_current_ordinal());
     row_location->segment_id = _segment_id;
@@ -876,7 +871,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     if (has_seq_col) {
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
-            return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+            return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
         }
 
         if (with_seq_col && segment_has_seq_col) {
@@ -896,7 +891,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                 Slice(sought_key.get_data(), sought_key.get_size() - rowid_length);
         // compare key
         if (key_without_seq.compare(sought_key_without_rowid) != 0) {
-            return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+            return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
         }
     }
     // found the key, use rowid in pk index if necessary.

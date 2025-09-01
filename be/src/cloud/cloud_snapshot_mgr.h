@@ -59,11 +59,16 @@ public:
     /**
      * Releases a snapshot for the specified tablet.
      * Behavior:
-     * - Marks the snapshot as no longer in use.
+     * - Marks the snapshot to final state.
+     * - This method will only be called at the last step of completing or canceling
+     *   the job, and FE will not care whether the status returned here is successful
+     *   or failed. After the status is returned, the entire job will end.
      *
+     * @param is_completed. True, indicates the job is completing.
+     *                      False, indicates the job is canceling.
      * @return status.
      */
-    Status release_snapshot(int64_t tablet_id);
+    Status release_snapshot(int64_t tablet_id, bool is_completed);
 
     /**
      * Commits a snapshot for the specified tablet, only used for restore job.

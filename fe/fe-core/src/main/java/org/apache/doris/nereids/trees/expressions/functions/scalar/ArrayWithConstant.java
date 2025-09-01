@@ -51,13 +51,18 @@ public class ArrayWithConstant extends ScalarFunction
         super("array_with_constant", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayWithConstant(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayWithConstant withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArrayWithConstant(children.get(0), children.get(1));
+        return new ArrayWithConstant(getFunctionParams(children));
     }
 
     @Override

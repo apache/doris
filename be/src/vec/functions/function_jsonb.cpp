@@ -582,6 +582,12 @@ private:
                 return Status::InvalidArgument("Json path error: Invalid Json Path for value: {}",
                                                r_raw_ref.to_string());
             }
+
+            if (const_path.is_wildcard()) {
+                return Status::InvalidJsonPath(
+                        "In this situation, path expressions may not contain the * and ** tokens "
+                        "or an array range.");
+            }
         }
         const auto& ldata = col_from_string.get_chars();
         const auto& loffsets = col_from_string.get_offsets();
@@ -629,6 +635,13 @@ private:
                                 "Json path error: Invalid Json Path for value: {}",
                                 std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                                  rdata.size()));
+                    }
+
+                    if (path.is_wildcard()) {
+                        return Status::InvalidJsonPath(
+                                "In this situation, path expressions may not contain the * and ** "
+                                "tokens "
+                                "or an array range.");
                     }
                     find_result = doc->getValue()->findValue(path);
                 } else {
@@ -2052,7 +2065,6 @@ public:
 
                     if (!build_parents_by_path(json_documents[row_idx]->getValue(), new_path,
                                                parents)) {
-                        DCHECK(false);
                         continue;
                     }
                 }

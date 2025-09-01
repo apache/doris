@@ -38,6 +38,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_reader.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -370,16 +371,17 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::new_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
+Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
                                         const TabletIndex* index_meta,
-                                        const StorageReadOptions& read_options,
                                         std::unique_ptr<IndexIterator>* iterator) {
-    RETURN_IF_ERROR(_ensure_index_loaded(std::move(index_file_reader), index_meta));
+    RETURN_IF_ERROR(_load_index(index_file_reader, index_meta));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
-        if (_index_reader) {
-            RETURN_IF_ERROR(_index_reader->new_iterator(read_options.io_ctx, read_options.stats,
-                                                        read_options.runtime_state, iterator));
+        auto iter = _index_readers.find(index_meta->index_id());
+        if (iter != _index_readers.end()) {
+            if (iter->second != nullptr) {
+                RETURN_IF_ERROR(iter->second->new_iterator(iterator));
+            }
         }
     }
     return Status::OK();
@@ -659,12 +661,17 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
     return Status::OK();
 }
 
-Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_reader,
+Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
                                  const TabletIndex* index_meta) {
     std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 
-    if (_index_reader != nullptr && index_meta &&
-        _index_reader->get_index_id() == index_meta->index_id()) {
+    if (index_meta == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "Failed to load inverted index: index metadata is null");
+    }
+
+    auto it = _index_readers.find(index_meta->index_id());
+    if (it != _index_readers.end()) {
         return Status::OK();
     }
 
@@ -678,17 +685,25 @@ Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_rea
         type = _type_info->type();
     }
 
+    if (index_meta->index_type() == IndexType::ANN) {
+        _index_readers[index_meta->index_id()] =
+                std::make_shared<AnnIndexReader>(index_meta, index_file_reader);
+        return Status::OK();
+    }
+
+    IndexReaderPtr index_reader;
+
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {
-                _index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
             try {
-                _index_reader =
+                index_reader =
                         StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -697,18 +712,16 @@ Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_rea
         }
     } else if (is_numeric_type(type)) {
         try {
-            _index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
+            index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
         } catch (const CLuceneError& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "create BkdIndexReader error: {}", e.what());
         }
     } else {
-        _index_reader.reset();
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "Field type {} is not supported for inverted index", type);
     }
-    // TODO: move has null to inverted_index_reader's query function
-    //bool has_null = true;
-    //RETURN_IF_ERROR(index_file_reader->has_null(index_meta, &has_null));
-    //_inverted_index->set_has_null(has_null);
+    _index_readers[index_meta->index_id()] = index_reader;
     return Status::OK();
 }
 
@@ -740,18 +753,18 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     return Status::OK();
 }
 
-Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column) {
+Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column) {
     return new_iterator(iterator, tablet_column, nullptr);
 }
 
-Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column,
+Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column,
                                   const StorageReadOptions* opt) {
     if (is_empty()) {
-        *iterator = new EmptyFileColumnIterator();
+        *iterator = std::make_unique<EmptyFileColumnIterator>();
         return Status::OK();
     }
     if (is_scalar_type((FieldType)_meta_type)) {
-        *iterator = new FileColumnIterator(this);
+        *iterator = std::make_unique<FileColumnIterator>(this);
         return Status::OK();
     } else {
         auto type = (FieldType)_meta_type;
@@ -775,100 +788,104 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn*
     }
 }
 
-Status ColumnReader::new_agg_state_iterator(ColumnIterator** iterator) {
-    *iterator = new FileColumnIterator(this);
+Status ColumnReader::new_agg_state_iterator(ColumnIteratorUPtr* iterator) {
+    *iterator = std::make_unique<FileColumnIterator>(this);
     return Status::OK();
 }
 
-Status ColumnReader::new_array_iterator(ColumnIterator** iterator,
+Status ColumnReader::new_array_iterator(ColumnIteratorUPtr* iterator,
                                         const TabletColumn* tablet_column) {
-    ColumnIterator* item_iterator = nullptr;
+    ColumnIteratorUPtr item_iterator;
     RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
             &item_iterator, tablet_column && tablet_column->get_subtype_count() > 0
                                     ? &tablet_column->get_sub_column(0)
                                     : nullptr));
 
-    ColumnIterator* offset_iterator = nullptr;
+    ColumnIteratorUPtr offset_iterator;
     RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator, nullptr));
-    auto* ofcIter =
-            new OffsetFileColumnIterator(reinterpret_cast<FileColumnIterator*>(offset_iterator));
+    auto* file_iter = static_cast<FileColumnIterator*>(offset_iterator.release());
+    OffsetFileColumnIteratorUPtr ofcIter = std::make_unique<OffsetFileColumnIterator>(
+            std::unique_ptr<FileColumnIterator>(file_iter));
 
-    ColumnIterator* null_iterator = nullptr;
+    ColumnIteratorUPtr null_iterator;
     if (is_nullable()) {
         RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator, nullptr));
     }
-    *iterator = new ArrayFileColumnIterator(this, ofcIter, item_iterator, null_iterator);
+    *iterator = std::make_unique<ArrayFileColumnIterator>(
+            this, std::move(ofcIter), std::move(item_iterator), std::move(null_iterator));
     return Status::OK();
 }
 
-Status ColumnReader::new_map_iterator(ColumnIterator** iterator,
+Status ColumnReader::new_map_iterator(ColumnIteratorUPtr* iterator,
                                       const TabletColumn* tablet_column) {
-    ColumnIterator* key_iterator = nullptr;
+    ColumnIteratorUPtr key_iterator;
     RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
             &key_iterator, tablet_column && tablet_column->get_subtype_count() > 1
                                    ? &tablet_column->get_sub_column(0)
                                    : nullptr));
-    ColumnIterator* val_iterator = nullptr;
+    ColumnIteratorUPtr val_iterator;
     RETURN_IF_ERROR(_sub_readers[1]->new_iterator(
             &val_iterator, tablet_column && tablet_column->get_subtype_count() > 1
                                    ? &tablet_column->get_sub_column(1)
                                    : nullptr));
-    ColumnIterator* offsets_iterator = nullptr;
+    ColumnIteratorUPtr offsets_iterator;
     RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&offsets_iterator, nullptr));
-    auto* ofcIter =
-            new OffsetFileColumnIterator(reinterpret_cast<FileColumnIterator*>(offsets_iterator));
+    auto* file_iter = static_cast<FileColumnIterator*>(offsets_iterator.release());
+    OffsetFileColumnIteratorUPtr ofcIter = std::make_unique<OffsetFileColumnIterator>(
+            std::unique_ptr<FileColumnIterator>(file_iter));
 
-    ColumnIterator* null_iterator = nullptr;
+    ColumnIteratorUPtr null_iterator;
     if (is_nullable()) {
         RETURN_IF_ERROR(_sub_readers[3]->new_iterator(&null_iterator, nullptr));
     }
-    *iterator = new MapFileColumnIterator(this, null_iterator, ofcIter, key_iterator, val_iterator);
+    *iterator = std::make_unique<MapFileColumnIterator>(this, std::move(null_iterator),
+                                                        std::move(ofcIter), std::move(key_iterator),
+                                                        std::move(val_iterator));
     return Status::OK();
 }
 
-Status ColumnReader::new_struct_iterator(ColumnIterator** iterator,
+Status ColumnReader::new_struct_iterator(ColumnIteratorUPtr* iterator,
                                          const TabletColumn* tablet_column) {
-    std::vector<ColumnIterator*> sub_column_iterators;
+    std::vector<ColumnIteratorUPtr> sub_column_iterators;
     size_t child_size = is_nullable() ? _sub_readers.size() - 1 : _sub_readers.size();
     size_t tablet_column_size = tablet_column ? tablet_column->get_sub_columns().size() : 0;
     sub_column_iterators.reserve(child_size);
 
-    ColumnIterator* sub_column_iterator;
     for (uint64_t i = 0; i < child_size; i++) {
+        ColumnIteratorUPtr sub_column_iterator;
         RETURN_IF_ERROR(_sub_readers[i]->new_iterator(
                 &sub_column_iterator, tablet_column ? &tablet_column->get_sub_column(i) : nullptr));
-        sub_column_iterators.push_back(sub_column_iterator);
+        sub_column_iterators.emplace_back(std::move(sub_column_iterator));
     }
 
     // create default_iterator for schema-change behavior which increase column
     for (size_t i = child_size; i < tablet_column_size; i++) {
         TabletColumn column = tablet_column->get_sub_column(i);
-        std::unique_ptr<ColumnIterator> it;
+        ColumnIteratorUPtr it;
         RETURN_IF_ERROR(Segment::new_default_iterator(column, &it));
-        sub_column_iterators.push_back(it.get());
-        it.release();
+        sub_column_iterators.emplace_back(std::move(it));
     }
 
-    ColumnIterator* null_iterator = nullptr;
+    ColumnIteratorUPtr null_iterator;
     if (is_nullable()) {
         RETURN_IF_ERROR(_sub_readers[child_size]->new_iterator(&null_iterator, nullptr));
     }
-    *iterator = new StructFileColumnIterator(this, null_iterator, sub_column_iterators);
+    *iterator = std::make_unique<StructFileColumnIterator>(this, std::move(null_iterator),
+                                                           std::move(sub_column_iterators));
     return Status::OK();
 }
 
 ///====================== MapFileColumnIterator ============================////
-MapFileColumnIterator::MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
-                                             OffsetFileColumnIterator* offsets_iterator,
-                                             ColumnIterator* key_iterator,
-                                             ColumnIterator* val_iterator)
-        : _map_reader(reader) {
-    _key_iterator.reset(key_iterator);
-    _val_iterator.reset(val_iterator);
-    _offsets_iterator.reset(offsets_iterator);
-
+MapFileColumnIterator::MapFileColumnIterator(ColumnReader* reader, ColumnIteratorUPtr null_iterator,
+                                             OffsetFileColumnIteratorUPtr offsets_iterator,
+                                             ColumnIteratorUPtr key_iterator,
+                                             ColumnIteratorUPtr val_iterator)
+        : _map_reader(reader),
+          _offsets_iterator(std::move(offsets_iterator)),
+          _key_iterator(std::move(key_iterator)),
+          _val_iterator(std::move(val_iterator)) {
     if (_map_reader->is_nullable()) {
-        _null_iterator.reset(null_iterator);
+        _null_iterator = std::move(null_iterator);
     }
 }
 
@@ -960,15 +977,11 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
 ////////////////////////////////////////////////////////////////////////////////
 
 StructFileColumnIterator::StructFileColumnIterator(
-        ColumnReader* reader, ColumnIterator* null_iterator,
-        std::vector<ColumnIterator*>& sub_column_iterators)
-        : _struct_reader(reader) {
-    _sub_column_iterators.resize(sub_column_iterators.size());
-    for (size_t i = 0; i < sub_column_iterators.size(); i++) {
-        _sub_column_iterators[i].reset(sub_column_iterators[i]);
-    }
+        ColumnReader* reader, ColumnIteratorUPtr null_iterator,
+        std::vector<ColumnIteratorUPtr>&& sub_column_iterators)
+        : _struct_reader(reader), _sub_column_iterators(std::move(sub_column_iterators)) {
     if (_struct_reader->is_nullable()) {
-        _null_iterator.reset(null_iterator);
+        _null_iterator = std::move(null_iterator);
     }
 }
 
@@ -1098,14 +1111,14 @@ Status OffsetFileColumnIterator::_calculate_offsets(
 
 ////////////////////////////////////////////////////////////////////////////////
 ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
-                                                 OffsetFileColumnIterator* offset_reader,
-                                                 ColumnIterator* item_iterator,
-                                                 ColumnIterator* null_iterator)
-        : _array_reader(reader) {
-    _offset_iterator.reset(offset_reader);
-    _item_iterator.reset(item_iterator);
+                                                 OffsetFileColumnIteratorUPtr offset_reader,
+                                                 ColumnIteratorUPtr item_iterator,
+                                                 ColumnIteratorUPtr null_iterator)
+        : _array_reader(reader),
+          _offset_iterator(std::move(offset_reader)),
+          _item_iterator(std::move(item_iterator)) {
     if (_array_reader->is_nullable()) {
-        _null_iterator.reset(null_iterator);
+        _null_iterator = std::move(null_iterator);
     }
 }
 
@@ -1522,7 +1535,6 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     // "NULL" is a special default value which means the default value is null.
     if (_has_default_value) {
         if (_default_value == "NULL") {
-            DCHECK(_is_nullable);
             _is_default_value_null = true;
         } else {
             _type_size = _type_info->size();

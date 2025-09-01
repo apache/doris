@@ -632,14 +632,15 @@ Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
     }
 
     for (int field_pos = 0; field_pos < elem_size; ++field_pos) {
+        // Previously, there was rollback logic here in case of errors, similar to the logic in deserialize_one_cell_from_json.
+        // But it's not necessary here.
+        // If it is non-strict mode, the internal type is Nullable, and Nullable will handle errors itself.
+        // If it is strict mode, errors will be returned directly.
         if (Status st = ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
                     elem_serdes_ptrs[field_pos], struct_column.get_column(field_pos),
                     field_value[field_pos], options);
             st != Status::OK()) {
-            // we should do column revert if error
-            for (size_t j = 0; j < field_pos; j++) {
-                struct_column.get_column(j).pop_back(1);
-            }
+            DCHECK(is_strict_mode) << "only strict mode should return error";
             return st;
         }
     }

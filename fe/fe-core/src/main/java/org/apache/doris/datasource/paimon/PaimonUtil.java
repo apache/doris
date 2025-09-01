@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
@@ -25,7 +27,10 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HiveUtil;
+import org.apache.doris.datasource.paimon.source.PaimonSource;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -42,13 +47,18 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.CoreOptions.StartupMode;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.types.ArrayType;
@@ -63,19 +73,44 @@ import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
+import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
+    private static final Pattern DIGITAL_REGEX = Pattern.compile("\\d+");
+
+    private static final List<ConfigOption<?>> PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS = Arrays.asList(
+            CoreOptions.SCAN_SNAPSHOT_ID,
+            CoreOptions.SCAN_TAG_NAME,
+            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS,
+            CoreOptions.INCREMENTAL_BETWEEN_TIMESTAMP,
+            CoreOptions.INCREMENTAL_BETWEEN,
+            CoreOptions.INCREMENTAL_TO_AUTO_TAG);
+
+    private static final List<ConfigOption<?>> PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS = Arrays.asList(
+            CoreOptions.SCAN_TIMESTAMP_MILLIS,
+            CoreOptions.SCAN_TIMESTAMP,
+            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS,
+            CoreOptions.INCREMENTAL_BETWEEN_TIMESTAMP,
+            CoreOptions.INCREMENTAL_BETWEEN,
+            CoreOptions.INCREMENTAL_TO_AUTO_TAG);
 
     public static List<InternalRow> read(
             Table table, @Nullable int[] projection, @Nullable Predicate predicate,
@@ -190,9 +225,17 @@ public class PaimonUtil {
             case TINYINT:
                 return Type.TINYINT;
             case VARCHAR:
-                return ScalarType.createVarcharType(((VarCharType) dataType).getLength());
+                int varcharLen = ((VarCharType) dataType).getLength();
+                if (varcharLen > 65533) {
+                    return ScalarType.createStringType();
+                }
+                return ScalarType.createVarcharType(varcharLen);
             case CHAR:
-                return ScalarType.createCharType(((CharType) dataType).getLength());
+                int charLen = ((CharType) dataType).getLength();
+                if (charLen > 255) {
+                    return ScalarType.createStringType();
+                }
+                return ScalarType.createCharType(charLen);
             case BINARY:
             case VARBINARY:
                 return Type.STRING;
@@ -380,4 +423,291 @@ public class PaimonUtil {
         }
     }
 
+    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
+        Map<String, String> partitionInfoMap = new HashMap<>();
+        List<String> partitionKeys = table.partitionKeys();
+        RowType partitionType = table.rowType().project(partitionKeys);
+        RowDataToObjectArrayConverter toObjectArrayConverter = new RowDataToObjectArrayConverter(
+                partitionType);
+        Object[] partitionValuesArray = toObjectArrayConverter.convert(partitionValues);
+        for (int i = 0; i < partitionKeys.size(); i++) {
+            try {
+                String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
+                        partitionValuesArray[i], timeZone);
+                partitionInfoMap.put(partitionKeys.get(i), partitionValue);
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
+                        partitionKeys.get(i), e.getMessage());
+                return null;
+            }
+        }
+        return partitionInfoMap;
+    }
+
+    private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
+            String timeZone) {
+        switch (type.getTypeRoot()) {
+            case BOOLEAN:
+            case INTEGER:
+            case BIGINT:
+            case SMALLINT:
+            case TINYINT:
+            case DECIMAL:
+            case VARCHAR:
+            case CHAR:
+                if (value == null) {
+                    return null;
+                }
+                return value.toString();
+            case BINARY:
+            case VARBINARY:
+                if (value == null) {
+                    return null;
+                }
+                return new String((byte[]) value, StandardCharsets.UTF_8);
+            case DATE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon date is stored as days since epoch
+                LocalDate date = LocalDate.ofEpochDay((Integer) value);
+                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            case TIME_WITHOUT_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon time is stored as microseconds since midnight in utc
+                long micros = (Long) value;
+                LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
+                return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon timestamp is stored as Timestamp type in utc
+                return ((Timestamp) value).toLocalDateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon timestamp with local time zone is stored as Timestamp type in utc
+                Timestamp timestamp = (Timestamp) value;
+                return timestamp.toLocalDateTime()
+                        .atZone(ZoneId.of("UTC"))
+                        .withZoneSameInstant(ZoneId.of(timeZone))
+                        .toLocalDateTime()
+                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            default:
+                throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
+        }
+    }
+
+    /**
+     * Builds a snapshot-specific table for time travel queries.
+     *
+     * @param baseTable the base Paimon table to copy configuration from
+     * @param tableSnapshot the snapshot specification (type + value)
+     * @return a Table instance configured for the specified time travel query
+     * @throws UserException if snapshot configuration is invalid
+     */
+    public static Table getTableBySnapshot(Table baseTable, TableSnapshot tableSnapshot)
+            throws UserException {
+        final String value = tableSnapshot.getValue();
+        final TableSnapshot.VersionType type = tableSnapshot.getType();
+        final boolean isDigital = DIGITAL_REGEX.matcher(value).matches();
+
+        switch (type) {
+            case TIME:
+                return isDigital
+                        ? getTableBySnapshotTimestampMillis(baseTable, value)
+                        : getTableBySnapshotTime(baseTable, value);
+
+            case VERSION:
+                if (isDigital) {
+                    return getTableBySnapshotId(baseTable, value);
+                }
+                return getTableByTag(baseTable, value);
+
+            default:
+                throw new UserException(String.format("Unsupported version type: %s", type));
+        }
+    }
+
+    /**
+     * Builds a table configured to read from a specific snapshot ID.
+     *
+     * @param baseTable the base Paimon table to copy configuration from
+     * @param snapshotId the snapshot ID as a string
+     * @return a Table instance configured to read from the specified snapshot ID
+     */
+    private static Table getTableBySnapshotId(Table baseTable, String snapshotId) {
+        Map<String, String> options = new HashMap<>(
+                PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
+
+        // For Paimon FROM_SNAPSHOT startup mode, must set only one key in:
+        // [scan_tag_name, scan_watermark, scan_snapshot_id]
+        options.put(CoreOptions.SCAN_TAG_NAME.key(), null);
+        options.put(CoreOptions.SCAN_WATERMARK.key(), null);
+        options.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId);
+        options.putAll(excludePaimonConflictOptions(PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS));
+
+        return baseTable.copy(options);
+    }
+
+    /**
+     * Builds a table configured to read from a specific timestamp.
+     *
+     * @param baseTable the base Paimon table to copy configuration from
+     * @param timestampStr the timestamp as a string
+     * @return a Table instance configured to read from the specified timestamp
+     */
+    private static Table getTableBySnapshotTime(Table baseTable, String timestampStr) {
+        Map<String, String> options = new HashMap<>(
+                PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
+
+        // For Paimon FROM_TIMESTAMP startup mode, must set only one key in:
+        // [scan_timestamp, scan_timestamp_millis]
+        options.put(CoreOptions.SCAN_MODE.key(), StartupMode.FROM_TIMESTAMP.toString());
+        options.put(CoreOptions.SCAN_TIMESTAMP.key(), timestampStr);
+        options.put(CoreOptions.SCAN_TIMESTAMP_MILLIS.key(), null);
+        options.putAll(excludePaimonConflictOptions(PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS));
+
+        return baseTable.copy(options);
+    }
+
+    /**
+     * Builds a table configured to read from a specific timestamp in milliseconds.
+     *
+     * @param baseTable the base Paimon table to copy configuration from
+     * @param timestampStr the timestamp in milliseconds as a string
+     * @return a Table instance configured to read from the specified timestamp
+     */
+    private static Table getTableBySnapshotTimestampMillis(Table baseTable, String timestampStr) {
+        Map<String, String> options = new HashMap<>(
+                PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
+
+        // For Paimon FROM_TIMESTAMP startup mode, must set only one key in:
+        // [scan_timestamp, scan_timestamp_millis]
+        options.put(CoreOptions.SCAN_MODE.key(), StartupMode.FROM_TIMESTAMP.toString());
+        options.put(CoreOptions.SCAN_TIMESTAMP.key(), null);
+        options.put(CoreOptions.SCAN_TIMESTAMP_MILLIS.key(), timestampStr);
+        options.putAll(excludePaimonConflictOptions(PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS));
+
+        return baseTable.copy(options);
+    }
+
+    /**
+     * Extracts the reference name (branch or tag name) from table scan parameters.
+     *
+     * @param scanParams the scan parameters containing reference name information
+     * @return the extracted reference name
+     * @throws IllegalArgumentException if the reference name is not properly specified
+     */
+    public static String extractBranchOrTagName(TableScanParams scanParams) {
+        if (!scanParams.getMapParams().isEmpty()) {
+            if (!scanParams.getMapParams().containsKey(TableScanParams.PARAMS_NAME)) {
+                throw new IllegalArgumentException("must contain key 'name' in params");
+            }
+            return scanParams.getMapParams().get(TableScanParams.PARAMS_NAME);
+        } else {
+            if (scanParams.getListParams().isEmpty() || scanParams.getListParams().get(0) == null) {
+                throw new IllegalArgumentException("must contain a branch/tag name in params");
+            }
+            return scanParams.getListParams().get(0);
+        }
+    }
+
+
+    /**
+     * Builds a branch-specific table for time travel queries.
+     *
+     * @param source the Paimon source containing catalog and table information
+     * @param baseTable the base Paimon table
+     * @param branchName the branch name
+     * @return a Table instance configured to read from the specified branch
+     * @throws UserException if branch does not exist
+     */
+    public static Table getTableByBranch(PaimonSource source, Table baseTable, String branchName) throws UserException {
+
+        if (!checkBranchExists(baseTable, branchName)) {
+            throw new UserException(String.format("Branch '%s' does not exist", branchName));
+        }
+
+        PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
+        ExternalTable externalTable = (ExternalTable) source.getTargetTable();
+        return catalog.getPaimonTable(externalTable.getOrBuildNameMapping(), branchName, null);
+    }
+
+    /**
+     * Builds a tag-specific table for time travel queries.
+     *
+     * @param baseTable the base Paimon table to copy configuration from
+     * @param tagName the tag name
+     * @return a Table instance configured to read from the specified tag
+     * @throws UserException if tag does not exist
+     */
+    public static Table getTableByTag(Table baseTable, String tagName) throws UserException {
+        if (!checkTagsExists(baseTable, tagName)) {
+            throw new UserException(String.format("Tag '%s' does not exist", tagName));
+        }
+
+        Map<String, String> options = new HashMap<>(
+                PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
+
+        // For Paimon FROM_SNAPSHOT startup mode, must set only one key in:
+        // [scan_tag_name, scan_watermark, scan_snapshot_id]
+        options.put(CoreOptions.SCAN_TAG_NAME.key(), tagName);
+        options.put(CoreOptions.SCAN_WATERMARK.key(), null);
+        options.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), null);
+        options.putAll(excludePaimonConflictOptions(PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS));
+
+        return baseTable.copy(options);
+    }
+
+    /**
+     * Creates a map of conflicting Paimon options with null values for exclusion.
+     *
+     * @param illegalOptions the list of ConfigOptions that should be set to null
+     * @return a HashMap containing the illegal options as keys with null values
+     */
+    public static Map<String, String> excludePaimonConflictOptions(List<ConfigOption<?>> illegalOptions) {
+        return illegalOptions.stream()
+                .collect(HashMap::new,
+                        (m, option) -> m.put(option.key(), null),
+                        HashMap::putAll);
+    }
+
+    /**
+     * Checks if a tag exists in the given table.
+     *
+     * @param baseTable the Paimon table
+     * @param tagName the tag name to check
+     * @return true if tag exists, false otherwise
+     * @throws UserException if table is not a FileStoreTable
+     */
+    public static boolean checkTagsExists(Table baseTable, String tagName) throws UserException {
+        if (!(baseTable instanceof FileStoreTable)) {
+            throw new UserException("Table type should be FileStoreTable but got: " + baseTable.getClass().getName());
+        }
+
+        final FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
+        return fileStoreTable.tagManager().tagExists(tagName);
+    }
+
+    /**
+     * Checks if a branch exists in the given table.
+     *
+     * @param baseTable the Paimon table
+     * @param branchName the branch name to check
+     * @return true if branch exists, false otherwise
+     * @throws UserException if table is not a FileStoreTable
+     */
+    public static boolean checkBranchExists(Table baseTable, String branchName) throws UserException {
+        if (!(baseTable instanceof FileStoreTable)) {
+            throw new UserException("Table type should be FileStoreTable but got: " + baseTable.getClass().getName());
+        }
+
+        final FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
+        return fileStoreTable.branchManager().branchExists(branchName);
+    }
 }

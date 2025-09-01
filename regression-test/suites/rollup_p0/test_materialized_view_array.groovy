@@ -66,7 +66,7 @@ suite("test_materialized_view_array", "rollup") {
         
         create_test_table.call(tableName)
         test {
-            sql "CREATE MATERIALIZED VIEW idx AS select k2,k1, k3, k4, k5 from ${tableName}"
+            sql "CREATE MATERIALIZED VIEW idx AS select k2 as a1,k1 as a2, k3 as a3, k4 as a4, k5 as a5 from ${tableName}"
             exception "errCode = 2, detailMessage = The first column could not be float, double or complex type like array, struct, map, json, variant"
         }
     } finally {

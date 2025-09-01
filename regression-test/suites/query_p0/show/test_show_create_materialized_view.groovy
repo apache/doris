@@ -32,7 +32,7 @@ suite("test_show_create_materialized_view", "query,arrow_flight_sql") {
         """
 
         create_sync_mv(context.dbName, tableName, mvName, """
-            SELECT id, name, SUM(value) AS total_value
+            SELECT id as a1, name as a2, SUM(value) AS total_value
             FROM ${tableName}
             GROUP BY id, name""")
         

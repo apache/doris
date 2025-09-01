@@ -113,6 +113,14 @@ struct ColumnIteratorOptions {
     }
 };
 
+class ColumnIterator;
+class OffsetFileColumnIterator;
+class FileColumnIterator;
+
+using ColumnIteratorUPtr = std::unique_ptr<ColumnIterator>;
+using OffsetFileColumnIteratorUPtr = std::unique_ptr<OffsetFileColumnIterator>;
+using FileColumnIteratorUPtr = std::unique_ptr<FileColumnIterator>;
+
 // There will be concurrent users to read the same column. So
 // we should do our best to reduce resource usage through share
 // same information, such as OrdinalPageIndex and Page data.
@@ -152,18 +160,18 @@ public:
     ~ColumnReader() override;
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(ColumnIterator** iterator, const TabletColumn* col,
+    virtual Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                                 const StorageReadOptions*);
-    Status new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
-    Status new_array_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
-    Status new_struct_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
-    Status new_map_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
-    Status new_agg_state_iterator(ColumnIterator** iterator);
+    Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
+    Status new_array_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
+    Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
+    Status new_map_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
+    Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
-                              const TabletIndex* index_meta, const StorageReadOptions& read_options,
+    Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
+                              const TabletIndex* index_meta,
                               std::unique_ptr<IndexIterator>* iterator);
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
@@ -232,21 +240,13 @@ private:
                  io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
-    // Read column indexes into memory
-    // May be called multiple times, subsequent calls will no op.
-    Status _ensure_index_loaded(std::shared_ptr<IndexFileReader> index_file_reader,
-                                const TabletIndex* index_meta) {
-        // load inverted index only if not loaded or index_id is changed
-        RETURN_IF_ERROR(_load_index(index_file_reader, index_meta));
-        return Status::OK();
-    }
-
     [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
                                              const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
-    [[nodiscard]] Status _load_index(std::shared_ptr<IndexFileReader> index_file_reader,
+
+    [[nodiscard]] Status _load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
                                      const TabletIndex* index_meta);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
@@ -288,7 +288,8 @@ private:
     DictEncodingType _dict_encoding_type;
 
     TypeInfoPtr _type_info =
-            TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.
+            TypeInfoPtr(nullptr,
+                        nullptr); // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
 
@@ -301,7 +302,7 @@ private:
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
-    IndexReaderPtr _index_reader;
+    std::unordered_map<int64_t, IndexReaderPtr> _index_readers;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 
@@ -451,8 +452,8 @@ public:
 // This iterator make offset operation write once for
 class OffsetFileColumnIterator final : public ColumnIterator {
 public:
-    explicit OffsetFileColumnIterator(FileColumnIterator* offset_reader) {
-        _offset_iterator.reset(offset_reader);
+    explicit OffsetFileColumnIterator(FileColumnIteratorUPtr offset_reader) {
+        _offset_iterator = std::move(offset_reader);
     }
 
     ~OffsetFileColumnIterator() override = default;
@@ -480,9 +481,10 @@ private:
 // This iterator is used to read map value column
 class MapFileColumnIterator final : public ColumnIterator {
 public:
-    explicit MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
-                                   OffsetFileColumnIterator* offsets_iterator,
-                                   ColumnIterator* key_iterator, ColumnIterator* val_iterator);
+    explicit MapFileColumnIterator(ColumnReader* reader, ColumnIteratorUPtr null_iterator,
+                                   OffsetFileColumnIteratorUPtr offsets_iterator,
+                                   ColumnIteratorUPtr key_iterator,
+                                   ColumnIteratorUPtr val_iterator);
 
     ~MapFileColumnIterator() override = default;
 
@@ -501,16 +503,16 @@ public:
 
 private:
     ColumnReader* _map_reader = nullptr;
-    std::unique_ptr<ColumnIterator> _null_iterator;
-    std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator; //OffsetFileIterator
-    std::unique_ptr<ColumnIterator> _key_iterator;
-    std::unique_ptr<ColumnIterator> _val_iterator;
+    ColumnIteratorUPtr _null_iterator;
+    OffsetFileColumnIteratorUPtr _offsets_iterator; //OffsetFileIterator
+    ColumnIteratorUPtr _key_iterator;
+    ColumnIteratorUPtr _val_iterator;
 };
 
 class StructFileColumnIterator final : public ColumnIterator {
 public:
-    explicit StructFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
-                                      std::vector<ColumnIterator*>& sub_column_iterators);
+    explicit StructFileColumnIterator(ColumnReader* reader, ColumnIteratorUPtr null_iterator,
+                                      std::vector<ColumnIteratorUPtr>&& sub_column_iterators);
 
     ~StructFileColumnIterator() override = default;
 
@@ -529,14 +531,16 @@ public:
 
 private:
     ColumnReader* _struct_reader = nullptr;
-    std::unique_ptr<ColumnIterator> _null_iterator;
-    std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
+    ColumnIteratorUPtr _null_iterator;
+    std::vector<ColumnIteratorUPtr> _sub_column_iterators;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(ColumnReader* reader, OffsetFileColumnIterator* offset_reader,
-                                     ColumnIterator* item_iterator, ColumnIterator* null_iterator);
+    explicit ArrayFileColumnIterator(ColumnReader* reader,
+                                     OffsetFileColumnIteratorUPtr offset_reader,
+                                     ColumnIteratorUPtr item_iterator,
+                                     ColumnIteratorUPtr null_iterator);
 
     ~ArrayFileColumnIterator() override = default;
 

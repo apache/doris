@@ -74,12 +74,12 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
-        RETURN_IF_ERROR(_flush_segment_writer(writer, writer->flush_schema(), flush_size));
+        RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     } else {
         std::unique_ptr<segment_v2::SegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
-        RETURN_IF_ERROR(_flush_segment_writer(writer, writer->flush_schema(), flush_size));
+        RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     }
     return Status::OK();
 }
@@ -136,7 +136,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
     IndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_index()) {
+    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
         RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
     }
 
@@ -154,7 +154,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
             _context.data_dir, writer_options, index_file_writer.get());
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
-    if (_context.tablet_schema->has_inverted_index()) {
+    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
     }
     auto s = writer->init();
@@ -173,7 +173,7 @@ Status SegmentFlusher::_create_segment_writer(
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
     IndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_index()) {
+    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
         RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
     }
 
@@ -190,7 +190,7 @@ Status SegmentFlusher::_create_segment_writer(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
             _context.data_dir, writer_options, index_file_writer.get());
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
-    if (_context.tablet_schema->has_inverted_index()) {
+    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
     }
     auto s = writer->init();
@@ -207,8 +207,7 @@ Status SegmentFlusher::_create_segment_writer(
 }
 
 Status SegmentFlusher::_flush_segment_writer(
-        std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, TabletSchemaSPtr flush_schema,
-        int64_t* flush_size) {
+        std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, int64_t* flush_size) {
     uint32_t row_num = writer->num_rows_written();
     _num_rows_updated += writer->num_rows_updated();
     _num_rows_deleted += writer->num_rows_deleted();
@@ -249,11 +248,11 @@ Status SegmentFlusher::_flush_segment_writer(
               << ", flushing rowset_dir: " << _context.tablet_path
               << ", rowset_id:" << _context.rowset_id
               << ", data size:" << PrettyPrinter::print_bytes(segstat.data_size)
-              << ", index size:" << segstat.index_size;
+              << ", index size:" << PrettyPrinter::print_bytes(segstat.index_size);
 
     writer.reset();
 
-    RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
+    RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat));
 
     if (flush_size) {
         *flush_size = segment_file_size;
@@ -262,7 +261,7 @@ Status SegmentFlusher::_flush_segment_writer(
 }
 
 Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                             TabletSchemaSPtr flush_schema, int64_t* flush_size) {
+                                             int64_t* flush_size) {
     uint32_t row_num = writer->num_rows_written();
     _num_rows_updated += writer->num_rows_updated();
     _num_rows_deleted += writer->num_rows_deleted();
@@ -306,7 +305,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
 
     writer.reset();
 
-    RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
+    RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat));
 
     if (flush_size) {
         *flush_size = segment_file_size;

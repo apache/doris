@@ -16,6 +16,8 @@
 // under the License.
 
 suite("mv_on_unique_table") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
@@ -79,8 +81,8 @@ suite("mv_on_unique_table") {
 
     // test partition prune in duplicate table
     def mv1 = """
-        select l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate,
-        substring(concat(l_returnflag, l_linestatus), 1)
+        select l_orderkey as a1, l_linenumber as a2, l_partkey as a3, l_suppkey as a4, l_shipdate as a5,
+        substring(concat(l_returnflag, l_linestatus), 1) as a6
         from lineitem_2_uniq;
     """
 
@@ -107,8 +109,8 @@ suite("mv_on_unique_table") {
 
     // test partition prune in unique table
     def mv2 = """
-        select l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate,
-        substring(concat(l_returnflag, l_linestatus), 1)
+        select l_orderkey as x1, l_linenumber as x2, l_partkey as x3,  l_suppkey as x4, l_shipdate as x5,
+        substring(concat(l_returnflag, l_linestatus), 1) as x6
         from lineitem_2_uniq;
     """
 

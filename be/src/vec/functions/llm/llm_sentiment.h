@@ -36,10 +36,11 @@ public:
 
     static constexpr size_t number_of_arguments = 2;
 
-    static FunctionPtr create() { return std::make_shared<FunctionLLMSentiment>(); }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
 
-    Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
-                        std::string& prompt) const;
+    static FunctionPtr create() { return std::make_shared<FunctionLLMSentiment>(); }
 };
 
 }; // namespace doris::vectorized

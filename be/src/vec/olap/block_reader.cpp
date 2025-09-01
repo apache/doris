@@ -147,7 +147,6 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
             }
         }
     }
-
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
         RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
@@ -210,6 +209,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
         auto cid = read_params.origin_return_columns->at(i);
+        // For each original cid, find the index in return_columns
         for (int j = 0; j < read_params.return_columns.size(); ++j) {
             if (read_params.return_columns[j] == cid) {
                 if (j < _tablet->num_key_columns() || _tablet->keys_type() != AGG_KEYS) {
@@ -450,7 +450,7 @@ void BlockReader::_update_agg_data(MutableColumns& columns) {
 
     // calculate has_null_tag
     for (auto idx : _agg_columns_idx) {
-        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(copy_size);
+        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(0, copy_size);
     }
 
     // calculate aggregate and insert
