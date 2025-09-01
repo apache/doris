@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AnnIndexPropertiesChecker;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateIndexClause;
@@ -2120,6 +2121,20 @@ public class SchemaChangeHandler extends AlterHandler {
                         throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
                     }
 
+                    for (Column column : olapTable.getBaseSchema()) {
+                        if (!column.getType().isVariantType()) {
+                            continue;
+                        }
+                        // variant type column can not support for building index
+                        for (String indexColumn : index.getColumns()) {
+                            if (column.getName().equalsIgnoreCase(indexColumn)) {
+                                throw new DdlException("BUILD INDEX operation failed: The "
+                                        + indexDef.getIndexName() + " index can not be built on the "
+                                        + indexColumn + " column, because it is a variant type column.");
+                            }
+                        }
+                    }
+
                     if (indexDef.getPartitionNames().isEmpty()) {
                         indexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                     } else {
@@ -2146,7 +2161,10 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                     }
                     // only inverted index with local mode can do light drop index change
-                    if (found != null && found.getIndexType() == IndexDef.IndexType.INVERTED
+                    // not sure whether the logic here is correct for ann index
+                    // just reuse the logic for inverted index
+                    if (found != null && (found.getIndexType() == IndexDef.IndexType.INVERTED
+                            || found.getIndexType() == IndexDef.IndexType.ANN)
                             && Config.isNotCloudMode()) {
                         alterIndexes.add(found);
                         isDropIndex = true;
@@ -2722,6 +2740,13 @@ public class SchemaChangeHandler extends AlterHandler {
         // See OlapTable.resetIdsForRestore for details.
         while (existedIndexIdSet.contains(alterIndex.getIndexId())) {
             alterIndex.setIndexId(Env.getCurrentEnv().getNextId());
+        }
+
+        if (indexDef.isAnnIndex()) {
+            if (olapTable.getKeysType() != KeysType.DUP_KEYS) {
+                throw new AnalysisException("ANN index can only be built on table with DUP_KEYS");
+            }
+            AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
 
         for (String col : indexDef.getColumns()) {

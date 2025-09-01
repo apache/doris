@@ -277,6 +277,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
 add_compile_options(-g
+                    -gdwarf-5
                     -Wall
                     -Wextra
                     -Werror
@@ -389,10 +390,6 @@ if (USE_UNWIND)
     endif()
 endif()
 
-if (USE_DWARF)
-    add_compile_options(-gdwarf-5)
-endif()
-
 # For CMAKE_BUILD_TYPE=Debug
 if (OS_MACOSX AND ARCH_ARM)
     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
@@ -405,7 +402,7 @@ endif()
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=signed-integer-overflow,float-cast-overflow  -fsanitize-ignorelist=${BASE_DIR}/../conf/ubsan_ignorelist.txt -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow  -fsanitize-ignorelist=${BASE_DIR}/../conf/ubsan_ignorelist.txt -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
 set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")
@@ -517,7 +514,6 @@ set(DORIS_LINK_LIBS
     Common
     Exec
     Exprs
-    Gutil
     IO
     Olap
     Runtime
@@ -680,9 +676,8 @@ if (GLIBC_COMPATIBILITY)
 endif()
 
 if (NOT OS_MACOSX)
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-        -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
-    )
+    set(CMAKE_CXX_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread")
+    set(CMAKE_C_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread")
 else()
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
         "-framework CoreFoundation"
@@ -732,7 +727,7 @@ endif ()
 # use this to avoid some runtime tracker. reuse BE_TEST symbol, no need another.
 if (BUILD_BENCHMARK)
     add_definitions(-DBE_TEST)
-# The separate BENCHMARK marker is introduced here because 
+# The separate BENCHMARK marker is introduced here because
 # some BE UTs mock certain functions, and BENCHMARK cannot find their definitions.
     add_definitions(-DBE_BENCHMARK)
 endif()
@@ -754,13 +749,54 @@ else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
 
+# Only apply the OpenMP-related adjustments when PCH is enabled, to avoid
+# impacting non-PCH builds.
 if (ENABLE_PCH)
+    # Ensure consistent OpenMP usage across the whole BE (including PCH) to avoid
+    # AST version mismatches in Clang when some targets use OpenMP and others don't.
+    # We try to find OpenMP quietly and, if found, apply its flags globally.
+    find_package(OpenMP QUIET)
+    if (OpenMP_CXX_FOUND OR OpenMP_FOUND)
+        if (DEFINED OpenMP_CXX_FLAGS AND NOT OpenMP_CXX_FLAGS STREQUAL "")
+            # Apply the OpenMP flags to all C++ compilations so PCH and all TUs match.
+            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>)
+        endif()
+        # Ensure final link includes the OpenMP runtime when needed.
+        if (TARGET OpenMP::OpenMP_CXX)
+            set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} OpenMP::OpenMP_CXX)
+        endif()
+    endif()
+
     add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
     target_precompile_headers(
         pch
         PUBLIC
             ${SRC_DIR}pch/pch.h
     )
+    if (OpenMP_CXX_FOUND OR OpenMP_FOUND)
+        # Propagate OpenMP to the PCH target so that sources compiled with
+        # -fopenmp can reuse the PCH without version conflicts.
+        target_link_libraries(pch PUBLIC OpenMP::OpenMP_CXX)
+        # Also add flags explicitly to be robust if usage requirements don’t apply during PCH.
+        if (DEFINED OpenMP_CXX_FLAGS AND NOT OpenMP_CXX_FLAGS STREQUAL "")
+            target_compile_options(pch PUBLIC ${OpenMP_CXX_FLAGS})
+        endif()
+        # Copy usage requirements from the imported OpenMP target onto PCH.
+        if (TARGET OpenMP::OpenMP_CXX)
+            get_property(_omp_copts TARGET OpenMP::OpenMP_CXX PROPERTY INTERFACE_COMPILE_OPTIONS)
+            if (_omp_copts)
+                target_compile_options(pch PUBLIC ${_omp_copts})
+            endif()
+            get_property(_omp_cdefs TARGET OpenMP::OpenMP_CXX PROPERTY INTERFACE_COMPILE_DEFINITIONS)
+            if (_omp_cdefs)
+                target_compile_definitions(pch PUBLIC ${_omp_cdefs})
+            endif()
+            get_property(_omp_cincs TARGET OpenMP::OpenMP_CXX PROPERTY INTERFACE_INCLUDE_DIRECTORIES)
+            if (_omp_cincs)
+                target_include_directories(pch PUBLIC ${_omp_cincs})
+            endif()
+        endif()
+    endif()
     if (COMPILER_CLANG)
         target_compile_options(pch PRIVATE -Xclang -fno-pch-timestamp)
     endif()
@@ -772,15 +808,16 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
+add_subdirectory(${SRC_DIR}/olap/rowset/segment_v2/ann_index)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/runtime_filter)

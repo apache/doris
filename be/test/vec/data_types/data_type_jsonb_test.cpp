@@ -43,7 +43,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -100,7 +99,6 @@ TEST_F(DataTypeJsonbTest, MetaInfoTest) {
             .is_null_literal = false,
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_JSONB>(JsonbField())};
     auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
@@ -265,7 +263,6 @@ TEST_F(DataTypeJsonbTest, simple_func_test) {
         EXPECT_FALSE(dt.have_subtypes());
         EXPECT_FALSE(dt.should_align_right_in_pretty_formats());
         EXPECT_FALSE(dt.is_comparable());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_FALSE(dt.have_maximum_size_of_value());
         EXPECT_TRUE(dt.can_be_inside_low_cardinality());
 
@@ -301,7 +298,7 @@ TEST_F(DataTypeJsonbTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count - 1; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));
             }
@@ -311,7 +308,7 @@ TEST_F(DataTypeJsonbTest, to_string) {
             // now default Jsonb value is empty. use from_string will throw:[INVALID_ARGUMENT]json parse error: Empty document for value
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(source_column, i);
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 if (i == row_count - 1) {
                     continue;
                 } else {
@@ -330,7 +327,7 @@ TEST_F(DataTypeJsonbTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count - 1; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));

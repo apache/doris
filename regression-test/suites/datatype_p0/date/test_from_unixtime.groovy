@@ -21,6 +21,22 @@ suite("test_from_unixtime") {
 
     sql "set time_zone='+08:00'"
 
+    sql "drop table if exists test1"
+    sql """
+        create table test1(
+            k0 bigint null,
+            k1 decimal(30, 10) null
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+    sql """insert into test1 values(100, 100.123), (20000000000, 20000000000.0010), (90000000000, 90000000000.1234569),
+    (900000000000, 90000000000013.1234569);"""
+    qt_sql0 """select from_unixtime(k0), from_unixtime(k1), from_unixtime(k0, 'yyyy-MM-dd HH:mm:ss'),
+    from_unixtime(k0, 'yyyy-MM-dd HH:mm:ss'), from_unixtime(k1, '%W%w') from test1 order by k0, k1"""
+    testFoldConst ("""select from_unixtime(100), from_unixtime(100.123), from_unixtime(20000000000), from_unixtime(20000000000.0010),
+    from_unixtime(90000000000), from_unixtime(90000000000.1234569)""")
+
     qt_sql1 "select from_unixtime(1553152255)"
 
     sql "set time_zone='+00:00'"

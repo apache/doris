@@ -10,6 +10,8 @@ src:*/json/new_json_reader.cpp
 src:*/common/memcpy_small.h
 src:*/util/mysql_row_buffer.cpp
 src:*/util/bitmap_intersect.h
+src:*/util/slice.h
+src:*/bvar/reducer.h
 fun:*BaseFieldTypeTraits*
 fun:*FieldTypeTraits*
 fun:*KeyCoderTraits*

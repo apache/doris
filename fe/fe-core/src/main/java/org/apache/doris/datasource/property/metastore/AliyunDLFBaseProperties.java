@@ -43,6 +43,7 @@ public class AliyunDLFBaseProperties {
     protected String dlfSessionToken = "";
 
     @ConnectorProperty(names = {"dlf.region"},
+            required = false,
             description = "The region of the Aliyun DLF.")
     protected String dlfRegion = "";
 
@@ -84,7 +85,7 @@ public class AliyunDLFBaseProperties {
                 .require(dlfSecretKey, "dlf.secret_key is required");
     }
 
-    public void checkAndInit() {
+    private void checkAndInit() {
         buildRules().validate();
         if (StringUtils.isBlank(dlfEndpoint) && StringUtils.isNotBlank(dlfRegion)) {
             if (BooleanUtils.toBoolean(dlfAccessPublic)) {

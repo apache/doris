@@ -94,9 +94,11 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .vir_cid_to_idx_in_block {},
                                  .vir_col_idx_to_type {},
                                  .score_runtime {},
-                                 .collection_statistics {}}) {
+                                 .collection_statistics {},
+                                 .ann_topn_runtime {}}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
-    _is_init = false;
+    _has_prepared = false;
+    _vector_search_params = params.state->get_vector_search_params();
 }
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
@@ -123,8 +125,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
-Status OlapScanner::init() {
-    _is_init = true;
+Status OlapScanner::prepare() {
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -138,6 +139,7 @@ Status OlapScanner::init() {
         VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
         _common_expr_ctxs_push_down.emplace_back(context);
+        context->prepare_ann_range_search(_vector_search_params);
     }
 
     for (auto pair : local_state->_slot_id_to_virtual_column_expr) {
@@ -150,6 +152,9 @@ Status OlapScanner::init() {
     _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
     _slot_id_to_col_type = local_state->_slot_id_to_col_type;
     _score_runtime = local_state->_score_runtime;
+
+    _score_runtime = local_state->_score_runtime;
+    _ann_topn_runtime = local_state->_ann_topn_runtime;
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
@@ -173,9 +178,11 @@ Status OlapScanner::init() {
                                                 olap_scan_node.schema_version);
             cached_schema = SchemaCache::instance()->get_schema(schema_key);
         }
-        if (cached_schema) {
+        if (cached_schema && cached_schema->num_virtual_columns() == 0) {
             tablet_schema = cached_schema;
         } else {
+            // If schema is not cached or cached schema has virtual columns,
+            // we need to create a new TabletSchema.
             tablet_schema = std::make_shared<TabletSchema>();
             tablet_schema->copy_from(*tablet->tablet_schema());
             if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
@@ -239,17 +246,20 @@ Status OlapScanner::init() {
                                   read_columns_to_string(tablet_schema, _return_columns));
     }
 
-    if (!cached_schema && !schema_key.empty()) {
+    // Add newly created tablet schema to schema cache if it does not have virtual columns.
+    if (cached_schema == nullptr && !schema_key.empty() &&
+        tablet_schema->num_virtual_columns() == 0) {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
     if (_tablet_reader_params.score_runtime) {
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
-                _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
                 _tablet_reader_params.common_expr_ctxs_push_down));
     }
 
+    _has_prepared = true;
     return Status::OK();
 }
 
@@ -315,6 +325,7 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns =
             ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
+    _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
@@ -536,6 +547,7 @@ Status OlapScanner::_init_return_columns() {
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
+
     return Status::OK();
 }
 
@@ -722,6 +734,9 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_miss);
     COUNTER_UPDATE(local_state->_inverted_index_downgrade_count_counter,
                    stats.inverted_index_downgrade_count);
+    COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
+                   stats.inverted_index_analyzer_timer);
+    COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
 
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
@@ -785,6 +800,47 @@ void OlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(local_state->_read_uncompressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
+
+    COUNTER_UPDATE(local_state->_ann_range_search_filter_counter,
+                   stats.rows_ann_index_range_filtered);
+    COUNTER_UPDATE(local_state->_ann_topn_filter_counter, stats.rows_ann_index_topn_filtered);
+    COUNTER_UPDATE(local_state->_ann_index_load_costs, stats.ann_index_load_ns);
+    COUNTER_UPDATE(local_state->_ann_range_search_costs, stats.ann_index_range_search_ns);
+    COUNTER_UPDATE(local_state->_ann_range_search_cnt, stats.ann_index_range_search_cnt);
+    COUNTER_UPDATE(local_state->_ann_range_engine_search_costs, stats.ann_range_engine_search_ns);
+    // Engine prepare before search
+    COUNTER_UPDATE(local_state->_ann_range_pre_process_costs, stats.ann_range_pre_process_ns);
+    // Post process parent: Doris result process + engine convert
+    COUNTER_UPDATE(local_state->_ann_range_post_process_costs,
+                   stats.ann_range_result_convert_ns + stats.ann_range_engine_convert_ns);
+    // Engine convert (child under post-process)
+    COUNTER_UPDATE(local_state->_ann_range_engine_convert_costs, stats.ann_range_engine_convert_ns);
+    // Doris-side result convert (child under post-process)
+    COUNTER_UPDATE(local_state->_ann_range_result_convert_costs, stats.ann_range_result_convert_ns);
+
+    COUNTER_UPDATE(local_state->_ann_topn_search_costs, stats.ann_topn_search_ns);
+    COUNTER_UPDATE(local_state->_ann_topn_search_cnt, stats.ann_index_topn_search_cnt);
+
+    // Detailed ANN timers
+    // ANN TopN timers with hierarchy
+    // Engine search time (FAISS)
+    COUNTER_UPDATE(local_state->_ann_topn_engine_search_costs,
+                   stats.ann_index_topn_engine_search_ns);
+    // Engine prepare time (allocations/buffer setup before search)
+    COUNTER_UPDATE(local_state->_ann_topn_pre_process_costs,
+                   stats.ann_index_topn_engine_prepare_ns);
+    // Post process parent includes Doris result processing + engine convert
+    COUNTER_UPDATE(local_state->_ann_topn_post_process_costs,
+                   stats.ann_index_topn_result_process_ns + stats.ann_index_topn_engine_convert_ns);
+    // Engine-side conversion time inside FAISS wrappers (child under post-process)
+    COUNTER_UPDATE(local_state->_ann_topn_engine_convert_costs,
+                   stats.ann_index_topn_engine_convert_ns);
+
+    // Doris-side result convert costs (show separately as another child counter); use pure process time
+    COUNTER_UPDATE(local_state->_ann_topn_result_convert_costs,
+                   stats.ann_index_topn_result_process_ns);
+
+    // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }
 
 } // namespace doris::vectorized

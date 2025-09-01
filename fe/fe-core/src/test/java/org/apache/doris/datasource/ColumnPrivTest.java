@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
@@ -25,6 +24,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
@@ -99,7 +99,7 @@ public class ColumnPrivTest extends TestWithFeService {
             ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
         }
 
-        CreateTableStmt createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt(
+        CreateTableCommand createTableStmt = (CreateTableCommand) parseStmt(
                 "create table innerdb1.innertbl11\n"
                         + "(\n"
                         + "    col1 int, \n"
@@ -107,9 +107,9 @@ public class ColumnPrivTest extends TestWithFeService {
                         + ")\n"
                         + "distributed by hash(col1) buckets 1\n"
                         + "properties(\"replication_num\" = \"1\");", rootCtx);
-        env.createTable(createTableStmt);
+        createTableStmt.run(connectContext, stmtExecutor);
 
-        createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt(
+        createTableStmt = (CreateTableCommand) parseStmt(
                 "create table innerdb1.innertbl12\n"
                         + "(\n"
                         + "    col3 int, \n"
@@ -117,9 +117,9 @@ public class ColumnPrivTest extends TestWithFeService {
                         + ")\n"
                         + "distributed by hash(col3) buckets 1\n"
                         + "properties(\"replication_num\" = \"1\");", rootCtx);
-        env.createTable(createTableStmt);
+        createTableStmt.run(connectContext, stmtExecutor);
 
-        createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt(
+        createTableStmt = (CreateTableCommand) parseStmt(
                 "create table innerdb2.innertbl21\n"
                         + "(\n"
                         + "    col5 int, \n"
@@ -127,7 +127,7 @@ public class ColumnPrivTest extends TestWithFeService {
                         + ")\n"
                         + "distributed by hash(col5) buckets 1\n"
                         + "properties(\"replication_num\" = \"1\");", rootCtx);
-        env.createTable(createTableStmt);
+        createTableStmt.run(connectContext, stmtExecutor);
     }
 
     @Override

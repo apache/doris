@@ -30,6 +30,8 @@
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
+#include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
 
 using namespace std::chrono;
@@ -137,6 +139,8 @@ void convert_tmp_rowsets(
         return;
     }
 
+    MetaReader meta_reader(instance_id, txn_kv.get());
+
     // partition_id -> VersionPB
     std::unordered_map<int64_t, VersionPB> partition_versions;
     // tablet_id -> stats
@@ -186,7 +190,18 @@ void convert_tmp_rowsets(
                     return;
                 }
             } else {
-                CHECK(false) << "versioned read is not supported yet";
+                err = meta_reader.get_tablet_index(txn.get(), tmp_rowset_pb.tablet_id(),
+                                                   &tablet_idx_pb);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                   ? MetaServiceCode::TXN_ID_NOT_FOUND
+                                   : cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get tablet index, txn_id=" << txn_id
+                       << " tablet_id=" << tmp_rowset_pb.tablet_id() << " err=" << err;
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
             }
             tablet_ids.emplace(tmp_rowset_pb.tablet_id(), tablet_idx_pb);
         }
@@ -219,7 +234,20 @@ void convert_tmp_rowsets(
                 LOG(INFO) << "txn_id=" << txn_id << " key=" << hex(ver_key)
                           << " version_pb:" << version_pb.ShortDebugString();
             } else {
-                CHECK(false) << "versioned read is not supported yet";
+                err = meta_reader.get_partition_version(txn.get(), tmp_rowset_pb.partition_id(),
+                                                        &version_pb, nullptr);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                   ? MetaServiceCode::TXN_ID_NOT_FOUND
+                                   : cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get partition version, txn_id=" << txn_id
+                       << " partition_id=" << tmp_rowset_pb.partition_id() << " err=" << err;
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+                LOG(INFO) << "txn_id=" << txn_id << " partition_id=" << tmp_rowset_pb.partition_id()
+                          << " version_pb:" << version_pb.ShortDebugString();
             }
             partition_versions.emplace(tmp_rowset_pb.partition_id(), version_pb);
             DCHECK_EQ(partition_versions.size(), 1) << partition_versions.size();
@@ -249,7 +277,22 @@ void convert_tmp_rowsets(
             }
             DCHECK(err == TxnErrorCode::TXN_KEY_NOT_FOUND);
         } else {
-            CHECK(true) << "versioned read is not supported yet";
+            int64_t tablet_id = tmp_rowset_pb.tablet_id();
+            RowsetMetaCloudPB rowset_val_pb;
+            err = meta_reader.get_load_rowset_meta(txn.get(), tablet_id, version, &rowset_val_pb);
+            if (TxnErrorCode::TXN_OK == err) {
+                // tmp rowset key has been converted
+                continue;
+            }
+            if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get load_rowset_key, txn_id=" << txn_id
+                   << " tablet_id=" << tablet_id << " version=" << version << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            DCHECK(err == TxnErrorCode::TXN_KEY_NOT_FOUND);
         }
 
         tmp_rowset_pb.set_start_version(version);
@@ -302,8 +345,8 @@ void convert_tmp_rowsets(
 
         if (is_versioned_write) {
             TabletStatsPB stats_pb;
-            internal_get_versioned_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx,
-                                                stats_pb);
+            internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
+                                                tablet_idx, stats_pb);
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "update versioned tablet stats failed, code=" << code
                              << " msg=" << msg << " txn_id=" << txn_id
@@ -471,6 +514,7 @@ void TxnLazyCommitTask::commit() {
 
     bool is_versioned_write = txn_info.versioned_write();
     bool is_versioned_read = txn_info.versioned_read();
+    MetaReader meta_reader(instance_id_, txn_kv_.get());
 
     std::stringstream ss;
     int retry_times = 0;
@@ -487,7 +531,6 @@ void TxnLazyCommitTask::commit() {
                 LOG(WARNING) << "scan_tmp_rowset failed, txn_id=" << txn_id_ << " code=" << code_;
                 break;
             }
-
             VLOG_DEBUG << "txn_id=" << txn_id_
                        << " tmp_rowset_metas.size()=" << all_tmp_rowset_metas.size();
             if (all_tmp_rowset_metas.size() == 0) {
@@ -497,12 +540,23 @@ void TxnLazyCommitTask::commit() {
             // <partition_id, tmp_rowsets>
             std::map<int64_t, std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>>
                     partition_to_tmp_rowset_metas;
+            size_t max_rowset_meta_size = 0;
             for (auto& [tmp_rowset_key, tmp_rowset_pb] : all_tmp_rowset_metas) {
                 partition_to_tmp_rowset_metas[tmp_rowset_pb.partition_id()].emplace_back();
                 partition_to_tmp_rowset_metas[tmp_rowset_pb.partition_id()].back().first =
                         tmp_rowset_key;
                 partition_to_tmp_rowset_metas[tmp_rowset_pb.partition_id()].back().second =
                         tmp_rowset_pb;
+                max_rowset_meta_size = std::max(max_rowset_meta_size, tmp_rowset_pb.ByteSizeLong());
+            }
+
+            // fdb txn limit 10MB, we use 4MB as the max size for each batch.
+            size_t max_rowsets_per_batch = config::txn_lazy_max_rowsets_per_batch;
+            if (max_rowset_meta_size > 0) {
+                max_rowsets_per_batch = std::min((4UL << 20) / max_rowset_meta_size,
+                                                 size_t(config::txn_lazy_max_rowsets_per_batch));
+                TEST_SYNC_POINT_CALLBACK("TxnLazyCommitTask::commit::max_rowsets_per_batch",
+                                         &max_rowsets_per_batch, &max_rowset_meta_size);
             }
 
             for (auto& [partition_id, tmp_rowset_metas] : partition_to_tmp_rowset_metas) {
@@ -529,12 +583,10 @@ void TxnLazyCommitTask::commit() {
                     }
                 }
 
-                for (size_t i = 0; i < tmp_rowset_metas.size();
-                     i += config::txn_lazy_max_rowsets_per_batch) {
-                    size_t end =
-                            (i + config::txn_lazy_max_rowsets_per_batch) > tmp_rowset_metas.size()
-                                    ? tmp_rowset_metas.size()
-                                    : i + config::txn_lazy_max_rowsets_per_batch;
+                for (size_t i = 0; i < tmp_rowset_metas.size(); i += max_rowsets_per_batch) {
+                    size_t end = (i + max_rowsets_per_batch) > tmp_rowset_metas.size()
+                                         ? tmp_rowset_metas.size()
+                                         : i + max_rowsets_per_batch;
                     std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>
                             sub_partition_tmp_rowset_metas(tmp_rowset_metas.begin() + i,
                                                            tmp_rowset_metas.begin() + end);
@@ -589,7 +641,20 @@ void TxnLazyCommitTask::commit() {
                         }
                         table_id = tablet_idx_pb.table_id();
                     } else {
-                        CHECK(false) << "versioned read is not supported yet";
+                        TabletIndexPB tablet_idx_pb;
+                        int64_t first_tablet_id = tmp_rowset_metas.begin()->second.tablet_id();
+                        err = meta_reader.get_tablet_index(first_tablet_id, &tablet_idx_pb);
+                        if (err != TxnErrorCode::TXN_OK) {
+                            code_ = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                            ? MetaServiceCode::TXN_ID_NOT_FOUND
+                                            : cast_as<ErrCategory::READ>(err);
+                            ss << "failed to get tablet index, txn_id=" << txn_id_
+                               << " tablet_id=" << first_tablet_id << " err=" << err;
+                            msg_ = ss.str();
+                            LOG(WARNING) << msg_;
+                            break;
+                        }
+                        table_id = tablet_idx_pb.table_id();
                     }
                 }
 
@@ -620,7 +685,17 @@ void TxnLazyCommitTask::commit() {
                         break;
                     }
                 } else {
-                    CHECK(false) << "versioned read is not supported yet";
+                    err = meta_reader.get_partition_version(partition_id, &version_pb, nullptr);
+                    if (TxnErrorCode::TXN_OK != err) {
+                        code_ = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                        ? MetaServiceCode::TXN_ID_NOT_FOUND
+                                        : cast_as<ErrCategory::READ>(err);
+                        ss << "failed to get versioned partiton version, txn_id=" << txn_id_
+                           << " partition_id=" << partition_id << " err=" << err;
+                        msg_ = ss.str();
+                        LOG(WARNING) << msg_;
+                        break;
+                    }
                 }
 
                 if (version_pb.pending_txn_ids_size() > 0 &&
@@ -658,6 +733,7 @@ void TxnLazyCommitTask::commit() {
                                   << " txn_id=" << txn_id_;
                     }
 
+                    TEST_SYNC_POINT_CALLBACK("TxnLazyCommitter::commit");
                     err = txn->commit();
                     if (err != TxnErrorCode::TXN_OK) {
                         code_ = cast_as<ErrCategory::COMMIT>(err);

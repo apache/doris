@@ -141,9 +141,6 @@ public class CommonUserProperties implements GsonPostProcessable {
     }
 
     public void setQueryTimeout(int timeout) {
-        if (timeout <= 0) {
-            LOG.warn("Setting 0 query timeout", new RuntimeException(""));
-        }
         this.queryTimeout = timeout;
     }
 

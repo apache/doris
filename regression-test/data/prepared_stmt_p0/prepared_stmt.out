@@ -135,6 +135,9 @@ a
 -- !select24 --
 1	\N	[{"id":"1", "name":"doris"}, {"id":"2", "name":"apache"}, null]	\N
 
+-- !select25 --
+2025-08-15T00:00
+
 -- !overflow_2 --
 2
 

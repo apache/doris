@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stdint.h>
 
@@ -115,7 +116,8 @@ public:
                int64_t time_series_compaction_empty_rowsets_threshold = 5,
                int64_t time_series_compaction_level_threshold = 1,
                TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
-                       TInvertedIndexFileStorageFormat::V2);
+                       TInvertedIndexFileStorageFormat::V2,
+               TEncryptionAlgorithm::type tde_algorithm = TEncryptionAlgorithm::PLAINTEXT);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -301,6 +303,8 @@ public:
 
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
+    EncryptionAlgorithmPB encryption_algorithm() const { return _encryption_algorithm; }
+
 private:
     Status _save_meta(DataDir* data_dir);
     void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
@@ -362,6 +366,8 @@ private:
 
     // cloud
     int64_t _ttl_seconds = 0;
+
+    EncryptionAlgorithmPB _encryption_algorithm = PLAINTEXT;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -518,6 +524,17 @@ public:
      */
     void subset(const BitmapKey& start, const BitmapKey& end,
                 DeleteBitmap* subset_delete_map) const;
+    void subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids, int64_t start_version,
+                int64_t end_version, DeleteBitmap* subset_delete_map) const;
+
+    /**
+     * Gets subset of delete_bitmap of the input rowsets
+     * with given version range [start_version, end_version] and agg to end_version,
+     * then merge to subset_delete_map
+     */
+    void subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
+                        int64_t start_version, int64_t end_version,
+                        DeleteBitmap* subset_delete_map) const;
 
     /**
      * Gets count of delete_bitmap with given range [start, end)

@@ -45,7 +45,7 @@
 //         text_can_contain_only_valid_utf8
 //         have_maximum_size_of_value, get_maximum_size_of_value_in_memory, get_size_of_value_in_memory
 //         get_precision, get_scale
-//         is_null_literal, is_value_represented_by_number, is_value_unambiguously_represented_in_contiguous_memory_region
+//         is_null_literal, is_value_represented_by_number
 // 2. datatype creation with column : create_column, create_column_const (size_t size, const Field &field), create_column_const_with_default_value (size_t size), get_uncompressed_serialized_bytes (const IColumn &column, int be_exec_version)
 // 3. serde related: get_serde (int nesting_level=1)
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to), from_string (ReadBuffer &rb, IColumn *column)
@@ -91,7 +91,6 @@ TEST_P(DataTypeAggStateTest, MetaInfoTest) {
             .is_null_literal = false,
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_STRING>(String()),
     };
     helper->meta_info_assert(datatype_agg_state_count, agg_state_meta_info_to_assert);
@@ -171,7 +170,7 @@ TEST_P(DataTypeAggStateTest, FromAndToStringTest) {
         for (int i = 0; i < col_to->size(); ++i) {
             std::string s = col_to->get_data_at(i).to_string();
             std::cout << "s: " << s << std::endl;
-            ReadBuffer rb(s.data(), s.size());
+            StringRef rb(s.data(), s.size());
             ASSERT_EQ(Status::OK(),
                       datatype_agg_state_hll_union->from_string(rb, assert_column.get()));
             ASSERT_EQ(assert_column->operator[](i), agg_state_cols[0]->get_ptr()->operator[](i))
@@ -200,7 +199,7 @@ TEST_P(DataTypeAggStateTest, FromAndToStringTest) {
         auto assert_column_1 = datatype_agg_state_hll_union->create_column();
         for (int i = 0; i < ser_col->size(); ++i) {
             std::string s = ser_col->get_data_at(i).to_string();
-            ReadBuffer rb(s.data(), s.size());
+            StringRef rb(s.data(), s.size());
             ASSERT_EQ(Status::OK(),
                       datatype_agg_state_hll_union->from_string(rb, assert_column_1.get()));
             auto aaa = assert_column_1->operator[](i);

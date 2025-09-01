@@ -33,7 +33,6 @@
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
 #include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter_mgr.h"
@@ -218,7 +217,7 @@ private:
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _cancel_thread;
+    std::shared_ptr<Thread> _cancel_thread;
     // This pool is used as global async task pool
     std::unique_ptr<ThreadPool> _thread_pool;
 

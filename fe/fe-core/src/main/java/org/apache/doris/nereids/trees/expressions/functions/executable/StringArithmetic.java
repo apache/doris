@@ -357,23 +357,40 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
-        String searchStr = first.getValue();
-        String targetStr = second.getValue();
+        String substr = first.getValue();
+        String str = second.getValue();
         int startPos = third.getValue();
-        if (searchStr.isEmpty()) {
-            int byteLength = targetStr.getBytes(StandardCharsets.UTF_8).length;
-            return (startPos >= 1 && startPos <= byteLength)
-                    ? new IntegerLiteral(startPos)
-                    : new IntegerLiteral(startPos == 1 ? 1 : 0);
+
+        // Handle empty substring case
+        if (substr.isEmpty() && str.isEmpty() && startPos == 1) {
+            return new IntegerLiteral(1);
         }
 
-        int strLength = targetStr.codePointCount(0, targetStr.length());
-        if (startPos < 1 || startPos > strLength) {
+        // Check if start position is invalid
+        int strLength = str.codePointCount(0, str.length());
+        if (startPos <= 0 || startPos > strLength) {
             return new IntegerLiteral(0);
         }
-        int offset = targetStr.offsetByCodePoints(0, startPos - 1);
-        int loc = targetStr.indexOf(searchStr, offset);
-        return loc == -1 ? new IntegerLiteral(0) : new IntegerLiteral(targetStr.codePointCount(0, loc) + 1);
+
+        // Handle empty substring case
+        if (substr.isEmpty()) {
+            return new IntegerLiteral(startPos);
+        }
+
+        // Adjust the string based on start position (startPos is 1-indexed)
+        int offset = str.offsetByCodePoints(0, startPos - 1);
+        String adjustedStr = str.substring(offset);
+
+        // Find the match position
+        int matchPos = adjustedStr.indexOf(substr);
+        if (matchPos >= 0) {
+            // Calculate character position (not byte position)
+            int charPos = adjustedStr.codePointCount(0, matchPos);
+            // Return position in the original string (1-indexed)
+            return new IntegerLiteral(startPos + charPos);
+        } else {
+            return new IntegerLiteral(0);
+        }
     }
 
     /**

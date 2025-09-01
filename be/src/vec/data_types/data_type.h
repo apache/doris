@@ -40,9 +40,9 @@
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris {
 class PColumnMeta;
@@ -53,7 +53,6 @@ namespace vectorized {
 class IDataType;
 class IColumn;
 class BufferWritable;
-class ReadBuffer;
 
 using ColumnPtr = COW<IColumn>::Ptr;
 using MutableColumnPtr = COW<IColumn>::MutablePtr;
@@ -171,17 +170,6 @@ public:
       */
     virtual bool is_value_represented_by_number() const { return false; }
 
-    /** Values are unambiguously identified by contents of contiguous memory region,
-      *  that can be obtained by IColumn::get_data_at method.
-      * Examples: numbers, Date, DateTime, String, FixedString,
-      *  and Arrays of numbers, Date, DateTime, FixedString, Enum, but not String.
-      *  (because Array(String) values became ambiguous if you concatenate Strings).
-      * Counterexamples: Nullable, Tuple.
-      */
-    virtual bool is_value_unambiguously_represented_in_contiguous_memory_region() const {
-        return false;
-    }
-
     /** Example: numbers, Date, DateTime, FixedString, Enum... Nullable and Tuple of such types.
       * Counterexamples: String, Array.
       * It's Ok to return false for AggregateFunction despite the fact that some of them have fixed size state.
@@ -227,8 +215,7 @@ public:
     }
 #ifdef BE_TEST
     // only used in beut
-    Status from_string(ReadBuffer& rb, IColumn* column) const {
-        StringRef str = {rb.position(), rb.count()};
+    Status from_string(StringRef& str, IColumn* column) const {
         return get_serde()->default_from_string(str, *column);
     }
 

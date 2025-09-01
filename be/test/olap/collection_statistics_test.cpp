@@ -26,11 +26,12 @@
 #include "common/exception.h"
 #include "gen_cpp/Exprs_types.h"
 #include "io/fs/local_file_system.h"
+#include "olap/collection_statistics.cpp"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 #include "olap/tablet_schema.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
@@ -77,14 +78,19 @@ private:
 
 class MockVSlotRef : public vectorized::VSlotRef {
 public:
-    MockVSlotRef(const std::string& column_name) : _column_name(column_name) {}
+    MockVSlotRef(const std::string& column_name, SlotId slot_id)
+            : _column_name(column_name), _slot_id(slot_id) {
+        _node_type = TExprNodeType::SLOT_REF;
+    }
 
     const std::string& column_name() const override { return _column_name; }
     const std::string& expr_name() const override { return _column_name; }
     std::string debug_string() const override { return "MockVSlotRef: " + _column_name; }
+    SlotId slot_id() const override { return _slot_id; }
 
 private:
     std::string _column_name;
+    SlotId _slot_id;
 };
 
 class MockVLiteral : public vectorized::VLiteral {
@@ -228,6 +234,8 @@ class CollectionStatisticsTest : public ::testing::Test {
 protected:
     void SetUp() override {
         stats_ = std::make_unique<CollectionStatistics>();
+        runtime_state_ = std::make_shared<MockRuntimeState>();
+        runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(1), 1001);
         test_dir_ = "./collection_statistics_test_" +
                     std::to_string(::testing::UnitTest::GetInstance()->random_seed());
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(test_dir_).ok());
@@ -235,6 +243,7 @@ protected:
 
     void TearDown() override {
         stats_.reset();
+        runtime_state_.reset();
         (void)io::global_local_filesystem()->delete_directory(test_dir_);
     }
 
@@ -266,7 +275,7 @@ protected:
 
         auto match_expr =
                 std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
-        auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("content");
+        auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
         auto literal = std::make_shared<collection_statistics::MockVLiteral>(search_term);
 
         match_expr->_children.push_back(slot_ref);
@@ -277,6 +286,7 @@ protected:
 
         return contexts;
     }
+
     std::vector<RowSetSplits> create_mock_rowset_splits(int num_segments = 1) {
         std::vector<RowSetSplits> splits;
 
@@ -298,6 +308,7 @@ protected:
     }
 
     std::unique_ptr<CollectionStatistics> stats_;
+    std::shared_ptr<MockRuntimeState> runtime_state_;
     std::string test_dir_;
 };
 
@@ -307,7 +318,7 @@ TEST_F(CollectionStatisticsTest, CollectWithEmptyRowsetSplits) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status = stats_->collect(empty_splits, tablet_schema, expr_contexts);
+    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, expr_contexts);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -317,7 +328,8 @@ TEST_F(CollectionStatisticsTest, CollectWithEmptyExpressions) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status = stats_->collect(empty_splits, tablet_schema, empty_contexts);
+    auto status =
+            stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, empty_contexts);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -332,7 +344,7 @@ TEST_F(CollectionStatisticsTest, CollectWithNonMatchExpression) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status = stats_->collect(empty_splits, tablet_schema, contexts);
+    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -343,7 +355,7 @@ TEST_F(CollectionStatisticsTest, CollectWithMultipleMatchExpressions) {
 
     auto match_expr1 =
             std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
-    auto slot_ref1 = std::make_shared<collection_statistics::MockVSlotRef>("content");
+    auto slot_ref1 = std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
     auto literal1 = std::make_shared<collection_statistics::MockVLiteral>("term1");
     match_expr1->_children.push_back(slot_ref1);
     match_expr1->_children.push_back(literal1);
@@ -351,7 +363,7 @@ TEST_F(CollectionStatisticsTest, CollectWithMultipleMatchExpressions) {
 
     auto match_expr2 =
             std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
-    auto slot_ref2 = std::make_shared<collection_statistics::MockVSlotRef>("content");
+    auto slot_ref2 = std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
     auto literal2 = std::make_shared<collection_statistics::MockVLiteral>("term2");
     match_expr2->_children.push_back(slot_ref2);
     match_expr2->_children.push_back(literal2);
@@ -359,7 +371,7 @@ TEST_F(CollectionStatisticsTest, CollectWithMultipleMatchExpressions) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status = stats_->collect(empty_splits, tablet_schema, contexts);
+    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -371,7 +383,7 @@ TEST_F(CollectionStatisticsTest, CollectWithNestedExpressions) {
     auto and_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::BINARY_PRED);
 
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
-    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("content");
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
     auto literal = std::make_shared<collection_statistics::MockVLiteral>("nested term");
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
@@ -386,7 +398,7 @@ TEST_F(CollectionStatisticsTest, CollectWithNestedExpressions) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status = stats_->collect(empty_splits, tablet_schema, contexts);
+    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -396,9 +408,9 @@ TEST_F(CollectionStatisticsTest, CollectWithMockRowsetSplits) {
 
     auto splits = create_mock_rowset_splits(2);
 
-    auto status = stats_->collect(splits, tablet_schema, expr_contexts);
+    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts);
 
-    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.ok());
 }
 
 TEST_F(CollectionStatisticsTest, CollectWithEmptySegments) {
@@ -407,7 +419,7 @@ TEST_F(CollectionStatisticsTest, CollectWithEmptySegments) {
 
     auto splits = create_mock_rowset_splits(0);
 
-    auto status = stats_->collect(splits, tablet_schema, expr_contexts);
+    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -429,7 +441,7 @@ TEST_F(CollectionStatisticsTest, CollectWithMultipleRowsetSplits) {
         splits.push_back(split);
     }
 
-    auto status = stats_->collect(splits, tablet_schema, expr_contexts);
+    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -540,6 +552,82 @@ TEST_F(CollectionStatisticsDetailedTest, IdfCalculationWithDifferentFrequencies)
     EXPECT_GT(rare_idf, common_idf);
     EXPECT_GT(common_idf, 0);
     EXPECT_GT(rare_idf, 0);
+}
+
+TEST_F(CollectionStatisticsTest, CollectWithCastWrappedSlotRef) {
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+
+    vectorized::VExprContextSPtrs contexts;
+
+    // match_pred(left: CAST(slot_ref), right: literal)
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto cast_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::CAST_EXPR);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("cast term");
+
+    cast_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(cast_expr);
+    match_expr->_children.push_back(literal);
+
+    contexts.push_back(std::make_shared<vectorized::VExprContext>(match_expr));
+
+    std::vector<RowSetSplits> empty_splits;
+    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
+    EXPECT_TRUE(status.ok()) << status.msg();
+}
+
+TEST_F(CollectionStatisticsTest, CollectWithDoubleCastWrappedSlotRef) {
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+
+    vectorized::VExprContextSPtrs contexts;
+
+    // match_pred(left: CAST(CAST(slot_ref)), right: literal)
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto outer_cast = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::CAST_EXPR);
+    auto inner_cast = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::CAST_EXPR);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("double cast term");
+
+    inner_cast->_children.push_back(slot_ref);
+    outer_cast->_children.push_back(inner_cast);
+    match_expr->_children.push_back(outer_cast);
+    match_expr->_children.push_back(literal);
+
+    contexts.push_back(std::make_shared<vectorized::VExprContext>(match_expr));
+
+    std::vector<RowSetSplits> empty_splits;
+    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
+    EXPECT_TRUE(status.ok()) << status.msg();
+}
+
+TEST_F(CollectionStatisticsTest, FindSlotRefHandlesNullDirectCastAndNested) {
+    // null
+    vectorized::VExprSPtr null_expr;
+    EXPECT_EQ(find_slot_ref(null_expr), nullptr);
+
+    // direct SLOT_REF
+    auto slot_ref_direct =
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
+    EXPECT_EQ(find_slot_ref(slot_ref_direct),
+              static_cast<vectorized::VSlotRef*>(slot_ref_direct.get()));
+
+    // CAST(SLOT_REF)
+    auto slot_ref_cast =
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
+    auto cast_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::CAST_EXPR);
+    cast_expr->_children.push_back(slot_ref_cast);
+    EXPECT_EQ(find_slot_ref(cast_expr), static_cast<vectorized::VSlotRef*>(slot_ref_cast.get()));
+
+    // BINARY_PRED(CAST(SLOT_REF), literal)
+    auto slot_ref_nested =
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1));
+    auto inner_cast = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::CAST_EXPR);
+    inner_cast->_children.push_back(slot_ref_nested);
+    auto lit = std::make_shared<collection_statistics::MockVLiteral>("x");
+    auto bin = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::BINARY_PRED);
+    bin->_children.push_back(inner_cast);
+    bin->_children.push_back(lit);
+    EXPECT_EQ(find_slot_ref(bin), static_cast<vectorized::VSlotRef*>(slot_ref_nested.get()));
 }
 
 } // namespace doris

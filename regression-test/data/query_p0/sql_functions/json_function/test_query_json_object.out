@@ -29,7 +29,7 @@
 {"id":1,"level":[1.000000000,1.200000000]}
 
 -- !sql_array_decimal_fold --
-{"id":1,"level":[1.0,1.2]}
+{"id":1,"level":[1.000000000,1.200000000]}
 
 -- !sql_struct --
 {"id":1,"level":{"name":"a","age":1}}

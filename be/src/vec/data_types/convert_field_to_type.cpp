@@ -44,6 +44,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/functions/cast/cast_to_basic_number_common.h"
+#include "vec/functions/cast/cast_to_boolean.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -143,11 +145,175 @@ void FieldVisitorToJsonb::operator()(const Array& x, JsonbWriter* writer) const 
     writer->writeEndArray();
 }
 
+struct ConvertNumeric {
+    template <class SRC, class DST>
+    static inline bool cast(const SRC& from, DST& to);
+
+private:
+    static CastParameters create_cast_params() {
+        CastParameters params;
+        params.is_strict = false;
+        return params;
+    }
+};
+
+// cast to boolean
+template <>
+bool ConvertNumeric::cast<Int64, UInt8>(const Int64& from, UInt8& to) {
+    auto params = create_cast_params();
+    return CastToBool::from_number(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, UInt8>(const Int128& from, UInt8& to) {
+    auto params = create_cast_params();
+    return CastToBool::from_number(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, UInt8>(const Float64& from, UInt8& to) {
+    auto params = create_cast_params();
+    return CastToBool::from_number(from, to, params);
+}
+
+// cast to tinyint
+template <>
+bool ConvertNumeric::cast<Int64, Int8>(const Int64& from, Int8& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int8>(const Int128& from, Int8& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int8>(const Float64& from, Int8& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to smallint
+template <>
+bool ConvertNumeric::cast<Int64, Int16>(const Int64& from, Int16& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int16>(const Int128& from, Int16& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int16>(const Float64& from, Int16& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to int
+template <>
+bool ConvertNumeric::cast<Int64, Int32>(const Int64& from, Int32& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int32>(const Int128& from, Int32& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int32>(const Float64& from, Int32& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to bigint
+template <>
+bool ConvertNumeric::cast<Int64, Int64>(const Int64& from, Int64& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int64>(const Int128& from, Int64& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int64>(const Float64& from, Int64& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to largeint
+template <>
+bool ConvertNumeric::cast<Int64, Int128>(const Int64& from, Int128& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int128>(const Int128& from, Int128& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int128>(const Float64& from, Int128& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to float
+template <>
+bool ConvertNumeric::cast<Int64, Float32>(const Int64& from, Float32& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Float32>(const Int128& from, Float32& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Float32>(const Float64& from, Float32& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_float(from, to, params);
+}
+
+// cast to double
+template <>
+bool ConvertNumeric::cast<Int64, Float64>(const Int64& from, Float64& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Float64>(const Int128& from, Float64& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Float64>(const Float64& from, Float64& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_float(from, to, params);
+}
+
 namespace {
 template <typename From, PrimitiveType T>
 Field convert_numeric_type_impl(const Field& from) {
     typename PrimitiveTypeTraits<T>::ColumnItemType result;
-    if (!accurate::convertNumeric(from.get<From>(), result)) {
+    if (!ConvertNumeric::cast(from.get<From>(), result)) {
         return {};
     }
     return Field::create_field<T>(result);

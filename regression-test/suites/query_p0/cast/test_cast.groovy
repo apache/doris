@@ -165,4 +165,61 @@ suite('test_cast', "arrow_flight_sql") {
     //sql "Select cast(j as int) from test_json"
     //sql "select cast(v as int) from test_json"
     sql "DROP TABLE IF EXISTS test_json"
+
+    qt_double_to_tinyint """
+        select
+            cast(cast(128.0 as double) as tinyint), cast(cast(127.0 as double) as tinyint),
+            cast(cast(-128.0 as double) as tinyint), cast(cast(-129.0 as double) as tinyint);
+    """
+    qt_double_to_smallint """
+        select
+            cast(cast(32768.0 as double) as smallint), cast(cast(32767.0 as double) as smallint),
+            cast(cast(-32768.0 as double) as smallint), cast(cast(-32769.0 as double) as smallint);
+    """
+    qt_double_to_int """
+        select
+            cast(cast(2147483648.0 as double) as int), cast(cast(2147483647.0 as double) as int),
+            cast(cast(-2147483648.0 as double) as int), cast(cast(-2147483649.0 as double) as int);
+    """
+
+    // The double type can exactly represent integers with up to 53 bits in binary.
+    // 9223372036854775295 = 2^63 - 1 - 2^(62-53)
+    qt_double_to_bigint """
+        select
+            cast(cast(9223372036854775296.0 as double) as bigint) v1, cast(cast(9223372036854775295.99999999999999 as double) as bigint) v2,
+            cast(cast(-9223372036854775295.999999999999 as double) as bigint) v3, cast(cast(-9223372036854775296.0 as double) as bigint) v4;
+    """
+
+    // 170141183460469250621153235194464960512 = 2^127 + 2^(127 - 53)
+    qt_double_to_largeint """
+        select
+            cast(cast(170141183460469250621153235194464960513.0 as double) as largeint) v1, cast(cast(170141183460469250621153235194464960512.0 as double) as largeint) v2,
+            cast(cast(-170141183460469250621153235194464960513.0 as double) as largeint) v3, cast(cast(-170141183460469250621153235194464960512.0 as double) as largeint) v4;
+    """
+
+    qt_float_to_tinyint """
+        select
+            cast(cast(128.0 as float) as tinyint), cast(cast(127.0 as float) as tinyint),
+            cast(cast(-128.0 as float) as tinyint), cast(cast(-129.0 as float) as tinyint);
+    """
+    qt_float_to_smallint """
+        select
+            cast(cast(32768.0 as float) as smallint), cast(cast(32767.0 as float) as smallint),
+            cast(cast(-32768.0 as float) as smallint), cast(cast(-32769.0 as float) as smallint);
+    """
+    qt_float_to_int """
+        select
+            cast(cast(2147483584.0 as float) as int), cast(cast(2147483583.0 as float) as int),
+            cast(cast(-2147483583.0 as float) as int), cast(cast(-2147483584.0 as float) as int);
+    """
+    qt_float_to_bigint """
+        select
+            cast(cast(9223372586610589697.0 as float) as bigint) v1, cast(cast(9223372586610589696.0 as float) as bigint) v2,
+            cast(cast(-9223372586610589697.0 as float) as bigint) v3, cast(cast(-9223372586610589696.0 as float) as bigint) v4;
+    """
+    qt_float_to_largeint """
+        select
+            cast(cast(170141183460469231731687303715884105728.0 as float) as largeint) v1, cast(cast(170141183460469231731687303715884105727.0 as float) as largeint) v2,
+            cast(cast(-170141183460469231731687303715884105728.0 as float) as largeint) v3, cast(cast(-170141183460469231731687303715884105729.0 as float) as largeint) v4;
+    """
 }

@@ -28,6 +28,14 @@ struct CastToString {
     template <class SRC>
     static inline std::string from_number(const SRC& from);
 
+    // Caller is responsible for ensuring that `buffer` has enough space.
+    template <class SRC>
+    static inline int from_number(const SRC& from, char* buffer);
+
+    template <typename T>
+        requires(std::is_same_v<T, Float32> || std::is_same_v<T, Float64>)
+    static inline int from_number(const T& from, char* buffer);
+
     template <class SRC>
     static inline void push_number(const SRC& from, ColumnString::Chars& chars);
 
@@ -52,6 +60,43 @@ struct CastToString {
     static inline std::string from_ip(const SRC& from);
 
     static inline std::string from_time(const TimeValue::TimeType& from, UInt32 scale);
+
+private:
+    // refer to: https://en.cppreference.com/w/cpp/types/numeric_limits/max_digits10.html
+    template <typename T>
+        requires(std::is_same_v<T, float> || std::is_same_v<T, double>)
+    static inline int _fast_to_buffer(T value, char* buffer) {
+        char* end = nullptr;
+        // output NaN and Infinity to be compatible with most of the implementations
+        if (std::isnan(value)) {
+            static constexpr char nan_str[] = "NaN";
+            static constexpr int nan_str_len = sizeof(nan_str) - 1;
+            memcpy(buffer, nan_str, nan_str_len);
+            end = buffer + nan_str_len;
+        } else if (std::isinf(value)) {
+            static constexpr char inf_str[] = "Infinity";
+            static constexpr int inf_str_len = sizeof(inf_str) - 1;
+            static constexpr char neg_inf_str[] = "-Infinity";
+            static constexpr int neg_inf_str_len = sizeof(neg_inf_str) - 1;
+            if (value > 0) {
+                memcpy(buffer, inf_str, inf_str_len);
+                end = buffer + inf_str_len;
+            } else {
+                memcpy(buffer, neg_inf_str, neg_inf_str_len);
+                end = buffer + neg_inf_str_len;
+            }
+        } else {
+            if constexpr (std::is_same_v<T, float>) {
+                end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
+                                     std::numeric_limits<float>::digits10 + 1);
+            } else {
+                end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
+                                     std::numeric_limits<double>::digits10 + 1);
+            }
+        }
+        *end = '\0';
+        return end - buffer;
+    }
 };
 
 // BOOLEAN
@@ -139,30 +184,36 @@ inline void CastToString::push_number(const Int128& num, ColumnString::Chars& ch
 template <>
 inline std::string CastToString::from_number(const Float32& num) {
     char buf[MAX_FLOAT_STR_LENGTH + 2];
-    int len = to_buffer(num, MAX_FLOAT_STR_LENGTH + 2, buf);
+    int len = _fast_to_buffer(num, buf);
     return std::string(buf, buf + len);
+}
+
+template <typename T>
+    requires(std::is_same_v<T, Float32> || std::is_same_v<T, Float64>)
+inline int CastToString::from_number(const T& from, char* buffer) {
+    return _fast_to_buffer(from, buffer);
 }
 
 template <>
 inline void CastToString::push_number(const Float32& num, ColumnString::Chars& chars) {
     char buf[MAX_FLOAT_STR_LENGTH + 2];
-    int len = to_buffer(num, MAX_FLOAT_STR_LENGTH + 2, buf);
+    int len = _fast_to_buffer(num, buf);
     chars.insert(buf, buf + len);
 }
 
 // DOUBLE
 template <>
 inline std::string CastToString::from_number(const Float64& num) {
-    fmt::memory_buffer buffer;
-    fmt::format_to(buffer, "{}", num);
-    return std::string(buffer.data(), buffer.size());
+    char buf[MAX_DOUBLE_STR_LENGTH + 2];
+    int len = _fast_to_buffer(num, buf);
+    return std::string(buf, len);
 }
 
 template <>
 inline void CastToString::push_number(const Float64& num, ColumnString::Chars& chars) {
-    fmt::memory_buffer buffer;
-    fmt::format_to(buffer, "{}", num);
-    chars.insert(buffer.data(), buffer.data() + buffer.size());
+    char buf[MAX_DOUBLE_STR_LENGTH + 2];
+    int len = _fast_to_buffer(num, buf);
+    chars.insert(buf, buf + len);
 }
 
 // DECIMAL32

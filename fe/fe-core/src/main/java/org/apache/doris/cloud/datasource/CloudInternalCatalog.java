@@ -58,6 +58,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
+import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
@@ -166,7 +167,13 @@ public class CloudInternalCatalog extends InternalCatalog {
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             List<String> rowStoreColumns =
                     tbl.getTableProperty().getCopiedRowStoreColumns();
+            TInvertedIndexFileStorageFormat effectiveIndexStorageFormat =
+                        (Config.enable_new_partition_inverted_index_v2_format
+                                && tbl.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1)
+                                ? TInvertedIndexFileStorageFormat.V2
+                                : tbl.getInvertedIndexFileStorageFormat();
             for (Tablet tablet : index.getTablets()) {
+                // Use resolved format that considers global override for new partitions
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
@@ -179,10 +186,10 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getInvertedIndexFileStorageFormat(),
+                        effectiveIndexStorageFormat,
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
-                        tbl.storagePageSize(),
+                        tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true);
                 requestBuilder.addTabletMetas(builder);
             }
@@ -216,7 +223,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Integer> rowStoreColumnUniqueIds,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
-            long storagePageSize, long storageDictPageSize, boolean createInitialRowset) throws DdlException {
+            long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
+            boolean createInitialRowset) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -372,6 +380,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             OlapFile.RowsetMetaCloudPB.Builder rowsetBuilder = createInitialRowset(tablet, partitionId,
                     schemaHash, schema);
             builder.addRsMetas(rowsetBuilder);
+            builder.setEncryptionAlgorithm(encryptionAlgorithm);
         }
         return builder;
     }
@@ -1039,6 +1048,10 @@ public class CloudInternalCatalog extends InternalCatalog {
     private void unprotectUpdateCloudReplica(OlapTable olapTable, UpdateCloudReplicaInfo info) {
         LOG.debug("replay update a cloud replica {}", info);
         Partition partition = olapTable.getPartition(info.getPartitionId());
+        if (partition == null) {
+            LOG.warn("replay update cloud replica, unknown partition {}, may be dropped", info.toString());
+            return;
+        }
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
 
         try {
