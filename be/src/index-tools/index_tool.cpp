@@ -36,7 +36,11 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
+// clang-format off
+#include "common/compile_check_avoid_begin.h"
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#include "common/compile_check_avoid_end.h"
+// clang-format on
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif

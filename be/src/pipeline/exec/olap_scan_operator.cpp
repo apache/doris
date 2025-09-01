@@ -478,6 +478,15 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
                 std::max<int64_t>(1024, state()->parallel_scan_min_rows_per_scanner());
         scanner_builder.set_max_scanners_count(max_scanners_count);
         scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
+        // If the session variable is set, force one scanner per segment.
+        if (state()->query_options().__isset.optimize_index_scan_parallelism &&
+            state()->query_options().optimize_index_scan_parallelism) {
+            // TODO: Use optimize_index_scan_parallelism for ann range search in the future.
+            // Currently, ann topn is enough
+            if (_ann_topn_runtime != nullptr) {
+                scanner_builder.set_optimize_index_scan_parallelism(true);
+            }
+        }
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {

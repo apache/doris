@@ -363,7 +363,7 @@ public class SlotDescriptor {
                 .append(", nullable=").append(isNullable)
                 .append(", isAutoIncrement=").append(isAutoInc)
                 .append(", subColPath=").append(subColPath)
-                .append(", virtualColumn=").append(virtualColumn)
+                .append(", virtualColumn=").append(virtualColumn == null ? null : virtualColumn.toSql())
                 .append("}")
                 .toString();
     }

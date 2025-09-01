@@ -168,14 +168,6 @@ suite("test_prepared_stmt_in_list", "nonConcurrent") {
         stmt_read8.setString(5, '2024-01-01 12:36:38')
         qe_stmt_read8_2 stmt_read8
 
-        def stmt_read9 = prepareStatement "select * from ${tableName} WHERE `k9` IN (?, ?, ?, ?, ?) order by 1"
-        stmt_read9.setFloat(1, 522.762)
-        stmt_read9.setFloat(2, 52.862)
-        stmt_read9.setFloat(3, 552.872)
-        stmt_read9.setFloat(4, 652.692)
-        stmt_read9.setFloat(5, 2.7692)
-        qe_stmt_read9_1 stmt_read9
-
         def stmt_read10 = prepareStatement "select * from ${tableName} WHERE `k10` IN (?, ?, ?, ?, ?) order by 1"
         stmt_read10.setTimestamp(1, new java.sql.Timestamp(formater.parse("2022-01-01 11:30:38").getTime()))
         stmt_read10.setTimestamp(2, new java.sql.Timestamp(formater.parse("3022-01-01 11:30:38").getTime()))

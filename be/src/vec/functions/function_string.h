@@ -2178,59 +2178,72 @@ private:
     }
 };
 
+enum class FunctionCountSubStringType { TWO_ARGUMENTS, THREE_ARGUMENTS };
+
+template <FunctionCountSubStringType type>
 class FunctionCountSubString : public IFunction {
 public:
     static constexpr auto name = "count_substrings";
+    static constexpr auto arg_count = (type == FunctionCountSubStringType::TWO_ARGUMENTS) ? 2 : 3;
 
     static FunctionPtr create() { return std::make_shared<FunctionCountSubString>(); }
     using NullMapType = PaddedPODArray<UInt8>;
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 2; }
+    size_t get_number_of_arguments() const override { return arg_count; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string_type(arguments[0]->get_primitive_type()))
-                << "first argument for function: " << name << " should be string"
-                << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
-                << "second argument for function: " << name << " should be string"
-                << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeInt32>();
     }
 
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (type == FunctionCountSubStringType::TWO_ARGUMENTS) {
+            return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+        } else {
+            return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                    std::make_shared<DataTypeInt32>()};
+        }
+    }
+
+    bool is_variadic() const override { return true; }
+
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_EQ(arguments.size(), 2);
-        const auto& [src_column, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& [right_column, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
-
-        const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
-        if (!col_left) {
-            return Status::InternalError("Left operator of function {} can not be {}", get_name(),
-                                         block.get_by_position(arguments[0]).type->get_name());
+        DCHECK(arg_count);
+        bool col_const[arg_count];
+        ColumnPtr argument_columns[arg_count];
+        for (int i = 0; i < arg_count; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
 
-        const auto* col_right = check_and_get_column<ColumnString>(right_column.get());
-        if (!col_right) {
-            return Status::InternalError("Right operator of function {} can not be {}", get_name(),
-                                         block.get_by_position(arguments[1]).type->get_name());
-        }
+        auto dest_column_ptr = ColumnInt32::create(input_rows_count);
+        auto& dest_column_data = dest_column_ptr->get_data();
 
-        auto dest_column_ptr = ColumnInt32::create(input_rows_count, 0);
-        // count_substring(ColumnString, "xxx")
-        if (right_const) {
-            _execute_constant_pattern(*col_left, col_right->get_data_at(0),
-                                      dest_column_ptr->get_data(), input_rows_count);
-        } else if (left_const) {
-            // count_substring("xxx", ColumnString)
-            _execute_constant_src_string(col_left->get_data_at(0), *col_right,
-                                         dest_column_ptr->get_data(), input_rows_count);
+        if constexpr (type == FunctionCountSubStringType::TWO_ARGUMENTS) {
+            const auto& src_column_string = assert_cast<const ColumnString&>(*argument_columns[0]);
+            const auto& pattern_column = assert_cast<const ColumnString&>(*argument_columns[1]);
+            std::visit(
+                    [&](auto str_const, auto pattern_const) {
+                        _execute<str_const, pattern_const>(src_column_string, pattern_column,
+                                                           dest_column_data, input_rows_count);
+                    },
+                    vectorized::make_bool_variant(col_const[0]),
+                    vectorized::make_bool_variant(col_const[1]));
         } else {
-            // count_substring(ColumnString, ColumnString)
-            _execute_vector(*col_left, *col_right, dest_column_ptr->get_data(), input_rows_count);
+            const auto& src_column_string = assert_cast<const ColumnString&>(*argument_columns[0]);
+            const auto& pattern_column = assert_cast<const ColumnString&>(*argument_columns[1]);
+            const auto& start_pos_column = assert_cast<const ColumnInt32&>(*argument_columns[2]);
+            std::visit(
+                    [&](auto str_const, auto pattern_const, auto start_pos_const) {
+                        _execute<str_const, pattern_const, start_pos_const>(
+                                src_column_string, pattern_column, start_pos_column,
+                                dest_column_data, input_rows_count);
+                    },
+                    vectorized::make_bool_variant(col_const[0]),
+                    vectorized::make_bool_variant(col_const[1]),
+                    vectorized::make_bool_variant(col_const[2]));
         }
 
         block.replace_by_position(result, std::move(dest_column_ptr));
@@ -2238,31 +2251,46 @@ public:
     }
 
 private:
-    void _execute_constant_pattern(const ColumnString& src_column_string,
-                                   const StringRef& pattern_ref,
-                                   ColumnInt32::Container& dest_column_data,
-                                   size_t input_rows_count) const {
-        for (size_t i = 0; i < input_rows_count; i++) {
-            const StringRef str_ref = src_column_string.get_data_at(i);
+    template <bool src_const, bool pattern_const>
+    void _execute(const ColumnString& src_column_string, const ColumnString& pattern_column,
+                  ColumnInt32::Container& dest_column_data, size_t size) const {
+        for (size_t i = 0; i < size; i++) {
+            const StringRef str_ref =
+                    src_column_string.get_data_at(index_check_const<src_const>(i));
+
+            const StringRef pattern_ref =
+                    pattern_column.get_data_at(index_check_const<pattern_const>(i));
             dest_column_data[i] = find_str_count(str_ref, pattern_ref);
         }
     }
 
-    void _execute_vector(const ColumnString& src_column_string, const ColumnString& pattern_column,
-                         ColumnInt32::Container& dest_column_data, size_t input_rows_count) const {
-        for (size_t i = 0; i < input_rows_count; i++) {
-            const StringRef pattern_ref = pattern_column.get_data_at(i);
-            const StringRef str_ref = src_column_string.get_data_at(i);
-            dest_column_data[i] = find_str_count(str_ref, pattern_ref);
-        }
-    }
+    template <bool src_const, bool pattern_const, bool start_pos_const>
+    void _execute(const ColumnString& src_column_string, const ColumnString& pattern_column,
+                  const ColumnInt32& start_pos_column, ColumnInt32::Container& dest_column_data,
+                  size_t size) const {
+        for (size_t i = 0; i < size; i++) {
+            const StringRef str_ref =
+                    src_column_string.get_data_at(index_check_const<src_const>(i));
+            const StringRef pattern_ref =
+                    pattern_column.get_data_at(index_check_const<pattern_const>(i));
+            // 1-based index
+            int32_t start_pos =
+                    start_pos_column.get_element(index_check_const<start_pos_const>(i)) - 1;
 
-    void _execute_constant_src_string(const StringRef& str_ref, const ColumnString& pattern_col,
-                                      ColumnInt32::Container& dest_column_data,
-                                      size_t input_rows_count) const {
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            const StringRef pattern_ref = pattern_col.get_data_at(i);
-            dest_column_data[i] = find_str_count(str_ref, pattern_ref);
+            const char* p = str_ref.begin();
+            const char* end = str_ref.end();
+            int char_size = 0;
+            for (size_t j = 0; j < start_pos && p < end; ++j, p += char_size) {
+                char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
+            }
+            const auto start_byte_len = p - str_ref.begin();
+
+            if (start_pos < 0 || start_byte_len >= str_ref.size) {
+                dest_column_data[i] = 0;
+            } else {
+                dest_column_data[i] =
+                        find_str_count(str_ref.substring(start_byte_len), pattern_ref);
+            }
         }
     }
 
@@ -4422,9 +4450,11 @@ private:
     }
 
     template <bool origin_const, bool pos_const, bool len_const, bool insert_const>
-    static void vector_utf8(const ColumnString* col_origin, int const* col_pos, int const* col_len,
-                            const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
-                            size_t input_rows_count) {
+    NO_SANITIZE_UNDEFINED static void vector_utf8(const ColumnString* col_origin,
+                                                  int const* col_pos, int const* col_len,
+                                                  const ColumnString* col_insert,
+                                                  ColumnString::MutablePtr& col_res,
+                                                  size_t input_rows_count) {
         auto& col_res_chars = col_res->get_chars();
         auto& col_res_offsets = col_res->get_offsets();
         StringRef origin_str, insert_str;
