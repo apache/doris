@@ -2150,7 +2150,9 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
             }
         } else {
             simd::iterate_through_bits_mask(
-                    [&](const uint16_t bit_pos) { sel_rowid_idx[new_size++] = sel_pos + bit_pos; },
+                    [&](const int bit_pos) {
+                        sel_rowid_idx[new_size++] = sel_pos + (uint16_t)bit_pos;
+                    },
                     mask);
         }
         sel_pos += SIMD_BYTES;
