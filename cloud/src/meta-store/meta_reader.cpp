@@ -545,6 +545,8 @@ TxnErrorCode MetaReader::get_partition_versions(Transaction* txn,
             versions->emplace(partition_id, version);
             if (last_pending_txn_id && version_pb.pending_txn_ids_size() > 0) {
                 *last_pending_txn_id = version_pb.pending_txn_ids(0);
+                LOG(INFO) << "partition " << partition_id
+                          << " has pending txn id: " << *last_pending_txn_id;
             }
         }
     }
@@ -592,6 +594,10 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                 versioned::document_get_range<RowsetMetaCloudPB>(txn, start_key, end_key, options);
         for (auto&& kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
             auto&& [key, version, rowset_meta] = *kvp;
+            LOG(INFO) << "walter " << tablet_id << " get load rowset meta, version: ["
+                      << rowset_meta.start_version() << ", " << rowset_meta.end_version() << "]"
+                      << ", versionstamp: " << version.version() << ", acquire range: ["
+                      << start_version << ", " << end_version << "]";
             rowset_graph.emplace(rowset_meta.end_version(), std::move(rowset_meta));
             min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
             DCHECK(version < snapshot_version_)
@@ -631,6 +637,11 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                     << "version: " << version.to_string()
                     << ", snapshot_version: " << snapshot_version_.to_string();
 
+            LOG(INFO) << "walter " << tablet_id << " get compact rowset meta, version: ["
+                      << rowset_meta.start_version() << ", " << rowset_meta.end_version() << "]"
+                      << ", versionstamp: " << version.version() << ", acquire range: ["
+                      << start_version << ", " << end_version << "]";
+
             int64_t start_version = rowset_meta.start_version();
             int64_t end_version = rowset_meta.end_version();
             if (last_start_version <= start_version) {
@@ -658,9 +669,13 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
 
     rowset_metas->clear();
     rowset_metas->reserve(rowset_graph.size());
+    std::string out;
     for (auto&& [version, rowset_meta] : rowset_graph) {
+        out += fmt::format("[{}, {}],", rowset_meta.start_version(), rowset_meta.end_version());
         rowset_metas->emplace_back(std::move(rowset_meta));
     }
+    LOG(INFO) << "walter get rowset meta " << tablet_id << ", versions: " << out
+              << " acquired version: [" << start_version << ", " << end_version << "]";
 
     return TxnErrorCode::TXN_OK;
 }
