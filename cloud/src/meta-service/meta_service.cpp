@@ -3132,7 +3132,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 }
                 next_version = rowset_meta.end_version();
             }
-            if (next_version != request->end_version()) {
+            if (next_version != request->end_version() && request->end_version() > 0) {
                 LOG(ERROR) << "there is a hold in versioned rowsets, tablet_id=" << tablet_id
                            << ", next_version=" << next_version << ", acquired range ["
                            << request->start_version() << "-" << request->end_version() << "]";
