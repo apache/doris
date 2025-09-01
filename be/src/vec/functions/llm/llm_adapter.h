@@ -48,7 +48,8 @@ struct LLMResource {
               max_tokens(tllm.max_tokens),
               max_retries(tllm.max_retries),
               retry_delay_second(tllm.retry_delay_second),
-              anthropic_version(tllm.anthropic_version) {}
+              anthropic_version(tllm.anthropic_version),
+              dimensions(tllm.dimensions) {}
 
     std::string endpoint;
     std::string provider_type;
@@ -59,6 +60,7 @@ struct LLMResource {
     int64_t max_retries;
     int64_t retry_delay_second;
     std::string anthropic_version;
+    int32_t dimensions;
 
     void serialize(BufferWritable& buf) const {
         buf.write_binary(endpoint);
@@ -70,6 +72,7 @@ struct LLMResource {
         buf.write_binary(max_retries);
         buf.write_binary(retry_delay_second);
         buf.write_binary(anthropic_version);
+        buf.write_binary(dimensions);
     }
 
     void deserialize(BufferReadable& buf) {
@@ -82,6 +85,7 @@ struct LLMResource {
         buf.read_binary(max_retries);
         buf.read_binary(retry_delay_second);
         buf.read_binary(anthropic_version);
+        buf.read_binary(dimensions);
     }
 };
 

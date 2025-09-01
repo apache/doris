@@ -147,6 +147,12 @@ public:
 
 private:
     Status send_request_to_llm(const std::string& request_body, std::string& response) const {
+        // Mock path for testing
+        if (_llm_config.provider_type == "MOCK") {
+            response = "this is a mock response";
+            return Status::OK();
+        }
+
         return HttpClient::execute_with_retry(
                 _llm_config.max_retries, _llm_config.retry_delay_second,
                 [this, &request_body, &response](HttpClient* client) -> Status {
@@ -157,7 +163,6 @@ private:
     Status do_send_request(HttpClient* client, const std::string& request_body,
                            std::string& response) const {
         RETURN_IF_ERROR(client->init(_llm_config.endpoint));
-
         if (_ctx == nullptr) {
             return Status::InternalError("Query context is null");
         }
@@ -167,7 +172,6 @@ private:
             return Status::InternalError("Query timeout exceeded before LLM request");
         }
         client->set_timeout_ms(remaining_query_time * 1000);
-
         if (!_llm_config.api_key.empty()) {
             RETURN_IF_ERROR(const_cast<AggregateFunctionLLMAggData*>(this)
                                     ->_llm_adapter->set_authentication(client));
