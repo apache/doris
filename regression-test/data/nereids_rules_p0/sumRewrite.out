@@ -123,20 +123,15 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) + 2)) AS `sum(id + 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) + 2)) AS `partial_sum((cast(id as BIGINT) + 2))`)]
-------PhysicalProject[(cast(id as BIGINT) + 2) AS `(cast(id as BIGINT) + 2)`]
---------filter(FALSE)
-----------PhysicalOlapScan[sr]
+------PhysicalProject[(cast(id as BIGINT) + 2) AS `(cast(id as BIGINT) + 2)`, sr.id]
+--------PhysicalEmptyRelation
 
 -- !sum_add_const_empty_table_result --
 \N
 
 -- !sum_add_const_empty_table_group_by_shape --
 PhysicalResultSink
---hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(id as BIGINT) + 2)) AS `sum(id + 2)`)]
-----hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(id as BIGINT) + 2)) AS `partial_sum((cast(id as BIGINT) + 2))`, sr.not_null_id)]
-------PhysicalProject[(cast(id as BIGINT) + 2) AS `(cast(id as BIGINT) + 2)`, sr.not_null_id]
---------filter(FALSE)
-----------PhysicalOlapScan[sr]
+--PhysicalEmptyRelation
 
 -- !sum_add_const_empty_table_group_by_result --
 
@@ -144,20 +139,15 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum((cast(id as BIGINT) - 2)) AS `sum(id - 2)`)]
 ----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum((cast(id as BIGINT) - 2)) AS `partial_sum((cast(id as BIGINT) - 2))`)]
-------PhysicalProject[(cast(id as BIGINT) - 2) AS `(cast(id as BIGINT) - 2)`]
---------filter(FALSE)
-----------PhysicalOlapScan[sr]
+------PhysicalProject[(cast(id as BIGINT) - 2) AS `(cast(id as BIGINT) - 2)`, sr.id]
+--------PhysicalEmptyRelation
 
 -- !sum_sub_const_empty_table_result --
 \N
 
 -- !sum_sub_const_empty_table_group_by_shape --
 PhysicalResultSink
---hashAgg[GLOBAL, groupByExpr=(sr.not_null_id), outputExpr=(sr.not_null_id, sum((cast(id as BIGINT) - 2)) AS `sum(id - 2)`)]
-----hashAgg[LOCAL, groupByExpr=(sr.not_null_id), outputExpr=(partial_sum((cast(id as BIGINT) - 2)) AS `partial_sum((cast(id as BIGINT) - 2))`, sr.not_null_id)]
-------PhysicalProject[(cast(id as BIGINT) - 2) AS `(cast(id as BIGINT) - 2)`, sr.not_null_id]
---------filter(FALSE)
-----------PhysicalOlapScan[sr]
+--PhysicalEmptyRelation
 
 -- !sum_sub_const_empty_table_group_by_result --
 
