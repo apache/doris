@@ -19,6 +19,8 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
+
+#include "util/debug_points.h"
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif
@@ -287,7 +289,19 @@ void NewPlainTextLineReader::extend_input_buf() {
     } while (false);
 }
 
-void NewPlainTextLineReader::extend_output_buf() {
+Status NewPlainTextLineReader::extend_output_buf() {
+    DBUG_EXECUTE_IF("NewPlainTextLineReader.read_line.limit_output_buf_size",
+                    { _output_buf_size = 4294967296; });
+
+    if (_output_buf_size >= config::max_csv_line_reader_output_buffer_size) [[unlikely]] {
+        return Status::InternalError(
+                "Output buffer size exceeds configured limit of " +
+                std::to_string(config::max_csv_line_reader_output_buffer_size /
+                               (1024 * 1024 * 1024)) +
+                "GB. "
+                "It may be due to a configuration error or a very large row of data.");
+    }
+
     // left capacity
     size_t capacity = _output_buf_size - _output_buf_limit;
     // we want at least 1024 bytes capacity left
@@ -322,6 +336,8 @@ void NewPlainTextLineReader::extend_output_buf() {
         _output_buf_limit -= _output_buf_pos;
         _output_buf_pos = 0;
     } while (false);
+
+    return Status::OK();
 }
 
 Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
@@ -340,13 +356,16 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
         uint8_t* cur_ptr = _output_buf + _output_buf_pos;
         const uint8_t* pos = _line_reader_ctx->read_line(cur_ptr, output_buf_read_remaining());
 
+        DBUG_EXECUTE_IF("NewPlainTextLineReader.read_line.limit_output_buf_size",
+                        { pos = nullptr; });
+
         if (pos == nullptr) {
             // didn't find line delimiter, read more data from decompressor
             // for multi bytes delimiter we cannot set offset to avoid incomplete
             // delimiter
             // read from file reader
             offset = output_buf_read_remaining();
-            extend_output_buf();
+            RETURN_IF_ERROR(extend_output_buf());
             if ((_input_buf_limit > _input_buf_pos) && _more_input_bytes == 0) {
                 // we still have data in input which is not decompressed.
                 // and no more data is required for input
