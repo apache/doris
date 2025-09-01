@@ -39,12 +39,12 @@ Usage: $0 <options>
      --no-load-data     do not load data into the components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul,ranger"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},hudi,trino,kafka,spark,lakesoul,ranger,polaris"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -160,6 +160,7 @@ RUN_LAKESOUL=0
 RUN_KERBEROS=0
 RUN_MINIO=0
 RUN_RANGER=0
+RUN_POLARIS=0
 
 RESERVED_PORTS="65535"
 
@@ -207,6 +208,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_MINIO=1
     elif [[ "${element}"x == "ranger"x ]]; then
         RUN_RANGER=1
+    elif [[ "${element}"x == "polaris"x ]]; then
+        RUN_POLARIS=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -664,6 +667,24 @@ start_minio() {
     fi
 }
 
+start_polaris() {
+    echo "RUN_POLARIS"
+    local POLARIS_DIR="${ROOT}/docker-compose/polaris"
+    # Render compose with envsubst since settings is a bash export file
+    export CONTAINER_UID=${CONTAINER_UID}
+    . "${POLARIS_DIR}/polaris_settings.env"
+    if command -v envsubst >/dev/null 2>&1; then
+        envsubst <"${POLARIS_DIR}/docker-compose.yaml.tpl" >"${POLARIS_DIR}/docker-compose.yaml"
+    else
+        # Fallback: let docker compose handle variable substitution from current shell env
+        cp "${POLARIS_DIR}/docker-compose.yaml.tpl" "${POLARIS_DIR}/docker-compose.yaml"
+    fi
+    sudo docker compose -f "${POLARIS_DIR}/docker-compose.yaml" down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -f "${POLARIS_DIR}/docker-compose.yaml" up -d --wait --remove-orphans
+    fi
+}
+
 start_ranger() {
     echo "RUN_RANGER"
     export CONTAINER_UID=${CONTAINER_UID}
@@ -794,6 +815,15 @@ if [[ "${RUN_MINIO}" -eq 1 ]]; then
     start_minio > start_minio.log 2>&1 &
     pids["minio"]=$!
 fi
+<<<<<<< HEAD
+=======
+
+if [[ "${RUN_POLARIS}" -eq 1 ]]; then
+    start_polaris > start_polaris.log 2>&1 &
+    pids["polaris"]=$!
+fi
+
+>>>>>>> 2dfdb759d0 ([test](iceberg) add polaris test (#55484))
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     start_kerberos > start_kerberos.log 2>&1 &
     pids["kerberos"]=$!
