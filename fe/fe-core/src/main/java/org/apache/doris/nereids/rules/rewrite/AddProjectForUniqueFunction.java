@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -210,7 +211,8 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
     // extract unique function which exist multiple times from targets,
     // then alias the unique function and put them into a child project,
     // then rewrite targets with the alias names.
-    private <T extends Expression> Optional<Pair<List<T>, LogicalProject<Plan>>> rewriteExpressions(
+    @VisibleForTesting
+    public <T extends Expression> Optional<Pair<List<T>, LogicalProject<Plan>>> rewriteExpressions(
             LogicalPlan plan, Collection<T> targets) {
         List<NamedExpression> uniqueFunctionAlias = tryGenUniqueFunctionAlias(targets);
         if (uniqueFunctionAlias.isEmpty()) {
@@ -235,14 +237,17 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
     }
 
     // if a unique function exists multiple times in the targets, then add a project to alias it.
-    private List<NamedExpression> tryGenUniqueFunctionAlias(Collection<? extends Expression> targets) {
+    @VisibleForTesting
+    public List<NamedExpression> tryGenUniqueFunctionAlias(Collection<? extends Expression> targets) {
         Map<UniqueFunction, Integer> unqiueFunctionCounter = Maps.newLinkedHashMap();
-        targets.forEach(target -> target.foreach(e -> {
-            Expression expr = (Expression) e;
-            if (expr instanceof UniqueFunction) {
-                unqiueFunctionCounter.merge((UniqueFunction) expr, 1, Integer::sum);
-            }
-        }));
+        for (Expression target : targets) {
+            target.foreach(e -> {
+                Expression expr = (Expression) e;
+                if (expr instanceof UniqueFunction) {
+                    unqiueFunctionCounter.merge((UniqueFunction) expr, 1, Integer::sum);
+                }
+            });
+        }
 
         ImmutableList.Builder<NamedExpression> builder
                 = ImmutableList.builderWithExpectedSize(unqiueFunctionCounter.size());
