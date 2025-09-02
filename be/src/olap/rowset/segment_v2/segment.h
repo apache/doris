@@ -183,7 +183,7 @@ public:
     bool can_apply_predicate_safely(
             int cid, const Schema& schema,
             const std::map<std::string, vectorized::DataTypePtr>& target_cast_type_for_variants,
-            ReaderType read_type) const {
+            ReaderType read_type) {
         const doris::Field* col = schema.column(cid);
         vectorized::DataTypePtr storage_column_type =
                 get_data_type_of(col->get_desc(), read_type != ReaderType::READER_QUERY);
