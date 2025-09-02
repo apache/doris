@@ -111,6 +111,8 @@ public class HadoopHudiJniScanner extends JniScanner {
 
         this.hudiColumnNames = params.get("hudi_column_names");
         this.hudiColumnTypes = params.get("hudi_column_types").split("#");
+        // Required fields will be empty when only partition fields are selected
+        // This is because partition fields are not stored in the data files
         if (!params.get("required_fields").equals("")) {
             this.requiredFields = params.get("required_fields").split(",");
         } else {
