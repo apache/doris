@@ -252,3 +252,39 @@ false
 
 -- !json_remove10 --
 {"Person":{"Name":"Homer","Hobbies":["Eating","Sleeping"]}}
+
+-- !json_remove11 --
+NULL
+
+-- !json_remove12 --
+NULL
+
+-- !json_remove13 --
+NULL
+
+-- !json_remove14 --
+NULL
+
+-- !json_remove15 --
+{"name":"Alice","skills":["Java","Python","SQL"]}
+{"product":"laptop","specs":{"cpu":"Intel","ram":"16GB"}}
+{"users":[{"name":"Bob"},{"id":2,"name":"Charlie"}]}
+{}
+
+-- !json_remove16 --
+{"name":"Alice","skills":["Java","SQL"]}
+{"product":"laptop","specs":{"cpu":"Intel"}}
+{"users":[{"name":"Bob"}]}
+{}
+
+-- !json_remove17 --
+{}
+
+-- !json_remove18 --
+[]
+
+-- !json_remove19 --
+123
+
+-- !json_remove20 --
+true

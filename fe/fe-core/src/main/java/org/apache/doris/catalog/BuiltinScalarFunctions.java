@@ -763,7 +763,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonInsert.class, "json_insert", "jsonb_insert"),
             scalar(JsonReplace.class, "json_replace", "jsonb_replace"),
             scalar(JsonSet.class, "json_set", "jsonb_set"),
-            scalar(JsonRemove.class, "json_remove", "jsonb_remove"),
+            scalar(JsonRemove.class, "json_remove"),
             scalar(JsonbExistsPath.class, "json_exists_path"),
             scalar(JsonbExistsPath.class, "jsonb_exists_path"),
             scalar(JsonbExtract.class, "jsonb_extract", "json_extract"),

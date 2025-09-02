@@ -147,12 +147,7 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
             List<Expression> convectedChildren = new ArrayList<>();
             List<Expression> children = function.children();
 
-            Expression firstChild = children.get(0);
-            if (firstChild.getDataType() instanceof JsonType) {
-                convectedChildren.add(firstChild);
-            } else {
-                convectedChildren.add(new ToJson(firstChild));
-            }
+            convectedChildren.add(children.get(0));
 
             for (int i = 1; i < children.size(); i++) {
                 convectedChildren.add(children.get(i));
