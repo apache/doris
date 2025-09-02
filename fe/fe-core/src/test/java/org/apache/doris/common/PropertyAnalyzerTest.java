@@ -31,6 +31,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TPaloBrokerService.AsyncProcessor.pread;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -332,6 +333,34 @@ public class PropertyAnalyzerTest {
             Assertions.assertEquals(
                     "errCode = 2, detailMessage = unknown inverted index storage format: unknown_format",
                     e.getMessage());
+        }
+    }
+
+    @Test
+    public void testAnalyzeVariantMaxSparseColumnStatisticsSize() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "-1");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertEquals("variant_max_sparse_column_statistics_size must between 0 and 50000 ", e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "50001");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertEquals("variant_max_sparse_column_statistics_size must between 0 and 50000 ", e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "invalid");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertEquals("variant_max_sparse_column_statistics_size format error", e.getMessage());
         }
     }
 }

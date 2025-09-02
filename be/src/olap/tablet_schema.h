@@ -290,7 +290,8 @@ private:
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
     bool _variant_enable_typed_paths_to_sparse = false;
     // set variant_max_sparse_column_statistics_size
-    int32_t _variant_max_sparse_column_statistics_size = 10000;
+    int32_t _variant_max_sparse_column_statistics_size =
+            BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
