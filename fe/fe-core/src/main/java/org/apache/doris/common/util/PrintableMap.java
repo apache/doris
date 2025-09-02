@@ -17,14 +17,15 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.constants.CosProperties;
-import org.apache.doris.datasource.property.constants.DLFProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
 import org.apache.doris.datasource.property.constants.GlueProperties;
 import org.apache.doris.datasource.property.constants.MCProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
 
 import com.google.common.collect.Sets;
 
@@ -64,12 +65,13 @@ public class PrintableMap<K, V> {
                 GCSProperties.SECRET_KEY,
                 CosProperties.SECRET_KEY,
                 GlueProperties.SECRET_KEY,
-                MCProperties.SECRET_KEY,
-                DLFProperties.SECRET_KEY));
+                MCProperties.SECRET_KEY));
+
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
+
         HIDDEN_KEY = Sets.newHashSet();
         HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);
         HIDDEN_KEY.addAll(GlueProperties.META_KEYS);
-        HIDDEN_KEY.addAll(DLFProperties.META_KEYS);
     }
 
     public PrintableMap(Map<K, V> map, String keyValueSeparator,
