@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
@@ -78,6 +79,18 @@ private:
 
             EXPECT_TRUE(
                     ColumnHelper::column_equal(std::move(result_column), expected_column.column));
+        }
+
+        {
+            QueryContext* context = nullptr;
+            try {
+                agg_fn->function()->set_query_context(context);
+            } catch (const Status& st) {
+                EXPECT_FALSE(st.ok());
+                EXPECT_THAT(
+                        st.to_string().c_str(),
+                        ::testing::EndsWith("only LLM aggregate functions implement this method"));
+            }
         }
 
         agg_fn->destroy(place);

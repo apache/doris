@@ -94,7 +94,7 @@ TEST_F(AggregateFunctionLLMAggTest, add_test) {
 
     const auto& data = *reinterpret_cast<const AggregateFunctionLLMAggData*>(place);
     EXPECT_TRUE(data.inited);
-    EXPECT_EQ(data._task, "summarize this text");
+    EXPECT_EQ(data.get_task(), "summarize this text");
     EXPECT_EQ(data.data.size(), 11); // "Hello world"
 
     _agg_function->destroy(place);
@@ -123,7 +123,7 @@ TEST_F(AggregateFunctionLLMAggTest, multiple_add_test) {
 
     const auto& data = *reinterpret_cast<const AggregateFunctionLLMAggData*>(place);
     EXPECT_TRUE(data.inited);
-    EXPECT_EQ(data._task, "summarize");
+    EXPECT_EQ(data.get_task(), "summarize");
     std::string expected = "First text\nSecond text\nThird text";
     std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
     EXPECT_EQ(actual, expected);
@@ -235,7 +235,7 @@ TEST_F(AggregateFunctionLLMAggTest, reset_test) {
     const auto& data_after = *reinterpret_cast<const AggregateFunctionLLMAggData*>(place);
     EXPECT_FALSE(data_after.inited);
     EXPECT_TRUE(data_after.data.empty());
-    EXPECT_TRUE(data_after._task.empty());
+    EXPECT_TRUE(data_after.get_task().empty());
 
     _agg_function->destroy(place);
 }
@@ -293,10 +293,11 @@ TEST_F(AggregateFunctionLLMAggTest, merge_empty_test) {
     _agg_function->destroy(place2);
 }
 
-TEST_F(AggregateFunctionLLMAggTest, return_type_test) {
+TEST_F(AggregateFunctionLLMAggTest, return_type_and_name_test) {
     auto return_type = _agg_function->get_return_type();
     EXPECT_TRUE(return_type != nullptr);
     EXPECT_EQ(return_type->get_name(), "String");
+    EXPECT_EQ(_agg_function->get_name(), "llm_agg");
 }
 
 TEST_F(AggregateFunctionLLMAggTest, mock_resource_send_request_test) {

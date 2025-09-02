@@ -31,22 +31,23 @@
 #include "vec/functions/llm/llm_adapter.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class AggregateFunctionLLMAggData {
 public:
-    static constexpr const char* separator = "\n";
-    static constexpr uint8_t separator_size = 1;
+    static constexpr const char* SEPARATOR = "\n";
+    static constexpr uint8_t SEPARATOR_SIZE = sizeof(*SEPARATOR);
+
+    // 128K tokens is a relatively small context limit among mainstream LLMs.
+    // currently, token count is conservatively approximated by size; this is a safe lower bound.
+    // a more efficient and accurate token calculation method may be introduced.
     static constexpr size_t MAX_CONTEXT_SIZE = 128 * 1024;
 
     ColumnString::Chars data;
     bool inited = false;
 
-    static QueryContext* _ctx;
-    LLMResource _llm_config;
-    std::shared_ptr<LLMAdapter> _llm_adapter;
-    std::string _task;
-
     void add(StringRef ref) {
-        auto delta_size = ref.size + (inited ? separator_size : 0);
+        auto delta_size = ref.size + (inited ? SEPARATOR_SIZE : 0);
         if (handle_overflow(delta_size)) {
             throw Status::InternalError(
                     "Failed to add data: combined context size exceeded "
@@ -63,7 +64,7 @@ public:
         _llm_config = rhs._llm_config;
         _task = rhs._task;
 
-        size_t delta_size = (inited ? separator_size : 0) + rhs.data.size();
+        size_t delta_size = (inited ? SEPARATOR_SIZE : 0) + rhs.data.size();
         if (handle_overflow(delta_size)) {
             throw Status::InternalError(
                     "Failed to merge data: combined context size exceeded "
@@ -145,16 +146,21 @@ public:
         }
     }
 
+    static void set_query_context(QueryContext* context) { _ctx = context; }
+
+    const std::string& get_task() const { return _task; }
+
 private:
     Status send_request_to_llm(const std::string& request_body, std::string& response) const {
         // Mock path for testing
-        if (_llm_config.provider_type == "MOCK") {
-            response = "this is a mock response";
-            return Status::OK();
-        }
+#ifdef BE_TEST
+        response = "this is a mock response";
+        return Status::OK();
+#endif
 
         return HttpClient::execute_with_retry(
-                _llm_config.max_retries, _llm_config.retry_delay_second,
+                static_cast<int>(_llm_config.max_retries),
+                static_cast<int>(_llm_config.retry_delay_second),
                 [this, &request_body, &response](HttpClient* client) -> Status {
                     return this->do_send_request(client, request_body, response);
                 });
@@ -186,27 +192,37 @@ private:
             return false;
         }
 
-        std::string result = _execute_task();
-        data.assign(result.begin(), result.end());
-        inited = !data.empty();
+        process_current_context();
 
         // check if there is still an overflow after replacement.
         return (additional_size + data.size() > MAX_CONTEXT_SIZE);
     }
 
     void append_data(const void* source, size_t size) {
-        auto delta_size = size + (inited ? separator_size : 0);
+        auto delta_size = size + (inited ? SEPARATOR_SIZE : 0);
         auto offset = data.size();
         data.resize(data.size() + delta_size);
 
         if (!inited) {
             inited = true;
         } else {
-            memcpy(data.data() + offset, separator, separator_size);
-            offset += separator_size;
+            memcpy(data.data() + offset, SEPARATOR, SEPARATOR_SIZE);
+            offset += SEPARATOR_SIZE;
         }
         memcpy(data.data() + offset, source, size);
     }
+
+    void process_current_context() {
+        DCHECK(!data.empty());
+        std::string result = _execute_task();
+        data.assign(result.begin(), result.end());
+        inited = !data.empty();
+    }
+
+    static QueryContext* _ctx;
+    LLMResource _llm_config;
+    std::shared_ptr<LLMAdapter> _llm_adapter;
+    std::string _task;
 };
 
 class AggregateFunctionLLMAgg final
@@ -220,7 +236,7 @@ public:
 
     void set_query_context(QueryContext* context) override {
         if (context) {
-            AggregateFunctionLLMAggData::_ctx = context;
+            AggregateFunctionLLMAggData::set_query_context(context);
         }
     }
 
@@ -263,4 +279,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
