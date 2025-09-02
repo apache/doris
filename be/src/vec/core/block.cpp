@@ -698,6 +698,11 @@ const ColumnsWithTypeAndName& Block::get_columns_with_type_and_name() const {
     return data;
 }
 
+void Block::set_columns_with_type_and_name(
+        const ColumnsWithTypeAndName& columns_with_type_and_name) {
+    data = columns_with_type_and_name;
+}
+
 std::vector<std::string> Block::get_names() const {
     std::vector<std::string> res;
     res.reserve(columns());
@@ -792,7 +797,8 @@ void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
     for (const int result_column_id : result_column_ids) {
         tmp_data.push_back(data[result_column_id]);
     }
-    swap(Block {tmp_data});
+    DCHECK(index_by_name.empty());
+    data = std::move(tmp_data);
 }
 
 void Block::update_hash(SipHash& hash) const {

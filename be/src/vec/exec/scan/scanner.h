@@ -247,6 +247,8 @@ protected:
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;
+
+    vectorized::Block _projection_block;
 };
 
 using ScannerSPtr = std::shared_ptr<Scanner>;

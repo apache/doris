@@ -290,6 +290,7 @@ protected:
     bool _closed = false;
     std::atomic<bool> _terminated = false;
     vectorized::Block _origin_block;
+    vectorized::Block _projection_block;
 };
 
 template <typename SharedStateArg = FakeSharedState>

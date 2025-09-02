@@ -172,6 +172,8 @@ public:
 
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
 
+    void set_columns_with_type_and_name(const ColumnsWithTypeAndName& columns_with_type_and_name);
+
     std::vector<std::string> get_names() const;
     DataTypes get_data_types() const;
 

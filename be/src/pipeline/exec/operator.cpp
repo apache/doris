@@ -301,7 +301,8 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     if (rows == 0) {
         return Status::OK();
     }
-    vectorized::Block input_block = *origin_block;
+    auto& input_block = local_state->_projection_block;
+    input_block.set_columns_with_type_and_name(origin_block->get_columns_with_type_and_name());
 
     std::vector<int> result_column_ids;
     size_t bytes_usage = 0;

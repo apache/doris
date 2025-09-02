@@ -167,7 +167,8 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
     if (rows == 0) {
         return Status::OK();
     }
-    vectorized::Block input_block = *origin_block;
+    auto& input_block = _projection_block;
+    input_block.set_columns_with_type_and_name(origin_block->get_columns_with_type_and_name());
 
     std::vector<int> result_column_ids;
     for (auto& projections : _intermediate_projections) {
