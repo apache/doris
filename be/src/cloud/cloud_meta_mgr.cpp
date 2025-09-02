@@ -1526,12 +1526,16 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                                           bool is_explicit_txn, int64_t next_visible_version) {
     VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
     if (config::enable_mow_verbose_log) {
-        LOG(INFO) << "start update delete bitmap for tablet_id: " << tablet.tablet_id()
-                  << ", rowset_id: " << rowset_id
-                  << ", delete_bitmap num: " << delete_bitmap->delete_bitmap.size()
-                  << ", delete_bitmap v2 num: " << delete_bitmap_v2->delete_bitmap.size()
-                  << ", store_version: " << store_version << ", lock_id=" << lock_id
-                  << ", initiator=" << initiator;
+        std::stringstream ss;
+        ss << "start update delete bitmap for tablet_id: " << tablet.tablet_id()
+           << ", rowset_id: " << rowset_id
+           << ", delete_bitmap num: " << delete_bitmap->delete_bitmap.size()
+           << ", store_version: " << store_version << ", lock_id=" << lock_id
+           << ", initiator=" << initiator;
+        if (store_version == 2 || store_version == 3) {
+            ss << ", delete_bitmap v2 num: " << delete_bitmap_v2->delete_bitmap.size();
+        }
+        LOG(INFO) << ss.str();
     }
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;

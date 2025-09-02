@@ -1640,6 +1640,8 @@ DECLARE_mInt32(llm_max_concurrent_requests);
 
 // Maximum number of OpenMP threads that can be used by each Doris thread
 DECLARE_Int32(omp_threads_limit);
+// The capacity of segment partial column cache, used to cache column readers for each segment.
+DECLARE_mInt32(max_segment_partial_column_cache_size);
 
 #ifdef BE_TEST
 // test s3

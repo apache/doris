@@ -863,7 +863,7 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-DEFINE_Int32(aws_log_level, "3");
+DEFINE_Int32(aws_log_level, "2");
 DEFINE_Validator(aws_log_level,
                  [](const int config) -> bool { return config >= 0 && config <= 6; });
 
@@ -872,7 +872,7 @@ DEFINE_Validator(aws_log_level,
 //    Informational = 2,
 //    Warning = 3,
 //    Error = 4
-DEFINE_Int32(azure_log_level, "3");
+DEFINE_Int32(azure_log_level, "4");
 DEFINE_Validator(azure_log_level,
                  [](const int config) -> bool { return config >= 1 && config <= 4; });
 
@@ -1591,6 +1591,8 @@ DEFINE_mInt32(llm_max_concurrent_requests, "1");
 // helping to prevent resource contention and ensure stable performance when multiple
 // Doris threads are executing OpenMP-accelerated operations simultaneously.
 DEFINE_mInt32(omp_threads_limit, "8");
+// The capacity of segment partial column cache, used to cache column readers for each segment.
+DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
 // clang-format off
 #ifdef BE_TEST
@@ -2043,6 +2045,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
     fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
+            ((distribution(*generator) % 2) == 0) ? "5" : "10";
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

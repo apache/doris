@@ -20,7 +20,7 @@ suite('merge_project_with_unique_function') {
     sql 'SET runtime_filter_mode=OFF'
     sql 'SET enable_fallback_to_original_planner=false'
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
-    sql "SET detail_shape_nodes='PhysicalProject,PhysicalOneRowRelation'"
+    sql "SET detail_shape_nodes='PhysicalProject,PhysicalOneRowRelation,PhysicalUnion'"
     sql 'SET disable_nereids_rules=PRUNE_EMPTY_PARTITION'
 
     qt_merge_project_1 '''

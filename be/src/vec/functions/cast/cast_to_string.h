@@ -23,7 +23,7 @@
 #include "vec/core/types.h"
 #include "vec/runtime/time_value.h"
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct CastToString {
     template <class SRC>
     static inline std::string from_number(const SRC& from);
@@ -95,7 +95,7 @@ private:
             }
         }
         *end = '\0';
-        return end - buffer;
+        return int(end - buffer);
     }
 };
 
@@ -348,3 +348,4 @@ inline WrapperType create_string_wrapper(const DataTypePtr& from_type) {
 
 }; // namespace CastWrapper
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

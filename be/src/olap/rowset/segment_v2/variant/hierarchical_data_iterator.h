@@ -51,6 +51,8 @@
 
 namespace doris::segment_v2 {
 
+class ColumnReaderCache;
+
 #include "common/compile_check_begin.h"
 
 struct PathWithColumnAndType {
@@ -69,10 +71,11 @@ public:
 
     HierarchicalDataIterator(const vectorized::PathInData& path) : _path(path) {}
 
-    static Status create(ColumnIteratorUPtr* reader, vectorized::PathInData path,
-                         const SubcolumnColumnReaders::Node* target_node,
-                         const SubcolumnColumnReaders::Node* root, ReadType read_type,
-                         std::unique_ptr<ColumnIterator>&& sparse_reader);
+    static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, vectorized::PathInData path,
+                         const SubcolumnColumnMetaInfo::Node* target_node,
+                         std::unique_ptr<SubstreamIterator>&& sparse_reader,
+                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
+                         ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -85,9 +88,8 @@ public:
 
     ordinal_t get_current_ordinal() const override;
 
-    Status add_stream(const SubcolumnColumnReaders::Node* node);
-
-    void set_root(std::unique_ptr<SubstreamIterator>&& root) { _root_reader = std::move(root); }
+    Status add_stream(int32_t col_uid, const SubcolumnColumnMetaInfo::Node* node,
+                      ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
 
 private:
     SubstreamReaderTree _substream_reader;
