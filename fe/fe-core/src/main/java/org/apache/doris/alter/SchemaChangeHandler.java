@@ -1059,10 +1059,6 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Not supporting alter table add generated columns.");
         }
 
-        if (newColumn.getType().isVariantType() && olapTable.hasVariantColumns()) {
-            checkAddVariantColumnAllowed(olapTable, newColumn);
-        }
-
         /*
          * add new column to indexes.
          * UNIQUE:
@@ -3456,22 +3452,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
             nameSet.add(colName);
-        }
-    }
-
-    private void checkAddVariantColumnAllowed(OlapTable olapTable, Column newColumn) throws DdlException {
-        int currentCount = newColumn.getVariantMaxSubcolumnsCount();
-        for (Column column : olapTable.getBaseSchema()) {
-            if (column.getType().isVariantType()) {
-                if (currentCount == 0 && column.getVariantMaxSubcolumnsCount() != 0) {
-                    throw new DdlException("The variant_max_subcolumns_count must either be 0 in all columns"
-                            + " or greater than 0 in all columns");
-                }
-                if (currentCount > 0 && column.getVariantMaxSubcolumnsCount() == 0) {
-                    throw new DdlException("The variant_max_subcolumns_count must either be 0 in all columns"
-                            + " or greater than 0 in all columns");
-                }
-            }
         }
     }
 }
