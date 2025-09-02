@@ -100,7 +100,7 @@ public class MysqlSslContext {
         sslEngine.setUseClientMode(false);
         sslEngine.setEnabledCipherSuites(sslEngine.getSupportedCipherSuites());
         sslEngine.setWantClientAuth(true);
-        if (Config.ssl_force_client_auth) {
+        if (Config.ssl_force_client_auth || Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
             sslEngine.setNeedClientAuth(true);
         }
     }
