@@ -160,6 +160,7 @@ import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateA
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggregation;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.legacy.PushDownAggThroughJoinOnPkFk;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.legacy.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -636,14 +637,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         )
                 ),
                 topic("Eager aggregation",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
-                                LogicalAggregate.class, LogicalJoin.class
-                        ),
-                        // costBased(topDown(
-                        //         new PushDownAggWithDistinctThroughJoinOneSide(),
-                        //         new PushDownAggThroughJoinOneSide(),
-                        //         new PushDownAggThroughJoin()
-                        // )),
+                        //cascadesContext -> cascadesContext.rewritePlanContainsTypes(
+                        //        LogicalAggregate.class, LogicalJoin.class
+                        //),
+                         //costBased(topDown(
+                         //        new PushDownAggWithDistinctThroughJoinOneSide(),
+                                 //new PushDownAggThroughJoinOneSide(),
+                                 //new PushDownAggThroughJoin()
+                         //)),
                         //costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())

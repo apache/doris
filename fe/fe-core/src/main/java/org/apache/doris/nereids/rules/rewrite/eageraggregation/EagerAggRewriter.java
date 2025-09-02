@@ -358,10 +358,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         // 1.3 the lower cardinality <= 3 and lowerCartesian < lowerUpper
         // 1.4 false
         if (high.isEmpty() && medium.isEmpty()) {
-            if (lowerCartesian <= stats.getRowCount() || lower.size() <= 2) {
+            if (lowerCartesian <= stats.getRowCount() && lowerCartesian < lowerUpper && lower.size() <= 3) {
                 return true;
-            } else if (lower.size() <= 3 && lowerCartesian < lowerUpper) {
-                return true;
+            //} else if (lower.size() <= 3 && lowerCartesian < lowerUpper) {
+            //    return true;
             } else {
                 return false;
             }
