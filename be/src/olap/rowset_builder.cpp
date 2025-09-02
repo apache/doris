@@ -135,11 +135,11 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
                     "Unable to do 'partial_update' when "
                     "the tablet is undergoing a 'schema changing process'");
         }
-        _rowset_ids.clear();
+        _rowset_ids->clear();
     } else {
         RETURN_IF_ERROR(
-                tablet()->get_all_rs_id_unlocked(_max_version_in_flush_phase, &_rowset_ids));
-        rowset_ptrs = tablet()->get_rowset_by_ids(&_rowset_ids);
+                tablet()->get_all_rs_id_unlocked(_max_version_in_flush_phase, _rowset_ids.get()));
+        rowset_ptrs = tablet()->get_rowset_by_ids(_rowset_ids.get());
     }
     _delete_bitmap = std::make_shared<DeleteBitmap>(tablet()->tablet_id());
     mow_context = std::make_shared<MowContext>(_max_version_in_flush_phase, _req.txn_id,
@@ -289,7 +289,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
                 "partial update calc delete bitmap summary before commit: tablet({}), txn_id({}), "
                 "rowset_ids({}), cur max_version({}), bitmap num({}), bitmap_cardinality({}), num "
                 "rows updated({}), num rows new added({}), num rows deleted({}), total rows({})",
-                tablet()->tablet_id(), _req.txn_id, _rowset_ids.size(),
+                tablet()->tablet_id(), _req.txn_id, _rowset_ids->size(),
                 rowset_writer()->context().mow_context->max_version,
                 _delete_bitmap->get_delete_bitmap_count(), _delete_bitmap->cardinality(),
                 rowset_writer()->num_rows_updated(), rowset_writer()->num_rows_new_added(),
@@ -299,7 +299,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
 
     LOG(INFO) << "submit calc delete bitmap task to executor, tablet_id: " << tablet()->tablet_id()
               << ", txn_id: " << _req.txn_id;
-    return BaseTablet::commit_phase_update_delete_bitmap(_tablet, _rowset, _rowset_ids,
+    return BaseTablet::commit_phase_update_delete_bitmap(_tablet, _rowset, *_rowset_ids,
                                                          _delete_bitmap, segments, _req.txn_id,
                                                          _calc_delete_bitmap_token.get(), nullptr);
 }
@@ -319,7 +319,7 @@ Status RowsetBuilder::commit_txn() {
         config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0 &&
         tablet()->tablet_state() != TABLET_NOTREADY) {
         auto st = tablet()->check_delete_bitmap_correctness(
-                _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, _rowset_ids);
+                _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, *_rowset_ids);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format(
                     "[tablet_id:{}][txn_id:{}][load_id:{}][partition_id:{}] "
@@ -364,7 +364,7 @@ Status RowsetBuilder::commit_txn() {
     if (_tablet->enable_unique_key_merge_on_write()) {
         _engine.txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, tablet()->tablet_id(), tablet()->tablet_uid(), true,
-                _delete_bitmap, _rowset_ids, _partial_update_info);
+                _delete_bitmap, *_rowset_ids, _partial_update_info);
     }
 
     _is_committed = true;
