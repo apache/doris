@@ -41,6 +41,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.service.ExecuteEnv;
@@ -178,6 +179,26 @@ public final class MetricRepo {
     public static GaugeMetric<Integer> GAUGE_CATALOG_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_DATABASE_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_TABLE_NUM;
+
+    // PLAN
+    public static GaugeMetric<Long> GAUGE_PLAN_NUM;
+    public static Histogram HISTO_PLAN_PARSE_DURATION;
+    public static Histogram HISTO_PLAN_ANALYZE_DURATION;
+    public static Histogram HISTO_PLAN_REWRITE_DURATION;
+    public static Histogram HISTO_PLAN_FOLD_CONST_BY_BE_DURATION;
+    public static Histogram HISTO_PLAN_OPTIMIZE_DURATION;
+    public static Histogram HISTO_PLAN_TRANSLATE_DURATION;
+    public static Histogram HISTO_PLAN_INIT_SCAN_NODE_DURATION;
+    public static Histogram HISTO_PLAN_FINALIZE_SCAN_NODE_DURATION;
+    public static Histogram HISTO_PLAN_CREATE_SCAN_RANGE_DURATION;
+    public static Histogram HISTO_PLAN_DISTRIBUTE_DURATION;
+    public static Histogram HISTO_PLAN_DURATION;
+    public static Histogram HISTO_PLAN_EXTERNAL_CATALOG_META_DURATION;
+    public static Histogram HISTO_PLAN_EXTERNAL_TVF_INIT_DURATION;
+    public static Histogram HISTO_PLAN_LOCK_TABLES_DURATION;
+    public static Histogram HISTO_PLAN_PARTITION_PRUNE_DURATION;
+    public static Histogram HISTO_PLAN_CLOUD_META_DURATION;
+    public static Histogram HISTO_PLAN_MATERIALIZED_VIEW_REWRITE_DURATION;
 
     // MTMV
     public static Histogram HISTO_ASYNC_MATERIALIZED_VIEW_TASK_DURATION;
@@ -808,6 +829,46 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_VERY_LOW_PRIORITY_QUEUE_LENGTH);
 
+        // PLAN
+        GAUGE_PLAN_NUM = new GaugeMetric<Long>(
+                "plan_num",
+                MetricUnit.NOUNIT, "plan running num") {
+            @Override
+            public Long getValue() {
+                return NereidsPlanner.runningPlanNum.get();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_PLAN_NUM);
+        HISTO_PLAN_PARSE_DURATION = METRIC_REGISTER.histogram(MetricRegistry.name("plan_parse", "duration", "ms"));
+        HISTO_PLAN_ANALYZE_DURATION = METRIC_REGISTER.histogram(MetricRegistry.name("plan_analyze", "duration", "ms"));
+        HISTO_PLAN_REWRITE_DURATION = METRIC_REGISTER.histogram(MetricRegistry.name("plan_rewrite", "duration", "ms"));
+        HISTO_PLAN_FOLD_CONST_BY_BE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_fold_const_by_be", "duration", "ms"));
+        HISTO_PLAN_OPTIMIZE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_optimize", "duration", "ms"));
+        HISTO_PLAN_TRANSLATE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_translate", "duration", "ms"));
+        HISTO_PLAN_INIT_SCAN_NODE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_init_scan_node", "duration", "ms"));
+        HISTO_PLAN_FINALIZE_SCAN_NODE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_finalize_scan_node", "duration", "ms"));
+        HISTO_PLAN_CREATE_SCAN_RANGE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_create_scan_range", "duration", "ms"));
+        HISTO_PLAN_DISTRIBUTE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_distribute", "duration", "ms"));
+        HISTO_PLAN_DURATION = METRIC_REGISTER.histogram(MetricRegistry.name("plan", "duration", "ms"));
+        HISTO_PLAN_EXTERNAL_CATALOG_META_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_external_catalog_meta", "duration", "ms"));
+        HISTO_PLAN_EXTERNAL_TVF_INIT_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_external_tvf_init", "duration", "ms"));
+        HISTO_PLAN_LOCK_TABLES_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_lock_tables", "duration", "ms"));
+        HISTO_PLAN_PARTITION_PRUNE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_partition_prune", "duration", "ms"));
+        HISTO_PLAN_CLOUD_META_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_cloud_meta", "duration", "ms"));
+        HISTO_PLAN_MATERIALIZED_VIEW_REWRITE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_materialized_view_rewrite", "duration", "ms"));
         // MTMV
         // count
         for (RefreshTrigger trigger : RefreshTrigger.values()) {
@@ -832,7 +893,7 @@ public final class MetricRepo {
 
         // task duration
         HISTO_ASYNC_MATERIALIZED_VIEW_TASK_DURATION = METRIC_REGISTER.histogram(
-                MetricRegistry.name("async_materialized_view_task_duration", "latency", "ms"));
+                MetricRegistry.name("async_materialized_view_task", "duration", "ms"));
 
         // task success num
         COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM = new LongCounterMetric(

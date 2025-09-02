@@ -89,6 +89,7 @@ import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -777,6 +778,27 @@ public class StmtExecutor {
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
+            if (MetricRepo.isInit) {
+                SummaryProfile summaryProfile = profile.getSummaryProfile();
+                MetricRepo.HISTO_PLAN_ANALYZE_DURATION.update(summaryProfile.getNereidsAnalysisTimeMs());
+                MetricRepo.HISTO_PLAN_REWRITE_DURATION.update(summaryProfile.getNereidsRewriteTimeMs());
+                MetricRepo.HISTO_PLAN_FOLD_CONST_BY_BE_DURATION.update(summaryProfile.getNereidsBeFoldConstTimeMs());
+                MetricRepo.HISTO_PLAN_OPTIMIZE_DURATION.update(summaryProfile.getNereidsOptimizeTimeMs());
+                MetricRepo.HISTO_PLAN_TRANSLATE_DURATION.update(summaryProfile.getNereidsTranslateTimeMs());
+                MetricRepo.HISTO_PLAN_INIT_SCAN_NODE_DURATION.update(summaryProfile.getInitScanNodeTimeMs());
+                MetricRepo.HISTO_PLAN_FINALIZE_SCAN_NODE_DURATION.update(summaryProfile.getFinalizeScanNodeTimeMs());
+                MetricRepo.HISTO_PLAN_CREATE_SCAN_RANGE_DURATION.update(summaryProfile.getCreateScanRangeTimeMs());
+                MetricRepo.HISTO_PLAN_DISTRIBUTE_DURATION.update(summaryProfile.getNereidsDistributeTimeMs());
+                MetricRepo.HISTO_PLAN_DURATION.update(summaryProfile.getPlanTimeMs());
+                MetricRepo.HISTO_PLAN_EXTERNAL_CATALOG_META_DURATION.update(
+                        summaryProfile.getExternalCatalogMetaTimeMs());
+                MetricRepo.HISTO_PLAN_EXTERNAL_TVF_INIT_DURATION.update(summaryProfile.getExternalTvfInitTimeMs());
+                MetricRepo.HISTO_PLAN_LOCK_TABLES_DURATION.update(summaryProfile.getNereidsLockTableTimeMs());
+                MetricRepo.HISTO_PLAN_PARTITION_PRUNE_DURATION.update(summaryProfile.getNereidsPartitiionPruneTimeMs());
+                MetricRepo.HISTO_PLAN_CLOUD_META_DURATION.update(summaryProfile.getCloudMetaTimeMs());
+                MetricRepo.HISTO_PLAN_MATERIALIZED_VIEW_REWRITE_DURATION.update(
+                        summaryProfile.getNereidsMvRewriteTimeMs());
+            }
             handleQueryWithRetry(queryId);
         }
     }
@@ -807,6 +829,9 @@ public class StmtExecutor {
             getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
             getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_PLAN_PARSE_DURATION.update(getProfile().getSummaryProfile().getParseSqlTimeMs());
+            }
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
