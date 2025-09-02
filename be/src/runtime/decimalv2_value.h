@@ -226,7 +226,8 @@ public:
     }
 
     static DecimalV2Value get_min_decimal(int precision, int scale) {
-        DCHECK(precision > 0 && precision <= 27 && scale >= 0 && scale <= 9 && precision >= scale && (precision - scale <= 18));
+        DCHECK(precision > 0 && precision <= 27 && scale >= 0 && scale <= 9 && precision >= scale &&
+               (precision - scale <= 18));
         return DecimalV2Value(
                 -MAX_INT_VALUE % static_cast<int64_t>(get_scale_base(18 - precision + scale)),
                 MAX_FRAC_VALUE / static_cast<int64_t>(get_scale_base(9 - scale)) *
@@ -234,7 +235,8 @@ public:
     }
 
     static DecimalV2Value get_max_decimal(int precision, int scale) {
-        DCHECK(precision > 0 && precision <= 27 && scale >= 0 && scale <= 9 && precision >= scale && (precision - scale <= 18));
+        DCHECK(precision > 0 && precision <= 27 && scale >= 0 && scale <= 9 && precision >= scale &&
+               (precision - scale <= 18));
         return DecimalV2Value(
                 MAX_INT_VALUE % static_cast<int64_t>(get_scale_base(18 - precision + scale)),
                 MAX_FRAC_VALUE / static_cast<int64_t>(get_scale_base(9 - scale)) *
