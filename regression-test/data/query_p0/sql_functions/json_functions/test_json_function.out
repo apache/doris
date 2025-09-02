@@ -223,3 +223,32 @@ false
 ["d"]
 ["d"]
 
+-- !json_remove1 --
+{"a":1,"c":3}
+
+-- !json_remove2 --
+{"Name":"Homer","Gender":"Male"}
+
+-- !json_remove3 --
+{"Name":"Homer","Age":39}
+
+-- !json_remove4 --
+[2,3]
+
+-- !json_remove5 --
+[1,2,[3,5]]
+
+-- !json_remove6 --
+[1,3,4]
+
+-- !json_remove7 --
+[1,2,3,5]   [1,3,4]
+
+-- !json_remove8 --
+[2,[3,5]]
+
+-- !json_remove9 --
+[2,[3,5]]
+
+-- !json_remove10 --
+{"Person":{"Name":"Homer","Hobbies":["Eating","Sleeping"]}}

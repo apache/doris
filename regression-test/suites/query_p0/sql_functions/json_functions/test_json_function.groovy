@@ -79,7 +79,7 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """SELECT JSON_CONTAINS("",'1','\$.a')"""
 
     qt_sql """select k6, json_extract_string(cast(k7 as json), "\$.a") as x10 from test_query_db.baseall group by k6, x10 order by 1,2; """
-    
+
     qt_sql "SELECT json_extract_no_quotes('[1, 2, 3]', '\$.[1]');"
     qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.name');"
     qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.id', null);"
@@ -102,7 +102,7 @@ suite("test_json_function", "arrow_flight_sql") {
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
     """
-    sql """insert into d_table values 
+    sql """insert into d_table values
     ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}'),
     ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}'),
     ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}'),
@@ -149,7 +149,7 @@ suite("test_json_function", "arrow_flight_sql") {
 
         exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
     }
-    
+
     test {
         sql """
             SELECT JSON_KEYS(k1, '\$.*.c') FROM d_table order by k1;
@@ -165,4 +165,44 @@ suite("test_json_function", "arrow_flight_sql") {
 
         exception "Json path error: Invalid Json Path for value: \$**"
     }
+
+    qt_json_remove1 """
+      SELECT JSON_REMOVE('{"a": 1, "b": 2, "c": 3}', '\$.b') AS 'Result';
+    """
+
+    qt_json_remove2 """
+      SELECT JSON_REMOVE('{"Name": "Homer", "Gender": "Male", "Age": 39}', '\$.Age') AS 'Result';
+    """
+
+    qt_json_remove3 """
+      SELECT JSON_REMOVE('{"Name": "Homer", "Age": 39}', '\$.Gender') AS 'Result';
+    """
+
+    qt_json_remove4 """
+      SELECT JSON_REMOVE('[1, 2, 3]', '\$[0]') AS 'Result';
+    """
+
+    qt_json_remove5 """
+      SELECT JSON_REMOVE('[1, 2, [3, 4, 5]]', '\$[2][1]') AS 'Result';
+    """
+
+    qt_json_remove6 """
+      SELECT JSON_REMOVE('[1, 2, 3, 4, 5]', '\$[1]', '\$[3]') AS 'Result';
+    """
+
+    qt_json_remove7 """
+      SELECT JSON_REMOVE('[1, 2, 3, 4, 5]', '\$[3]') AS 'One Path', JSON_REMOVE('[1, 2, 3, 4, 5]', '\$[1]', '\$[3]') AS 'Two Paths';
+    """
+
+    qt_json_remove8 """
+      SELECT JSON_REMOVE('[1, 2, [3, 4, 5]]', '\$[0]', '\$[1][1]') AS 'Result';
+    """
+
+    qt_json_remove9 """
+      SELECT JSON_REMOVE('[1, 2, [3, 4, 5]]', '\$[2][1]', '\$[0]') AS 'Result';
+    """
+
+    qt_json_remove10 """
+      SELECT JSON_REMOVE('{"Person": {"Name": "Homer","Age": 39,"Hobbies": ["Eating", "Sleeping", "Base Jumping"]}}', '\$.Person.Age', '\$.Person.Hobbies[2]') AS 'Result';
+    """
 }
