@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -67,6 +68,7 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                 new ProjectRewrite().build(),
                 new FilterRewrite().build(),
                 new HavingRewrite().build(),
+                new AggregateRewrite().build(),
                 new JoinRewrite().build()
         );
     }
@@ -161,6 +163,35 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                 } else {
                     return having;
                 }
+            }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
+        }
+    }
+
+    private class AggregateRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalAggregate().thenApply(ctx -> {
+                LogicalAggregate<Plan> aggregate = ctx.root;
+                List<Expression> targets = Lists.newArrayList();
+                targets.addAll(aggregate.getGroupByExpressions());
+                targets.addAll(aggregate.getOutputExpressions());
+                Optional<Pair<List<Expression>, LogicalProject<Plan>>> rewrittenOpt
+                        = rewriteExpressions(aggregate, targets);
+                if (!rewrittenOpt.isPresent()) {
+                    return aggregate;
+                }
+
+                LogicalProject<Plan> newChild = rewrittenOpt.get().second;
+                List<Expression> newTargets = rewrittenOpt.get().first;
+                int groupBySize = aggregate.getGroupByExpressions().size();
+                ImmutableList<Expression> newGroupBy = ImmutableList.copyOf(
+                        newTargets.subList(0, groupBySize));
+                ImmutableList.Builder<NamedExpression> newOutputBuilder
+                        = ImmutableList.builderWithExpectedSize(aggregate.getOutputExpressions().size());
+                for (int i = groupBySize; i < newTargets.size(); i++) {
+                    newOutputBuilder.add((NamedExpression) newTargets.get(i));
+                }
+                return aggregate.withChildGroupByAndOutput(newGroupBy, newOutputBuilder.build(), newChild);
             }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
         }
     }
