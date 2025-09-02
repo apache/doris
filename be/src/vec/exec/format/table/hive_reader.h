@@ -41,6 +41,7 @@ public:
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
     Status init_row_filters() final { return Status::OK(); };
+
 protected:
     // https://github.com/apache/doris/pull/23369
     const std::set<TSlotId>* _is_file_slot = nullptr;

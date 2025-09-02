@@ -1053,9 +1053,9 @@ Status VFileScanner::_get_next_reader() {
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(hudi_reader);
             } else if (range.table_format_params.table_format_type == "hive") {
-                auto hive_reader = HiveParquetReader::create_unique(std::move(parquet_reader), _profile,
-                                                            _state, *_params, range, _io_ctx.get(),
-                                                            &_is_file_slot, file_meta_cache_ptr);
+                auto hive_reader = HiveParquetReader::create_unique(
+                        std::move(parquet_reader), _profile, _state, *_params, range, _io_ctx.get(),
+                        &_is_file_slot, file_meta_cache_ptr);
 
                 init_status = hive_reader->init_reader(
                         _file_col_names, _colname_to_value_range, _push_down_conjuncts,

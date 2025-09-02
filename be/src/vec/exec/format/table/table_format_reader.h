@@ -331,7 +331,8 @@ public:
         // for hive parquet : The table column names passed from fe are lowercase, so use lowercase file column names to match table column names.
         static Status by_parquet_name(const TupleDescriptor* table_tuple_descriptor,
                                       const FieldDescriptor& parquet_field_desc,
-                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node,const std::set<TSlotId>* is_file_slot = nullptr);
+                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+                                      const std::set<TSlotId>* is_file_slot = nullptr);
 
         // for hive parquet
         static Status by_parquet_name(const DataTypePtr& table_data_type,
@@ -341,7 +342,8 @@ public:
         // for hive orc: The table column names passed from fe are lowercase, so use lowercase file column names to match table column names.
         static Status by_orc_name(const TupleDescriptor* table_tuple_descriptor,
                                   const orc::Type* orc_type_ptr,
-                                  std::shared_ptr<TableSchemaChangeHelper::Node>& node,const std::set<TSlotId>* is_file_slot = nullptr);
+                                  std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+                                  const std::set<TSlotId>* is_file_slot = nullptr);
         // for hive orc
         static Status by_orc_name(const DataTypePtr& table_data_type, const orc::Type* orc_root,
                                   std::shared_ptr<TableSchemaChangeHelper::Node>& node);
