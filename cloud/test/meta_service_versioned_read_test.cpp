@@ -768,6 +768,13 @@ TEST(MetaServiceVersionedReadTest, GetTabletStats) {
         EXPECT_EQ(res.tablet_stats(0).num_segments(), 0);
         EXPECT_EQ(res.tablet_stats(0).index_size(), 0);
         EXPECT_EQ(res.tablet_stats(0).segment_size(), 0);
+
+        // The tablet idx should be set.
+        auto tablet_stats = res.tablet_stats(0);
+        EXPECT_EQ(tablet_stats.idx().tablet_id(), tablet_id);
+        EXPECT_EQ(tablet_stats.idx().index_id(), index_id);
+        EXPECT_EQ(tablet_stats.idx().partition_id(), partition_id);
+        EXPECT_EQ(tablet_stats.idx().table_id(), table_id);
     }
 
     {
