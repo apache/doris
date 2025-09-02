@@ -30,15 +30,20 @@ class HiveReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     HiveReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                RuntimeState* state, const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               io::IOContext* io_ctx)
+               io::IOContext* io_ctx, const std::set<TSlotId>* is_file_slot,
+               FileMetaCache* meta_cache)
             : TableFormatReader(std::move(file_format_reader), state, profile, params, range,
-                                io_ctx) {};
+                                io_ctx, meta_cache),
+              _is_file_slot(is_file_slot) {};
 
     ~HiveReader() override = default;
 
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
     Status init_row_filters() final { return Status::OK(); };
+protected:
+    // https://github.com/apache/doris/pull/23369
+    const std::set<TSlotId>* _is_file_slot = nullptr;
 };
 
 class HiveOrcReader final : public HiveReader {
@@ -46,8 +51,10 @@ public:
     ENABLE_FACTORY_CREATOR(HiveOrcReader);
     HiveOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                   RuntimeState* state, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                  const TFileRangeDesc& range, io::IOContext* io_ctx,
+                  const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
+            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                         is_file_slot, meta_cache) {};
     ~HiveOrcReader() final = default;
 
     Status init_reader(
@@ -65,8 +72,10 @@ public:
     ENABLE_FACTORY_CREATOR(HiveParquetReader);
     HiveParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                       RuntimeState* state, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                      const TFileRangeDesc& range, io::IOContext* io_ctx,
+                      const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
+            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                         is_file_slot, meta_cache) {};
     ~HiveParquetReader() final = default;
 
     Status init_reader(
