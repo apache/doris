@@ -43,7 +43,6 @@ namespace doris::vectorized {
 
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 
 /** Implements part of the IDataType interface, common to all numbers and for Date and DateTime.
   */
@@ -128,19 +127,10 @@ public:
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
 
-    bool have_subtypes() const override { return false; }
-    bool should_align_right_in_pretty_formats() const override { return true; }
-    bool text_can_contain_only_valid_utf8() const override { return true; }
-    bool is_comparable() const override { return true; }
-    bool is_value_represented_by_number() const override { return true; }
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override {
         return sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
     }
-    bool can_be_inside_low_cardinality() const override { return true; }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;

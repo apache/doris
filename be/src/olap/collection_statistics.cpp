@@ -17,12 +17,11 @@
 
 #include "collection_statistics.h"
 
-#include <string_view>
-
 #include "common/exception.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 #include "vec/exprs/vexpr.h"
@@ -34,11 +33,12 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 Status CollectionStatistics::collect(
-        const std::vector<RowSetSplits>& rs_splits, const TabletSchemaSPtr& tablet_schema,
+        RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
+        const TabletSchemaSPtr& tablet_schema,
         const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down) {
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
     RETURN_IF_ERROR(
-            extract_collect_info(common_expr_ctxs_push_down, tablet_schema, &collect_infos));
+            extract_collect_info(state, common_expr_ctxs_push_down, tablet_schema, &collect_infos));
 
     for (const auto& rs_split : rs_splits) {
         const auto& rs_reader = rs_split.rs_reader;
@@ -48,8 +48,16 @@ Status CollectionStatistics::collect(
         auto num_segments = rowset->num_segments();
         for (int32_t seg_id = 0; seg_id < num_segments; ++seg_id) {
             auto seg_path = DORIS_TRY(rowset->segment_path(seg_id));
-            RETURN_IF_ERROR(process_segment(seg_path, rowset_meta->fs(), tablet_schema.get(),
-                                            collect_infos));
+            auto status = process_segment(seg_path, rowset_meta->fs(), tablet_schema.get(),
+                                          collect_infos);
+            if (!status.ok()) {
+                if (status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+                    status.code() == ErrorCode::INVERTED_INDEX_BYPASS) {
+                    LOG(ERROR) << "Index statistics collection failed: " << status.to_string();
+                } else {
+                    return status;
+                }
+            }
         }
     }
 
@@ -68,8 +76,84 @@ Status CollectionStatistics::collect(
     return Status::OK();
 }
 
+vectorized::VSlotRef* find_slot_ref(const vectorized::VExprSPtr& expr) {
+    if (!expr) return nullptr;
+    auto cur = vectorized::VExpr::expr_without_cast(expr);
+    if (cur->node_type() == TExprNodeType::SLOT_REF) {
+        return static_cast<vectorized::VSlotRef*>(cur.get());
+    }
+    for (auto& ch : cur->children()) {
+        if (auto* s = find_slot_ref(ch)) return s;
+    }
+    return nullptr;
+}
+
+Status handle_match_pred(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
+                         const vectorized::VExprSPtr& expr,
+                         std::unordered_map<std::wstring, CollectInfo>* collect_infos) {
+    auto* left_slot_ref = find_slot_ref(expr->children()[0]);
+    if (left_slot_ref == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "Index statistics collection failed: Cannot find slot reference in match predicate "
+                "left expression");
+    }
+    auto* right_literal = static_cast<vectorized::VLiteral*>(expr->children()[1].get());
+    DCHECK(right_literal != nullptr);
+
+    const auto* sd = state->desc_tbl().get_slot_descriptor(left_slot_ref->slot_id());
+    if (sd == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "Index statistics collection failed: Cannot find slot descriptor for slot_id={}",
+                left_slot_ref->slot_id());
+    }
+    int32_t col_idx = tablet_schema->field_index(left_slot_ref->column_name());
+    if (col_idx == -1) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "Index statistics collection failed: Cannot find column index for column={}",
+                left_slot_ref->column_name());
+    }
+
+    const auto& column = tablet_schema->column(col_idx);
+    auto index_metas = tablet_schema->inverted_indexs(sd->col_unique_id(), column.suffix_path());
+#ifndef BE_TEST
+    if (index_metas.empty()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "Index statistics collection failed: Score query is not supported without inverted "
+                "index for column={}",
+                left_slot_ref->column_name());
+    }
+#endif
+    for (const auto* index_meta : index_metas) {
+        if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
+            continue;
+        }
+        if (!segment_v2::IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
+            continue;
+        }
+
+        auto term_infos = InvertedIndexAnalyzer::get_analyse_result(right_literal->value(),
+                                                                    index_meta->properties());
+
+        std::string field_name = std::to_string(index_meta->col_unique_ids()[0]);
+        if (!column.suffix_path().empty()) {
+            field_name += "." + column.suffix_path();
+        }
+        std::wstring ws_field_name = StringHelper::to_wstring(field_name);
+        auto iter = collect_infos->find(ws_field_name);
+        if (iter == collect_infos->end()) {
+            CollectInfo collect_info;
+            collect_info.term_infos.insert(term_infos.begin(), term_infos.end());
+            collect_info.index_meta = index_meta;
+            (*collect_infos)[ws_field_name] = std::move(collect_info);
+        } else {
+            iter->second.term_infos.insert(term_infos.begin(), term_infos.end());
+        }
+    }
+    return Status::OK();
+}
+
 Status CollectionStatistics::extract_collect_info(
-        const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
+        RuntimeState* state, const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
         const TabletSchemaSPtr& tablet_schema,
         std::unordered_map<std::wstring, CollectInfo>* collect_infos) {
     for (const auto& root_expr_ctx : common_expr_ctxs_push_down) {
@@ -86,27 +170,7 @@ Status CollectionStatistics::extract_collect_info(
             stack.pop();
 
             if (expr->node_type() == TExprNodeType::MATCH_PRED) {
-                auto* left_slot_ref = static_cast<vectorized::VSlotRef*>(expr->children()[0].get());
-                auto* right_slot_ref =
-                        static_cast<vectorized::VLiteral*>(expr->children()[1].get());
-                auto column_idx = tablet_schema->field_index(left_slot_ref->column_name());
-                auto column = tablet_schema->column(column_idx);
-                const auto* index_meta = tablet_schema->inverted_index(column);
-
-                auto term_infos = InvertedIndexAnalyzer::get_analyse_result(
-                        right_slot_ref->value(), index_meta->properties());
-
-                std::string field_name = std::to_string(column.unique_id());
-                std::wstring ws_field_name = StringHelper::to_wstring(field_name);
-                auto iter = collect_infos->find(ws_field_name);
-                if (iter == collect_infos->end()) {
-                    CollectInfo collect_info;
-                    collect_info.term_infos.insert(term_infos.begin(), term_infos.end());
-                    collect_info.index_meta = index_meta;
-                    (*collect_infos)[ws_field_name] = std::move(collect_info);
-                } else {
-                    iter->second.term_infos.insert(term_infos.begin(), term_infos.end());
-                }
+                RETURN_IF_ERROR(handle_match_pred(state, tablet_schema, expr, collect_infos));
             }
 
             const auto& children = expr->children();
@@ -176,12 +240,14 @@ Status CollectionStatistics::process_segment(
 uint64_t CollectionStatistics::get_term_doc_freq_by_col(const std::wstring& lucene_col_name,
                                                         const std::wstring& term) {
     if (!_term_doc_freqs.contains(lucene_col_name)) {
-        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR, "Not such column {}",
+        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
+                        "Index statistics collection failed: Not such column {}",
                         StringHelper::to_string(lucene_col_name));
     }
 
     if (!_term_doc_freqs[lucene_col_name].contains(term)) {
-        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR, "Not such term {}",
+        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
+                        "Index statistics collection failed: Not such term {}",
                         StringHelper::to_string(term));
     }
 
@@ -190,7 +256,8 @@ uint64_t CollectionStatistics::get_term_doc_freq_by_col(const std::wstring& luce
 
 uint64_t CollectionStatistics::get_total_term_cnt_by_col(const std::wstring& lucene_col_name) {
     if (!_total_num_tokens.contains(lucene_col_name)) {
-        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR, "Not such column {}",
+        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
+                        "Index statistics collection failed: Not such column {}",
                         StringHelper::to_string(lucene_col_name));
     }
 
@@ -199,8 +266,9 @@ uint64_t CollectionStatistics::get_total_term_cnt_by_col(const std::wstring& luc
 
 uint64_t CollectionStatistics::get_doc_num() const {
     if (_total_num_docs == 0) {
-        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
-                        "No data available for SimilarityCollector");
+        throw Exception(
+                ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
+                "Index statistics collection failed: No data available for SimilarityCollector");
     }
 
     return _total_num_docs;

@@ -34,15 +34,18 @@ public class AliyunDLFBaseProperties {
     protected String dlfAccessKey = "";
 
     @ConnectorProperty(names = {"dlf.secret_key", "dlf.catalog.accessKeySecret"},
-            description = "The secret key of the Aliyun DLF.")
+            description = "The secret key of the Aliyun DLF.",
+            sensitive = true)
     protected String dlfSecretKey = "";
 
     @ConnectorProperty(names = {"dlf.session_token", "dlf.catalog.sessionToken"},
             required = false,
-            description = "The session token of the Aliyun DLF.")
+            description = "The session token of the Aliyun DLF.",
+            sensitive = true)
     protected String dlfSessionToken = "";
 
     @ConnectorProperty(names = {"dlf.region"},
+            required = false,
             description = "The region of the Aliyun DLF.")
     protected String dlfRegion = "";
 
@@ -78,13 +81,12 @@ public class AliyunDLFBaseProperties {
     }
 
     private ParamRules buildRules() {
-
         return new ParamRules()
                 .require(dlfAccessKey, "dlf.access_key is required")
                 .require(dlfSecretKey, "dlf.secret_key is required");
     }
 
-    public void checkAndInit() {
+    private void checkAndInit() {
         buildRules().validate();
         if (StringUtils.isBlank(dlfEndpoint) && StringUtils.isNotBlank(dlfRegion)) {
             if (BooleanUtils.toBoolean(dlfAccessPublic)) {

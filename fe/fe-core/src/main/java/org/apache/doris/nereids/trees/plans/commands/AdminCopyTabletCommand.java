@@ -49,7 +49,6 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -120,28 +119,20 @@ public class AdminCopyTabletCommand extends ShowCommand {
         if (properties == null) {
             return;
         }
+
         try {
-            Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
-            while (iter.hasNext()) {
-                Map.Entry<String, String> entry = iter.next();
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
                 if (entry.getKey().equalsIgnoreCase(PROP_VERSION)) {
-                    version = Long.valueOf(entry.getValue());
-                    iter.remove();
+                    version = Long.parseLong(entry.getValue());
                 } else if (entry.getKey().equalsIgnoreCase(PROP_BACKEND_ID)) {
-                    backendId = Long.valueOf(entry.getValue());
-                    iter.remove();
+                    backendId = Long.parseLong(entry.getValue());
                 } else if (entry.getKey().equalsIgnoreCase(PROP_EXPIRATION)) {
-                    expirationMinutes = Long.valueOf(entry.getValue());
+                    expirationMinutes = Long.parseLong(entry.getValue());
                     expirationMinutes = Math.min(DEFAULT_EXPIRATION_MINUTES, expirationMinutes);
-                    iter.remove();
                 }
             }
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid property: " + e.getMessage());
-        }
-
-        if (!properties.isEmpty()) {
-            throw new AnalysisException("Unknown property: " + properties);
         }
     }
 

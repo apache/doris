@@ -44,6 +44,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -57,6 +58,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import lombok.val;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -251,6 +253,10 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
 
     public static final String PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE = "variant_enable_typed_paths_to_sparse";
+    public static final String PROPERTIES_TDE_ALGORITHM = "tde_algorithm";
+    public static final String AES256 = "AES256";
+    public static final String SM4 = "SM4";
+    public static final String PLAINTEXT = "PLAINTEXT";
 
     public enum RewriteType {
         PUT,      // always put property
@@ -1868,5 +1874,31 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
         }
         return enableTypedPathsToSparse;
+    }
+
+    public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {
+        String name;
+        if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
+            if (Config.doris_tde_algorithm.isEmpty()) {
+                return TEncryptionAlgorithm.PLAINTEXT;
+            }
+            name = Config.doris_tde_algorithm;
+        } else if (!PLAINTEXT.equals(Config.doris_tde_algorithm)) {
+            throw new AnalysisException("Cannot create a table on encrypted FE,"
+                    + " please set Config.doris_tde_algorithm to PLAINTEXT");
+        } else {
+            name = properties.remove(PROPERTIES_TDE_ALGORITHM);
+        }
+
+        if (AES256.equalsIgnoreCase(name)) {
+            return TEncryptionAlgorithm.AES256;
+        }
+        if (SM4.equalsIgnoreCase(name)) {
+            return TEncryptionAlgorithm.SM4;
+        }
+        if (PLAINTEXT.equalsIgnoreCase(name)) {
+            return TEncryptionAlgorithm.PLAINTEXT;
+        }
+        throw new AnalysisException("Invalid tde algorithm: " + name + ", only support AES256 and SM4 currently");
     }
 }

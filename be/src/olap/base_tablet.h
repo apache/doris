@@ -53,7 +53,7 @@ struct TabletWithVersion {
 enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
-class BaseTablet {
+class BaseTablet : public std::enable_shared_from_this<BaseTablet> {
 public:
     explicit BaseTablet(TabletMetaSharedPtr tablet_meta);
     virtual ~BaseTablet();
@@ -92,8 +92,6 @@ public:
     std::shared_mutex& get_header_lock() { return _meta_lock; }
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
-
-    Status update_by_least_common_schema(const TabletSchemaSPtr& update_schema);
 
     TabletSchemaSPtr tablet_schema() const {
         std::shared_lock rlock(_meta_lock);
@@ -295,12 +293,6 @@ public:
     void calc_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* empty_rowsets,
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                         int64_t limit);
-
-    // Return the merged schema of all rowsets
-    virtual TabletSchemaSPtr merged_tablet_schema() const {
-        std::shared_lock rlock(_meta_lock);
-        return _max_version_schema;
-    }
 
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {

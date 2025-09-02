@@ -28,10 +28,12 @@
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
 #include "olap/parallel_scanner_builder.h"
+#include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
+#include "runtime/runtime_state.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
@@ -57,6 +59,22 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
         _score_runtime = vectorized::ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
+    }
+
+    if (olap_scan_node.__isset.ann_sort_info || olap_scan_node.__isset.ann_sort_limit) {
+        DCHECK(olap_scan_node.__isset.ann_sort_info);
+        DCHECK(olap_scan_node.__isset.ann_sort_limit);
+        DCHECK(olap_scan_node.ann_sort_info.ordering_exprs.size() == 1);
+        const doris::TExpr& ordering_expr = olap_scan_node.ann_sort_info.ordering_exprs.front();
+        DCHECK(ordering_expr.nodes[0].__isset.slot_ref);
+        DCHECK(ordering_expr.nodes[0].slot_ref.is_virtual_slot);
+        DCHECK(olap_scan_node.ann_sort_info.is_asc_order.size() == 1);
+        const bool asc = olap_scan_node.ann_sort_info.is_asc_order[0];
+        const size_t limit = olap_scan_node.ann_sort_limit;
+        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        _ann_topn_runtime =
+                segment_v2::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
     }
 
     RETURN_IF_ERROR(Base::init(state, info));
@@ -206,6 +224,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
     _inverted_index_downgrade_count_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT);
+    _inverted_index_analyzer_timer = ADD_TIMER(_segment_profile, "InvertedIndexAnalyzerTime");
+    _inverted_index_lookup_timer = ADD_TIMER(_segment_profile, "InvertedIndexLookupTimer");
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
@@ -255,6 +275,55 @@ Status OlapScanLocalState::_init_profile() {
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
+    /*
+    SegmentIterator:
+        - AnnIndexLoadCosts: 102.262us
+        - AnnIndexRangeSearchCosts: 0ns
+        - AnnIndexRangeSearchFiltered: 0
+        - AnnIndexTopNCosts: 658.303ms
+        - AnnIndexTopNFiltered: 9.49791M (9497910)
+        - AnnIndexTopNSearchCnt: 209ns
+    */
+    _ann_range_search_filter_counter =
+            ADD_COUNTER(_segment_profile, "AnnIndexRangeSearchFiltered", TUnit::UNIT);
+    _ann_topn_filter_counter = ADD_COUNTER(_segment_profile, "AnnIndexTopNFiltered", TUnit::UNIT);
+
+    _ann_topn_search_costs = ADD_TIMER(_segment_profile, "AnnIndexTopNSearchCosts");
+    _ann_topn_search_cnt = ADD_COUNTER(_segment_profile, "AnnIndexTopNSearchCnt", TUnit::UNIT);
+    _ann_range_search_costs = ADD_TIMER(_segment_profile, "AnnIndexRangeSearchCosts");
+    _ann_range_search_cnt = ADD_COUNTER(_segment_profile, "AnnIndexRangeSearchCnt", TUnit::UNIT);
+
+    // Detailed ANN timers (TopN)
+    // Create child timers under AnnIndexTopNSearchCosts for better readability
+    _ann_topn_engine_search_costs = ADD_CHILD_TIMER(
+            _segment_profile, "AnnIndexTopNEngineSearchCosts", "AnnIndexTopNSearchCosts");
+    _ann_index_load_costs = ADD_TIMER(_segment_profile, "AnnIndexLoadCosts");
+    _ann_topn_post_process_costs = ADD_CHILD_TIMER(
+            _segment_profile, "AnnIndexTopNResultPostProcessCosts", "AnnIndexTopNSearchCosts");
+    _ann_topn_pre_process_costs = ADD_CHILD_TIMER(
+            _segment_profile, "AnnIndexTopNEnginePrepareCosts", "AnnIndexTopNSearchCosts");
+    // Detailed ANN timers (Range)
+    // Create child timers under AnnIndexRangeSearchCosts to mirror TopN hierarchy
+    _ann_range_engine_search_costs = ADD_CHILD_TIMER(
+            _segment_profile, "AnnIndexRangeEngineSearchCosts", "AnnIndexRangeSearchCosts");
+    _ann_range_post_process_costs = ADD_CHILD_TIMER(
+            _segment_profile, "AnnIndexRangeResultPostProcessCosts", "AnnIndexRangeSearchCosts");
+    _ann_range_pre_process_costs = ADD_CHILD_TIMER(
+            _segment_profile, "AnnIndexRangeEnginePrepareCosts", "AnnIndexRangeSearchCosts");
+    // Conversion inside FAISS wrappers (TopN): two separate sub counters under post process
+    _ann_topn_engine_convert_costs =
+            ADD_CHILD_TIMER(_segment_profile, "AnnIndexTopNEngineConvertCosts",
+                            "AnnIndexTopNResultPostProcessCosts");
+    _ann_range_engine_convert_costs =
+            ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeEngineConvertCosts",
+                            "AnnIndexRangeResultPostProcessCosts");
+    // Keep this as a child of post process to show the sum for Doris-side handling
+    _ann_topn_result_convert_costs =
+            ADD_CHILD_TIMER(_segment_profile, "AnnIndexTopNResultConvertCosts",
+                            "AnnIndexTopNResultPostProcessCosts");
+    _ann_range_result_convert_costs =
+            ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeResultConvertCosts",
+                            "AnnIndexRangeResultPostProcessCosts");
 
     return Status::OK();
 }
@@ -409,12 +478,22 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
                 std::max<int64_t>(1024, state()->parallel_scan_min_rows_per_scanner());
         scanner_builder.set_max_scanners_count(max_scanners_count);
         scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
+        // If the session variable is set, force one scanner per segment.
+        if (state()->query_options().__isset.optimize_index_scan_parallelism &&
+            state()->query_options().optimize_index_scan_parallelism) {
+            // TODO: Use optimize_index_scan_parallelism for ann range search in the future.
+            // Currently, ann topn is enough
+            if (_ann_topn_runtime != nullptr) {
+                scanner_builder.set_optimize_index_scan_parallelism(true);
+            }
+        }
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
             auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
-            RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
+            RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
+
         return Status::OK();
     }
 
@@ -463,7 +542,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
                           });
-            RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
+            RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }
     }
@@ -538,7 +617,6 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
             // Remote tablet still in-flight.
             return Status::OK();
         }
-        DCHECK(_cloud_tablet_future.valid() && _cloud_tablet_future.get().ok());
         COUNTER_UPDATE(_sync_rowset_timer, _sync_cloud_tablets_watcher.elapsed_time());
         auto total_rowsets = std::accumulate(
                 _tablets.cbegin(), _tablets.cend(), 0LL,
@@ -667,6 +745,10 @@ Status OlapScanLocalState::open(RuntimeState* state) {
 
     if (_score_runtime) {
         RETURN_IF_ERROR(_score_runtime->prepare(state, p.intermediate_row_desc()));
+    }
+
+    if (_ann_topn_runtime) {
+        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));

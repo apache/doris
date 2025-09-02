@@ -4,17 +4,17 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------filter((web_cumulative > store_cumulative))
-----------PhysicalWindow
-------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------hashJoin[FULL_OUTER_JOIN colocated] hashCondition=((web.d_date = store.d_date) and (web.item_sk = store.item_sk)) otherCondition=()
---------------------PhysicalProject
-----------------------PhysicalWindow
-------------------------PhysicalQuickSort[LOCAL_SORT]
---------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
+--------PhysicalProject
+----------filter((y.web_cumulative > y.store_cumulative))
+------------PhysicalWindow
+--------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------hashJoin[FULL_OUTER_JOIN colocated] hashCondition=((web.d_date = store.d_date) and (web.item_sk = store.item_sk)) otherCondition=()
+----------------------PhysicalProject
+------------------------PhysicalWindow
+--------------------------PhysicalQuickSort[LOCAL_SORT]
+----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------hashAgg[LOCAL]
@@ -25,11 +25,10 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------filter((date_dim.d_month_seq <= 1223) and (date_dim.d_month_seq >= 1212))
 --------------------------------------------PhysicalOlapScan[date_dim]
---------------------PhysicalProject
-----------------------PhysicalWindow
-------------------------PhysicalQuickSort[LOCAL_SORT]
---------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
+----------------------PhysicalProject
+------------------------PhysicalWindow
+--------------------------PhysicalQuickSort[LOCAL_SORT]
+----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------hashAgg[LOCAL]

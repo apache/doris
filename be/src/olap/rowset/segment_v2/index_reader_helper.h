@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::segment_v2 {
@@ -60,6 +61,61 @@ public:
         const auto& properties = inverted_index_reader->get_index_properties();
         return get_parser_phrase_support_string_from_properties(properties) ==
                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
+    }
+
+    // only string type or bkd index reader can be used for equal
+    static bool has_string_or_bkd_index(const IndexIterator* iter) {
+        if (iter == nullptr) {
+            return false;
+        }
+
+        return iter->get_reader(InvertedIndexReaderType::STRING_TYPE) != nullptr ||
+               iter->get_reader(InvertedIndexReaderType::BKD) != nullptr;
+    }
+
+    static bool has_bkd_index(const IndexIterator* iter) {
+        if (iter == nullptr) {
+            return false;
+        }
+
+        return iter->get_reader(InvertedIndexReaderType::BKD) != nullptr;
+    }
+
+    static bool has_string_index(const IndexIterator* iter) {
+        if (iter == nullptr) {
+            return false;
+        }
+
+        return iter->get_reader(InvertedIndexReaderType::STRING_TYPE) != nullptr;
+    }
+
+    static bool is_need_similarity_score(InvertedIndexQueryType query_type,
+                                         const TabletIndex* index_meta) {
+        if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
+            const auto& properties = index_meta->properties();
+            if (get_parser_phrase_support_string_from_properties(properties) ==
+                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool is_need_similarity_score(TExprOpcode::type query_type,
+                                         const TabletIndex* index_meta) {
+        if (query_type == TExprOpcode::MATCH_ANY || query_type == TExprOpcode::MATCH_ALL ||
+            query_type == TExprOpcode::MATCH_PHRASE ||
+            query_type == TExprOpcode::MATCH_PHRASE_PREFIX) {
+            const auto& properties = index_meta->properties();
+            if (get_parser_phrase_support_string_from_properties(properties) ==
+                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
+                return true;
+            }
+        }
+        return false;
     }
 };
 

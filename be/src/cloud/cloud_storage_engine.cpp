@@ -221,9 +221,6 @@ Status CloudStorageEngine::open() {
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
 
-    _schema_cloud_dictionary_cache =
-            std::make_unique<SchemaCloudDictionaryCache>(config::schema_dict_cache_capacity);
-
     _cloud_snapshot_mgr = std::make_unique<CloudSnapshotMgr>(*this);
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
@@ -263,6 +260,9 @@ void CloudStorageEngine::stop() {
 
     if (_calc_tablet_delete_bitmap_task_thread_pool) {
         _calc_tablet_delete_bitmap_task_thread_pool->shutdown();
+    }
+    if (_sync_delete_bitmap_thread_pool) {
+        _sync_delete_bitmap_thread_pool->shutdown();
     }
 }
 
@@ -306,6 +306,10 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
                             .set_min_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .build(&_calc_tablet_delete_bitmap_task_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("SyncDeleteBitmapThreadPool")
+                            .set_min_threads(config::sync_delete_bitmap_task_max_thread)
+                            .set_max_threads(config::sync_delete_bitmap_task_max_thread)
+                            .build(&_sync_delete_bitmap_thread_pool));
 
     // TODO(plat1ko): check_bucket_enable_versioning_thread
 

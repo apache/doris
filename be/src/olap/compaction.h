@@ -126,6 +126,7 @@ protected:
 
     bool _is_vertical;
     bool _allow_delete_in_cumu_compaction;
+    bool _enable_vertical_compact_variant_subcolumns;
 
     Version _output_version;
 
@@ -179,7 +180,7 @@ protected:
 private:
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info(bool is_ordered_compaction = false);
 
     // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
@@ -204,6 +205,8 @@ public:
 
     int64_t initiator() const;
 
+    int64_t num_input_rowsets() const;
+
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
@@ -222,7 +225,7 @@ private:
 
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info();
 
     virtual Status modify_rowsets();
 

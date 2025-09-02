@@ -80,6 +80,18 @@ suite("test_json_extract") {
         select jsonb_extract('[[1,2,3], {"k": [4,5], "b": "123"}]', '\$[*]', '\$[1].*');
     """
 
+    qt_wildcard8 """
+        select json_extract('{"key1": "v1", "key2": {"key3": "v3"}, "key3": {"key4": "v4", "key5": 5}}', '\$**.*');
+    """
+
+    qt_wildcard9 """
+        select json_extract('[[1,2,3], {"k": [4,5], "b": "123"}]', ' \$**.k ');
+    """
+
+    qt_wildcard10 """
+        select json_extract('[[1,2,3], {"k": [4,5], "b": "123"}]', ' \$**.k    ', '\$**[1] ');
+    """
+
     qt_array_last """
         select JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[-1]') v1, JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[last]') v2;
     """

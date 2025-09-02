@@ -32,8 +32,8 @@ public class IcebergRestPropertiesTest {
     public void testBasicRestProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
-        props.put("iceberg.rest.warehouse", "s3://warehouse/path");
         props.put("iceberg.rest.prefix", "prefix");
+        props.put("warehouse", "s3://warehouse/path");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
         restProps.initNormalizeAndCheckProps();
@@ -209,7 +209,7 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> props2 = new HashMap<>();
         props2.put("iceberg.rest.uri", "http://localhost:8080");
-        props2.put("iceberg.rest.warehouse", "s3://warehouse/path");
+        props2.put("warehouse", "s3://warehouse/path");
         IcebergRestProperties restProps2 = new IcebergRestProperties(props2);
         restProps2.initNormalizeAndCheckProps();
         Assertions.assertEquals("s3://warehouse/path",

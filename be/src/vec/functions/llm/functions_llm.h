@@ -22,15 +22,23 @@
 
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "http/http_client.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/threadpool.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/cow.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 #include "vec/functions/llm/llm_adapter.h"
 
@@ -41,10 +49,6 @@ class LLMFunction : public IFunction {
 public:
     std::string get_name() const override { return assert_cast<const Derived&>(*this).name; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
-    }
-
     // If the user doesn't provide the first arg, `resource_name`
     // FE will add the `resource_name` to the arguments list using the Session Variable.
     // So the value here should be the maximum number that the function can accept.
@@ -52,10 +56,20 @@ public:
         return assert_cast<const Derived&>(*this).number_of_arguments;
     }
 
+    virtual Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
+                                std::string& prompt) const {
+        const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
+        StringRef text_ref = text_column.column->get_data_at(row_num);
+        prompt = std::string(text_ref.data, text_ref.size);
+
+        return Status::OK();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto col_result = ColumnString::create();
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        DataTypePtr return_type_impl =
+                assert_cast<const Derived&>(*this).get_return_type_impl(DataTypes());
+        MutableColumnPtr col_result = return_type_impl->create_column();
 
         std::unique_ptr<ThreadPool> thread_pool;
         Status st = ThreadPoolBuilder("LLMRequestPool")
@@ -69,7 +83,7 @@ public:
         }
 
         struct RowResult {
-            std::string data;
+            std::variant<std::string, std::vector<float>> data;
             Status status;
             bool is_null = false;
         };
@@ -86,7 +100,8 @@ public:
         std::vector<RowResult> results(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             Status submit_status = thread_pool->submit_func([this, i, &block, &arguments, &results,
-                                                             &adapter, &config, context]() {
+                                                             &adapter, &config, context,
+                                                             &return_type_impl]() {
                 RowResult& row_result = results[i];
 
                 try {
@@ -102,14 +117,27 @@ public:
                     }
 
                     // Execute a single LLM request and get the result
-                    std::string result_str;
-                    status = execute_single_request(prompt, result_str, config, adapter, context);
-                    if (!status.ok()) {
-                        row_result.status = status;
-                        row_result.is_null = true;
-                        return;
+                    if (return_type_impl->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+                        std::vector<float> float_result;
+                        status = execute_single_request(prompt, float_result, config, adapter,
+                                                        context);
+                        if (!status.ok()) {
+                            row_result.status = status;
+                            row_result.is_null = true;
+                            return;
+                        }
+                        row_result.data = std::move(float_result);
+                    } else {
+                        std::string string_result;
+                        status = execute_single_request(prompt, string_result, config, adapter,
+                                                        context);
+                        if (!status.ok()) {
+                            row_result.status = status;
+                            row_result.is_null = true;
+                            return;
+                        }
+                        row_result.data = std::move(string_result);
                     }
-                    row_result.data = std::move(result_str);
                     row_result.status = Status::OK();
                 } catch (const std::exception& e) {
                     row_result.status = Status::InternalError("Exception in LLM request: " +
@@ -133,9 +161,48 @@ public:
                 return row_result.status;
             }
 
-            null_map->get_data()[i] = row_result.is_null ? 1 : 0;
             if (!row_result.is_null) {
-                col_result->insert_data(row_result.data.data(), row_result.data.size());
+                switch (return_type_impl->get_primitive_type()) {
+                case PrimitiveType::TYPE_STRING: { // string
+                    const auto& str_data = std::get<std::string>(row_result.data);
+                    assert_cast<ColumnString&>(*col_result)
+                            .insert_data(str_data.data(), str_data.size());
+                    break;
+                }
+                case PrimitiveType::TYPE_BOOLEAN: { // boolean
+                    const auto& bool_data = std::get<std::string>(row_result.data);
+                    if (bool_data != "true" && bool_data != "false") {
+                        return Status::RuntimeError("Failed to parse boolean value: " + bool_data);
+                    }
+                    assert_cast<ColumnUInt8&>(*col_result)
+                            .insert_value(static_cast<UInt8>(bool_data == "true"));
+                    break;
+                }
+                case PrimitiveType::TYPE_FLOAT: { // float
+                    const auto& str_data = std::get<std::string>(row_result.data);
+                    assert_cast<ColumnFloat32&>(*col_result).insert_value(std::stof(str_data));
+                    break;
+                }
+                case PrimitiveType::TYPE_ARRAY: { // array of floats
+                    const auto& float_data = std::get<std::vector<float>>(row_result.data);
+                    auto& col_array = assert_cast<ColumnArray&>(*col_result);
+                    auto& offsets = col_array.get_offsets();
+                    auto& nested_nullable_col = assert_cast<ColumnNullable&>(col_array.get_data());
+                    auto& nested_col = assert_cast<ColumnFloat32&>(
+                            *(nested_nullable_col.get_nested_column_ptr()));
+                    nested_col.reserve(nested_col.size() + float_data.size());
+
+                    size_t current_offset = nested_col.size();
+                    nested_col.insert_many_raw_data(
+                            reinterpret_cast<const char*>(float_data.data()), float_data.size());
+                    offsets.push_back(current_offset + float_data.size());
+                    auto& null_map = nested_nullable_col.get_null_map_column();
+                    null_map.insert_many_vals(0, float_data.size());
+                    break;
+                }
+                default:
+                    return Status::InternalError("Unsupported ReturnType for LLMFunction");
+                }
             } else {
                 col_result->insert_default();
             }
@@ -219,18 +286,45 @@ private:
                 inputs, assert_cast<const Derived&>(*this).system_prompt, request_body));
 
         std::string response;
-        RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
-
-        Status status = adapter->parse_response(response, results);
-        if (!status.ok()) {
-            return status;
+        if (config.provider_type == "MOCK") {
+            // Mock path for UT
+            response = "this is a mock response. " + input;
+        } else {
+            RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
         }
 
+        RETURN_IF_ERROR(adapter->parse_response(response, results));
         if (results.empty()) {
             return Status::InternalError("LLM returned empty result");
         }
 
-        result = results[0];
+        result = std::move(results[0]);
+        return Status::OK();
+    }
+
+    Status execute_single_request(const std::string& input, std::vector<float>& result,
+                                  const TLLMResource& config, std::shared_ptr<LLMAdapter>& adapter,
+                                  FunctionContext* context) const {
+        std::vector<std::string> inputs = {input};
+        std::vector<std::vector<float>> results;
+
+        std::string request_body;
+        RETURN_IF_ERROR(adapter->build_embedding_request(inputs, request_body));
+
+        std::string response;
+        if (config.provider_type == "MOCK") {
+            // Mock path for UT
+            response = "{\"embedding\": [0, 1, 2, 3, 4]}";
+        } else {
+            RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+        }
+
+        RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
+        if (results.empty()) {
+            return Status::InternalError("LLM returned empty result");
+        }
+
+        result = std::move(results[0]);
         return Status::OK();
     }
 };

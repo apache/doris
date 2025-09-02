@@ -617,20 +617,17 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     auto new_schema_inverted_indexs = new_schema->inverted_indexs(column_new);
     auto old_schema_inverted_indexs = old_schema->inverted_indexs(column_old);
 
-    // TODO(lihangyu): multi indexes, use comment to replace this
-    return new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size();
+    if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
+        return true;
+    }
 
-    // if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
-    //     return true;
-    // }
+    for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
+        if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
+            return true;
+        }
+    }
 
-    // for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
-    //     if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
-    //         return true;
-    //     }
-    // }
-
-    // return false;
+    return false;
 }
 
 TabletColumn create_sparse_column(const TabletColumn& variant) {
@@ -662,15 +659,17 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
         }
 
         for (const auto& segment : segment_cache.get_segments()) {
-            segment_v2::ColumnReader* column_reader = nullptr;
-            RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader));
+            std::shared_ptr<ColumnReader> column_reader;
+            OlapReaderStatistics stats;
+            RETURN_IF_ERROR(
+                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
             if (!column_reader) {
                 continue;
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader);
+                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -698,17 +697,18 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
         if (!column->is_variant_type()) {
             continue;
         }
-
         for (const auto& segment : segment_cache.get_segments()) {
-            segment_v2::ColumnReader* column_reader = nullptr;
-            RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader));
+            std::shared_ptr<ColumnReader> column_reader;
+            OlapReaderStatistics stats;
+            RETURN_IF_ERROR(
+                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
             if (!column_reader) {
                 continue;
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader);
+                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -745,8 +745,8 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
                                          const PathToNoneNullValues& stats,
                                          TabletSchema::PathsSetInfo& paths_set_info) {
-    if (stats.size() > max_subcolumns_count) {
-        // 按非空值数量排序
+    // max_subcolumns_count is 0 means no limit
+    if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(stats.size());
         for (const auto& [path, size] : stats) {
@@ -775,6 +775,16 @@ void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
 
 Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr>& intputs,
                                                RowsetSharedPtr output, BaseTabletSPtr tablet) {
+    if (output->tablet_schema()->num_variant_columns() == 0) {
+        return Status::OK();
+    }
+    // check no extended schema in output rowset
+    for (const auto& column : output->tablet_schema()->columns()) {
+        if (column->is_extracted_column()) {
+            return Status::InternalError("Unexpected extracted column {} in output rowset",
+                                         column->name());
+        }
+    }
     // only check path stats for dup_keys since the rows may be merged in other models
     if (tablet->keys_type() != KeysType::DUP_KEYS) {
         return Status::OK();
@@ -833,6 +843,7 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
             }
         }
     }
+
     return Status::OK();
 }
 
@@ -1272,8 +1283,8 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
     return false;
 }
 
-TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetSharedPtr>& rowsets,
-                                                   const TabletSchemaSPtr& base_schema) {
+TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
+        const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema) {
     if (rowsets.empty()) {
         return nullptr;
     }
@@ -1296,16 +1307,23 @@ TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetShare
                 if (!column->is_variant_type()) {
                     continue;
                 }
-                segment_v2::ColumnReader* column_reader = nullptr;
-                auto status = segment->get_column_reader(column->unique_id(), &column_reader);
-                if (!status.ok() || !column_reader) {
+                std::shared_ptr<ColumnReader> column_reader;
+                OlapReaderStatistics stats;
+                st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed to get column reader for column: " << column->name()
+                                 << " error: " << st.to_string();
+                    continue;
+                }
+                if (!column_reader) {
                     continue;
                 }
 
                 CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-                const auto* subcolumn_readers =
-                        assert_cast<VariantColumnReader*>(column_reader)->get_subcolumn_readers();
-                for (const auto& entry : *subcolumn_readers) {
+                const auto* subcolumn_meta_info =
+                        assert_cast<VariantColumnReader*>(column_reader.get())
+                                ->get_subcolumns_meta_info();
+                for (const auto& entry : *subcolumn_meta_info) {
                     if (entry->path.empty()) {
                         continue;
                     }
@@ -1350,8 +1368,7 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
         auto index_ptr = std::make_shared<TabletIndex>(*parent_indexes[0]);
         index_ptr->set_escaped_escaped_index_suffix_path(suffix_path);
         // no need parse for bkd index or array index
-        // TODO(lihangyu): uncomment
-        // index_ptr->remove_parser_and_analyzer();
+        index_ptr->remove_parser_and_analyzer();
         subcolumns_indexes.emplace_back(std::move(index_ptr));
         return true;
     }

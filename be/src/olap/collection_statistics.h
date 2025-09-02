@@ -23,6 +23,7 @@
 #include "common/be_mock_util.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
+#include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -39,12 +40,24 @@ class TabletIndex;
 class TabletSchema;
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
+struct TermInfoComparer {
+    bool operator()(const segment_v2::TermInfo& lhs, const segment_v2::TermInfo& rhs) const {
+        return lhs.term < rhs.term;
+    }
+};
+
+class CollectInfo {
+public:
+    std::set<segment_v2::TermInfo, TermInfoComparer> term_infos;
+    const TabletIndex* index_meta = nullptr;
+};
+
 class CollectionStatistics {
 public:
     CollectionStatistics() = default;
     virtual ~CollectionStatistics() = default;
 
-    Status collect(const std::vector<RowSetSplits>& rs_splits,
+    Status collect(RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
                    const TabletSchemaSPtr& tablet_schema,
                    const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down);
 
@@ -53,19 +66,8 @@ public:
     MOCK_FUNCTION float get_or_calculate_avg_dl(const std::wstring& lucene_col_name);
 
 private:
-    struct TermInfoComparer {
-        bool operator()(const segment_v2::TermInfo& lhs, const segment_v2::TermInfo& rhs) const {
-            return lhs.term < rhs.term;
-        }
-    };
-
-    class CollectInfo {
-    public:
-        std::set<segment_v2::TermInfo, TermInfoComparer> term_infos;
-        const TabletIndex* index_meta = nullptr;
-    };
-
-    Status extract_collect_info(const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
+    Status extract_collect_info(RuntimeState* state,
+                                const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
                                 const TabletSchemaSPtr& tablet_schema,
                                 std::unordered_map<std::wstring, CollectInfo>* collect_infos);
     Status process_segment(const std::string& seg_path, const io::FileSystemSPtr& fs,
@@ -85,6 +87,7 @@ private:
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, float>> _idf_by_col_term;
 
     MOCK_DEFINE(friend class BM25SimilarityTest;)
+    MOCK_DEFINE(friend class CollectionStatisticsTest;)
 };
 using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
 

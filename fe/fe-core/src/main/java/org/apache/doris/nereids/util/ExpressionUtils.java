@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
@@ -57,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -300,13 +301,12 @@ public class ExpressionUtils {
     }
 
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(Lists.newArrayList(expression),
-                plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet).get(0);
+        return shuttleExpressionWithLineage(Lists.newArrayList(expression), plan).get(0);
     }
 
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet);
+        return shuttleExpressionWithLineage(expressions, plan);
     }
 
     /**
@@ -319,24 +319,17 @@ public class ExpressionUtils {
      * todo to get from plan struct info
      */
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
-            Plan plan,
-            Set<TableType> targetTypes,
-            Set<String> tableIdentifiers,
-            BitSet tableBitSet) {
+            Plan plan) {
         if (expressions.isEmpty()) {
             return ImmutableList.of();
         }
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
-                new ExpressionLineageReplacer.ExpressionReplaceContext(
-                        expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
-                        targetTypes,
-                        tableIdentifiers,
-                        tableBitSet);
+                new ExpressionLineageReplacer.ExpressionReplaceContext(expressions);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
-        List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
-        if (expressions.size() != replacedExpressions.size()) {
+        List<? extends Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+        if (replacedExpressions == null || expressions.size() != replacedExpressions.size()) {
             throw new NereidsException("shuttle expression fail",
                     new MaterializedViewException("shuttle expression fail"));
         }
@@ -431,11 +424,59 @@ public class ExpressionUtils {
      * Replace expression node with predicate in the expression tree by `replaceMap` in top-down manner.
      */
     public static Expression replaceIf(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
-            Predicate<Expression> predicate) {
+            Predicate<Expression> predicate, boolean stopWhenNotMatched) {
         return expr.rewriteDownShortCircuitDown(e -> {
             Expression replacedExpr = replaceMap.get(e);
             return replacedExpr == null ? e : replacedExpr;
-        }, predicate);
+        }, predicate, stopWhenNotMatched);
+    }
+
+    public static Set<Expression> replaceWithCounter(Set<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap, Map<Expression, Integer> counterMap) {
+        ImmutableSet.Builder<Expression> result = ImmutableSet.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replaceWithCounter(expr, replaceMap, counterMap));
+        }
+        return result.build();
+    }
+
+    public static List<Expression> replaceWithCounter(List<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap,
+            Map<Expression, Integer> counterMap) {
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replaceWithCounter(expr, replaceMap, counterMap));
+        }
+        return result.build();
+    }
+
+    /**
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
+     * This function gives counter map to record replace count.
+     * For example.
+     * <pre>
+     * input expression: a > 1
+     * replaceMap: a -> b + c
+     *
+     * output:
+     * b + c > 1
+     * </pre>
+     */
+    public static Expression replaceWithCounter(Expression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap,
+            Map<Expression, Integer> counterMap) {
+        return expr.rewriteDownShortCircuit(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            if (replacedExpr != null) {
+                if (!counterMap.containsKey(e)) {
+                    counterMap.put(e, 1);
+                } else {
+                    counterMap.put(e, counterMap.get(e) + 1);
+                }
+                return replacedExpr;
+            }
+            return e;
+        });
     }
 
     /**
@@ -514,6 +555,14 @@ public class ExpressionUtils {
             }
         }
         return replaceExprs.build();
+    }
+
+    /**
+     * set ignore unique id for unique functions
+     */
+    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+        return expression.rewriteDownShortCircuit(e ->
+                e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
@@ -1185,5 +1234,24 @@ public class ExpressionUtils {
         }
         shapeBuilder.append(")");
         return shapeBuilder.toString();
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Collection<? extends Expression> expressions) {
+        for (Expression expression : expressions) {
+            if (hasNonWindowAggregateFunction(expression)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Expression expression) {
+        return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
     }
 }

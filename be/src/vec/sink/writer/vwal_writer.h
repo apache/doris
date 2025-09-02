@@ -38,7 +38,8 @@ public:
     Status close();
 
 private:
-    Status _create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>& wal_writer);
+    Status _create_wal_writer(int64_t wal_id, const io::FileSystemSPtr& fs,
+                              std::shared_ptr<WalWriter>& wal_writer);
 
 private:
     int64_t _db_id;

@@ -23,29 +23,38 @@
 
 #include "common/exception.h"
 #include "common/factory_creator.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_reader.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "runtime/runtime_state.h"
+
+namespace doris::vectorized {
+struct AnnTopNParam;
+}
 
 namespace doris::segment_v2 {
 
 class InvertedIndexQueryCacheHandle;
 
 struct InvertedIndexParam;
-using IndexParam = std::variant<InvertedIndexParam*>;
+using IndexParam = std::variant<InvertedIndexParam*, segment_v2::AnnTopNParam*>;
 
+enum class AnnIndexReaderType {
+    ANN = 0,
+};
+
+using IndexReaderType = std::variant<InvertedIndexReaderType, AnnIndexReaderType>;
 class IndexIterator {
 public:
     IndexIterator() = default;
     virtual ~IndexIterator() = default;
 
-    virtual IndexReaderPtr get_reader() = 0;
-
+    virtual IndexReaderPtr get_reader(IndexReaderType reader_type) const = 0;
     virtual Status read_from_index(const IndexParam& param) = 0;
 
     virtual Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) = 0;
-    virtual bool has_null() = 0;
+    virtual Result<bool> has_null() = 0;
 
     void set_context(const IndexQueryContextPtr& context) { _context = context; }
 

@@ -92,11 +92,10 @@ Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
         slice.trim_quote();
     }
     auto& column_data = reinterpret_cast<ColumnIPv4&>(column);
-    ReadBuffer rb(slice.data, slice.size);
+    StringRef str(slice.data, slice.size);
     IPv4 val = 0;
-    if (!read_ipv4_text_impl(val, rb)) {
-        return Status::InvalidArgument("parse ipv4 fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (!read_ipv4_text_impl(val, str)) {
+        return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
     return Status::OK();

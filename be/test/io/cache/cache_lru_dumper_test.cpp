@@ -17,6 +17,8 @@
 
 #include "io/cache/cache_lru_dumper.h"
 
+#include <filesystem>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "io/cache/block_file_cache.h"
@@ -30,12 +32,14 @@ using ::testing::NiceMock;
 namespace doris::io {
 std::mutex _mutex;
 
+static const std::string test_dir = "./cache_lru_dumper_test_dir/";
+
 class MockBlockFileCache : public BlockFileCache {
 public:
     LRUQueue* dst_queue; // Pointer to the destination queue
 
     MockBlockFileCache(LRUQueue* queue) : BlockFileCache("", {}), dst_queue(queue) {
-        _cache_base_path = "./";
+        _cache_base_path = test_dir;
     }
 
     FileBlockCell* add_cell(const UInt128Wrapper& hash, const CacheContext& ctx, size_t offset,
@@ -69,6 +73,9 @@ protected:
     LRUQueue dst_queue; // Member variable for destination queue
 
     void SetUp() override {
+        std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directory(test_dir);
+
         mock_cache = std::make_unique<NiceMock<MockBlockFileCache>>(&dst_queue);
         recorder = std::make_unique<LRUQueueRecorder>(mock_cache.get());
 
@@ -78,6 +85,7 @@ protected:
     void TearDown() override {
         dumper.reset();
         mock_cache.reset();
+        std::filesystem::remove_all(test_dir);
     }
 
     std::unique_ptr<NiceMock<MockBlockFileCache>> mock_cache;
@@ -86,9 +94,9 @@ protected:
 };
 
 TEST_F(CacheLRUDumperTest, test_finalize_dump_and_parse_dump_footer) {
-    std::ofstream out("test_finalize.bin", std::ios::binary);
-    std::string tmp_filename = "test_finalize.bin.tmp";
-    std::string final_filename = "test_finalize.bin";
+    std::string tmp_filename = test_dir + "test_finalize.bin.tmp";
+    std::string final_filename = test_dir + "test_finalize.bin";
+    std::ofstream out(tmp_filename, std::ios::binary);
     size_t file_size = 0;
     size_t entry_num = 10;
 
@@ -97,21 +105,18 @@ TEST_F(CacheLRUDumperTest, test_finalize_dump_and_parse_dump_footer) {
             dumper->finalize_dump(out, entry_num, tmp_filename, final_filename, file_size).ok());
 
     // Test parse footer
-    std::ifstream in("test_finalize.bin", std::ios::binary);
+    std::ifstream in(final_filename, std::ios::binary);
     size_t parsed_entry_num = 0;
     EXPECT_TRUE(dumper->parse_dump_footer(in, final_filename, parsed_entry_num).ok());
     EXPECT_EQ(entry_num, parsed_entry_num);
-
-    out.close();
     in.close();
-    std::remove("test_finalize.bin");
 }
 
 TEST_F(CacheLRUDumperTest, test_remove_lru_dump_files) {
     // Create test files
     std::vector<std::string> queue_names = {"disposable", "index", "normal", "ttl"};
     for (const auto& name : queue_names) {
-        std::ofstream(fmt::format("lru_dump_{}.tail", name));
+        std::ofstream(fmt::format("{}lru_dump_{}.tail", test_dir, name));
     }
 
     // Test remove
@@ -119,7 +124,7 @@ TEST_F(CacheLRUDumperTest, test_remove_lru_dump_files) {
 
     // Verify files are removed
     for (const auto& name : queue_names) {
-        EXPECT_FALSE(std::filesystem::exists(fmt::format("lru_dump_{}.tail", name)));
+        EXPECT_FALSE(std::filesystem::exists(fmt::format("{}lru_dump_{}.tail", test_dir, name)));
     }
 }
 
@@ -151,9 +156,6 @@ TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
         ++src_it;
         ++dst_it;
     }
-
-    // Clean up
-    std::remove(fmt::format("lru_dump_{}.tail", queue_name).c_str());
 }
 
 } // namespace doris::io

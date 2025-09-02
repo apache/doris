@@ -73,6 +73,14 @@ DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
 
 DEFINE_mInt32(get_delete_bitmap_lock_max_retry_times, "100");
 
+DEFINE_mBool(enable_sync_tablet_delete_bitmap_by_cache, "true");
+DEFINE_mInt32(delete_bitmap_store_write_version, "1");
+DEFINE_mInt32(delete_bitmap_store_read_version, "1");
+DEFINE_mBool(enable_delete_bitmap_store_v2_check_correctness, "false");
+DEFINE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb, "1024"); // TODO change default value
+DEFINE_Int32(sync_delete_bitmap_task_max_thread, "32");
+DEFINE_mBool(enable_agg_delta_delete_bitmap_for_store_v2, "true");
+
 DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
 
 DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
@@ -91,6 +99,8 @@ DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
+DEFINE_mBool(skip_writing_empty_rowset_metadata, "false");
+
 DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
 
 DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
@@ -100,6 +110,8 @@ DEFINE_mBool(enable_compaction_delay_commit_for_warm_up, "false");
 DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
 
 DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
+
+DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

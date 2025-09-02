@@ -144,8 +144,7 @@ public:
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                       int32_t segment_id, const SegmentStatistics& segment_stat,
-                       TabletSchemaSPtr flush_schema);
+                       int32_t segment_id, const SegmentStatistics& segment_stat);
 
     // CLOSE_LOAD
     Status close_load(const std::vector<PTabletID>& tablets_to_commit);

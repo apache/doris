@@ -43,7 +43,6 @@ class PColumnMeta;
 namespace vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -93,9 +92,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool have_subtypes() const override { return !elems.empty(); }
-    bool is_comparable() const override;
-    bool text_can_contain_only_valid_utf8() const override;
     bool have_maximum_size_of_value() const override;
     size_t get_size_of_value_in_memory() const override;
 

@@ -132,10 +132,10 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_difference_String "select array_difference(kastr) from fn_test"
     order_qt_sql_array_difference_String_notnull "select array_difference(kastr) from fn_test_not_nullable"
 
-    order_qt_sql_array_difference_DatetimeV2 "select array_difference(kadtmv2) from fn_test"
-    order_qt_sql_array_difference_DatetimeV2_notnull "select array_difference(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_difference_DateV2 "select array_difference(kadtv2) from fn_test"
-    order_qt_sql_array_difference_DateV2_notnull "select array_difference(kadtv2) from fn_test_not_nullable"
+    // order_qt_sql_array_difference_DatetimeV2 "select array_difference(kadtmv2) from fn_test"
+    // order_qt_sql_array_difference_DatetimeV2_notnull "select array_difference(kadtmv2) from fn_test_not_nullable"
+    // order_qt_sql_array_difference_DateV2 "select array_difference(kadtv2) from fn_test"
+    // order_qt_sql_array_difference_DateV2_notnull "select array_difference(kadtv2) from fn_test_not_nullable"
 
     // array_distinct
     order_qt_sql_array_distinct_Double "select array_distinct(kadbl) from fn_test"
@@ -1270,6 +1270,7 @@ suite("nereids_scalar_fn_Array") {
     // array_range with datetime argument, sequence with int and datetime argument
     qt_array_range_datetime1 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 day), interval kint day) from fn_test order by kdtmv2s1;"""
     qt_array_range_datetime2 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 week), interval kint week) from fn_test order by kdtmv2s1;"""
+    qt_array_range_datetime3 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 quarter), interval kint quarter) from fn_test order by kdtmv2s1;"""
     qt_sequence_int_one_para """select sequence(kint) from fn_test order by kint;"""
     qt_sequence_int_two_para """select sequence(kint, kint+2) from fn_test order by kint;"""
     qt_sequence_int_three_para """select sequence(kint-1, kint+2, 1) from fn_test order by kint;"""

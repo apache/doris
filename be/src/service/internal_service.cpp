@@ -45,6 +45,7 @@
 #include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
@@ -340,6 +341,8 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
         st = _exec_plan_fragment_impl(request->request(), version, compact);
     } catch (const Exception& e) {
         st = e.to_status();
+    } catch (const std::exception& e) {
+        st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
     } catch (...) {
         st = Status::Error(ErrorCode::INTERNAL_ERROR,
                            "_exec_plan_fragment_impl meet unknown error");
@@ -1156,6 +1159,10 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
     bool ret = _heavy_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::OTHER,
+                fmt::format("InternalService::fetch_remote_tablet_schema"));
+        SCOPED_ATTACH_TASK(mem_tracker);
         if (request->is_coordinator()) {
             // Spawn rpc request to none coordinator nodes, and finally merge them all
             PFetchRemoteSchemaRequest remote_request(*request);
@@ -1241,10 +1248,11 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    auto schema = res.value()->merged_tablet_schema();
-                    if (schema != nullptr) {
-                        tablet_schemas.push_back(schema);
-                    }
+                    auto tablet = res.value();
+                    auto rowsets = tablet->get_snapshot_rowset();
+                    auto schema = vectorized::schema_util::VariantCompactionUtil::
+                            calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
+                    tablet_schemas.push_back(schema);
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
@@ -2220,6 +2228,8 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                         });
             } catch (const Exception& e) {
                 st = e.to_status();
+            } catch (const std::exception& e) {
+                st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
             } catch (...) {
                 st = Status::Error(ErrorCode::INTERNAL_ERROR,
                                    "_exec_plan_fragment_impl meet unknown error");
