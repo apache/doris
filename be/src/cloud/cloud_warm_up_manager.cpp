@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_warm_up_manager.h"
 
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <bvar/bvar.h>
 #include <bvar/reducer.h>
 
@@ -85,7 +87,7 @@ CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(eng
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
     static_cast<void>(ThreadPoolBuilder("CloudWarmUpManagerThreadPool")
                               .set_min_threads(1)
-                              .set_max_threads(4)
+                              .set_max_threads(config::warm_up_manager_thread_pool_size)
                               .build(&_thread_pool));
     _thread_pool_token = _thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
 }
