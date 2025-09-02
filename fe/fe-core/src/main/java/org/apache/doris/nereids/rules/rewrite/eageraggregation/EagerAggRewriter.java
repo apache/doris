@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -378,7 +379,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         double lowerCartesianLowerBound =
                 stats.getRowCount() / LOWER_AGGREGATE_EFFECT_COEFFICIENT;
         if (high.size() + medium.size() == 1 && lower.size() <= 2 && lowerCartesian <= lowerCartesianLowerBound) {
-            return true;
+            StatsCalculator statsCalculator = new StatsCalculator(null);
+            double estAggRowCount = statsCalculator.estimateGroupByRowCount(context.getGroupKeys(), stats);
+            return estAggRowCount < lowerCartesianLowerBound;
         }
 
         //// 4. high cardinality < 2 and lower cardinality < 2
