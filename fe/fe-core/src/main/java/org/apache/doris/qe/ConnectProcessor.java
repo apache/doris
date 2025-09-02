@@ -337,6 +337,10 @@ public abstract class ConnectProcessor {
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
+                if (MetricRepo.isInit) {
+                    MetricRepo.HISTO_PLAN_PARSE_DURATION.update(
+                            executor.getProfile().getSummaryProfile().getParseSqlTimeMs());
+                }
                 ctx.setExecutor(executor);
 
                 if (cacheKeyType != null) {
