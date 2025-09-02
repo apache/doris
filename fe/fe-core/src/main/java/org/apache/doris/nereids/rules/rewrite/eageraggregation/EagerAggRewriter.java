@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
+import org.apache.doris.nereids.rules.rewrite.StatsDerive;
+import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -24,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -32,7 +35,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
+
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -56,6 +64,11 @@ import java.util.stream.Collectors;
  *         ->T2(D)
  */
 public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
+    private static final double LOWER_AGGREGATE_EFFECT_COEFFICIENT = 10000;
+    private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
+    private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
+
+    private final StatsDerive derive = new StatsDerive(false);
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
@@ -279,8 +292,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (checkStats(child, context)) {
             List<NamedExpression> aggOutputExpressions = new ArrayList<>();
             aggOutputExpressions.addAll(context.getAliasMap().values());
-            aggOutputExpressions.addAll(context.getGroupKeys().stream()
-                    .map(e -> (NamedExpression) e).collect(Collectors.toList()));
+            aggOutputExpressions.addAll(context.getGroupKeys());
             for (NamedExpression key : context.getGroupKeys()) {
                 context.addFinalGroupKey((SlotReference) key.toSlot());
             }
@@ -291,6 +303,112 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     }
 
     private boolean checkStats(Plan plan, PushDownAggContext context) {
-        return true;
+        if (ConnectContext.get() == null) {
+            return false;
+        }
+        int mode = ConnectContext.get().getSessionVariable().eagerAggregationMode;
+        if (mode < 0) {
+            return false;
+        }
+        if (mode > 0) {
+            return true;
+        }
+        Statistics stats = ((AbstractLogicalPlan) plan).getStats();
+        if (stats == null) {
+            stats = plan.accept(derive, new StatsDerive.DeriveContext());
+        }
+        if (stats.getRowCount() == 0) {
+            return false;
+        }
+
+        List<ColumnStatistic> groupKeysStats = new ArrayList<>();
+        double maxGroupKeyNdv = 0.0;
+        List<ColumnStatistic> lower = Lists.newArrayList();
+        List<ColumnStatistic> medium = Lists.newArrayList();
+        List<ColumnStatistic> high = Lists.newArrayList();
+
+        List<ColumnStatistic>[] cards = new List[] {lower, medium, high};
+
+        for (NamedExpression key : context.getGroupKeys()) {
+            ColumnStatistic colStats = ExpressionEstimation.INSTANCE.estimate(key, stats);
+            if (colStats.isUnKnown) {
+                return false;
+            }
+            maxGroupKeyNdv = Math.max(maxGroupKeyNdv, colStats.ndv);
+            groupKeysStats.add(colStats);
+            cards[groupByCardinality(colStats, stats.getRowCount())].add(colStats);
+        }
+
+        double lowerCartesian = 1.0;
+        for (ColumnStatistic colStats : lower) {
+            lowerCartesian = lowerCartesian * colStats.ndv;
+        }
+
+        // pow(row_count/20, a half of lower column size)
+        double lowerUpper = Math.max(stats.getRowCount() / 20, 1);
+        lowerUpper = Math.pow(lowerUpper, Math.max(lower.size() / 2, 1));
+
+        // 1. white push down rules
+        // 1.1 only one lower/medium cardinality columns
+        if (high.isEmpty() && (lower.size() + medium.size()) == 1) {
+            return true;
+        }
+
+        // 1.2 the cartesian of all lower/count <= 1
+        // 1.3 the lower cardinality <= 3 and lowerCartesian < lowerUpper
+        // 1.4 false
+        if (high.isEmpty() && medium.isEmpty()) {
+            if (lowerCartesian <= stats.getRowCount() || lower.size() <= 2) {
+                return true;
+            } else if (lower.size() <= 3 && lowerCartesian < lowerUpper) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        // 2.1 high cardinality >= 2
+        // 2.2 medium cardinality > 2
+        // 2.3 high cardinality = 1 and medium cardinality > 0
+        if (high.size() >= 2 || medium.size() > 2 || (high.size() == 1 && !medium.isEmpty())) {
+            return false;
+        }
+
+        // 3. Extremely low cardinality for lower with at most one medium or high.
+        double lowerCartesianLowerBound =
+                stats.getRowCount() / LOWER_AGGREGATE_EFFECT_COEFFICIENT;
+        if (high.size() + medium.size() == 1 && lower.size() <= 2 && lowerCartesian <= lowerCartesianLowerBound) {
+            return true;
+        }
+
+        //// 4. high cardinality < 2 and lower cardinality < 2
+        //if (high.size() == 1 && lower.size() <= 2) {
+        //    return pushDownMode >= PUSH_DOWN_HIGH_CARDINALITY_AGG;
+        //}
+        //
+        //// 5. medium cardinality <= 2
+        //if (lower.size() <= 2) {
+        //    if (pushDownMode >= PUSH_DOWN_MEDIUM_CARDINALITY_AGG) {
+        //        return true;
+        //    }
+        //    return statistics.getOutputRowCount() >=
+        //            StatisticsEstimateCoefficient.SMALL_SCALE_ROWS_LIMIT;
+        //}
+        return false;
+    }
+
+    // high(2): row_count / cardinality < MEDIUM_AGGREGATE_EFFECT_COEFFICIENT
+    // medium(1): row_count / cardinality >= MEDIUM_AGGREGATE_EFFECT_COEFFICIENT and < LOW_AGGREGATE_EFFECT_COEFFICIENT
+    // lower(0): row_count / cardinality >= LOW_AGGREGATE_EFFECT_COEFFICIENT
+    private int groupByCardinality(ColumnStatistic colStats, double rowCount) {
+        if (rowCount == 0 || colStats.ndv * MEDIUM_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {
+            return 2;
+        } else if (colStats.ndv * MEDIUM_AGGREGATE_EFFECT_COEFFICIENT <= rowCount
+                && colStats.ndv * LOW_AGGREGATE_EFFECT_COEFFICIENT > rowCount) {
+            return 1;
+        } else if (colStats.ndv * LOW_AGGREGATE_EFFECT_COEFFICIENT <= rowCount) {
+            return 0;
+        }
+        return 2;
     }
 }
