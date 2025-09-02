@@ -115,6 +115,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      * for iot auto detect. register task first. then put in group.
      */
     public void registerTaskInGroup(long groupId, long taskId) {
+        //FIXME: we should move log of ADD here and rethink the logic when transfer to master.
         LOG.info("register task " + taskId + " in group " + groupId);
         taskGroups.get(groupId).add(taskId);
     }
@@ -277,6 +278,10 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
             olapTable = task.getTable();
         } catch (DdlException e) {
             LOG.warn("can not get table, task: {}, reason: {}", task, e.getMessage());
+            return true;
+        } catch (NullPointerException e) {
+            // cannot get task
+            LOG.warn("can not get task {}, maybe removed", task);
             return true;
         }
         return InsertOverwriteUtil.dropPartitions(olapTable, task.getTempPartitionNames());
