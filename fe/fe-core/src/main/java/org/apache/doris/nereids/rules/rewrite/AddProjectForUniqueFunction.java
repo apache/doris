@@ -208,9 +208,11 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
         }
     }
 
-    // extract unique function which exist multiple times from targets,
-    // then alias the unique function and put them into a child project,
-    // then rewrite targets with the alias names.
+    /**
+     * extract unique function which exist multiple times from targets,
+     * then alias the unique function and put them into a child project,
+     * then rewrite targets with the alias names.
+     */
     @VisibleForTesting
     public <T extends Expression> Optional<Pair<List<T>, LogicalProject<Plan>>> rewriteExpressions(
             LogicalPlan plan, Collection<T> targets) {
@@ -236,7 +238,9 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
         return Optional.of(Pair.of(newTargetsBuilder.build(), new LogicalProject<>(projects, plan.child(0))));
     }
 
-    // if a unique function exists multiple times in the targets, then add a project to alias it.
+    /**
+     * if a unique function exists multiple times in the targets, then add a project to alias it.
+     */
     @VisibleForTesting
     public List<NamedExpression> tryGenUniqueFunctionAlias(Collection<? extends Expression> targets) {
         Map<UniqueFunction, Integer> unqiueFunctionCounter = Maps.newLinkedHashMap();

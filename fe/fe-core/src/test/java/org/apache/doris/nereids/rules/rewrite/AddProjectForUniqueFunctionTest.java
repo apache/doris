@@ -56,7 +56,7 @@ public class AddProjectForUniqueFunctionTest implements MemoPatternMatchSupporte
         Random random2 = new Random();
         Random random3 = new Random();
         List<Expression> expressions = ImmutableList.of(
-                new Add(random1, new Add(random1, new DoubleLiteral(1.0))) ,
+                new Add(random1, new Add(random1, new DoubleLiteral(1.0))),
                 new Add(random2, random3),
                 random3);
         List<NamedExpression> namedExpressions = new AddProjectForUniqueFunction().tryGenUniqueFunctionAlias(expressions);
