@@ -55,17 +55,15 @@ struct Compare {
         return a > b ? 1 : (a < b ? -1 : 0);
     }
 
-
-    template<typename T>
+    template <typename T>
     static T min(const T& a, const T& b) {
         return less(a, b) ? a : b;
     }
 
-    template<typename T>
+    template <typename T>
     static T max(const T& a, const T& b) {
         return greater(a, b) ? a : b;
     }
-
 
     template <typename T>
     static T min_value() {
