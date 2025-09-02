@@ -280,7 +280,6 @@ add_compile_options(-g
                     -gdwarf-5
                     -Wall
                     -Wextra
-                    -Werror
                     -Wundef
                     -pthread
                     -fstrict-aliasing
@@ -321,9 +320,8 @@ if (COMPILER_CLANG)
                         -Wconversion)
     add_compile_options( -Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
-                        -Wno-implicit-int-conversion
                         -Wno-sign-conversion
-                        -Wno-shorten-64-to-32)
+                        )
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)

@@ -30,6 +30,19 @@ add_compile_options(-Wno-return-type)
 # each other
 add_library(DorisGen STATIC ${SRC_FILES})
 
+if(CMAKE_CXX_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(CloudGen PRIVATE -Wno-error)
+    
+    target_compile_options(CloudGen PRIVATE
+        -Wno-unused-variable
+        -Wno-sign-compare
+        -Wno-unused-function
+        -Wno-deprecated-declarations
+        -Wno-unused-parameter
+        -Wno-missing-field-initializers
+    )
+endif()
+
 # Setting these files as code-generated lets make clean and incremental builds work
 # correctly
 # set_source_files_properties(${SRC_FILES} PROPERTIES GENERATED TRUE)
