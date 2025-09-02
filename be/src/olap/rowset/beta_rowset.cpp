@@ -39,6 +39,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
@@ -71,7 +72,9 @@ Status BetaRowset::init() {
 }
 
 Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
-    DCHECK(_rowset_state_machine.rowset_state() == ROWSET_LOADED);
+    // `ROWSET_UNLOADING` is state for closed() called but owned by some readers.
+    // So here `ROWSET_UNLOADING` is allowed.
+    DCHECK_NE(_rowset_state_machine.rowset_state(), ROWSET_UNLOADED);
 
     RETURN_IF_ERROR(_load_segment_rows_once.call([this] {
         auto segment_count = num_segments();
