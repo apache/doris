@@ -1890,7 +1890,7 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("variant_max_sparse_column_statistics_size must between 0 and 50000 ");
                 }
             } catch (Exception e) {
-                throw new AnalysisException("variant_max_sparse_column_statistics_size format error: " + e.getMessage());
+                throw new AnalysisException("variant_max_sparse_column_statistics_size format error:" + e.getMessage());
             }
 
             properties.remove(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
