@@ -1900,10 +1900,12 @@ public class SessionVariable implements Serializable, Writable {
                     + "The cache is not used when BE config enable_file_cache=false."})
     public boolean enableFileCache = false;
 
-    // Whether enable file cache query limit. Only take effect when BE config item enable_file_cache_query_limit is true.
+    // Whether enable file cache query limit. 
+    // Only take effect when BE config item enable_file_cache_query_limit is true.
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_QUERY_LIMIT, needForward = true, description = {
             "是否启用file cache查询限制。该变量只有在be.conf中enable_file_cache_query_limit=true时才有效。",
-            "Set whether to enable file cache query limit. This variable takes effect only if the BE config enable_file_cache_query_limit=true."})
+            "Set whether to enable file cache query limit. "
+                    + "This variable takes effect only if the BE config enable_file_cache_query_limit=true."})
     public boolean enableFileCacheQueryLimit = true;
 
     // Specify base path for file cache, or chose a random path.
