@@ -749,6 +749,10 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
+        // Validate timezone offset ranges before parsing
+        validateTimezoneOffset(fromTz.getStringValue());
+        validateTimezoneOffset(toTz.getStringValue());
+
         DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
                 .parseCaseInsensitive()
                 .appendZoneOrOffsetId()
@@ -1294,6 +1298,31 @@ public class DateTimeExtractAndTransform {
             return 0;
         }
         return dayOfWeek;
+    }
+
+    /**
+     * Validate timezone offset to ensure it's within valid range (-12:00 to +14:00)
+     */
+    private static void validateTimezoneOffset(String timezone) {
+        // Pattern to match offset format like +HH:MM or -HH:MM
+        if (timezone.matches("^[+-]\\d{2}:\\d{2}$")) {
+            boolean positive = timezone.charAt(0) == '+';
+            int hour = Integer.parseInt(timezone.substring(1, 3));
+            int minute = Integer.parseInt(timezone.substring(4, 6));
+
+            if (!positive && hour > 12) {
+                throw new AnalysisException("Invalid timezone offset: " + timezone
+                        + ". Timezone offsets must be between -12:00 and +14:00");
+            } else if (positive && hour > 14) {
+                throw new AnalysisException("Invalid timezone offset: " + timezone
+                        + ". Timezone offsets must be between -12:00 and +14:00");
+            }
+
+            if (minute != 0 && minute != 15 && minute != 30 && minute != 45) {
+                throw new AnalysisException("Invalid timezone offset: " + timezone
+                        + ". Minute part should be 00, 15, 30, or 45");
+            }
+        }
     }
 
     /**

@@ -26,6 +26,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
@@ -151,7 +152,6 @@ public:
             return Status::RuntimeError(
                     "funciton context for function '{}' must have ConvertTzState;", get_name());
         }
-        auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
         bool col_const[3];
         ColumnPtr argument_columns[3];
@@ -167,33 +167,26 @@ public:
 
         if (convert_tz_state->use_state) {
             auto result_column = ColumnType::create();
-            execute_tz_const_with_state(
-                    convert_tz_state, assert_cast<const ColumnType*>(argument_columns[0].get()),
-                    assert_cast<ReturnColumnType*>(result_column.get()),
-                    assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                    input_rows_count);
-            block.get_by_position(result).column = ColumnNullable::create(
-                    std::move(result_column), std::move(result_null_map_column));
+            execute_tz_const_with_state(convert_tz_state,
+                                        assert_cast<const ColumnType*>(argument_columns[0].get()),
+                                        assert_cast<ReturnColumnType*>(result_column.get()),
+
+                                        input_rows_count);
+            block.get_by_position(result).column = std::move(result_column)
         } else if (col_const[1] && col_const[2]) {
             auto result_column = ColumnType::create();
             execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
                              assert_cast<const ColumnString*>(argument_columns[1].get()),
                              assert_cast<const ColumnString*>(argument_columns[2].get()),
-                             assert_cast<ReturnColumnType*>(result_column.get()),
-                             assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                             input_rows_count);
-            block.get_by_position(result).column = ColumnNullable::create(
-                    std::move(result_column), std::move(result_null_map_column));
+                             assert_cast<ReturnColumnType*>(result_column.get()), input_rows_count);
+            block.get_by_position(result).column = std::move(result_column)
         } else {
             auto result_column = ColumnType::create();
             _execute(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
                      assert_cast<const ColumnString*>(argument_columns[1].get()),
                      assert_cast<const ColumnString*>(argument_columns[2].get()),
-                     assert_cast<ReturnColumnType*>(result_column.get()),
-                     assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                     input_rows_count);
-            block.get_by_position(result).column = ColumnNullable::create(
-                    std::move(result_column), std::move(result_null_map_column));
+                     assert_cast<ReturnColumnType*>(result_column.get()), input_rows_count);
+            block.get_by_position(result).column = std::move(result_column);
         } //if const
         return Status::OK();
     }
@@ -201,65 +194,43 @@ public:
 private:
     static void _execute(FunctionContext* context, const ColumnType* date_column,
                          const ColumnString* from_tz_column, const ColumnString* to_tz_column,
-                         ReturnColumnType* result_column, NullMap& result_null_map,
-                         size_t input_rows_count) {
+                         ReturnColumnType* result_column, size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
-            if (result_null_map[i]) {
-                result_column->insert_default();
-                continue;
-            }
             auto from_tz = from_tz_column->get_data_at(i).to_string();
             auto to_tz = to_tz_column->get_data_at(i).to_string();
-            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
+            execute_inner_loop(date_column, from_tz, to_tz, result_column, i);
         }
     }
 
     static void execute_tz_const_with_state(ConvertTzState* convert_tz_state,
                                             const ColumnType* date_column,
                                             ReturnColumnType* result_column,
-                                            NullMap& result_null_map, size_t input_rows_count) {
+                                            size_t input_rows_count) {
         cctz::time_zone& from_tz = convert_tz_state->from_tz;
         cctz::time_zone& to_tz = convert_tz_state->to_tz;
-        auto push_null = [&](size_t row) {
-            result_null_map[row] = true;
-            result_column->insert_default();
-        };
         if (!convert_tz_state->is_valid) {
             // If an invalid timezone is present, return null
-            for (size_t i = 0; i < input_rows_count; i++) {
-                push_null(i);
-            }
+            throw Exception(Status::InvalidArgument("The function {} with invalid timezone", name));
             return;
         }
         for (size_t i = 0; i < input_rows_count; i++) {
-            if (result_null_map[i]) {
-                result_column->insert_default();
-                continue;
-            }
-
             DateValueType ts_value =
                     binary_cast<NativeType, DateValueType>(date_column->get_element(i));
             ReturnDateValueType ts_value2;
 
             if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
                 std::pair<int64_t, int64_t> timestamp;
-                if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-                    push_null(i);
-                    continue;
-                }
+                ts_value.unix_timestamp(&timestamp, from_tz
                 ts_value2.from_unixtime(timestamp, to_tz);
             } else {
                 int64_t timestamp;
-                if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-                    push_null(i);
-                    continue;
-                }
-                ts_value2.from_unixtime(timestamp, to_tz);
+                ts_value.unix_timestamp(&timestamp, from_tz)
+                        ts_value2.from_unixtime(timestamp, to_tz);
             }
 
             if (!ts_value2.is_valid_date()) [[unlikely]] {
-                push_null(i);
-                continue;
+                throw Exception(Status::InternalError(
+                        "The function {} with input {} result is out of range", name));
             }
 
             if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
@@ -281,60 +252,42 @@ private:
     static void execute_tz_const(FunctionContext* context, const ColumnType* date_column,
                                  const ColumnString* from_tz_column,
                                  const ColumnString* to_tz_column, ReturnColumnType* result_column,
-                                 NullMap& result_null_map, size_t input_rows_count) {
+                                 size_t input_rows_count) {
         auto from_tz = from_tz_column->get_data_at(0).to_string();
         auto to_tz = to_tz_column->get_data_at(0).to_string();
         for (size_t i = 0; i < input_rows_count; i++) {
-            if (result_null_map[i]) {
-                result_column->insert_default();
-                continue;
-            }
-            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
+            execute_inner_loop(date_column, from_tz, to_tz, result_column, i);
         }
     }
 
     static void execute_inner_loop(const ColumnType* date_column, const std::string& from_tz_name,
                                    const std::string& to_tz_name, ReturnColumnType* result_column,
-                                   NullMap& result_null_map, const size_t index_now) {
+                                   const size_t index_now) {
         DateValueType ts_value =
                 binary_cast<NativeType, DateValueType>(date_column->get_element(index_now));
         cctz::time_zone from_tz {}, to_tz {};
         ReturnDateValueType ts_value2;
 
         if (!TimezoneUtils::find_cctz_time_zone(from_tz_name, from_tz)) {
-            result_null_map[index_now] = true;
-            result_column->insert_default();
-            return;
+            throw Exception(Status::InvalidArgument("The function {} with invalid timezone: {}",
+                                                    name, from_tz_name));
         }
         if (!TimezoneUtils::find_cctz_time_zone(to_tz_name, to_tz)) {
-            result_null_map[index_now] = true;
-            result_column->insert_default();
-            return;
+            throw Exception(Status::InvalidArgument("The function {} with invalid timezone: {}",
+                                                    name, to_tz_name));
         }
 
         if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
             std::pair<int64_t, int64_t> timestamp;
-            if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-                result_null_map[index_now] = true;
-                result_column->insert_default();
-                return;
-            }
-            ts_value2.from_unixtime(timestamp, to_tz);
+            ts_value.unix_timestamp(&timestamp, from_tz) ts_value2.from_unixtime(timestamp, to_tz);
         } else {
             int64_t timestamp;
-            if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-                result_null_map[index_now] = true;
-                result_column->insert_default();
-                return;
-            }
-
-            ts_value2.from_unixtime(timestamp, to_tz);
+            ts_value.unix_timestamp(&timestamp, from_tz) ts_value2.from_unixtime(timestamp, to_tz);
         }
 
         if (!ts_value2.is_valid_date()) [[unlikely]] {
-            result_null_map[index_now] = true;
-            result_column->insert_default();
-            return;
+            throw Exception(Status::InternalError(
+                    "The function {} with input {} result is out of range", name));
         }
 
         if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
