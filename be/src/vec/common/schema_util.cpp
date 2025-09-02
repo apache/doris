@@ -440,7 +440,7 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     // 2. inverted index
     TabletIndexes indexes_to_add;
     auto source_indexes = (*target_schema)->inverted_indexs(source.unique_id());
-    inherit_index(source_indexes, indexes_to_add, source);
+    inherit_index(source_indexes, indexes_to_add, target);
     auto target_indexes = (*target_schema)
                                   ->inverted_indexs(target.parent_unique_id(),
                                                     target.path_info_ptr()->get_path());
