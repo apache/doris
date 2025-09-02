@@ -51,14 +51,8 @@ public class CloudRoutineLoadManager extends RoutineLoadManager {
     @Override
     protected List<Long> getAvailableBackendIds(long jobId) throws LoadException {
         RoutineLoadJob routineLoadJob = getJob(jobId);
-        String cloudClusterId = routineLoadJob.getCloudClusterId();
-        if (Strings.isNullOrEmpty(cloudClusterId)) {
-            LOG.warn("cluster id is empty");
-            throw new LoadException("cluster id is empty");
-        }
-
         return ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getBackendsByClusterId(cloudClusterId)
+                .getBackendsByClusterName(routineLoadJob.getCloudCluster())
                 .stream()
                 .filter(Backend::isAlive)
                 .map(Backend::getId)
@@ -67,13 +61,13 @@ public class CloudRoutineLoadManager extends RoutineLoadManager {
 
     @Override
     public void replayCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        routineLoadJob.setCloudClusterById();
+        routineLoadJob.setCloudCluster();
         super.replayCreateRoutineLoadJob(routineLoadJob);
     }
 
     @Override
     public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
-        getJob(operation.getId()).setCloudClusterById();
+        getJob(operation.getId()).setCloudCluster();
         super.replayChangeRoutineLoadJob(operation);
     }
 }
