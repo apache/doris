@@ -58,8 +58,7 @@ merge_pr_to_target_branch_latest() {
     git checkout "${target_branch}"
     git reset --hard origin/"${target_branch}"
     git pull origin "${target_branch}"
-    git submodule update --init be/src/clucene
-    git submodule update --init be/src/apache-orc
+    git submodule update --init --recursive --depth 1
     local target_branch_commit_id
     target_branch_commit_id=$(git rev-parse HEAD)
     git config user.email "ci@selectdb.com"

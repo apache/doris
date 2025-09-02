@@ -73,6 +73,10 @@ public:
     // if path is v.a.b, then relative path will return a.b
     // make sure the parts is not empty
     std::string_view get_relative_path() const {
+        if (parts.size() <= 1) {
+            // return empty string
+            return {};
+        }
         return {path.begin() + parts[0].key.size() + 1, path.end()};
     }
     const Parts& get_parts() const { return parts; }
@@ -148,7 +152,18 @@ struct PathInDataRef {
         }
     };
     PathInDataRef(const PathInData* ptr) : ref(ptr) {}
-    bool operator==(const PathInDataRef& other) const { return *this->ref == *other.ref; }
+    PathInDataRef() : ref(nullptr) {}
+    bool operator==(const PathInDataRef& other) const {
+        return (this->ref != nullptr && other.ref != nullptr && *this->ref == *other.ref) ||
+               (this->ref == nullptr && other.ref == nullptr);
+    }
 };
 
 } // namespace doris::vectorized
+
+template <>
+struct std::hash<doris::vectorized::PathInData> {
+    size_t operator()(const doris::vectorized::PathInData& value) const {
+        return doris::vectorized::PathInData::Hash {}(value);
+    }
+};

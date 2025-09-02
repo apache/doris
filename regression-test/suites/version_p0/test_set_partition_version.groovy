@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_set_partition_version") {
+    if (isCloudMode()) {
+        return
+    }
+
     def tableName1 = "test_set_partition_version"
     sql """ DROP TABLE IF EXISTS ${tableName1} """
     sql """

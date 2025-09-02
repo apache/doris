@@ -128,6 +128,11 @@ void delete_storage_resource(int64_t resource_id) {
     s_storage_resource_mgr.map.erase(id_str);
 }
 
+void clear_storage_resource() {
+    std::lock_guard lock(s_storage_resource_mgr.mtx);
+    s_storage_resource_mgr.map.clear();
+}
+
 std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids() {
     std::vector<std::pair<std::string, int64_t>> res;
     res.reserve(s_storage_resource_mgr.map.size());
@@ -230,6 +235,19 @@ std::string StorageResource::remote_tablet_path(int64_t tablet_id) const {
         return fmt::format("{}/{}", DATA_PREFIX, tablet_id);
     case 1:
         return fmt::format("{}/{}/{}", DATA_PREFIX, shard_fn(tablet_id), tablet_id);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
+std::string StorageResource::remote_delete_bitmap_path(int64_t tablet_id,
+                                                       std::string_view rowset_id) const {
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}/{}_delete_bitmap.dat", DATA_PREFIX, tablet_id, rowset_id);
+    case 1:
+        return fmt::format("{}/{}/{}/{}_delete_bitmap.dat", DATA_PREFIX, shard_fn(tablet_id),
+                           tablet_id, rowset_id);
     default:
         exit_at_unknown_path_version(fs->id(), path_version);
     }

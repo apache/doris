@@ -67,6 +67,7 @@ import org.apache.doris.rpc.RpcException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
@@ -98,6 +99,11 @@ public class NereidsSqlCacheManager {
         );
     }
 
+    @VisibleForTesting
+    public Cache<String, SqlCacheContext> getSqlCaches() {
+        return sqlCaches;
+    }
+
     public static synchronized void updateConfig() {
         Env currentEnv = Env.getCurrentEnv();
         if (currentEnv == null) {
@@ -113,6 +119,7 @@ public class NereidsSqlCacheManager {
                 Config.expire_sql_cache_in_fe_second
         );
         sqlCaches.putAll(sqlCacheManager.sqlCaches.asMap());
+        sqlCaches.cleanUp();
         sqlCacheManager.sqlCaches = sqlCaches;
     }
 

@@ -451,7 +451,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         }
     } else {
         for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
-            if (tablet_schema->has_inverted_index()) {
+            if (tablet_schema->has_inverted_index() || tablet_schema->has_ann_index()) {
                 auto get_segment_index_file_size_url = fmt::format(
                         "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
                         "}",

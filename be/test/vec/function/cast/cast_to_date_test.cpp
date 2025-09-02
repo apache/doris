@@ -293,6 +293,35 @@ TEST_F(FunctionCastTest, test_from_numeric_to_date) {
     }
 }
 
+TEST_F(FunctionCastTest, test_from_numeric_to_date_invalid) {
+    // Test casting from Int64
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+        DataSet data_set = {
+                {{int64_t(1)}, Null()},
+                {{int64_t(22)}, Null()},
+                {{int64_t(-222)}, Null()},
+                {{int64_t(7777777)}, Null()},
+                {{int64_t(2015010203040516)}, Null()},
+        };
+        check_function_for_cast<DataTypeDateV2>(input_types, data_set);
+        check_function_for_cast_strict_mode<DataTypeDateV2>(input_types, data_set, "date");
+    }
+    // Test casting from Double
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {
+                {{1.}, Null()},
+                {{22.223}, Null()},
+                {{-222.}, Null()},
+                {{7777777.}, Null()},
+                {{2015010203040516.}, Null()},
+        };
+        check_function_for_cast<DataTypeDateV2>(input_types, data_set);
+        check_function_for_cast_strict_mode<DataTypeDateV2>(input_types, data_set, "date");
+    }
+}
+
 TEST_F(FunctionCastTest, test_from_decimal_to_date) {
     // Test casting from Decimal(9,3)
     {

@@ -20,17 +20,23 @@
 
 #pragma once
 
+#include <cmath>
+#include <cstdint>
+
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/int_exp.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/date_format_type.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -134,8 +140,7 @@ struct DateImpl : public ToDateImpl<ArgType> {
     static constexpr auto name = "date";
 };
 
-// TODO: This function look like no need do indeed copy here, we should optimize
-// this function
+// TODO: This function look like no need do indeed copy here, we should optimize this function
 template <PrimitiveType PType>
 struct TimeStampImpl {
     static constexpr PrimitiveType OpArgType = PType;
@@ -223,15 +228,14 @@ template <PrimitiveType PType>
 struct DateFormatImpl {
     using DateType = typename PrimitiveTypeTraits<PType>::CppType;
     using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
-    using FromType = ArgType;
     static constexpr PrimitiveType FromPType = PType;
 
     static constexpr auto name = "date_format";
 
     template <typename Impl>
-    static bool execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
+    static bool execute(const ArgType& t, StringRef format, ColumnString::Chars& res_data,
                         size_t& offset, const cctz::time_zone& time_zone) {
-        if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
+        if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             // Handle non-special formats.
             const auto& dt = (DateType&)t;
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
@@ -266,24 +270,54 @@ struct DateFormatImpl {
     }
 };
 
+template <bool WithStringArg, bool NewVersion = false>
 struct FromUnixTimeImpl {
-    using FromType = Int64;
+    using ArgType = Int64;
     static constexpr PrimitiveType FromPType = TYPE_BIGINT;
-    // https://dev.mysql.com/doc/refman/8.0/en/date-and-time-functions.html#function_from-unixtime
-    // Keep consistent with MySQL
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (WithStringArg) {
+            return {std::make_shared<DataTypeInt64>(),
+                    std::make_shared<vectorized::DataTypeString>()};
+        } else {
+            return {std::make_shared<DataTypeInt64>()};
+        }
+    }
     static const int64_t TIMESTAMP_VALID_MAX = 32536771199;
-    static constexpr auto name = "from_unixtime";
+    static constexpr auto name = NewVersion ? "from_unixtime_new" : "from_unixtime";
 
-    template <typename Impl>
-    static bool execute(const FromType& val, StringRef format, ColumnString::Chars& res_data,
-                        size_t& offset, const cctz::time_zone& time_zone) {
-        if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
-            DateV2Value<DateTimeV2ValueType> dt;
-            if (val < 0 || val > TIMESTAMP_VALID_MAX) {
-                return true;
+    [[nodiscard]] static bool check_valid(const ArgType& val) {
+        if constexpr (NewVersion) {
+            if (val < 0) [[unlikely]] {
+                return false;
             }
-            dt.from_unixtime(val, time_zone);
+        } else {
+            if (val < 0 || val > TIMESTAMP_VALID_MAX) [[unlikely]] {
+                return false;
+            }
+        }
+        return true;
+    }
 
+    static DateV2Value<DateTimeV2ValueType> get_datetime_value(const ArgType& val,
+                                                               const cctz::time_zone& time_zone) {
+        DateV2Value<DateTimeV2ValueType> dt;
+        dt.from_unixtime(val, time_zone);
+        return dt;
+    }
+
+    // return true if null(result is invalid)
+    template <typename Impl>
+    static bool execute(const ArgType& val, StringRef format, ColumnString::Chars& res_data,
+                        size_t& offset, const cctz::time_zone& time_zone) {
+        if (!check_valid(val)) {
+            return true;
+        }
+        DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(val, time_zone);
+        if (!dt.is_valid_date()) {
+            return true;
+        }
+        if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
                                                   100 + SAFE_FORMAT_STRING_MARGIN)) {
@@ -293,26 +327,79 @@ struct FromUnixTimeImpl {
             auto len = strlen(buf);
             res_data.insert(buf, buf + len);
             offset += len;
-            return false;
-
         } else {
-            DateV2Value<DateTimeV2ValueType> dt;
-            if (val < 0 || val > TIMESTAMP_VALID_MAX) {
-                return true;
-            }
-            dt.from_unixtime(val, time_zone);
-
-            if (!dt.is_valid_date()) {
-                return true;
-            }
-
             // No buffer is needed here because these specially optimized formats have fixed lengths,
             // and sufficient memory has already been reserved.
             auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
             offset += len;
+        }
+        return false;
+    }
+};
 
+// only new verison
+template <bool WithStringArg>
+struct FromUnixTimeDecimalImpl {
+    using ArgType = Int64;
+    static constexpr PrimitiveType FromPType = TYPE_DECIMAL64;
+    constexpr static short Scale = 6; // same with argument's scale in FE's signature
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (WithStringArg) {
+            return {std::make_shared<DataTypeDecimal64>(),
+                    std::make_shared<vectorized::DataTypeString>()};
+        } else {
+            return {std::make_shared<DataTypeDecimal64>()};
+        }
+    }
+    static constexpr auto name = "from_unixtime_new";
+
+    [[nodiscard]] static bool check_valid(const ArgType& val) {
+        if (val < 0) [[unlikely]] {
             return false;
         }
+        return true;
+    }
+
+    static DateV2Value<DateTimeV2ValueType> get_datetime_value(const ArgType& interger,
+                                                               const ArgType& fraction,
+                                                               const cctz::time_zone& time_zone) {
+        DateV2Value<DateTimeV2ValueType> dt;
+        // 9 is nanoseconds, our input's scale is 6
+        dt.from_unixtime(interger, (int32_t)fraction * common::exp10_i32(9 - Scale), time_zone, 6);
+        return dt;
+    }
+
+    // return true if null(result is invalid)
+    template <typename Impl>
+    static bool execute_decimal(const ArgType& interger, const ArgType& fraction, StringRef format,
+                                ColumnString::Chars& res_data, size_t& offset,
+                                const cctz::time_zone& time_zone) {
+        if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) {
+            return true;
+        }
+        DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(interger, fraction, time_zone);
+        if (!dt.is_valid_date()) {
+            return true;
+        }
+        if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
+            char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+            if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                return true;
+            }
+
+            auto len = strlen(buf);
+            res_data.insert(buf, buf + len);
+            offset += len;
+        } else {
+            // No buffer is needed here because these specially optimized formats have fixed lengths,
+            // and sufficient memory has already been reserved.
+            auto len = time_format_type::yyyy_MM_dd_HH_mm_ss_SSSSSSImpl::date_to_str(
+                    dt, (char*)res_data.data() + offset);
+            offset += len;
+        }
+        return false;
     }
 };
 

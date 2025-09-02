@@ -2146,7 +2146,7 @@
 [null, 5.5]
 [null, 6.6]
 [null, 7.7]
-[null, 8.8]
+[null, 8.800000000000001]
 [null, 9.9]
 
 -- !map_keys_dcml_tint --
@@ -2348,7 +2348,7 @@
 [null, 5.5]
 [null, 6.6]
 [null, 7.7]
-[null, 8.8]
+[null, 8.800000000000001]
 [null, 9.9]
 
 -- !map_keys_dcml_tint_notnull --
@@ -2552,7 +2552,7 @@
 [null, 5.5]
 [null, 6.6]
 [null, 7.7]
-[null, 8.8]
+[null, 8.800000000000001]
 [null, 9.9]
 
 -- !map_values_tint_dcml --
@@ -2754,7 +2754,7 @@
 [null, 5.5]
 [null, 6.6]
 [null, 7.7]
-[null, 8.8]
+[null, 8.800000000000001]
 [null, 9.9]
 
 -- !map_values_tint_dcml_notnull --

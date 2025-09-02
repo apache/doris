@@ -25,6 +25,7 @@
 namespace doris {
 
 class CloudStorageEngine;
+enum class WarmUpState : int;
 
 struct SyncRowsetStats {
     int64_t get_remote_rowsets_num {0};
@@ -234,7 +235,7 @@ public:
 
     Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                     DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                    int64_t next_visible_version);
+                                    int64_t next_visible_version, RowsetSharedPtr rowset);
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
@@ -289,11 +290,18 @@ public:
     static std::vector<RecycledRowsets> recycle_cached_data(
             const std::vector<RowsetSharedPtr>& rowsets);
 
+    // Add warmup state management
+    WarmUpState get_rowset_warmup_state(RowsetId rowset_id);
+    bool add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state);
+    WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status);
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
+
+    bool add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state);
 
     CloudStorageEngine& _engine;
 
@@ -350,6 +358,9 @@ private:
     std::mutex _gc_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
     std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
+
+    // for warm up states management
+    std::unordered_map<RowsetId, std::pair<WarmUpState, int32_t>> _rowset_warm_up_states;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

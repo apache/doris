@@ -14,6 +14,12 @@
 -- !tokenize_sql --
 [{\n        "token": "hello"\n    }, {\n        "token": "world"\n    }, {\n        "token": "test"\n    }, {\n        "token": "end"\n    }]
 
+-- !tokenize_sql --
+[{\n        "token": "a"\n    }, {\n        "token": "b"\n    }, {\n        "token": "c"\n    }]
+
+-- !tokenize_sql --
+[{\n        "token": "a"\n    }, {\n        "token": " b "\n    }, {\n        "token": " c"\n    }]
+
 -- !sql --
 1	Hello,World!Test?End
 

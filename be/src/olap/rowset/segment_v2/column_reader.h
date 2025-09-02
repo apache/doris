@@ -113,38 +113,47 @@ struct ColumnIteratorOptions {
     }
 };
 
+class ColumnIterator;
+class OffsetFileColumnIterator;
+class FileColumnIterator;
+
+using ColumnIteratorUPtr = std::unique_ptr<ColumnIterator>;
+using OffsetFileColumnIteratorUPtr = std::unique_ptr<OffsetFileColumnIterator>;
+using FileColumnIteratorUPtr = std::unique_ptr<FileColumnIterator>;
+
 // There will be concurrent users to read the same column. So
 // we should do our best to reduce resource usage through share
 // same information, such as OrdinalPageIndex and Page data.
 // This will cache data shared by all reader
-class ColumnReader : public MetadataAdder<ColumnReader> {
+class ColumnReader : public MetadataAdder<ColumnReader>,
+                     public std::enable_shared_from_this<ColumnReader> {
 public:
-    ColumnReader() = default;
+    ColumnReader();
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
     static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                          uint64_t num_rows, const io::FileReaderSPtr& file_reader,
-                         std::unique_ptr<ColumnReader>* reader);
+                         std::shared_ptr<ColumnReader>* reader);
     static Status create(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
                          uint32_t column_id, uint64_t num_rows,
                          const io::FileReaderSPtr& file_reader,
-                         std::unique_ptr<ColumnReader>* reader);
+                         std::shared_ptr<ColumnReader>* reader);
     static Status create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                const io::FileReaderSPtr& file_reader,
-                               std::unique_ptr<ColumnReader>* reader);
+                               std::shared_ptr<ColumnReader>* reader);
     static Status create_map(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                              const io::FileReaderSPtr& file_reader,
-                             std::unique_ptr<ColumnReader>* reader);
+                             std::shared_ptr<ColumnReader>* reader);
     static Status create_struct(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                 uint64_t num_rows, const io::FileReaderSPtr& file_reader,
-                                std::unique_ptr<ColumnReader>* reader);
+                                std::shared_ptr<ColumnReader>* reader);
     static Status create_agg_state(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                    uint64_t num_rows, const io::FileReaderSPtr& file_reader,
-                                   std::unique_ptr<ColumnReader>* reader);
+                                   std::shared_ptr<ColumnReader>* reader);
     static Status create_variant(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
                                  uint32_t column_id, uint64_t num_rows,
                                  const io::FileReaderSPtr& file_reader,
-                                 std::unique_ptr<ColumnReader>* reader);
+                                 std::shared_ptr<ColumnReader>* reader);
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
     static bool is_compaction_reader_type(ReaderType type);
@@ -152,13 +161,13 @@ public:
     ~ColumnReader() override;
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(ColumnIterator** iterator, const TabletColumn* col,
+    virtual Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                                 const StorageReadOptions*);
-    Status new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
-    Status new_array_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
-    Status new_struct_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
-    Status new_map_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
-    Status new_agg_state_iterator(ColumnIterator** iterator);
+    Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
+    Status new_array_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
+    Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
+    Status new_map_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
+    Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
@@ -237,6 +246,7 @@ private:
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory,
                                              const ColumnIteratorOptions& iter_opts);
     [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
+
     [[nodiscard]] Status _load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
                                      const TabletIndex* index_meta);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
@@ -295,7 +305,7 @@ private:
 
     std::unordered_map<int64_t, IndexReaderPtr> _index_readers;
 
-    std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
+    std::vector<std::shared_ptr<ColumnReader>> _sub_readers;
 
     DorisCallOnce<Status> _set_dict_encoding_type_once;
 };
@@ -363,7 +373,7 @@ protected:
 // for scalar type
 class FileColumnIterator final : public ColumnIterator {
 public:
-    explicit FileColumnIterator(ColumnReader* reader);
+    explicit FileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~FileColumnIterator() override;
 
     Status init(const ColumnIteratorOptions& opts) override;
@@ -406,7 +416,7 @@ private:
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
 
-    ColumnReader* _reader = nullptr;
+    std::shared_ptr<ColumnReader> _reader = nullptr;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()
     BlockCompressionCodec* _compress_codec = nullptr;
@@ -443,8 +453,8 @@ public:
 // This iterator make offset operation write once for
 class OffsetFileColumnIterator final : public ColumnIterator {
 public:
-    explicit OffsetFileColumnIterator(FileColumnIterator* offset_reader) {
-        _offset_iterator.reset(offset_reader);
+    explicit OffsetFileColumnIterator(FileColumnIteratorUPtr offset_reader) {
+        _offset_iterator = std::move(offset_reader);
     }
 
     ~OffsetFileColumnIterator() override = default;
@@ -472,9 +482,11 @@ private:
 // This iterator is used to read map value column
 class MapFileColumnIterator final : public ColumnIterator {
 public:
-    explicit MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
-                                   OffsetFileColumnIterator* offsets_iterator,
-                                   ColumnIterator* key_iterator, ColumnIterator* val_iterator);
+    explicit MapFileColumnIterator(std::shared_ptr<ColumnReader> reader,
+                                   ColumnIteratorUPtr null_iterator,
+                                   OffsetFileColumnIteratorUPtr offsets_iterator,
+                                   ColumnIteratorUPtr key_iterator,
+                                   ColumnIteratorUPtr val_iterator);
 
     ~MapFileColumnIterator() override = default;
 
@@ -492,17 +504,18 @@ public:
     }
 
 private:
-    ColumnReader* _map_reader = nullptr;
-    std::unique_ptr<ColumnIterator> _null_iterator;
-    std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator; //OffsetFileIterator
-    std::unique_ptr<ColumnIterator> _key_iterator;
-    std::unique_ptr<ColumnIterator> _val_iterator;
+    std::shared_ptr<ColumnReader> _map_reader = nullptr;
+    ColumnIteratorUPtr _null_iterator;
+    OffsetFileColumnIteratorUPtr _offsets_iterator; //OffsetFileIterator
+    ColumnIteratorUPtr _key_iterator;
+    ColumnIteratorUPtr _val_iterator;
 };
 
 class StructFileColumnIterator final : public ColumnIterator {
 public:
-    explicit StructFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
-                                      std::vector<ColumnIterator*>& sub_column_iterators);
+    explicit StructFileColumnIterator(std::shared_ptr<ColumnReader> reader,
+                                      ColumnIteratorUPtr null_iterator,
+                                      std::vector<ColumnIteratorUPtr>&& sub_column_iterators);
 
     ~StructFileColumnIterator() override = default;
 
@@ -520,15 +533,17 @@ public:
     }
 
 private:
-    ColumnReader* _struct_reader = nullptr;
-    std::unique_ptr<ColumnIterator> _null_iterator;
-    std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
+    std::shared_ptr<ColumnReader> _struct_reader = nullptr;
+    ColumnIteratorUPtr _null_iterator;
+    std::vector<ColumnIteratorUPtr> _sub_column_iterators;
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(ColumnReader* reader, OffsetFileColumnIterator* offset_reader,
-                                     ColumnIterator* item_iterator, ColumnIterator* null_iterator);
+    explicit ArrayFileColumnIterator(std::shared_ptr<ColumnReader> reader,
+                                     OffsetFileColumnIteratorUPtr offset_reader,
+                                     ColumnIteratorUPtr item_iterator,
+                                     ColumnIteratorUPtr null_iterator);
 
     ~ArrayFileColumnIterator() override = default;
 
@@ -546,7 +561,7 @@ public:
     }
 
 private:
-    ColumnReader* _array_reader = nullptr;
+    std::shared_ptr<ColumnReader> _array_reader = nullptr;
     std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;

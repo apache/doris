@@ -227,7 +227,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
                 || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
-                || expr.getDataType().isIPv6Type()) {
+                || expr.getDataType().isIPv6Type() || expr.getDataType().isJsonType()) {
             return true;
         }
 
@@ -310,6 +310,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
             tQueryOptions.setEnableDecimal256(context.getSessionVariable().isEnableDecimal256());
+            tQueryOptions.setNewVersionUnixTimestamp(true);
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(true);

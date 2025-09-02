@@ -91,8 +91,8 @@ public final class GlobalVariable {
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH
             + (Config.isCloudMode() ? " (Cloud Mode)" : "");
 
-    @VariableMgr.VarAttr(name = VERSION, flag = VariableMgr.READ_ONLY)
-    public static String version = MysqlHandshakePacket.SERVER_VERSION;
+    @VariableMgr.VarAttr(name = VERSION)
+    public static String version = MysqlHandshakePacket.DEFAULT_SERVER_VERSION;
 
     // 0: table names are stored as specified and comparisons are case sensitive.
     // 1: table names are stored in lowercase on disk and comparisons are not case sensitive.

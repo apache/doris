@@ -1614,29 +1614,13 @@ struct TPlanNodeRuntimeStatsItem {
     12: optional i32 instance_num
 }
 
-enum TEncryptionAlgorithm {
-    AES256 = 0,
-    SM4 = 1
-}
-
 enum TEncryptionKeyType {
     MASTER_KEY = 0,
     DATA_KEY = 1,
 }
 
 struct TEncryptionKey {
-    1: optional string id
-    2: optional i32 version
-    3: optional string parent_id
-    4: optional i32 parent_version
-    5: optional TEncryptionKeyType type
-    6: optional TEncryptionAlgorithm algorithm
-    7: optional string ciphertext
-    8: optional binary plaintext
-    9: optional string iv
-    10: optional i64 crc
-    11: optional i64 ctime
-    12: optional i64 mtime
+    1: optional binary key_pb;
 }
 
 struct TGetEncryptionKeysRequest {
@@ -1646,6 +1630,16 @@ struct TGetEncryptionKeysRequest {
 struct TGetEncryptionKeysResult {
     1: optional Status.TStatus status
     2: optional list<TEncryptionKey> master_keys
+}
+
+struct TGetTableTDEInfoRequest {
+    1: optional i64 db_id
+    2: optional i64 table_id
+}
+
+struct TGetTableTDEInfoResult {
+    1: optional Status.TStatus status
+    2: optional AgentService.TEncryptionAlgorithm algorithm
 }
 
 service FrontendService {
@@ -1752,4 +1746,6 @@ service FrontendService {
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
 
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
+
+    TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 }

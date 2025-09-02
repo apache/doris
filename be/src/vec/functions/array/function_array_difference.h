@@ -128,8 +128,8 @@ public:
 
 private:
     template <typename Element, typename Result>
-    static void impl(const Element* __restrict src, Result* __restrict dst, size_t begin,
-                     size_t end) {
+    NO_SANITIZE_UNDEFINED static void impl(const Element* __restrict src, Result* __restrict dst,
+                                           size_t begin, size_t end) {
         size_t curr_pos = begin;
         if (curr_pos < end) {
             Element prev_element = src[curr_pos];

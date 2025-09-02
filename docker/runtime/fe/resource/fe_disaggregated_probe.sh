@@ -42,21 +42,31 @@ function alive_probe()
     fi
 }
 
-function ready_probe()
-{
+function ready_probe() {
     local http_port=$(parse_config_file_with_key "http_port")
     http_port=${http_port:=$DEFAULT_HTTP_PORT}
-    local ip=`hostname -i | awk '{print $1}'`
-    local url="http://${ip}:${http_port}/api/health"
-    local res=$(curl -s $url)
-    local code=$(jq -r ".code" <<< $res)
-    if [[ "x$code" == "x0" ]]; then
+    if netstat -lntp | grep ":$http_port" > /dev/null ; then
         exit 0
     else
         exit 1
     fi
 }
 
+#function ready_probe()
+#{
+#    local http_port=$(parse_config_file_with_key "http_port")
+#    http_port=${http_port:=$DEFAULT_HTTP_PORT}
+#    local ip=`hostname -i | awk '{print $1}'`
+#    local url="http://${ip}:${http_port}/api/health"
+#    local res=$(curl -s $url)
+#    local code=$(jq -r ".code" <<< $res)
+#    if [[ "x$code" == "x0" ]]; then
+#        exit 0
+#    else
+#        exit 1
+#    fi
+#}
+#
 if [[ "$PROBE_TYPE" == "ready" ]]; then
     ready_probe
 else

@@ -38,13 +38,17 @@ public:
 
     void collect(segment_v2::rowid_t row_id, float score);
 
+    void get_bm25_scores(roaring::Roaring* row_bitmap, vectorized::IColumn::MutablePtr& scores,
+                         std::unique_ptr<std::vector<uint64_t>>& row_ids) const;
+
     void get_topn_bm25_scores(roaring::Roaring* row_bitmap, vectorized::IColumn::MutablePtr& scores,
                               std::unique_ptr<std::vector<uint64_t>>& row_ids, OrderType order_type,
                               size_t top_k) const;
 
 private:
-    template <typename Compare>
-    void find_top_k_scores(const ScoreMap& all_scores, size_t top_k, Compare comp,
+    template <OrderType order, typename Compare>
+    void find_top_k_scores(const roaring::Roaring* row_bitmap, const ScoreMap& all_scores,
+                           size_t top_k, Compare comp,
                            std::vector<std::pair<uint32_t, float>>& top_k_results) const;
 
     ScoreMap _bm25_scores;

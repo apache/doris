@@ -493,6 +493,28 @@ public class RuntimeProfile {
         }
     }
 
+    private static void collectActualRowCount(RuntimeProfile mergedProfile) {
+        Pattern pattern = Pattern.compile("nereids_id=(\\d+)");
+        Matcher matcher = pattern.matcher(mergedProfile.getName());
+        if (matcher.find()) {
+            String nereidsId = matcher.group(1);
+            if (nereidsId != null) {
+                if (!mergedProfile.childList.isEmpty()) {
+                    RuntimeProfile commonProfile = mergedProfile.childList.get(0).first;
+                    if (commonProfile.counterMap.get("RowsProduced") != null) {
+                        AggCounter rows = (AggCounter) commonProfile.counterMap.get("RowsProduced");
+                        mergedProfile.rowsProducedMap.put(nereidsId,
+                                 rows.sum.getValue());
+                    }
+                }
+                if (mergedProfile.counterMap.get("RowsProduced") != null) {
+                    mergedProfile.rowsProducedMap.put(nereidsId,
+                            mergedProfile.counterMap.get("RowsProduced").getValue());
+                }
+            }
+        }
+    }
+
     public static void mergeProfiles(List<RuntimeProfile> profiles,
             RuntimeProfile resultProfile, Map<Integer, String> planNodeMap) {
         mergeCounters(ROOT_COUNTER, profiles, resultProfile);
@@ -508,6 +530,7 @@ public class RuntimeProfile {
             RuntimeProfile newCreatedMergedChildProfile = new RuntimeProfile(templateChildProfile.name,
                     templateChildProfile.nodeId());
             mergeProfiles(allChilds, newCreatedMergedChildProfile, planNodeMap);
+            collectActualRowCount(newCreatedMergedChildProfile);
             if (newCreatedMergedChildProfile.shouldBeIncluded()) {
                 resultProfile.addChildWithCheck(newCreatedMergedChildProfile, planNodeMap,
                                             templateProfile.childList.get(i).second);
@@ -523,12 +546,7 @@ public class RuntimeProfile {
         }
         RuntimeProfile templateProfile = profiles.get(0);
         Map<String, Counter> templateCounterMap = templateProfile.counterMap;
-        Pattern pattern = Pattern.compile("nereids_id=(\\d+)");
-        Matcher matcher = pattern.matcher(templateProfile.getName());
-        String nereidsId = null;
-        if (matcher.find()) {
-            nereidsId = matcher.group(1);
-        }
+
         Set<String> childCounterSet = templateProfile.childCounterMap.get(parentCounterName);
         if (childCounterSet == null) {
             return;
@@ -551,9 +569,6 @@ public class RuntimeProfile {
                     // So here we have to ignore the counter if it is not found in the profile.
                     Counter orgCounter = profile.counterMap.get(childCounterName);
                     aggCounter.addCounter(orgCounter);
-                }
-                if (nereidsId != null && childCounterName.equals("RowsProduced")) {
-                    simpleProfile.rowsProducedMap.put(nereidsId, aggCounter.sum.getValue());
                 }
                 if (simpleProfile.counterMap.containsKey(parentCounterName)) {
                     simpleProfile.addCounter(childCounterName, aggCounter, parentCounterName);

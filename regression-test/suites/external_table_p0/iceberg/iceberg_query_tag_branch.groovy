@@ -220,6 +220,11 @@ suite("iceberg_query_tag_branch", "p0,external,doris,external_docker,external_do
             sql """ select * from tag_branch_table@tag(b1) ; """
             exception "does not have tag named b1"
         }
+
+        test {
+            sql """ select * from tag_branch_table@brand(b1) ; """
+            exception "Invalid param type: brand"
+        }
     }
 
     try {

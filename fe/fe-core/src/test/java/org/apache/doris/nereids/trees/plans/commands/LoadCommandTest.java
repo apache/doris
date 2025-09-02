@@ -22,6 +22,7 @@ import org.apache.doris.analysis.LabelName;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -168,10 +170,13 @@ public class LoadCommandTest extends TestWithFeService {
 
         // column separator and line delimiter
         dataDescription.analyzeWithoutCheckPriv("nereids_load");
-        CsvFileFormatProperties fileFormatProperties =
-                (CsvFileFormatProperties) dataDescription.getFileFormatProperties();
+        DeferredFileFormatProperties fileFormatProperties =
+                (DeferredFileFormatProperties) dataDescription.getFileFormatProperties();
         Assertions.assertNotNull(fileFormatProperties);
-        Assertions.assertEquals("|", fileFormatProperties.getColumnSeparator());
-        Assertions.assertEquals("\n", fileFormatProperties.getLineDelimiter());
+        fileFormatProperties.deferInit(TFileFormatType.FORMAT_CSV_PLAIN);
+        Assertions.assertTrue(fileFormatProperties.getDelegate() instanceof CsvFileFormatProperties);
+        CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties.getDelegate();
+        Assertions.assertEquals("|", csvFileFormatProperties.getColumnSeparator());
+        Assertions.assertEquals("\n", csvFileFormatProperties.getLineDelimiter());
     }
 }

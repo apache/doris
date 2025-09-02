@@ -25,7 +25,7 @@ suite("nested_in_top_array", "p0"){
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """set describe_extend_variant_column = true"""
 
-
+        sql """ set default_variant_max_subcolumns_count = 0"""
         // set disable_variant_flatten_nested = false to enable variant flatten nested
         sql """ set enable_variant_flatten_nested = true """
         sql """

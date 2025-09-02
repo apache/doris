@@ -1064,7 +1064,8 @@ public class NereidsDataDescription {
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
 
-        fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
+        fileFormatProperties = FileFormatProperties.createFileFormatPropertiesOrDeferred(
+                analysisMap.getOrDefault(FileFormatProperties.PROP_FORMAT, ""));
         fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 

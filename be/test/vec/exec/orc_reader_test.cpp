@@ -23,6 +23,7 @@
 #include <tuple>
 #include <vector>
 
+#include "io/fs/file_meta_cache.h"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
@@ -36,8 +37,10 @@
 namespace doris::vectorized {
 class OrcReaderTest : public testing::Test {
 public:
-    OrcReaderTest() = default;
+    OrcReaderTest() : cache(1024) {}
     ~OrcReaderTest() override = default;
+
+    FileMetaCache cache;
 
 private:
     static constexpr const char* CANNOT_PUSH_DOWN_ERROR = "can't push down";
@@ -75,7 +78,7 @@ private:
         range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
         range.start_offset = 0;
         range.size = 1293;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, "", nullptr, &cache, true);
         auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
                                           nullptr, nullptr);
         EXPECT_TRUE(status.ok());

@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -215,6 +216,12 @@ public:
                 break;
             case TYPE_DECIMAL256:
                 _execute_number<ColumnDecimal256>(data_columns, *offsets, null_map, dst_values);
+                break;
+            case TYPE_IPV4:
+                _execute_number<ColumnIPv4>(data_columns, *offsets, null_map, dst_values);
+                break;
+            case TYPE_IPV6:
+                _execute_number<ColumnIPv6>(data_columns, *offsets, null_map, dst_values);
                 break;
             case TYPE_CHAR:
             case TYPE_VARCHAR:

@@ -9,30 +9,31 @@
 #include "util/coding.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 uint8_t* encode_varint32(uint8_t* dst, uint32_t v) {
     // Operate on characters as unsigneds
     static const int B = 128;
     if (v < (1 << 7)) {
-        *(dst++) = v;
+        *(dst++) = uint8_t(v);
     } else if (v < (1 << 14)) {
-        *(dst++) = v | B;
-        *(dst++) = v >> 7;
+        *(dst++) = uint8_t(v | B);
+        *(dst++) = uint8_t(v >> 7);
     } else if (v < (1 << 21)) {
-        *(dst++) = v | B;
-        *(dst++) = (v >> 7) | B;
-        *(dst++) = v >> 14;
+        *(dst++) = uint8_t(v | B);
+        *(dst++) = uint8_t((v >> 7) | B);
+        *(dst++) = uint8_t(v >> 14);
     } else if (v < (1 << 28)) {
-        *(dst++) = v | B;
-        *(dst++) = (v >> 7) | B;
-        *(dst++) = (v >> 14) | B;
-        *(dst++) = v >> 21;
+        *(dst++) = uint8_t(v | B);
+        *(dst++) = uint8_t((v >> 7) | B);
+        *(dst++) = uint8_t((v >> 14) | B);
+        *(dst++) = uint8_t(v >> 21);
     } else {
-        *(dst++) = v | B;
-        *(dst++) = (v >> 7) | B;
-        *(dst++) = (v >> 14) | B;
-        *(dst++) = (v >> 21) | B;
-        *(dst++) = v >> 28;
+        *(dst++) = uint8_t(v | B);
+        *(dst++) = uint8_t((v >> 7) | B);
+        *(dst++) = uint8_t((v >> 14) | B);
+        *(dst++) = uint8_t((v >> 21) | B);
+        *(dst++) = uint8_t(v >> 28);
     }
     return dst;
 }
@@ -71,5 +72,5 @@ const uint8_t* decode_varint64_ptr(const uint8_t* p, const uint8_t* limit, uint6
     }
     return nullptr;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

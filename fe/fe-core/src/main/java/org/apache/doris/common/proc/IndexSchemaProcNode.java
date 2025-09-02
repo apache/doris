@@ -23,6 +23,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -79,6 +80,9 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             }
             if (column.getGeneratedColumnInfo() != null) {
                 extras.add("STORED GENERATED");
+            }
+            if (!Strings.isNullOrEmpty(column.getExtraInfo())) {
+                extras.add(column.getExtraInfo());
             }
             String extraStr = StringUtils.join(extras, ",");
             String comment = column.getComment();

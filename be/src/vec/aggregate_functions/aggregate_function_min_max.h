@@ -681,17 +681,7 @@ private:
 public:
     AggregateFunctionsSingleValue(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>(arguments),
-              type(this->argument_types[0]) {
-        if (StringRef(Data::name()) == StringRef("min") ||
-            StringRef(Data::name()) == StringRef("max")) {
-            if (!type->is_comparable()) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                       "Illegal type {} of argument of aggregate function {} "
-                                       "because the values of that data type are not comparable",
-                                       type->get_name(), get_name());
-            }
-        }
-    }
+              type(this->argument_types[0]) {}
 
     void create(AggregateDataPtr __restrict place) const override {
         if constexpr (std::is_same_v<Data, SingleValueDataComplexType>) {

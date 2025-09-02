@@ -78,6 +78,7 @@ public:
     ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
         return *_calc_tablet_delete_bitmap_task_thread_pool;
     }
+    ThreadPool& sync_delete_bitmap_thread_pool() const { return *_sync_delete_bitmap_thread_pool; }
 
     std::optional<StorageResource> get_storage_resource(const std::string& vault_id) {
         VLOG_DEBUG << "Getting storage resource for vault_id: " << vault_id;
@@ -177,6 +178,7 @@ private:
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
     std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
     std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
+    std::unique_ptr<ThreadPool> _sync_delete_bitmap_thread_pool;
 
     // Components for cache warmup
     std::unique_ptr<io::FileCacheBlockDownloader> _file_cache_block_downloader;
@@ -190,7 +192,7 @@ private:
     mutable std::mutex _latest_fs_mtx;
     io::RemoteFileSystemSPtr _latest_fs;
 
-    std::vector<scoped_refptr<Thread>> _bg_threads;
+    std::vector<std::shared_ptr<Thread>> _bg_threads;
 
     // ATTN: Compactions in maps depend on `CloudTabletMgr` and `CloudMetaMgr`
     mutable std::mutex _compaction_mtx;

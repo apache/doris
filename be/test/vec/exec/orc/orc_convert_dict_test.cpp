@@ -82,7 +82,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnBasic) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
+    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
 
     // Execute conversion
     auto result_column = reader->_convert_dict_column_to_string_column(
@@ -119,7 +119,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnWithNulls) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, true);
+    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
 
     // Execute conversion
     auto result_column = _reader->_convert_dict_column_to_string_column(
@@ -151,7 +151,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnChar) {
     auto orc_type_ptr = createPrimitiveType(orc::TypeKind::CHAR);
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, true);
+    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
 
     // Execute conversion
     auto result_column = _reader->_convert_dict_column_to_string_column(
@@ -182,7 +182,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnEmpty) {
     auto orc_type_ptr = createPrimitiveType(orc::TypeKind::STRING);
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, true);
+    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
     // Execute conversion
     auto result_column = _reader->_convert_dict_column_to_string_column(
             dict_column.get(), nullptr, string_batch.get(), orc_type_ptr.get());
@@ -214,7 +214,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnMixed) {
     auto orc_type_ptr = createPrimitiveType(orc::TypeKind::STRING);
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, true);
+    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
     // Execute conversion
     auto result_column = _reader->_convert_dict_column_to_string_column(
             dict_column.get(), &null_map, string_batch.get(), orc_type_ptr.get());

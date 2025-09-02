@@ -1831,6 +1831,58 @@ TEST(function_string_test, function_locate_test) {
         static_cast<void>(
                 check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set));
     }
+
+    // UTF-8 test cases
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {
+                {{std::string("世界"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(3)},
+                {{std::string("你"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("好"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(2)},
+                {{std::string("界"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(4)},
+                {{std::string("你好"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("好世"), std::string("你好世界"), std::int32_t(1)}, std::int32_t(2)},
+                {{std::string("找不到"), std::string("你好世界"), std::int32_t(1)},
+                 std::int32_t(0)},
+
+                {{std::string("你"), std::string("你好世界你好"), std::int32_t(1)},
+                 std::int32_t(1)},
+                {{std::string("你"), std::string("你好世界你好"), std::int32_t(2)},
+                 std::int32_t(5)},
+                {{std::string("你"), std::string("你好世界你好"), std::int32_t(6)},
+                 std::int32_t(0)},
+                {{std::string("你"), std::string("你好世界你好"), std::int32_t(-1)},
+                 std::int32_t(0)},
+
+                {{std::string(""), std::string("你好世界"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string(""), std::string("你好世界"), std::int32_t(2)}, std::int32_t(2)},
+                {{std::string(""), std::string("你好世界"), std::int32_t(5)}, std::int32_t(0)},
+                {{std::string("你"), std::string(""), std::int32_t(1)}, std::int32_t(0)},
+
+                {{std::string("你好"), std::string("Hello你好World世界"), std::int32_t(1)},
+                 std::int32_t(6)},
+                {{std::string("World"), std::string("Hello你好World世界"), std::int32_t(1)},
+                 std::int32_t(8)},
+                {{std::string("界"), std::string("Hello你好World世界"), std::int32_t(1)},
+                 std::int32_t(14)},
+
+                {{std::string("你"), std::string("你好世界"), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string("你"), std::string("你好世界"), std::int32_t(100)}, std::int32_t(0)},
+
+                {{std::string("😊"), std::string("你好😊世界"), std::int32_t(1)}, std::int32_t(3)},
+                {{std::string("😊世"), std::string("你好😊世界"), std::int32_t(1)},
+                 std::int32_t(3)},
+
+                {{std::string("世界"), std::string("你好世界"), Null()}, Null()},
+                {{std::string("世界"), Null(), std::int32_t(1)}, Null()},
+                {{Null(), std::string("你好世界"), std::int32_t(1)}, Null()},
+                {{Null(), Null(), Null()}, Null()}};
+
+        static_cast<void>(
+                check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
 }
 
 TEST(function_string_test, function_find_in_set_test) {
@@ -3482,4 +3534,77 @@ TEST(function_string_test, function_xpath_string_test) {
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_count_substring_test) {
+    std::string func_name = "count_substrings";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{std::string("hello world"), std::string("l")}, std::int32_t(3)},
+                            {{std::string("hello world"), std::string("lo")}, std::int32_t(1)},
+                            {{std::string("hello world"), std::string("x")}, std::int32_t(0)},
+                            {{std::string("hello world"), std::string("")}, std::int32_t(0)},
+                            {{std::string(""), std::string("l")}, std::int32_t(0)},
+                            {{std::string(""), std::string("")}, std::int32_t(0)},
+                            // utf-8 characters
+                            {{std::string("你好123世界"), std::string("世")}, std::int32_t(1)},
+                            {{std::string("你好123世界"), std::string("你")}, std::int32_t(1)},
+                            {{std::string("你好123世界"), std::string("好")}, std::int32_t(1)},
+                            {{std::string("你好123世界"), std::string("x")}, std::int32_t(0)},
+                            {{std::string("你好123世界"), std::string("")}, std::int32_t(0)},
+                            // null cases
+                            {{Null(), std::string("l")}, Null()},
+                            {{std::string("hello world"), Null()}, Null()},
+                            {{Null(), Null()}, Null()}};
+
+        check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {
+                {{std::string("hello world"), std::string("l"), std::int32_t(1)}, std::int32_t(3)},
+                {{std::string("hello world"), std::string("lo"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("hello world"), std::string("x"), std::int32_t(1)}, std::int32_t(0)},
+                {{std::string("hello world"), std::string(""), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string(""), std::string("l"), std::int32_t(1)}, std::int32_t(0)},
+                {{std::string(""), std::string(""), std::int32_t(1)}, std::int32_t(0)},
+                // utf-8 characters
+                {{std::string("你好123世界"), std::string("世"), std::int32_t(3)}, std::int32_t(1)},
+                {{std::string("你好123世界"), std::string("你"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("你好123世界"), std::string("好"), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string("你好123世界"), std::string("x"), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string("你好123世界"), std::string(""), std::int32_t(0)}, std::int32_t(0)},
+                {{std::string("123你好123你好世界"), std::string("你好"), std::int32_t(1)},
+                 std::int32_t(2)},
+                {{std::string("123你好123你好世界"), std::string("你好"), std::int32_t(4)},
+                 std::int32_t(2)},
+                {{std::string("123你好123你好世界"), std::string("你好"), std::int32_t(5)},
+                 std::int32_t(1)},
+
+                // null cases
+                {{Null(), std::string("l"), std::int32_t(0)}, Null()},
+                {{std::string("hello world"), Null(), std::int32_t(0)}, Null()},
+                {{Null(), Null(), std::int32_t(0)}, Null()},
+                // negative start position
+                {{std::string("hello world"), std::string("l"), std::int32_t(-1)}, std::int32_t(0)},
+                {{std::string("hello world"), std::string("lo"), std::int32_t(-1)},
+                 std::int32_t(0)},
+                {{std::string("hello world"), std::string("x"), std::int32_t(-1)}, std::int32_t(0)},
+                {{std::string("hello world"), std::string(""), std::int32_t(-1)}, std::int32_t(0)},
+                // overflow start position
+                {{std::string("hello world"), std::string("l"), std::int32_t(100)},
+                 std::int32_t(0)},
+                {{std::string("hello world"), std::string("lo"), std::int32_t(100)},
+                 std::int32_t(0)},
+                {{std::string("hello world"), std::string("x"), std::int32_t(100)},
+                 std::int32_t(0)},
+                {{std::string("hello world"), std::string(""), std::int32_t(100)},
+                 std::int32_t(0)}};
+
+        check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
+    }
+}
 } // namespace doris::vectorized
