@@ -7898,7 +7898,7 @@ TEST_F(BlockFileCacheTest, test_reset_capacity) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
-TEST_F(BlockFileCacheTest, cached_remote_file_reader_read_direclty_and_evict_cache) {
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_and_evict_cache) {
     config::enable_read_cache_file_directly = true;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -7971,7 +7971,7 @@ extern bvar::Adder<uint64_t> g_read_cache_direct_whole_bytes;
 extern bvar::Adder<uint64_t> g_read_cache_direct_partial_bytes;
 extern bvar::Adder<uint64_t> g_read_cache_indirect_bytes;
 
-TEST_F(BlockFileCacheTest, cached_remote_file_reader_read_direclt_bytes_check) {
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
     config::enable_read_cache_file_directly = true;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
