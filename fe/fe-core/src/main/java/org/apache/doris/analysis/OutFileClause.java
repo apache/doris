@@ -504,6 +504,11 @@ public class OutFileClause {
         analyzeBrokerDesc(copiedProps);
 
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
+        // check if compression type for csv is supported
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+            csvFileFormatProperties.checkSupportedCompressionType(true);
+        }
 
         if (copiedProps.containsKey(PROP_MAX_FILE_SIZE)) {
             maxFileSizeBytes = ParseUtil.analyzeDataVolume(copiedProps.get(PROP_MAX_FILE_SIZE));
