@@ -1690,22 +1690,22 @@ Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, r
  *   This is an estimate, if we want more precise cost, statistics collection is necessary(this is a todo).
  *   In short, when returned non-pred columns contains string/hll/bitmap, we using Lazy Materialization.
  *   Otherwise, we disable it.
- *    
+ *
  *   When Lazy Materialization enable, we need to read column at least two times.
  *   First time to read Pred col, second time to read non-pred.
  *   Here's an interesting question to research, whether read Pred col once is the best plan.
  *   (why not read Pred col twice or more?)
  *
  *   When Lazy Materialization disable, we just need to read once.
- *   
- * 
+ *
+ *
  *  2 Whether the predicate type can be evaluate in a fast way(using SIMD to eval pred)
  *    Such as integer type and float type, they can be eval fast.
  *    But for BloomFilter/string/date, they eval slow.
  *    If a type can be eval fast, we use vectorization to eval it.
  *    Otherwise, we use short-circuit to eval it.
- * 
- *  
+ *
+ *
  */
 
 // todo(wb) need a UT here
