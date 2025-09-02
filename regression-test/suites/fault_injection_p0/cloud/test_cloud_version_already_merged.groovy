@@ -101,7 +101,7 @@ suite("test_cloud_version_already_merged", "nonConcurrent") {
 
         test {
             sql """ SELECT * from ${tblName} ORDER BY k1 """
-            exception "version already merged, meet error during remote capturing rowsets"
+            exception "versions are already compacted"
         }
 
     } finally {
