@@ -31,7 +31,6 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
-import org.apache.doris.thrift.TPaloBrokerService.AsyncProcessor.pread;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
