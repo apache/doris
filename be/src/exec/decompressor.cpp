@@ -262,7 +262,7 @@ Status Bzip2Decompressor::decompress(uint8_t* input, uint32_t input_len, size_t*
                                      size_t* decompressed_len, bool* stream_end,
                                      size_t* more_input_bytes, size_t* more_output_bytes) {
     // 1. set input and output
-    _bz_strm.next_in = const_cast<char*>(reinterpret_cast<const char*>(input));
+    _bz_strm.next_in = reinterpret_cast<char*>(input);
     _bz_strm.avail_in = input_len;
     _bz_strm.next_out = reinterpret_cast<char*>(output);
     _bz_strm.avail_out = output_max_len;

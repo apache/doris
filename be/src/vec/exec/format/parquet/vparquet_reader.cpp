@@ -83,7 +83,7 @@ namespace doris::vectorized {
 
 #include "common/compile_check_begin.h"
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
+                             const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
                              io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
                              bool enable_lazy_mat)
         : _profile(profile),
@@ -815,12 +815,12 @@ RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
     if (_delete_rows == nullptr) {
         return RowGroupReader::PositionDeleteContext(row_group.num_rows, row_group_index.first_row);
     }
-    int64_t* delete_rows = const_cast<int64_t*>(&(*_delete_rows)[0]);
-    int64_t* delete_rows_end = delete_rows + _delete_rows->size();
-    int64_t* start_pos = std::lower_bound(delete_rows + _delete_rows_index, delete_rows_end,
+    const int64_t* delete_rows = &(*_delete_rows)[0];
+    const int64_t* delete_rows_end = delete_rows + _delete_rows->size();
+    const int64_t* start_pos = std::lower_bound(delete_rows + _delete_rows_index, delete_rows_end,
                                           row_group_index.first_row);
     int64_t start_index = start_pos - delete_rows;
-    int64_t* end_pos = std::lower_bound(start_pos, delete_rows_end, row_group_index.last_row);
+    const int64_t* end_pos = std::lower_bound(start_pos, delete_rows_end, row_group_index.last_row);
     int64_t end_index = end_pos - delete_rows;
     _delete_rows_index = end_index;
     return RowGroupReader::PositionDeleteContext(*_delete_rows, row_group.num_rows,

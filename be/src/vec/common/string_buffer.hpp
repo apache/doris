@@ -242,7 +242,7 @@ public:
         read((char*)&len, 1);
         auto ref = read(len);
         // read data and set it to x per byte.
-        char* bytes = const_cast<char*>(ref.data);
+        const char* bytes = ref.data;
         for (size_t i = 0; i < 9; ++i) {
             UInt64 byte = bytes[i];
             x |= (byte & 0x7F) << (7 * i);

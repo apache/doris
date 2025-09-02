@@ -97,7 +97,7 @@ public:
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
+                  const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
                   io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
 
@@ -293,7 +293,7 @@ private:
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
-    cctz::time_zone* _ctz = nullptr;
+    const cctz::time_zone* _ctz = nullptr;
 
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
 

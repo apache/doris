@@ -308,7 +308,7 @@ void FieldDescriptor::iceberg_sanitize(const std::vector<std::string>& read_colu
             std::string sanitize_name = sanitize_avro_name(col);
             auto it = _name_to_field.find(sanitize_name);
             if (it != _name_to_field.end()) {
-                FieldSchema* schema = const_cast<FieldSchema*>(it->second);
+                FieldSchema* schema = it->second;
                 schema->name = col;
                 _name_to_field.emplace(col, schema);
                 _name_to_field.erase(sanitize_name);

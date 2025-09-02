@@ -342,7 +342,7 @@ public:
     Status serialize_sparse_columns(std::map<std::string_view, Subcolumn>&& remaing_subcolumns);
 
     // ensure root node is a certain type
-    void ensure_root_node_type(const DataTypePtr& type);
+    void ensure_root_node_type(const DataTypePtr& type) const;
 
     // create root with type and column if missing
     void create_root(const DataTypePtr& type, MutableColumnPtr&& column);

@@ -58,26 +58,24 @@ std::string print_id(const PUniqueId& id) {
                        static_cast<uint64_t>(id.lo()));
 }
 
-bool parse_id(const std::string& s, TUniqueId* id) {
+bool parse_id(std::string& s, TUniqueId* id) {
     DCHECK(id != nullptr);
 
-    const char* hi_part = s.c_str();
-    char* colon = const_cast<char*>(strchr(hi_part, '-'));
-
-    if (colon == nullptr) {
+    std::size_t pos = s.find('-');
+    if (pos == std::string::npos) {
         return false;
     }
 
-    const char* lo_part = colon + 1;
-    *colon = '\0';
+    std::string hi_part = s.substr(0, pos);
+    std::string lo_part = s.substr(pos + 1);
 
-    char* error_hi = nullptr;
-    char* error_lo = nullptr;
-    id->hi = strtoul(hi_part, &error_hi, 16);
-    id->lo = strtoul(lo_part, &error_lo, 16);
-
-    bool valid = *error_hi == '\0' && *error_lo == '\0';
-    *colon = ':';
+    std::size_t idx_hi = 0;
+    std::size_t idx_lo = 0;
+    id->hi = std::stoul(hi_part, &idx_hi, 16);
+    id->lo = std::stoul(lo_part, &idx_lo, 16);
+    
+    bool valid = (idx_hi == hi_part.size()) && (idx_lo == lo_part.size());
+    s[pos] = ':';
     return valid;
 }
 

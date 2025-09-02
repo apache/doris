@@ -135,15 +135,14 @@ Status request_embed_attachmentv2(Params* brpc_request, const std::string& data,
 // Extract the brpc request and block from the controller attachment,
 // and put the block into the request.
 template <typename Params>
-Status attachment_extract_request_contain_block(const Params* brpc_request,
+Status attachment_extract_request_contain_block(Params* brpc_request,
                                                 brpc::Controller* cntl) {
-    Params* req = const_cast<Params*>(brpc_request);
-    auto block = req->mutable_block();
-    return attachment_extract_request(req, cntl, block->mutable_column_values());
+    auto block = brpc_request->mutable_block();
+    return attachment_extract_request(brpc_request, cntl, block->mutable_column_values());
 }
 
 template <typename Params>
-Status attachment_extract_request(const Params* brpc_request, brpc::Controller* cntl,
+Status attachment_extract_request(Params* brpc_request, brpc::Controller* cntl,
                                   std::string* data) {
     const butil::IOBuf& io_buf = cntl->request_attachment();
 
@@ -152,8 +151,7 @@ Status attachment_extract_request(const Params* brpc_request, brpc::Controller* 
     io_buf.copy_to(&req_str_size, sizeof(req_str_size), 0);
     std::string req_str;
     io_buf.copy_to(&req_str, req_str_size, sizeof(req_str_size));
-    Params* req = const_cast<Params*>(brpc_request);
-    req->ParseFromString(req_str);
+    brpc_request->ParseFromString(req_str);
 
     // step2: extract data from attachment.
     int64_t data_size;

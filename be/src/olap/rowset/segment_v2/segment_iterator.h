@@ -118,7 +118,7 @@ public:
     ~SegmentIterator() override;
 
     [[nodiscard]] Status init_iterators();
-    [[nodiscard]] Status init(const StorageReadOptions& opts) override;
+    [[nodiscard]] Status init(StorageReadOptions& opts) override;
     [[nodiscard]] Status next_batch(vectorized::Block* block) override;
 
     // Get current block row locations. This function should be called
@@ -168,7 +168,7 @@ private:
     }
 
     [[nodiscard]] Status _lazy_init();
-    [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+    [[nodiscard]] Status _init_impl(StorageReadOptions& opts);
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_index_iterators();

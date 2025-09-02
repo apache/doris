@@ -57,6 +57,11 @@ public:
         }
     }
 
+    BitmapValue bitmap_calculate() const {
+        // to use a non-const function and no modify, use const_cast is acceptable
+        return const_cast<BitmapExprCalculation*>(this)->bitmap_calculate();
+    }
+
     BitmapValue bitmap_calculate() {
         std::stack<BitmapValue> values;
         std::string bitmap_key;
@@ -99,7 +104,7 @@ public:
     }
 
     // calculate the bitmap value by expr bitmap calculate
-    int64_t bitmap_calculate_count() {
+    int64_t bitmap_calculate_count() const {
         if (_bitmaps.empty()) {
             return 0;
         }

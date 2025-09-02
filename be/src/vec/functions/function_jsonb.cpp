@@ -2403,10 +2403,10 @@ private:
             const auto* object = element->unpack<ObjectVal>();
             bool find = false;
             for (const auto& item : *object) {
-                const std::string_view key(item.getKeyStr(), item.klen());
+                Slice key(item.getKeyStr(), item.klen());
                 const auto* child_element = item.value();
                 // construct an object member path leg.
-                auto leg = std::make_unique<leg_info>(const_cast<char*>(key.data()), key.size(), 0,
+                auto leg = std::make_unique<leg_info>(key.mutable_data(), key.get_size(), 0,
                                                       MEMBER_CODE);
                 cur_path->add_leg_to_leg_vector(std::move(leg));
                 find |= find_matches(child_element, one_match, state, cur_path, matches);

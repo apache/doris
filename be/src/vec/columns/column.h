@@ -731,7 +731,7 @@ ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
     if (raw_type_ptr == nullptr) {
         return nullptr;
     }
-    return typename ColumnType::Ptr(const_cast<ColumnType*>(raw_type_ptr));
+    return typename ColumnType::Ptr(raw_type_ptr);
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

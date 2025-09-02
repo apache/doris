@@ -194,7 +194,7 @@ public:
     /// Bloom filters must have equal size and seed.
     virtual bool contains(const BloomFilter& bf_) const { return true; };
 
-    virtual char* data() const { return _data; }
+    virtual char* data() { return _data; }
 
     size_t num_bytes() const { return _num_bytes; }
 

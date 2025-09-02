@@ -328,19 +328,19 @@ private:
     Status _fill_block(Block* block, size_t num_rows);
 
     static Status _fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
-                               DataTypePtr& data_type, size_t num_rows);
+                               const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                       size_t num_rows);
 
     static Status _fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                   DataTypePtr& data_type, size_t num_rows);
+                                   const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                     DataTypePtr& data_type, size_t num_rows);
+                                     const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                      DataTypePtr& data_type, size_t num_rows);
+                                      const DataTypePtr& data_type, size_t num_rows);
 
     static Status _fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
                                     std::vector<long>& meta_data);

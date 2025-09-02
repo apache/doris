@@ -398,7 +398,7 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        Status st = this->data(const_cast<AggregateDataPtr&>(_exec_place))
+        Status st = this->data(_exec_place)
                             .write(buf, reinterpret_cast<int64_t>(place));
         if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());

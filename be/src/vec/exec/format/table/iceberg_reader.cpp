@@ -294,12 +294,12 @@ IcebergTableReader::PositionDeleteRange IcebergTableReader::_get_range(
         const ColumnDictI32& file_path_column) {
     IcebergTableReader::PositionDeleteRange range;
     size_t read_rows = file_path_column.get_data().size();
-    int* code_path = const_cast<int*>(file_path_column.get_data().data());
-    int* code_path_start = code_path;
-    int* code_path_end = code_path + read_rows;
+    const int* code_path = file_path_column.get_data().data();
+    const int* code_path_start = code_path;
+    const int* code_path_end = code_path + read_rows;
     while (code_path < code_path_end) {
         int code = code_path[0];
-        int* code_end = std::upper_bound(code_path, code_path_end, code);
+        const int* code_end = std::upper_bound(code_path, code_path_end, code);
         range.data_file_path.emplace_back(file_path_column.get_value(code).to_string());
         range.range.emplace_back(code_path - code_path_start, code_end - code_path_start);
         code_path = code_end;
@@ -455,7 +455,7 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
                                                          DeleteFile* position_delete) {
     ParquetReader parquet_delete_reader(
             _profile, _params, *delete_range, READ_DELETE_FILE_BATCH_SIZE,
-            const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state);
+            &_state->timezone_obj(), _io_ctx, _state);
     RETURN_IF_ERROR(parquet_delete_reader.init_reader(
             delete_file_col_names, nullptr, {}, nullptr, nullptr, nullptr, nullptr, nullptr,
             TableSchemaChangeHelper::ConstNode::get_instance(), false));

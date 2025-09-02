@@ -398,7 +398,7 @@ public:
 
     static bool check_can_filter(OP op, const std::vector<Field>& literal_values,
                                  const ColumnStat& column_stat, const FieldSchema* col_schema,
-                                 cctz::time_zone* ctz) {
+                                 const cctz::time_zone* ctz) {
         Field min_field;
         Field max_field;
         if (!ParquetPredicate::get_min_max_value(col_schema, column_stat.encoded_min_value,

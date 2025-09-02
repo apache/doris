@@ -186,7 +186,7 @@ struct ConvInt64Impl {
                                                    StringParser::PARSE_OVERFLOW);
             }
         }
-        StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
+        Slice str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
         result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
     }
 };
@@ -222,7 +222,7 @@ struct ConvStringImpl {
         if (!MathFunctions::handle_parse_result(dst_base, &decimal_num, parse_res)) {
             result_column->insert_data("0", 1);
         } else {
-            StringRef str_base = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
+            Slice str_base = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
             result_column->insert_data(reinterpret_cast<const char*>(str_base.data), str_base.size);
         }
     }

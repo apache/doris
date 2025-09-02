@@ -280,7 +280,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _inited(false),
           _pool(new ObjectPool) {}
 
-Status SegmentIterator::init(const StorageReadOptions& opts) {
+Status SegmentIterator::init(StorageReadOptions& opts) {
     auto status = _init_impl(opts);
     if (!status.ok()) {
         _segment->update_healthy_status(status);
@@ -288,7 +288,7 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
-Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
+Status SegmentIterator::_init_impl(StorageReadOptions& opts) {
     // get file handle from file descriptor of segment
     if (_inited) {
         return Status::OK();

@@ -220,22 +220,22 @@ public:
                 if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
                     decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
                     return bf->test_bytes(
-                            const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
+                            reinterpret_cast<const char*>(&decimal12_t_val),
                             sizeof(decimal12_t));
                     // Datev1 using uint24_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
                     uint24_t date_value(uint32_t(_value.to_olap_date()));
                     return bf->test_bytes(
-                            const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
+                            reinterpret_cast<const char*>(&date_value),
                             sizeof(uint24_t));
                     // DatetimeV1 using int64_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
                     int64_t datetime_value(_value.to_olap_datetime());
                     return bf->test_bytes(
-                            const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
+                            reinterpret_cast<const char*>(&datetime_value),
                             sizeof(int64_t));
                 } else {
-                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                    return bf->test_bytes(reinterpret_cast<const char*>(&_value),
                                           sizeof(T));
                 }
             }

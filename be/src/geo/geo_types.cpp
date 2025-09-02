@@ -779,6 +779,8 @@ int GeoLine::numPoint() const {
 }
 
 S2Point* GeoLine::getPoint(int i) const {
+    // A third-party dependency is used that returns a const S2Point&, 
+    // but it's not itself a const, so it's OK to use a const_cast
     return const_cast<S2Point*>(&(_polyline->vertex(i)));
 }
 
@@ -1101,7 +1103,7 @@ int GeoPolygon::numLoops() const {
 }
 
 S2Loop* GeoPolygon::getLoop(int i) const {
-    return const_cast<S2Loop*>(_polygon->loop(i));
+    return _polygon->loop(i);
 }
 
 GeoParseStatus GeoMultiPolygon::from_coords(const std::vector<GeoCoordinateListList>& list) {

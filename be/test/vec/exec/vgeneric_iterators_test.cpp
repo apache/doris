@@ -245,7 +245,7 @@ public:
     ~SeqColumnUtIterator() override {}
 
     // NOTE: Currently, this function will ignore StorageReadOptions
-    Status init(const StorageReadOptions& opts) override { return Status::OK(); }
+    Status init(StorageReadOptions& opts) override { return Status::OK(); }
 
     Status next_batch(vectorized::Block* block) override {
         int row_idx = 0;

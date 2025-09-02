@@ -220,7 +220,7 @@ Status Segment::_open_index_file_reader() {
     return Status::OK();
 }
 
-Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
+Status Segment::new_iterator(SchemaSPtr schema, StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
         _be_exec_version = read_options.runtime_state->be_exec_version();
@@ -713,7 +713,7 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
 // but they are not the same column
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
-                                    const StorageReadOptions* opt) {
+                                    StorageReadOptions* opt) {
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
     }

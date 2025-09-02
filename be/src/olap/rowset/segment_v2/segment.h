@@ -97,7 +97,7 @@ public:
     int64_t get_metadata_size() const override;
     void update_metadata_size();
 
-    Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
+    Status new_iterator(SchemaSPtr schema, StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
     static Status new_default_iterator(const TabletColumn& tablet_column,
@@ -111,7 +111,7 @@ public:
 
     Status new_column_iterator(const TabletColumn& tablet_column,
                                std::unique_ptr<ColumnIterator>* iter,
-                               const StorageReadOptions* opt);
+                                StorageReadOptions* opt);
 
     Status new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
                                std::unique_ptr<ColumnIterator>* iter);

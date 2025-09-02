@@ -89,7 +89,7 @@ public:
 
     ColumnChunkReader(io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
                       FieldSchema* field_schema, const tparquet::OffsetIndex* offset_index,
-                      cctz::time_zone* ctz, io::IOContext* io_ctx);
+                      const cctz::time_zone* ctz, io::IOContext* io_ctx);
     ~ColumnChunkReader() = default;
 
     // Initialize chunk reader, will generate the decoder and codec.

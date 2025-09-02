@@ -64,7 +64,7 @@ struct ConvertParams {
             // The missing parque metadata makes it impossible for us to know the time zone information,
             // so we default to UTC here.
             if (ctz == nullptr) {
-                ctz = const_cast<cctz::time_zone*>(&utc0);
+                ctz = &utc0;
             }
         }
     }
@@ -84,7 +84,7 @@ struct ConvertParams {
                 // When a timestamp is stored as `1970-01-03 12:00:00`,
                 // if isAdjustedToUTC = true, UTC8 should read as `1970-01-03 20:00:00`, UTC6 should read as `1970-01-03 18:00:00`
                 // if isAdjustedToUTC = false, UTC8 and UTC6 should read as `1970-01-03 12:00:00`, which is the same as `1970-01-03 12:00:00` in UTC0
-                ctz = const_cast<cctz::time_zone*>(&utc0);
+                ctz = &utc0;
             }
             const auto& time_unit = timestamp_info.unit;
             if (time_unit.__isset.MILLIS) {

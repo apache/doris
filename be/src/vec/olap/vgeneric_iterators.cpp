@@ -43,7 +43,7 @@ using namespace ErrorCode;
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
-Status VStatisticsIterator::init(const StorageReadOptions& opts) {
+Status VStatisticsIterator::init(StorageReadOptions& opts) {
     if (!_init) {
         _push_down_agg_type_opt = opts.push_down_agg_type_opt;
 
@@ -200,7 +200,7 @@ public:
     ~VAutoIncrementIterator() override = default;
 
     // NOTE: Currently, this function will ignore StorageReadOptions
-    Status init(const StorageReadOptions& opts) override;
+    Status init(StorageReadOptions& opts) override;
 
     Status next_batch(Block* block) override {
         int row_idx = 0;
@@ -258,7 +258,7 @@ private:
     size_t _rows_returned;
 };
 
-Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
+Status VAutoIncrementIterator::init(StorageReadOptions& opts) {
     return Status::OK();
 }
 
@@ -325,7 +325,7 @@ Status VMergeIteratorContext::_load_next_block() {
     return Status::OK();
 }
 
-Status VMergeIterator::init(const StorageReadOptions& opts) {
+Status VMergeIterator::init(StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
@@ -360,7 +360,7 @@ public:
 
     ~VUnionIterator() override = default;
 
-    Status init(const StorageReadOptions& opts) override;
+    Status init(StorageReadOptions& opts) override;
 
     Status next_batch(Block* block) override;
 
@@ -381,7 +381,7 @@ private:
     std::vector<RowwiseIteratorUPtr> _origin_iters;
 };
 
-Status VUnionIterator::init(const StorageReadOptions& opts) {
+Status VUnionIterator::init(StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }

@@ -313,7 +313,7 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::add_block(const vectorized::Block* block) {
+Status BaseBetaRowsetWriter::add_block(vectorized::Block* block) {
     return _segment_creator.add_block(block);
 }
 

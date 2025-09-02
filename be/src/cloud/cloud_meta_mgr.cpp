@@ -380,12 +380,12 @@ using MetaServiceMethod = void (MetaService_Stub::*)(::google::protobuf::RpcCont
                                                      ::google::protobuf::Closure*);
 
 template <typename Request, typename Response>
-Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
+Status retry_rpc(std::string_view op_name, Request& req, Response* res,
                  MetaServiceMethod<Request, Response> method) {
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
-
-    const_cast<Request&>(req).set_request_ip(BackendOptions::get_be_endpoint());
+    
+    req.set_request_ip(BackendOptions::get_be_endpoint());
 
     int retry_times = 0;
     uint32_t duration_ms = 0;
@@ -1483,12 +1483,12 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
     }
 }
 
-void CloudMetaMgr::check_table_size_correctness(const RowsetMeta& rs_meta) {
+void CloudMetaMgr::check_table_size_correctness(RowsetMeta& rs_meta) {
     if (!config::enable_table_size_correctness_check) {
         return;
     }
     int64_t total_segment_size = get_segment_file_size(rs_meta);
-    int64_t total_inverted_index_size = get_inverted_index_file_szie(rs_meta);
+    int64_t total_inverted_index_size = get_inverted_index_file_size(rs_meta);
     if (rs_meta.data_disk_size() != total_segment_size ||
         rs_meta.index_disk_size() != total_inverted_index_size ||
         rs_meta.data_disk_size() + rs_meta.index_disk_size() != rs_meta.total_disk_size()) {
@@ -1507,9 +1507,9 @@ void CloudMetaMgr::check_table_size_correctness(const RowsetMeta& rs_meta) {
     }
 }
 
-int64_t CloudMetaMgr::get_segment_file_size(const RowsetMeta& rs_meta) {
+int64_t CloudMetaMgr::get_segment_file_size(RowsetMeta& rs_meta) {
     int64_t total_segment_size = 0;
-    const auto fs = const_cast<RowsetMeta&>(rs_meta).fs();
+    const auto fs = rs_meta.fs();
     if (!fs) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
     }
@@ -1534,9 +1534,9 @@ int64_t CloudMetaMgr::get_segment_file_size(const RowsetMeta& rs_meta) {
     return total_segment_size;
 }
 
-int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
+int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
     int64_t total_inverted_index_size = 0;
-    const auto fs = const_cast<RowsetMeta&>(rs_meta).fs();
+    const auto fs = rs_meta.fs();
     if (!fs) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
     }

@@ -71,7 +71,7 @@ private:
     // The leaf node of schema elements
     std::vector<FieldSchema*> _physical_fields;
     // Name to _fields, not all schema elements
-    std::unordered_map<std::string, const FieldSchema*> _name_to_field;
+    std::unordered_map<std::string, FieldSchema*> _name_to_field;
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
 

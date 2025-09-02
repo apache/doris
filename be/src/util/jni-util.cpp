@@ -139,6 +139,7 @@ const std::string GetKerb5ConfPath() {
         options.push_back(GetKerb5ConfPath());
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
         for (int i = 0; i < options.size(); ++i) {
+            // To convert a string to a char*, const_cast is used.
             jvm_options[i] = {const_cast<char*>(options[i].c_str()), nullptr};
         }
 
@@ -598,6 +599,7 @@ Status JniUtil::Init() {
     std::string memory_alloc_sign = "(J)J";
     std::string memory_free_name = "memoryTrackerFree";
     std::string memory_free_sign = "(J)V";
+    // To convert a string to a char*, const_cast is used.
     static JNINativeMethod java_native_methods[] = {
             {const_cast<char*>(resize_column_name.c_str()),
              const_cast<char*>(resize_column_sign.c_str()),

@@ -1243,6 +1243,8 @@ Status OrcReader::_fill_partition_columns(
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (const auto& kv : partition_columns) {
         auto doris_column = block->get_by_name(kv.first).column;
+        // block is a Block*, and get_by_name returns a ColumnPtr, 
+        // which is a const pointer. Therefore, using const_cast is permissible.
         auto* col_ptr = const_cast<IColumn*>(doris_column.get());
         const auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();

@@ -28,21 +28,21 @@
 
 namespace doris {
 
-const StringRef UrlParser::_s_url_authority(const_cast<char*>("AUTHORITY"), 9);
-const StringRef UrlParser::_s_url_file(const_cast<char*>("FILE"), 4);
-const StringRef UrlParser::_s_url_host(const_cast<char*>("HOST"), 4);
-const StringRef UrlParser::_s_url_path(const_cast<char*>("PATH"), 4);
-const StringRef UrlParser::_s_url_protocol(const_cast<char*>("PROTOCOL"), 8);
-const StringRef UrlParser::_s_url_query(const_cast<char*>("QUERY"), 5);
-const StringRef UrlParser::_s_url_ref(const_cast<char*>("REF"), 3);
-const StringRef UrlParser::_s_url_userinfo(const_cast<char*>("USERINFO"), 8);
-const StringRef UrlParser::_s_url_port(const_cast<char*>("PORT"), 4);
-const StringRef UrlParser::_s_protocol(const_cast<char*>("://"), 3);
-const StringRef UrlParser::_s_at(const_cast<char*>("@"), 1);
-const StringRef UrlParser::_s_slash(const_cast<char*>("/"), 1);
-const StringRef UrlParser::_s_colon(const_cast<char*>(":"), 1);
-const StringRef UrlParser::_s_question(const_cast<char*>("?"), 1);
-const StringRef UrlParser::_s_hash(const_cast<char*>("#"), 1);
+const StringRef UrlParser::_s_url_authority("AUTHORITY", 9);
+const StringRef UrlParser::_s_url_file("FILE", 4);
+const StringRef UrlParser::_s_url_host("HOST", 4);
+const StringRef UrlParser::_s_url_path("PATH", 4);
+const StringRef UrlParser::_s_url_protocol("PROTOCOL", 8);
+const StringRef UrlParser::_s_url_query("QUERY", 5);
+const StringRef UrlParser::_s_url_ref("REF", 3);
+const StringRef UrlParser::_s_url_userinfo("USERINFO", 8);
+const StringRef UrlParser::_s_url_port("PORT", 4);
+const StringRef UrlParser::_s_protocol("://", 3);
+const StringRef UrlParser::_s_at("@", 1);
+const StringRef UrlParser::_s_slash("/", 1);
+const StringRef UrlParser::_s_colon(":", 1);
+const StringRef UrlParser::_s_question("?", 1);
+const StringRef UrlParser::_s_hash("#", 1);
 const StringSearch UrlParser::_s_protocol_search(&_s_protocol);
 const StringSearch UrlParser::_s_at_search(&_s_at);
 const StringSearch UrlParser::_s_slash_search(&_s_slash);

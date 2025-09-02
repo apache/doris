@@ -659,7 +659,7 @@ Status PushBrokerReader::_get_next_reader() {
                 vectorized::ParquetReader::create_unique(
                         _runtime_profile, _file_params, range,
                         _runtime_state->query_options().batch_size,
-                        const_cast<cctz::time_zone*>(&_runtime_state->timezone_obj()),
+                        &_runtime_state->timezone_obj(),
                         _io_ctx.get(), _runtime_state.get());
 
         init_status = parquet_reader->init_reader(

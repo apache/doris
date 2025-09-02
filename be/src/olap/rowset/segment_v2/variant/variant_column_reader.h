@@ -55,7 +55,7 @@ public:
                 uint64_t num_rows, io::FileReaderSPtr file_reader);
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                        const StorageReadOptions* opt) override;
+                        StorageReadOptions* opt) override;
 
     const SubcolumnColumnReaders::Node* get_reader_by_path(
             const vectorized::PathInData& relative_path) const;
@@ -90,14 +90,14 @@ private:
     Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator,
                                               const TabletColumn& col);
     Status _new_iterator_with_flat_leaves(ColumnIteratorUPtr* iterator, const TabletColumn& col,
-                                          const StorageReadOptions* opts,
+                                         StorageReadOptions* opts,
                                           bool exceeded_sparse_column_limit,
                                           bool existed_in_sparse_column);
 
     Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, vectorized::PathInData path,
                                        const SubcolumnColumnReaders::Node* node,
                                        const SubcolumnColumnReaders::Node* root);
-    Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
+    Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, StorageReadOptions* opts,
                                        const TabletColumn& target_col,
                                        ColumnIteratorUPtr inner_iter);
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;

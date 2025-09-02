@@ -758,7 +758,7 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
 }
 
 Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column,
-                                  const StorageReadOptions* opt) {
+                                 StorageReadOptions* opt) {
     if (is_empty()) {
         *iterator = std::make_unique<EmptyFileColumnIterator>();
         return Status::OK();
@@ -1323,6 +1323,8 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
                     const auto* null_col =
                             vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
                     if (null_col != nullptr) {
+                        // check_and_get_column returns const T*, dst is an object that can be modified,
+                        // using const_cast is ok
                         const_cast<vectorized::ColumnNullable*>(null_col)->insert_many_defaults(
                                 this_run);
                     } else {
@@ -1389,6 +1391,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                             return Status::InternalError("unexpected column type in column reader");
                         }
 
+                        // check_and_get_column returns const T*, dst is an object that can be modified,
+                        // using const_cast is ok
                         const_cast<vectorized::ColumnNullable*>(null_col)->insert_many_defaults(
                                 this_read_count);
                     } else {

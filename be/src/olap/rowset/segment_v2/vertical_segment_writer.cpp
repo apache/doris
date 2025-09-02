@@ -682,7 +682,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
 
     // 1. aggregate duplicate rows in block
     RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
-            const_cast<vectorized::Block*>(data.block), data.num_rows, specified_rowsets,
+            data.block, data.num_rows, specified_rowsets,
             segment_caches));
     if (data.block->rows() != data.num_rows) {
         data.num_rows = data.block->rows();
@@ -693,7 +693,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // we can only encode primary key columns currently becasue all non-primary columns in flexible partial update
     // can have missing cells
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
-    RETURN_IF_ERROR(_block_aggregator.convert_pk_columns(const_cast<vectorized::Block*>(data.block),
+    RETURN_IF_ERROR(_block_aggregator.convert_pk_columns(data.block,
                                                          data.row_pos, data.num_rows, key_columns));
     // 3. encode sequence column
     // We encode the seguence column even thought it may have invalid values in some rows because we need to
@@ -701,7 +701,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // lookup_raw_key. We will encode the sequence column again at the end of this method. At that time, we have
     // a valid sequence column to encode the key with seq col.
     vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
-    RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<vectorized::Block*>(data.block),
+    RETURN_IF_ERROR(_block_aggregator.convert_seq_column(data.block,
                                                          data.row_pos, data.num_rows, seq_column));
 
     std::vector<BitmapValue>* skip_bitmaps = &(
@@ -878,7 +878,7 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t row_pos,
+Status VerticalSegmentWriter::batch_block(vectorized::Block* block, size_t row_pos,
                                           size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update() &&
@@ -941,7 +941,7 @@ Status VerticalSegmentWriter::write_batch() {
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
-            _serialize_block_to_row_column(*const_cast<vectorized::Block*>(data.block));
+            _serialize_block_to_row_column(*data.block);
         }
     }
 

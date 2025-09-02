@@ -431,7 +431,7 @@ public:
         }
     }
 
-    uint32_t serialized_size() {
+    uint32_t serialized_size() const {
         return sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(uint32_t) * 3 +
                _processed.size() * sizeof(Centroid) + _unprocessed.size() * sizeof(Centroid) +
                _cumulative.size() * sizeof(Weight);

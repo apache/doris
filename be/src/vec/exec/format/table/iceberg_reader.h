@@ -186,7 +186,7 @@ protected:
             const TFileRangeDesc& delete_desc) final {
         return ParquetReader::create_unique(
                 _profile, _params, delete_desc, READ_DELETE_FILE_BATCH_SIZE,
-                const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state);
+                &_state->timezone_obj(), _io_ctx, _state);
     }
 };
 class IcebergOrcReader final : public IcebergTableReader {
