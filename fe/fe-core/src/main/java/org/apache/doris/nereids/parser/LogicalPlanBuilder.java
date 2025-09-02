@@ -495,6 +495,7 @@ import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
@@ -4427,16 +4428,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression outExpression;
             switch (ctx.kind.getType()) {
                 case DorisParser.BETWEEN:
-                    Expression lower = getExpression(ctx.lower);
-                    Expression upper = getExpression(ctx.upper);
-                    if (lower.equals(upper)) {
-                        outExpression = new EqualTo(valueExpression, lower);
-                    } else {
-                        outExpression = new And(
-                                new GreaterThanEqual(valueExpression, getExpression(ctx.lower)),
-                                new LessThanEqual(valueExpression, getExpression(ctx.upper))
-                        );
-                    }
+                    // don't compare lower and upper before bind expression,
+                    // for `a between random() and random()`
+                    // the two unbound `'random()` equal, but after bind expression,
+                    // the two `random()` are different.
+                    outExpression = new Between(
+                            valueExpression,
+                            getExpression(ctx.lower),
+                            getExpression(ctx.upper)
+                    );
                     break;
                 case DorisParser.LIKE:
                     if (ctx.ESCAPE() == null) {
@@ -7848,6 +7848,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             properties = ImmutableMap.of();
         }
 
+        // MySQL load only support csv, set it explicitly
+        if (!properties.containsKey("format")) {
+            Map<String, String> newProperties = Maps.newHashMap(properties);
+            newProperties.put("format", "csv");
+            properties = ImmutableMap.copyOf(newProperties);
+        }
         MysqlDataDescription mysqlDataDescription = new MysqlDataDescription(
                 filePaths,
                 tableNameInfo,

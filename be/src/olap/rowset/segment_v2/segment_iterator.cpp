@@ -54,6 +54,7 @@
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
@@ -1305,13 +1306,14 @@ Status SegmentIterator::_init_index_iterators() {
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
             // If the column is an extracted column, we need to find the sub-column in the parent column reader.
+            std::shared_ptr<ColumnReader> column_reader;
             if (column.is_extracted_column()) {
-                if (_segment->_column_readers.find(column.parent_unique_id()) ==
-                    _segment->_column_readers.end()) {
+                if (!_segment->_column_reader_cache->get_column_reader(
+                            column.parent_unique_id(), &column_reader, _opts.stats) ||
+                    column_reader == nullptr) {
                     continue;
                 }
-                auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
-                inverted_indexs = assert_cast<VariantColumnReader*>(column_reader)
+                inverted_indexs = assert_cast<VariantColumnReader*>(column_reader.get())
                                           ->find_subcolumn_tablet_indexes(column.suffix_path());
             }
             // If the column is not an extracted column, we can directly get the inverted index metadata from the tablet schema.
@@ -2988,7 +2990,7 @@ Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* bl
                     idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
                     column_expr->root()->debug_string());
         }
-
+        block->shrink_char_type_column_suffix_zero(_char_type_idx);
         if (vectorized::check_and_get_column<const vectorized::ColumnNothing>(
                     block->get_by_position(idx_in_block).column.get())) {
             VLOG_DEBUG << fmt::format("Virtual column is doing materialization, cid {}, col idx {}",

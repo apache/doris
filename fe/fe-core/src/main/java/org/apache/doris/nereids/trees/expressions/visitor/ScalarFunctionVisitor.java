@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.llm.Embed;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
@@ -2539,5 +2540,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLLMSimilarity(LLMSimilarity llmSimilarity, C context) {
         return visitScalarFunction(llmSimilarity, context);
+    }
+
+    default R visitEmbed(Embed embed, C context) {
+        return visitScalarFunction(embed, context);
     }
 }
