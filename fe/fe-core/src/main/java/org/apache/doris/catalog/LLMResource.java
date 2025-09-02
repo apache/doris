@@ -168,13 +168,13 @@ public class LLMResource extends Resource {
                                             + properties.get(LLMProperties.MAX_TOKEN));
         }
         try {
-            tLLMResource.setMaxRetries(Long.parseLong(properties.get(LLMProperties.MAX_RETRIES)));
+            tLLMResource.setMaxRetries(Integer.parseInt(properties.get(LLMProperties.MAX_RETRIES)));
         } catch (NumberFormatException e) {
             throw new NumberFormatException("Failed to parse max_retries: "
                                             + properties.get(LLMProperties.MAX_RETRIES));
         }
         try {
-            tLLMResource.setRetryDelaySecond(Long.parseLong(properties.get(LLMProperties.RETRY_DELAY_SECOND)));
+            tLLMResource.setRetryDelaySecond(Integer.parseInt(properties.get(LLMProperties.RETRY_DELAY_SECOND)));
         } catch (NumberFormatException e) {
             throw new NumberFormatException("Failed to parse retry_delay_second: "
                                             + properties.get(LLMProperties.RETRY_DELAY_SECOND));
