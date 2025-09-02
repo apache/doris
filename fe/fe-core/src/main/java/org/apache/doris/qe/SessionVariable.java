@@ -565,6 +565,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SQL_DIALECT = "sql_dialect";
 
+    public static final String ENABLE_SQL_CONVERTER_RETRY_ORIGINAL = "enable_sql_converter_retry_original";
+
     public static final String SERDE_DIALECT = "serde_dialect";
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
@@ -2182,6 +2184,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
     public String sqlDialect = "doris";
+
+    @VariableMgr.VarAttr(name = ENABLE_SQL_CONVERTER_RETRY_ORIGINAL, needForward = true,
+            description = {"开启SQL转换器重试原始SQL功能", "Enable SQL converter retry original SQL feature."})
+    public boolean enableSqlConverterRetryOriginal = false;
 
     @VariableMgr.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
             description = {"返回给 MySQL 客户端时各数据类型的输出格式方言",
@@ -3854,6 +3860,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public String getSqlDialect() {
         return sqlDialect;
+    }
+
+    public boolean isEnableSqlConverterRetryOriginal() {
+        return enableSqlConverterRetryOriginal;
     }
 
     public String[] getSqlConvertorFeatures() {
