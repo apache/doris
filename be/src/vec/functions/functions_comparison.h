@@ -550,15 +550,11 @@ public:
         const DataTypePtr& left_type = col_with_type_and_name_left.type;
         const DataTypePtr& right_type = col_with_type_and_name_right.type;
 
-        if (!left_type->equals(*right_type)) {
-            return Status::RuntimeError("not same type in function {} , left : {} , right : {}",
-                                        get_name(), left_type->get_name(), right_type->get_name());
-        }
-
         /// The case when arguments are the same (tautological comparison). Return constant.
         /// NOTE: Nullable types are special case. (BTW, this function use default implementation for Nullable, so Nullable types cannot be here. Check just in case.)
         /// NOTE: We consider NaN comparison to be implementation specific (and in our implementation NaNs are sometimes equal sometimes not).
-        if (!left_type->is_nullable() && col_left_untyped == col_right_untyped) {
+        if (left_type->equals(*right_type) && !left_type->is_nullable() &&
+            col_left_untyped == col_right_untyped) {
             /// Always true: =, <=, >=
             // TODO: Return const column in the future. But seems so far to do. We need a unified approach for passing const column.
             if constexpr (std::is_same_v<Op<TYPE_INT, TYPE_INT>, EqualsOp<TYPE_INT, TYPE_INT>> ||
@@ -579,6 +575,20 @@ public:
                                                      Field::create_field<TYPE_BOOLEAN>(0))
                                 ->convert_to_full_column_if_const();
                 return Status::OK();
+            }
+        }
+
+        auto can_compare = [](PrimitiveType t) -> bool {
+            return is_int_or_bool(t) || is_float_or_double(t) || is_ip(t) || is_date_type(t);
+        };
+
+        if (can_compare(left_type->get_primitive_type()) &&
+            can_compare(right_type->get_primitive_type())) {
+            // check left type equals right type
+            if (!left_type->equals(*right_type)) {
+                return Status::RuntimeError("not same type in function {} , left : {} , right : {}",
+                                            get_name(), left_type->get_name(),
+                                            right_type->get_name());
             }
         }
 
