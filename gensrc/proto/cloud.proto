@@ -1560,12 +1560,12 @@ message UpdateDeleteBitmapRequest {
     optional int64 txn_id = 13;
     // for load txn only
     optional int64 next_visible_version = 14;
+    optional string request_ip = 15;
     // remove delete_bitmap of pre rowsets since it is agged when compaction
-    optional int64 pre_rowset_agg_start_version = 15;
-    optional int64 pre_rowset_agg_end_version = 16;
+    optional int64 pre_rowset_agg_start_version = 16;
+    optional int64 pre_rowset_agg_end_version = 17;
     // when update delete_bitmap of pre rowsets, check the rowset exists
-    repeated int64 pre_rowset_versions = 17;
-    optional string request_ip = 18;
+    repeated int64 pre_rowset_versions = 18;
 }
 
 message UpdateDeleteBitmapResponse {
