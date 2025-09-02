@@ -1683,6 +1683,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         index_size_remove_rowsets += rs.index_disk_size();
         segment_size_remove_rowsets += rs.data_disk_size();
 
+        int64_t start_version = rs.start_version(), end_version = rs.end_version();
         auto recycle_key = recycle_rowset_key({instance_id, new_tablet_id, rs.rowset_id_v2()});
         RecycleRowsetPB recycle_rowset;
         recycle_rowset.set_creation_time(now);
@@ -1694,8 +1695,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             auto recycle_val = recycle_rowset.SerializeAsString();
             txn->put(recycle_key, recycle_val);
         }
-        INSTANCE_LOG(INFO) << "put recycle rowset, new_tablet_id=" << new_tablet_id
-                           << " key=" << hex(recycle_key);
+        INSTANCE_LOG(INFO) << "put recycle rowset, new_tablet_id=" << new_tablet_id << " version=["
+                           << start_version << "-" << end_version << "] key=" << hex(recycle_key);
     };
 
     if (!is_versioned_read) {
@@ -1708,12 +1709,13 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         }
     } else {
         std::vector<RowsetMetaCloudPB> rowset_metas;
-        TxnErrorCode err = reader.get_rowset_metas(txn.get(), tablet_id, 2,
+        TxnErrorCode err = reader.get_rowset_metas(txn.get(), new_tablet_id, 2,
                                                    schema_change.alter_version(), &rowset_metas);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
-            msg = fmt::format("failed to get rowset metas, tablet_id={}, start={}, end={}, err={}",
-                              tablet_id, 2, schema_change.alter_version(), err);
+            msg = fmt::format(
+                    "failed to get rowset metas, new_tablet_id={}, start={}, end={}, err={}",
+                    new_tablet_id, 2, schema_change.alter_version(), err);
             LOG(WARNING) << msg;
             return;
         }
