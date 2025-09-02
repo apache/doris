@@ -1446,8 +1446,6 @@ DECLARE_String(spill_storage_root_path);
 DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
-DECLARE_Int32(spill_io_thread_pool_thread_num);
-DECLARE_Int32(spill_io_thread_pool_queue_size);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 

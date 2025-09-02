@@ -233,9 +233,6 @@ QueryContext::~QueryContext() {
     obj_pool.clear();
     _merge_controller_handler.reset();
 
-#ifndef BE_TEST
-    _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-#endif
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     // the only one msg shows query's end. any other msg should append to it if need.
     LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
