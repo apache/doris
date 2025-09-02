@@ -68,7 +68,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
     private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
 
-    private final StatsDerive derive = new StatsDerive(false);
+    private final StatsDerive derive = new StatsDerive(true);
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, PushDownAggContext context) {
