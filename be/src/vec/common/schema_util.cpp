@@ -440,7 +440,17 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     // 2. inverted index
     TabletIndexes indexes_to_add;
     auto source_indexes = (*target_schema)->inverted_indexs(source.unique_id());
-    inherit_index(source_indexes, indexes_to_add, target);
+    // if target is variant type, we need to inherit all indexes
+    // because this schema is a read schema from fe
+    if (target.is_variant_type()) {
+        for (auto& index : source_indexes) {
+            auto index_info = std::make_shared<TabletIndex>(*index);
+            index_info->set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
+            indexes_to_add.emplace_back(std::move(index_info));
+        }
+    } else {
+        inherit_index(source_indexes, indexes_to_add, target);
+    }
     auto target_indexes = (*target_schema)
                                   ->inverted_indexs(target.parent_unique_id(),
                                                     target.path_info_ptr()->get_path());
