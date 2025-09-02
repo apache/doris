@@ -389,7 +389,8 @@ public:
 
         auto iter = std::lower_bound(_cumulative.cbegin(), _cumulative.cend(), index);
 
-        if (iter + 1 != _cumulative.cend()) {
+        if (iter != _cumulative.cend() && iter != _cumulative.cbegin() &&
+            iter + 1 != _cumulative.cend()) {
             auto i = std::distance(_cumulative.cbegin(), iter);
             auto z1 = index - *(iter - 1);
             auto z2 = *(iter)-index;
