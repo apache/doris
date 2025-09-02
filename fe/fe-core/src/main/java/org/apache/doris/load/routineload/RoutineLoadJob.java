@@ -279,6 +279,8 @@ public abstract class RoutineLoadJob
 
     protected byte escape = 0;
 
+    protected boolean emptyFieldAsNull = false;
+
     // use for cloud cluster mode
     @SerializedName("ccn")
     protected String cloudCluster;
@@ -398,8 +400,11 @@ public abstract class RoutineLoadJob
                     new String(new byte[]{csvFileFormatProperties.getEnclose()}));
             jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
                     new String(new byte[]{csvFileFormatProperties.getEscape()}));
+            jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
+                    String.valueOf(csvFileFormatProperties.getEmptyFieldAsNull()));
             this.enclose = csvFileFormatProperties.getEnclose();
             this.escape = csvFileFormatProperties.getEscape();
+            this.emptyFieldAsNull = csvFileFormatProperties.getEmptyFieldAsNull();
         } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
             JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
@@ -671,6 +676,14 @@ public abstract class RoutineLoadJob
 
     public byte getEscape() {
         return escape;
+    }
+
+    public boolean getEmptyFieldAsNull() {
+        String value = jobProperties.get(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL);
+        if (value == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(value);
     }
 
     public boolean isStrictMode() {

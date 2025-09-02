@@ -131,6 +131,7 @@ public class CreateRoutineLoadInfo {
             .add(JsonFileFormatProperties.PROP_JSON_ROOT)
             .add(CsvFileFormatProperties.PROP_ENCLOSE)
             .add(CsvFileFormatProperties.PROP_ESCAPE)
+            .add(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL)
             .build();
 
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadInfo.class);
