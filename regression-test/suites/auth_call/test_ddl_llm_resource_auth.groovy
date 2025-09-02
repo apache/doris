@@ -17,11 +17,11 @@
 
 import org.junit.Assert;
 
-suite("test_ddl_llm_resource_auth","p0,auth_call") {
-    String user = 'test_ddl_llm_resource_auth_user'
+suite("test_ddl_ai_resource_auth","p0,auth_call") {
+    String user = 'test_ddl_ai_resource_auth_user'
     String pwd = 'C123_567p'
-    String dbName = 'test_ddl_llm_resource_auth_db'
-    String resourceName = 'test_ddl_llm_resource_auth_rs'
+    String dbName = 'test_ddl_ai_resource_auth_db'
+    String resourceName = 'test_ddl_ai_resource_auth_rs'
 
     //cloud-mode
     if (isCloudMode()) {
@@ -40,21 +40,21 @@ suite("test_ddl_llm_resource_auth","p0,auth_call") {
         test {
             sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
                     PROPERTIES(
-                        'type' = 'llm',
-                        'llm.provider_type' = 'deepseek',
-                        'llm.endpoint' = 'https://api.deepseek.com/chat/completions',
-                        'llm.model_name' = 'deepseek-chat',
-                        'llm.api_key' = 'sk-xxx',
-                        'llm.temperature' = '0.7',
-                        'llm.max_token' = '1024',
-                        'llm.max_retries' = '3',
-                        'llm.retry_delay_second' = '1',
-                        'llm.timeout_ms' = '30000'
+                        'type' = 'ai',
+                        'ai.provider_type' = 'deepseek',
+                        'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                        'ai.model_name' = 'deepseek-chat',
+                        'ai.api_key' = 'sk-xxx',
+                        'ai.temperature' = '0.7',
+                        'ai.max_token' = '1024',
+                        'ai.max_retries' = '3',
+                        'ai.retry_delay_second' = '1',
+                        'ai.timeout_ms' = '30000'
                     );"""
             exception "denied"
         }
         test {
-            sql """ALTER RESOURCE '${resourceName}' PROPERTIES ('llm.temperature' = '0.8');"""
+            sql """ALTER RESOURCE '${resourceName}' PROPERTIES ('ai.temperature' = '0.8');"""
             exception "denied"
         }
 
@@ -70,20 +70,20 @@ suite("test_ddl_llm_resource_auth","p0,auth_call") {
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
                 PROPERTIES(
-                    'type' = 'llm',
-                    'llm.provider_type' = 'deepseek',
-                    'llm.endpoint' = 'https://api.deepseek.com/chat/completions',
-                    'llm.model_name' = 'deepseek-chat',
-                    'llm.api_key' = 'sk-xxx',
-                    'llm.temperature' = '0.7',
-                    'llm.max_token' = '1024',
-                    'llm.max_retries' = '3',
-                    'llm.retry_delay_second' = '1',
-                    'llm.validity_check' = 'false'
+                    'type' = 'ai',
+                    'ai.provider_type' = 'deepseek',
+                    'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                    'ai.model_name' = 'deepseek-chat',
+                    'ai.api_key' = 'sk-xxx',
+                    'ai.temperature' = '0.7',
+                    'ai.max_token' = '1024',
+                    'ai.max_retries' = '3',
+                    'ai.retry_delay_second' = '1',
+                    'ai.validity_check' = 'false'
                 );"""
         def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""
         assertTrue(res.size() > 0)
-        sql """ALTER RESOURCE '${resourceName}' PROPERTIES ('llm.temperature' = '0.8');"""
+        sql """ALTER RESOURCE '${resourceName}' PROPERTIES ('ai.temperature' = '0.8');"""
         sql """DROP RESOURCE '${resourceName}'"""
         res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""
         assertTrue(res.size() == 0)

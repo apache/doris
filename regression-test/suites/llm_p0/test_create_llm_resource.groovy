@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_create_llm_resource") {
-    String resourceName = 'test_create_llm_resource'
+suite("test_create_ai_resource") {
+    String resourceName = 'test_create_ai_resource'
 
     //cloud-mode
     if (isCloudMode()) {
@@ -25,69 +25,69 @@ suite("test_create_llm_resource") {
 
     try_sql("""DROP RESOURCE '${resourceName}'""")
 
-    //If 'llm.validity_check'='false' is not set,
-    // llm resource availability must be checked when creating the resource.
+    //If 'ai.validity_check'='false' is not set,
+    // ai resource availability must be checked when creating the resource.
 
     // missing end_point
     test {
         sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
-                'type' = 'llm',
-                'llm.provider_type' = 'deepseek',
-                'llm.model_name' = 'deepseek-chat',
-                'llm.api_key' = 'sk-xxx'
+                'type' = 'ai',
+                'ai.provider_type' = 'deepseek',
+                'ai.model_name' = 'deepseek-chat',
+                'ai.api_key' = 'sk-xxx'
             );"""
-        exception "Missing [llm.endpoint] in properties."
+        exception "Missing [ai.endpoint] in properties."
     }
     
     // missing provider_type
     test {
         sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
-                'type' = 'llm',
-                'llm.endpoint' = 'https://api.deepseek.com/chat/completions',
-                'llm.model_name' = 'deepseek-chat',
-                'llm.api_key' = 'sk-xxx'
+                'type' = 'ai',
+                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                'ai.model_name' = 'deepseek-chat',
+                'ai.api_key' = 'sk-xxx'
             );"""
-        exception "Missing [llm.provider_type] in properties."
+        exception "Missing [ai.provider_type] in properties."
     }
 
     // missing model_name
     test {
         sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
-                'type' = 'llm',
-                'llm.provider_type' = 'deepseek',
-                'llm.endpoint' = 'https://api.deepseek.com/chat/completions',
-                'llm.api_key' = 'sk-xxx'
+                'type' = 'ai',
+                'ai.provider_type' = 'deepseek',
+                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                'ai.api_key' = 'sk-xxx'
             );"""
-        exception "Missing [llm.model_name] in properties."
+        exception "Missing [ai.model_name] in properties."
     }
 
     // missing api-key while provider_type is not local
     test {
         sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
-                'type' = 'llm',
-                'llm.provider_type' = 'deepseek',
-                'llm.endpoint' = 'https://api.deepseek.com/chat/completions',
-                'llm.model_name' = 'deepseek-chat'
+                'type' = 'ai',
+                'ai.provider_type' = 'deepseek',
+                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                'ai.model_name' = 'deepseek-chat'
             );"""
-        exception "Missing [llm.api_key] in properties for provider: DEEPSEEK"
+        exception "Missing [ai.api_key] in properties for provider: DEEPSEEK"
     }
 
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
-                'type' = 'llm',
-                'llm.provider_type' = 'deepseek',
-                'llm.endpoint' = 'https://api.deepseek.com/chat/completions',
-                'llm.model_name' = 'deepseek-chat',
-                'llm.api_key' = 'sk-xxx',
-                'llm.temperature' = '0.7',
-                'llm.max_token' = '1024',
-                'llm.max_retries' = '3',
-                'llm.retry_delay_second' = '1',
-                'llm.validity_check' = 'false'
+                'type' = 'ai',
+                'ai.provider_type' = 'deepseek',
+                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                'ai.model_name' = 'deepseek-chat',
+                'ai.api_key' = 'sk-xxx',
+                'ai.temperature' = '0.7',
+                'ai.max_token' = '1024',
+                'ai.max_retries' = '3',
+                'ai.retry_delay_second' = '1',
+                'ai.validity_check' = 'false'
             );"""
     def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""
     assertTrue(res.size() > 0)

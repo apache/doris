@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_llm_functions") {
-    String resourceName = 'test_llm_functions_resource'
-    String summarize_query = "SELECT LLM_SUMMARIZE('this is a test');"
-    String sentiment_query = "SELECT LLM_SENTIMENT('this is a test');"
+suite("test_ai_functions") {
+    String resourceName = 'test_ai_functions_resource'
+    String summarize_query = "SELECT AI_SUMMARIZE('this is a test');"
+    String sentiment_query = "SELECT AI_SENTIMENT('this is a test');"
 
     //cloud-mode
     if (isCloudMode()) {
@@ -29,16 +29,16 @@ suite("test_llm_functions") {
     try_sql("""DROP RESOURCE '${resourceName}'""")
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
-                'type' = 'llm',
-                'llm.provider_type' = 'deepseek',
-                'llm.endpoint' = 'https://api.deepseek.com/chat/completions',
-                'llm.model_name' = 'deepseek-chat',
-                'llm.api_key' = 'sk-xxx',
-                'llm.temperature' = '0.7',
-                'llm.max_token' = '1024',
-                'llm.max_retries' = '2',
-                'llm.retry_delay_second' = '3',
-                'llm.validity_check' = 'false'
+                'type' = 'ai',
+                'ai.provider_type' = 'deepseek',
+                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                'ai.model_name' = 'deepseek-chat',
+                'ai.api_key' = 'sk-xxx',
+                'ai.temperature' = '0.7',
+                'ai.max_token' = '1024',
+                'ai.max_retries' = '2',
+                'ai.retry_delay_second' = '3',
+                'ai.validity_check' = 'false'
             );"""
     
     def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""
@@ -46,15 +46,15 @@ suite("test_llm_functions") {
 
     test {
         sql """${summarize_query}"""
-        exception "Can not build function: 'LLM_SUMMARIZE', expression: LLM_SUMMARIZE('this is a test'), Please specify the LLM Resource in argument or session variable."
+        exception "Can not build function: 'AI_SUMMARIZE', expression: AI_SUMMARIZE('this is a test'), Please specify the AI Resource in argument or session variable."
 
     }
 
-    String test_table_for_llm_functions = "test_table_for_llm_functions"
-    String query_with_not_const_resource = "SELECT LLM_TRANSLATE(resource_name, text, tar_lag) FROM ${test_table_for_llm_functions};"
+    String test_table_for_ai_functions = "test_table_for_ai_functions"
+    String query_with_not_const_resource = "SELECT AI_TRANSLATE(resource_name, text, tar_lag) FROM ${test_table_for_ai_functions};"
 
-    try_sql("""DROP TABLE IF EXISTS ${test_table_for_llm_functions}""")
-    sql """CREATE TABLE IF NOT EXISTS ${test_table_for_llm_functions} (
+    try_sql("""DROP TABLE IF EXISTS ${test_table_for_ai_functions}""")
+    sql """CREATE TABLE IF NOT EXISTS ${test_table_for_ai_functions} (
             resource_name VARCHAR(100),
             text VARCHAR(100),
             tar_lag VARCHAR(100),
@@ -64,34 +64,34 @@ suite("test_llm_functions") {
         DISTRIBUTED BY HASH(resource_name) BUCKETS 1
         PROPERTIES("replication_num" = "1");"""
 
-    sql """INSERT INTO ${test_table_for_llm_functions}(resource_name, text, tar_lag, label)
+    sql """INSERT INTO ${test_table_for_ai_functions}(resource_name, text, tar_lag, label)
             VALUES ('${resourceName}', 'this is a test', 'zh-CN', ['label']),
             ('${resourceName}', NULL, 'zh-CN', NULL);"""
 
-    // the llm resource must be literal
+    // the ai resource must be literal
     test {
         sql """${query_with_not_const_resource}"""
-        exception "LLM Function must accept literal for the resource name."
+        exception "AI Function must accept literal for the resource name."
     }
 
-    // for llm_agg, the task(third arg) must be literal
+    // for AI_agg, the task(third arg) must be literal
     test {
-        sql """SELECT LLM_AGG('${resourceName}', text, tar_lag) FROM ${test_table_for_llm_functions};"""
-        exception "LLM_AGG must accept literal for the task."
+        sql """SELECT AI_AGG('${resourceName}', text, tar_lag) FROM ${test_table_for_AI_functions};"""
+        exception "AI_AGG must accept literal for the task."
     }
 
     // Test for normal call
     // test the default resource
     try {
         sql """set query_timeout=2;"""
-        sql """set default_llm_resource='${resourceName}';"""
+        sql """set default_ai_resource='${resourceName}';"""
         test {
             sql """${sentiment_query}"""
             exception "timeout when waiting for send fragments rpc, query timeout:2"
         }
     } finally {
         sql """UNSET VARIABLE query_timeout;"""
-        sql """UNSET VARIABLE default_llm_resource;"""
+        sql """UNSET VARIABLE default_ai_resource;"""
     }
 
     def test_query_timeout_exception = { sql_text ->
@@ -106,36 +106,36 @@ suite("test_llm_functions") {
         }
     }
 
-    test_query_timeout_exception("SELECT LLM_TRANSLATE('${resourceName}', text, 'zh-CN') FROM ${test_table_for_llm_functions};")
-    test_query_timeout_exception("SELECT LLM_CLASSIFY('${resourceName}', text, label) FROM ${test_table_for_llm_functions};")
-    test_query_timeout_exception("SELECT LLM_EXTRACT('${resourceName}', 'this is a test', ['task']) FROM ${test_table_for_llm_functions};")
-    test_query_timeout_exception("SELECT LLM_FIXGRAMMAR('${resourceName}', text) FROM ${test_table_for_llm_functions};")
-    test_query_timeout_exception("SELECT LLM_GENERATE('${resourceName}', 'generate something');")
-    test_query_timeout_exception("SELECT LLM_SUMMARIZE('${resourceName}', 'test,test,test,test')")
-    test_query_timeout_exception("SELECT LLM_SENTIMENT('${resourceName}', 'this is a test');")
-    test_query_timeout_exception("SELECT LLM_MASK('${resourceName}', 'this is a test', label) FROM ${test_table_for_llm_functions};")
-    test_query_timeout_exception("SELECT LLM_FILTER('${resourceName}', text) FROM ${test_table_for_llm_functions};")
-    test_query_timeout_exception("SELECT LLM_SIMILARITY('${resourceName}', 'this is a similarity test', text) FROM ${test_table_for_llm_functions};")
-    test_query_timeout_exception("SELECT LLM_AGG('${resourceName}', text, 'this is a test') FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT AI_TRANSLATE('${resourceName}', text, 'zh-CN') FROM ${test_table_for_ai_functions};")
+    test_query_timeout_exception("SELECT AI_CLASSIFY('${resourceName}', text, label) FROM ${test_table_for_ai_functions};")
+    test_query_timeout_exception("SELECT AI_EXTRACT('${resourceName}', 'this is a test', ['task']) FROM ${test_table_for_ai_functions};")
+    test_query_timeout_exception("SELECT AI_FIXGRAMMAR('${resourceName}', text) FROM ${test_table_for_ai_functions};")
+    test_query_timeout_exception("SELECT AI_GENERATE('${resourceName}', 'generate something');")
+    test_query_timeout_exception("SELECT AI_SUMMARIZE('${resourceName}', 'test,test,test,test')")
+    test_query_timeout_exception("SELECT AI_SENTIMENT('${resourceName}', 'this is a test');")
+    test_query_timeout_exception("SELECT AI_MASK('${resourceName}', 'this is a test', label) FROM ${test_table_for_ai_functions};")
+    test_query_timeout_exception("SELECT AI_FILTER('${resourceName}', text) FROM ${test_table_for_ai_functions};")
+    test_query_timeout_exception("SELECT AI_SIMILARITY('${resourceName}', 'this is a similarity test', text) FROM ${test_table_for_ai_functions};")
+    test_query_timeout_exception("SELECT AI_AGG('${resourceName}', text, 'this is a test') FROM ${test_table_for_llm_functions};")
 
     String embedResourceName = "embedResourceName"
     try_sql("""DROP RESOURCE IF EXISTS '${embedResourceName}'""")
     sql """CREATE RESOURCE 'embedResourceName'
             PROPERTIES (
-            'type'='llm',
-            'llm.provider_type'='qwen',
-            'llm.endpoint'='https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings',
-            'llm.model_name' = 'text-embedding-v4',
-            'llm.api_key' = 'sk-xxxx',
-            'llm.dimensions' = '1024'
+            'type'='ai',
+            'ai.provider_type'='qwen',
+            'ai.endpoint'='https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings',
+            'ai.model_name' = 'text-embedding-v4',
+            'ai.api_key' = 'sk-xxxx',
+            'ai.dimensions' = '1024'
         );"""
     
     res = sql """SHOW RESOURCES WHERE NAME = '${embedResourceName}'"""
     assertTrue(res.size() > 0)
 
-    test_query_timeout_exception("SELECT EMBED('${embedResourceName}', text) FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT EMBED('${embedResourceName}', text) FROM ${test_table_for_ai_functions};")
 
-    try_sql("""DROP TABLE IF EXISTS ${test_table_for_llm_functions}""")
+    try_sql("""DROP TABLE IF EXISTS ${test_table_for_ai_functions}""")
     try_sql("""DROP RESOURCE IF EXISTS '${resourceName}'""")
     try_sql("""DROP RESOURCE IF EXISTS '${embedResourceName}'""")
 }

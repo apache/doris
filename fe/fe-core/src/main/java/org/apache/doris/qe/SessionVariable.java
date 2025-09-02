@@ -794,7 +794,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
-    public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
+    public static final String DEFAULT_AI_RESOURCE = "default_ai_resource";
     public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
@@ -2816,13 +2816,13 @@ public class SessionVariable implements Serializable, Writable {
     }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
     public int skewRewriteJoinSaltExplodeFactor = 0;
 
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_RESOURCE, needForward = true,
+    @VariableMgr.VarAttr(name = DEFAULT_AI_RESOURCE, needForward = true,
             description = {
-                    "当函数参数未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
-                    "Defines the default LLM resource to be used when no specific LLM resource is specified "
+                    "当函数参数未指定AI Resource时，系统将默认使用此变量定义的 Resource。",
+                    "Defines the default AI resource to be used when no specific AI resource is specified "
                             + "in the function arguments."
             })
-    public String defaultLLMResource = "";
+    public String defaultAIResource = "";
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
