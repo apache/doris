@@ -354,6 +354,11 @@ TxnErrorCode MetaReader::get_tablet_merged_stats(Transaction* txn, int64_t table
         tablet_stats->set_data_size(load_stats.data_size() + compact_stats.data_size());
         tablet_stats->set_index_size(load_stats.index_size() + compact_stats.index_size());
         tablet_stats->set_segment_size(load_stats.segment_size() + compact_stats.segment_size());
+        if (load_stats.has_idx()) {
+            tablet_stats->mutable_idx()->CopyFrom(load_stats.idx());
+        } else if (compact_stats.has_idx()) {
+            tablet_stats->mutable_idx()->CopyFrom(compact_stats.idx());
+        }
     }
     Versionstamp read_version = std::min(load_version, compact_version);
     if (versionstamp) {

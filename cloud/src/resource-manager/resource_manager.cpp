@@ -117,6 +117,9 @@ int ResourceManager::init() {
         for (auto& c : inst.clusters()) {
             add_cluster_to_index_no_lock(inst_id, c);
         }
+        if (inst.has_multi_version_status()) {
+            instance_multi_version_status_[inst_id] = inst.multi_version_status();
+        }
     }
 
     return 0;
