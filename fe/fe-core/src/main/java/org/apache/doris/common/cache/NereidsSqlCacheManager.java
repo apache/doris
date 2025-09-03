@@ -250,9 +250,13 @@ public class NereidsSqlCacheManager {
         Optional<LogicalSqlCache> logicalSqlCache = tryParseSql(connectContext, key, sqlCacheContext,
                 currentUserIdentity, checkUserVariable);
         if (logicalSqlCache.isPresent()) {
-            MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
+            }
         } else {
-            MetricRepo.COUNTER_SQL_CACHE_NOT_HIT.increase(1L);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_SQL_CACHE_NOT_HIT.increase(1L);
+            }
         }
         return logicalSqlCache;
     }
