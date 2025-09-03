@@ -20,6 +20,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include "common/status.h"
+#include "io/fs/file_meta_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/profile_collector.h"
