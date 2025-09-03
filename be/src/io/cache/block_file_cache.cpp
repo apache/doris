@@ -596,6 +596,12 @@ std::string BlockFileCache::clear_file_cache_async() {
             if (!cell->releasable()) {
                 LOG(INFO) << "cell is not releasable, hash="
                           << " offset=" << cell->file_block->offset();
+                // LOG(INFO) << "dx fuck debug file_block: " << cell->file_block->range().to_string()
+                //           << "hash: " << cell->file_block->get_hash_value().to_string()
+                //           << ", offset: " << cell->file_block->offset()
+                //           << ", size: " << cell->file_block->range().size()
+                //           << " use_count: " << cell->file_block.use_count()
+                //           << ", stack_trace: " << get_stack_trace();
                 cell->file_block->set_deleting();
                 ++num_cells_wait_recycle;
                 continue;
@@ -837,6 +843,12 @@ size_t BlockFileCache::try_release() {
             if (cell.releasable()) {
                 trash.emplace_back(&cell);
             } else {
+                // LOG(INFO) << "dx fuck debug file_block: " << cell.file_block->range().to_string()
+                //           << "hash: " << cell.file_block->get_hash_value().to_string()
+                //           << ", offset: " << cell.file_block->offset()
+                //           << ", size: " << cell.file_block->range().size()
+                //           << " use_count: " << cell.file_block.use_count()
+                //           << ", stack_trace: " << get_stack_trace();
                 cell.file_block->set_deleting();
             }
         }
@@ -1125,6 +1137,12 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
                     if (cell.releasable()) {
                         to_remove.push_back(&cell);
                     } else {
+                        // LOG(INFO) << "dx fuck debug file_block: " << cell.file_block->range().to_string()
+                        //           << "hash: " << cell.file_block->get_hash_value().to_string()
+                        //           << ", offset: " << cell.file_block->offset()
+                        //           << ", size: " << cell.file_block->range().size()
+                        //           << " use_count: " << cell.file_block.use_count()
+                        //           << ", stack_trace: " << get_stack_trace();
                         cell.file_block->set_deleting();
                     }
                 }
@@ -1164,6 +1182,12 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
                 if (cell.releasable()) {
                     to_remove.push_back(&cell);
                 } else {
+                    // LOG(INFO) << "dx fuck debug file_block: " << cell.file_block->range().to_string()
+                    //           << "hash: " << cell.file_block->get_hash_value().to_string()
+                    //           << ", offset: " << cell.file_block->offset()
+                    //           << ", size: " << cell.file_block->range().size()
+                    //           << " use_count: " << cell.file_block.use_count()
+                    //           << ", stack_trace: " << get_stack_trace();
                     cell.file_block->set_deleting();
                 }
             }
@@ -1188,6 +1212,12 @@ void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
                 if (cell.releasable()) {
                     to_remove.push_back(&cell);
                 } else {
+                    // LOG(INFO) << "dx fuck debug file_block: " << cell.file_block->range().to_string()
+                    //           << "hash: " << cell.file_block->get_hash_value().to_string()
+                    //           << ", offset: " << cell.file_block->offset()
+                    //           << ", size: " << cell.file_block->range().size()
+                    //           << " use_count: " << cell.file_block.use_count()
+                    //           << ", stack_trace: " << get_stack_trace();
                     cell.file_block->set_deleting();
                 }
             }
@@ -1394,6 +1424,9 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto offset = file_block->offset();
     auto type = file_block->cache_type();
     auto expiration_time = file_block->expiration_time();
+    LOG(INFO) << "dx fuck debug remove file_block: " << hash.to_string() << ", offset: " << offset
+              << ", type: " << type << ", expiration_time: " << expiration_time
+              << ", sync: " << sync << ", stack_trace: " << get_stack_trace();
     auto* cell = get_cell(hash, offset, cache_lock);
     DCHECK(cell);
     DCHECK(cell->queue_iterator);
@@ -1447,6 +1480,12 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         }
     } else if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADING) {
         file_block->set_deleting();
+        // LOG(INFO) << "dx fuck debug file_block: " << file_block->range().to_string()
+        //           << "hash: " << file_block->get_hash_value().to_string()
+        //           << ", offset: " << file_block->offset()
+        //           << ", size: " << file_block->range().size()
+        //           << " use_count: " << file_block.use_count()
+        //           << ", stack_trace: " << get_stack_trace();
         return;
     }
     _cur_cache_size -= file_block->range().size();
@@ -1718,6 +1757,13 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
                     auto* cell = get_cell(entry_key, entry_offset, cache_lock);
                     if (!cell->releasable()) {
                         cell->file_block->set_deleting();
+                        // LOG(INFO) << "dx fuck debug file_block: "
+                        //           << "hash: " << cell->file_block->get_hash_value().to_string()
+                        //           << ", offset: " << cell->file_block->offset()
+                        //           << ", size: " << cell->file_block->range().size()
+                        //           << cell->file_block->range().to_string()
+                        //           << " use_count: " << cell->file_block.use_count()
+                        //           << ", stack_trace: " << get_stack_trace();
                         continue;
                     }
                     to_evict.push_back(cell);

@@ -69,6 +69,10 @@ bvar::PerSecond<bvar::Adder<uint64_t>> peer_get_request_qps("peer_file_reader", 
                                                             &peer_file_reader_read_counter);
 bvar::Adder<uint64_t> peer_bytes_read_total("peer_file_reader", "bytes_read");
 
+bvar::PerSecond<bvar::Adder<uint64_t>> peer_read_througthput("peer_file_reader",
+                                                             "peer_read_throughput",
+                                                             &peer_bytes_read_total);
+
 // Controller to race two fetchers (e.g., S3 vs peer BE) and signal on first success
 struct FetchRangeCntl : std::enable_shared_from_this<FetchRangeCntl> {
     using TaskFn = std::function<void(std::shared_ptr<FetchRangeCntl>)>;

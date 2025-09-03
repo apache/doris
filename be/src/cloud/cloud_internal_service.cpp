@@ -162,7 +162,7 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
         // Multiple specific blocks
         auto hash = io::BlockFileCache::hash(path);
         auto* cache = io::FileCacheFactory::instance()->get_by_path(hash);
-        LOG(INFO) << "dx debug path=" << path << " hash=" << hash.to_string();
+        // LOG(INFO) << "dx debug path=" << path << " hash=" << hash.to_string();
         if (cache == nullptr) {
             g_file_cache_get_by_peer_failed_num << 1;
             response->mutable_status()->add_error_msgs("can't get file cache instance");
@@ -174,15 +174,15 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
         io::ReadStatistics local_stats;
         ctx.stats = &local_stats;
         for (const auto& cb_req : request->cache_req()) {
-            LOG(INFO) << "dx debug path=" << path << " offset=" << cb_req.block_offset()
-                      << " size=" << cb_req.block_size();
+            // LOG(INFO) << "dx debug path=" << path << " offset=" << cb_req.block_offset()
+            //           << " size=" << cb_req.block_size();
             size_t offset = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_offset()));
             size_t size = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_size()));
             auto holder = cache->get_or_set(hash, offset, size, ctx);
             for (auto& fb : holder.file_blocks) {
                 g_file_cache_get_by_peer_blocks_num << 1;
-                LOG(INFO) << "dx debug fb path=" << path << " offset=" << fb->offset()
-                          << " size=" << fb->range().size();
+                // LOG(INFO) << "dx debug fb path=" << path << " offset=" << fb->offset()
+                //           << " size=" << fb->range().size();
                 doris::CacheBlock* out = response->add_datas();
                 out->set_block_offset(static_cast<int64_t>(fb->offset()));
                 out->set_block_size(static_cast<int64_t>(fb->range().size()));

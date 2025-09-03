@@ -290,6 +290,14 @@ FileBlocksHolder::~FileBlocksHolder() {
             {
                 std::lock_guard block_lock(file_block->_mutex);
                 file_block->complete_unlocked(block_lock);
+                // LOG(INFO) << "dx fuck debug file_block: " << file_block->range().to_string()
+                //           << "hash: " << file_block->get_hash_value().to_string()
+                //           << ", offset: " << file_block->offset()
+                //           << ", size: " << file_block->range().size()
+                //           << ", state_unlock: " << file_block->state_unlock(block_lock)
+                //           << ", is_deleting: " << file_block->is_deleting()
+                //           << " use_count: " << file_block.use_count()
+                //           << ", stack_trace: " << get_stack_trace();
                 if (file_block.use_count() == 2 &&
                     (file_block->is_deleting() ||
                      file_block->state_unlock(block_lock) == FileBlock::State::EMPTY)) {
