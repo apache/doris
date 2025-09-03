@@ -1860,65 +1860,6 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_intervals(const std::str
     return std::make_pair(MetaServiceCode::OK, "");
 }
 
-std::pair<MetaServiceCode, std::string> handle_version_keys(const std::string& instance_id,
-                                                            const std::string& key,
-                                                            const std::string& value,
-                                                            InstanceInfoPB* instance) {
-    if (value != "write_multi" && value != "read_multi" && value != "disable_single") {
-        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
-                              "Invalid value for version_keys, expected 'write_multi', "
-                              "'read_multi', or 'disable_single', got: " +
-                                      value + ", instance_id: " + instance_id);
-    }
-
-    MultiVersionStatus current_status = instance->multi_version_status();
-
-    if (value == "write_multi") {
-        if (current_status == MULTI_VERSION_DISABLED) {
-            instance->set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
-        } else if (current_status == MULTI_VERSION_WRITE_ONLY) {
-            return std::make_pair(
-                    MetaServiceCode::INVALID_ARGUMENT,
-                    "Multi-version is already set to WRITE_ONLY, instance_id: " + instance_id);
-        } else {
-            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
-                                  "Invalid state transition for write_multi, current status: " +
-                                          std::to_string(current_status) +
-                                          ", instance_id: " + instance_id);
-        }
-    } else if (value == "read_multi") {
-        if (current_status == MULTI_VERSION_WRITE_ONLY) {
-            instance->set_multi_version_status(MULTI_VERSION_READ_WRITE);
-        } else if (current_status == MULTI_VERSION_READ_WRITE) {
-            return std::make_pair(
-                    MetaServiceCode::INVALID_ARGUMENT,
-                    "Multi-version is already set to READ_WRITE, instance_id: " + instance_id);
-        } else {
-            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
-                                  "Invalid state transition for read_multi, current status: " +
-                                          std::to_string(current_status) +
-                                          ", instance_id: " + instance_id);
-        }
-    } else if (value == "disable_single") {
-        if (current_status == MULTI_VERSION_READ_WRITE) {
-            instance->set_multi_version_status(MULTI_VERSION_ENABLED);
-        } else if (current_status == MULTI_VERSION_ENABLED) {
-            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
-                                  "Multi-version is already ENABLED, instance_id: " + instance_id);
-        } else {
-            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
-                                  "Invalid state transition for disable_single, current status: " +
-                                          std::to_string(current_status) +
-                                          ", instance_id: " + instance_id);
-        }
-    }
-
-    std::string msg = "Set version_keys to " + value + " for instance " + instance_id;
-    LOG(INFO) << msg;
-
-    return std::make_pair(MetaServiceCode::OK, "");
-}
-
 void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller,
                                      const AlterInstanceRequest* request,
                                      AlterInstanceResponse* response,
@@ -2121,12 +2062,6 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
      * - "snapshot_intervals": numeric string (60-max)
      *   Sets the snapshot creation interval in seconds (minimum 60s)
      *   
-     * - "VERSION_KEYS": "write_multi" | "read_multi" | "disable_single"
-     *   Configures version key handling strategy:
-     *   * write_multi: Enable multiple write operations
-     *   * read_multi: Enable multiple read operations  
-     *   * disable_single: Disable single operation mode
-     *
      * Each property is validated by its respective handler function which ensures
      * the provided values conform to the expected format and constraints.
      */
@@ -2153,8 +2088,6 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                 } else if (key == "snapshot_intervals") {
                     result =
                             handle_snapshot_intervals(request->instance_id(), key, value, instance);
-                } else if (key == "version_keys") {
-                    result = handle_version_keys(request->instance_id(), key, value, instance);
                 } else {
                     msg = "unsupported property: " + key;
                     LOG(WARNING) << msg;
