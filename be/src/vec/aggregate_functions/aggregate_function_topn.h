@@ -332,7 +332,9 @@ public:
 
 //topn function return string
 template <typename Impl>
-class AggregateFunctionTopN final : public AggregateFunctionTopNBase<Impl> {
+class AggregateFunctionTopN final : public AggregateFunctionTopNBase<Impl>,
+                                    MultiExpression,
+                                    NullableAggregateFunction {
 public:
     AggregateFunctionTopN(const DataTypes& argument_types_)
             : AggregateFunctionTopNBase<Impl>(argument_types_) {}
@@ -349,7 +351,9 @@ public:
 
 //topn function return array
 template <typename Impl>
-class AggregateFunctionTopNArray final : public AggregateFunctionTopNBase<Impl> {
+class AggregateFunctionTopNArray final : public AggregateFunctionTopNBase<Impl>,
+                                         MultiExpression,
+                                         NullableAggregateFunction {
 public:
     AggregateFunctionTopNArray(const DataTypes& argument_types_)
             : AggregateFunctionTopNBase<Impl>(argument_types_),

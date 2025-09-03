@@ -33,9 +33,10 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.ConnectContext;
 
@@ -131,10 +132,10 @@ public class MTMVUtil {
         Expression strToDate = DateTimeExtractAndTransform
                 .strToDate(new VarcharLiteral(expr.getStringValue()), new VarcharLiteral(dateFormat));
         if (strToDate instanceof DateTimeV2Literal) {
-            return ((IntegerLiteral) DateTimeExtractAndTransform
-                    .unixTimestamp((DateTimeV2Literal) strToDate)).getValue();
+            return ((DecimalV3Literal) DateTimeExtractAndTransform
+                    .unixTimestamp((DateTimeV2Literal) strToDate)).getValue().longValue();
         } else if (strToDate instanceof DateV2Literal) {
-            return ((IntegerLiteral) DateTimeExtractAndTransform
+            return ((BigIntLiteral) DateTimeExtractAndTransform
                     .unixTimestamp((DateV2Literal) strToDate)).getValue();
         } else {
             throw new AnalysisException(

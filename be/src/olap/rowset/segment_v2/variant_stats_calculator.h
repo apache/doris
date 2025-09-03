@@ -36,7 +36,7 @@ public:
 
 private:
     // Map from column path to footer column index for fast lookup
-    std::unordered_map<int32_t, std::unordered_map<std::string, size_t>> _path_to_footer_index;
+    std::unordered_map<int32_t, std::unordered_map<std::string, int>> _path_to_footer_index;
 
     // Reference to the footer where we store the statistics
     SegmentFooterPB* _footer;

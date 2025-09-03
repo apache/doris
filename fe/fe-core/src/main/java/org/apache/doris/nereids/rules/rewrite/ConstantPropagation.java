@@ -230,6 +230,8 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         // Then after rewrite the combine conjuncts, we need split the rewritten expression into hash/other/mark
         // join conjuncts. But we can not extract the mark join conjuncts from the rewritten expression.
         // So we only combine the hash conjuncts and other conjuncts.
+        // update: BE not support nested loop mark join, so mark join condition need to be an equation,
+        // but constant propagation may rewrite an equal to TRUE/FALSE/NULL, so we don't rewrite mark join condition.
         join = visitChildren(this, join, context);
 
         List<Expression> newHashJoinConjuncts = join.getHashJoinConjuncts();
@@ -266,23 +268,8 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
             }
         }
 
-        List<Expression> newMarkJoinConjuncts = join.getMarkJoinConjuncts();
-        if (!join.getMarkJoinConjuncts().isEmpty()) {
-            // TODO: we may extract more constant relations from hash conjuncts,
-            //       then we may make mark join conjuncts more simplify.
-            // mark join conjuncts may rewrite to hash join conjuncts and join convert to null aware anti join.
-            // we don't replaced NULL with FALSE in mark join conjuncts, so let useInnerInfer = false.
-            Expression oldMarkPredicate = ExpressionUtils.and(join.getMarkJoinConjuncts());
-            Expression newMarkPredicate = replaceConstantsAndRewriteExpr(join, oldMarkPredicate, false, context);
-            newMarkJoinConjuncts = ExpressionUtils.extractConjunction(newMarkPredicate);
-            if (Sets.newHashSet(newMarkJoinConjuncts).equals(Sets.newHashSet(join.getMarkJoinConjuncts()))) {
-                newMarkJoinConjuncts = join.getMarkJoinConjuncts();
-            }
-        }
-
         if (newHashJoinConjuncts.equals(join.getHashJoinConjuncts())
-                && newOtherJoinConjuncts.equals(join.getOtherJoinConjuncts())
-                && newMarkJoinConjuncts.equals(join.getMarkJoinConjuncts())) {
+                && newOtherJoinConjuncts.equals(join.getOtherJoinConjuncts())) {
             return join;
         }
 
@@ -294,7 +281,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         return new LogicalJoin<>(joinType,
                 newHashJoinConjuncts,
                 newOtherJoinConjuncts,
-                newMarkJoinConjuncts,
+                join.getMarkJoinConjuncts(),
                 join.getDistributeHint(),
                 join.getMarkJoinSlotReference(),
                 join.children(), join.getJoinReorderContext());
@@ -387,7 +374,8 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
             return replaceOrConstants((Or) expression, useInnerInfer, context, parentEqualSet, parentConstants);
         } else if (!parentConstants.isEmpty()
                 && expression.anyMatch(e -> e instanceof Slot && parentConstants.containsKey(e))) {
-            Expression newExpr = ExpressionUtils.replaceIf(expression, parentConstants, this::canReplaceExpression);
+            Expression newExpr = ExpressionUtils.replaceIf(
+                    expression, parentConstants, this::canReplaceExpression, true);
             if (!newExpr.equals(expression)) {
                 newExpr = FoldConstantRule.evaluate(newExpr, context);
             }

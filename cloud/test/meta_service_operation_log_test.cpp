@@ -1491,4 +1491,1398 @@ TEST(MetaServiceOperationLogTest, UpdateVersionedTabletMeta) {
     EXPECT_EQ(versionstamp2, log_versionstamp);
 }
 
+TEST(MetaServiceOperationLogTest, CompactionLog) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "compaction_log_test";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 20001;
+    constexpr int64_t index_id = 20002;
+    constexpr int64_t partition_id = 20003;
+    constexpr int64_t tablet_id = 20004;
+
+    {
+        // write instance
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    {
+        // Create tablet first
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+    }
+
+    // Create input rowsets for compaction (versions 2-4)
+    std::vector<doris::RowsetMetaCloudPB> input_rowsets;
+    auto txn_kv = meta_service->txn_kv();
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int i = 0; i < 3; ++i) {
+            auto rowset = create_rowset(i + 100, tablet_id, partition_id, i + 2, 50 * (i + 1));
+            input_rowsets.push_back(rowset);
+
+            // Put rowset directly to meta storage
+            auto rowset_key = meta_rowset_key({instance_id, tablet_id, rowset.end_version()});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Create output rowset as tmp rowset
+    constexpr int64_t txn_id = 30001;
+    constexpr int64_t output_start_version = 2;
+    constexpr int64_t output_end_version = 4;
+    auto output_rowset = create_rowset(200, tablet_id, partition_id, output_start_version, 100);
+    output_rowset.set_end_version(output_end_version); // Set end version to create 2-4 range
+    output_rowset.set_txn_id(txn_id);
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Put tmp rowset
+        auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        auto tmp_rowset_val = output_rowset.SerializeAsString();
+        txn->put(tmp_rowset_key, tmp_rowset_val);
+
+        // Create initial tablet stats
+        TabletStatsPB initial_stats;
+        initial_stats.set_num_rows(150);
+        initial_stats.set_data_size(150 * 50);
+        initial_stats.set_num_rowsets(3);
+        initial_stats.set_num_segments(3);
+        initial_stats.set_index_size(100);
+        initial_stats.set_segment_size(200);
+        initial_stats.set_cumulative_point(1);
+
+        auto stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        auto stats_val = initial_stats.SerializeAsString();
+        txn->put(stats_key, stats_val);
+
+        // Create tablet compact stats for versioned storage
+        initial_stats.set_num_rows(-150);
+        initial_stats.set_data_size(-150 * 50);
+        initial_stats.set_num_rowsets(-3);
+        initial_stats.set_num_segments(-3);
+        initial_stats.set_index_size(-100);
+        initial_stats.set_segment_size(-200);
+        initial_stats.set_cumulative_point(1);
+        auto tablet_compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        auto tablet_compact_stats_val = initial_stats.SerializeAsString();
+        versioned_put(txn.get(), tablet_compact_stats_key, tablet_compact_stats_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Start compaction job first
+    const std::string job_id = "test_compaction_job";
+    const std::string initiator = "test_be";
+
+    {
+        brpc::Controller cntl;
+        StartTabletJobRequest req;
+        StartTabletJobResponse res;
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator(initiator);
+        compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+        compaction->set_base_compaction_cnt(0);
+        compaction->set_cumulative_compaction_cnt(0);
+        compaction->add_input_versions(2);
+        compaction->add_input_versions(4);
+        long now = time(nullptr);
+        compaction->set_expiration(now + 12);
+        compaction->set_lease(now + 3);
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    size_t num_logs_before = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                         versioned::log_key(instance_id) + "\xFF");
+
+    // Now use real finish_tablet_job to trigger process_compaction_job
+    {
+        brpc::Controller cntl;
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        req.set_action(FinishTabletJobRequest::COMMIT);
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator(initiator);
+        compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+
+        // Input versions and rowsets
+        compaction->add_input_versions(2);
+        compaction->add_input_versions(4);
+
+        // Output information
+        compaction->add_txn_id(txn_id);
+        compaction->add_output_versions(output_end_version);
+        compaction->add_output_rowset_ids(output_rowset.rowset_id_v2());
+        compaction->set_output_cumulative_point(5);
+
+        // Compaction stats for updating tablet stats
+        compaction->set_size_input_rowsets(150 * 50); // Size of input rowsets
+        compaction->set_index_size_input_rowsets(100);
+        compaction->set_segment_size_input_rowsets(200);
+        compaction->set_num_input_rows(150);
+        compaction->set_num_input_rowsets(3);
+        compaction->set_num_input_segments(3);
+
+        compaction->set_size_output_rowsets(100 * 50); // Size of output rowset
+        compaction->set_index_size_output_rowsets(50);
+        compaction->set_segment_size_output_rowsets(100);
+        compaction->set_num_output_rows(100);
+        compaction->set_num_output_rowsets(1);
+        compaction->set_num_output_segments(1);
+
+        // This will trigger process_compaction_job internally
+        meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify that operation log was created
+    size_t num_logs_after = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                        versioned::log_key(instance_id) + "\xFF");
+    ASSERT_GT(num_logs_after, num_logs_before)
+            << "Expected new compaction operation log, but found no new logs";
+
+    Versionstamp log_version;
+    {
+        // Verify compaction operation log content
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string log_key = versioned::log_key({instance_id});
+        std::string value;
+        ASSERT_EQ(versioned_get(txn.get(), log_key, &log_version, &value), TxnErrorCode::TXN_OK);
+
+        OperationLogPB operation_log;
+        ASSERT_TRUE(operation_log.ParseFromString(value));
+        ASSERT_TRUE(operation_log.has_compaction());
+
+        const auto& compaction_log = operation_log.compaction();
+        ASSERT_EQ(compaction_log.tablet_id(), tablet_id);
+        ASSERT_EQ(compaction_log.start_version(), 2);
+        ASSERT_EQ(compaction_log.end_version(), 4);
+        ASSERT_EQ(compaction_log.recycle_rowsets_size(), 3);
+
+        // Verify recycle rowsets content - these should be the input rowsets marked for recycling
+        for (int i = 0; i < compaction_log.recycle_rowsets_size(); ++i) {
+            const auto& recycle_rowset = compaction_log.recycle_rowsets(i);
+            ASSERT_EQ(recycle_rowset.type(), RecycleRowsetPB::COMPACT);
+            ASSERT_EQ(recycle_rowset.rowset_meta().tablet_id(), tablet_id);
+            ASSERT_EQ(recycle_rowset.rowset_meta().partition_id(), partition_id);
+            ASSERT_GT(recycle_rowset.creation_time(), 0);
+
+            // Verify this matches one of our input rowsets
+            bool found_matching_rowset = false;
+            for (const auto& input_rowset : input_rowsets) {
+                if (recycle_rowset.rowset_meta().rowset_id_v2() == input_rowset.rowset_id_v2()) {
+                    found_matching_rowset = true;
+                    ASSERT_EQ(recycle_rowset.rowset_meta().start_version(),
+                              input_rowset.start_version());
+                    ASSERT_EQ(recycle_rowset.rowset_meta().end_version(),
+                              input_rowset.end_version());
+                    break;
+                }
+            }
+            ASSERT_TRUE(found_matching_rowset) << "Recycle rowset should match an input rowset";
+        }
+    }
+
+    // Verify tablet compact stats were updated
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string tablet_compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        std::string tablet_compact_stats_value;
+        Versionstamp* versionstamp = nullptr;
+        ASSERT_EQ(versioned_get(txn.get(), tablet_compact_stats_key, versionstamp,
+                                &tablet_compact_stats_value),
+                  TxnErrorCode::TXN_OK);
+
+        TabletStatsPB compact_stats;
+        ASSERT_TRUE(compact_stats.ParseFromString(tablet_compact_stats_value));
+        ASSERT_EQ(compact_stats.cumulative_compaction_cnt(), 1);
+        ASSERT_EQ(compact_stats.cumulative_point(), 5);
+        ASSERT_GT(compact_stats.last_cumu_compaction_time_ms(), 0);
+        // Check that rowset count decreased: 3 input -> 1 output = -2
+        ASSERT_EQ(compact_stats.num_rowsets(), -5);    // - 3 - 3 + 1 = -5
+        ASSERT_EQ(compact_stats.data_size(), -10000);  // - 7500 - 7500 + 5000 = -10000
+        ASSERT_EQ(compact_stats.num_rows(), -200);     // - 150 - 150 + 100 = -200
+        ASSERT_EQ(compact_stats.num_segments(), -5);   // - 3 - 3 + 1 = -5
+        ASSERT_EQ(compact_stats.index_size(), -150);   // - 200 - 200 + 50 = -150
+        ASSERT_EQ(compact_stats.segment_size(), -300); // - 200 - 200 + 100 = -300
+    }
+
+    // Verify input rowsets were removed and output rowset was created correctly
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // All original input rowsets (versions 2, 3, 4) should be deleted
+        for (const auto& rowset : input_rowsets) {
+            if (rowset.end_version() < 4) {
+                auto rowset_key = meta_rowset_key({instance_id, tablet_id, rowset.end_version()});
+                std::string rowset_value;
+                auto result = txn->get(rowset_key, &rowset_value);
+                EXPECT_EQ(result, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                        << "Input rowset version " << rowset.end_version()
+                        << " should have been removed after compaction";
+            } else {
+                // The new output rowset (2-4) should exist at version 4 (end_version)
+                auto output_rowset_key =
+                        meta_rowset_key({instance_id, tablet_id, output_end_version});
+                std::string output_rowset_value;
+                ASSERT_EQ(txn->get(output_rowset_key, &output_rowset_value), TxnErrorCode::TXN_OK)
+                        << "Output rowset should exist at version " << output_end_version;
+                // Verify this is the correct output rowset (2-4 range)
+                doris::RowsetMetaCloudPB output_meta;
+                ASSERT_TRUE(output_meta.ParseFromString(output_rowset_value));
+                ASSERT_EQ(output_meta.rowset_id_v2(), output_rowset.rowset_id_v2())
+                        << "Output rowset should have the correct rowset ID";
+                ASSERT_EQ(output_meta.tablet_id(), tablet_id);
+                ASSERT_EQ(output_meta.start_version(), output_start_version);
+                ASSERT_EQ(output_meta.end_version(), output_end_version);
+            }
+        }
+
+        // Verify versioned compact rowset exists for output version
+        auto meta_rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_id, tablet_id, output_end_version});
+        std::string compact_rowset_value;
+        Versionstamp* versionstamp = nullptr;
+        ASSERT_EQ(versioned_get(txn.get(), meta_rowset_compact_key, versionstamp,
+                                &compact_rowset_value),
+                  TxnErrorCode::TXN_OK);
+
+        // Check meta rowset compact value is not empty and valid
+        ASSERT_FALSE(compact_rowset_value.empty())
+                << "Meta rowset compact value should not be empty";
+
+        // Parse and verify the compact rowset content
+        doris::RowsetMetaCloudPB compact_meta;
+        ASSERT_TRUE(compact_meta.ParseFromString(compact_rowset_value))
+                << "Meta rowset compact value should be valid protobuf";
+        ASSERT_EQ(compact_meta.tablet_id(), tablet_id)
+                << "Meta rowset compact value tablet_id should match";
+        ASSERT_EQ(compact_meta.end_version(), output_end_version)
+                << "Meta rowset compact value version should match output version";
+    }
+
+    // Verify tmp rowset was removed
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        std::string tmp_rowset_value;
+        ASSERT_EQ(txn->get(tmp_rowset_key, &tmp_rowset_value), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Tmp rowset should have been removed after compaction";
+    }
+}
+
+TEST(MetaServiceOperationLogTest, CompactionLogFirstTimeTabletStats) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "first_time_tablet_stats_test";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 60001;
+    constexpr int64_t index_id = 60002;
+    constexpr int64_t partition_id = 60003;
+    constexpr int64_t tablet_id = 60004;
+
+    {
+        // Create instance without multi-version settings first
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+    }
+
+    {
+        // Create tablet first
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+    }
+
+    {
+        // Now enable versioned write after tablet creation
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Create input rowset for compaction (version 2)
+    auto txn_kv = meta_service->txn_kv();
+    constexpr int64_t input_version = 2;
+    auto input_rowset = create_rowset(100, tablet_id, partition_id, input_version, 100);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Put input rowset
+        auto rowset_key = meta_rowset_key({instance_id, tablet_id, input_version});
+        auto rowset_val = input_rowset.SerializeAsString();
+        txn->put(rowset_key, rowset_val);
+
+        // Create initial tablet stats with some existing compaction data
+        TabletStatsPB initial_stats;
+        initial_stats.set_num_rows(100);
+        initial_stats.set_data_size(5000);
+        initial_stats.set_num_rowsets(2);
+        initial_stats.set_num_segments(2);
+        initial_stats.set_index_size(100);
+        initial_stats.set_segment_size(200);
+        initial_stats.set_cumulative_point(2);
+        // Set some existing compaction stats to verify they are copied
+        initial_stats.set_base_compaction_cnt(2);
+        initial_stats.set_cumulative_compaction_cnt(3);
+        initial_stats.set_full_compaction_cnt(1);
+        initial_stats.set_last_base_compaction_time_ms(1000);
+        initial_stats.set_last_cumu_compaction_time_ms(2000);
+        initial_stats.set_last_full_compaction_time_ms(3000);
+
+        auto stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        auto stats_val = initial_stats.SerializeAsString();
+        txn->put(stats_key, stats_val);
+
+        // DO NOT create versioned tablet_compact_stats - this will trigger TXN_KEY_NOT_FOUND
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Create output rowset as tmp rowset
+    constexpr int64_t txn_id = 60001;
+    auto output_rowset = create_rowset(200, tablet_id, partition_id, input_version, 80);
+    output_rowset.set_txn_id(txn_id);
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Put tmp rowset
+        auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        auto tmp_rowset_val = output_rowset.SerializeAsString();
+        txn->put(tmp_rowset_key, tmp_rowset_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Start compaction job
+    const std::string job_id = "first_time_stats_compaction_job";
+    const std::string initiator = "test_be";
+
+    {
+        brpc::Controller cntl;
+        StartTabletJobRequest req;
+        StartTabletJobResponse res;
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator(initiator);
+        compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+        compaction->set_base_compaction_cnt(3);
+        compaction->set_cumulative_compaction_cnt(4);
+        compaction->add_input_versions(input_version);
+        compaction->add_input_versions(input_version);
+        long now = time(nullptr);
+        compaction->set_expiration(now + 12);
+        compaction->set_lease(now + 3);
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Finish compaction job - this should handle first-time tablet stats creation
+    {
+        brpc::Controller cntl;
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        req.set_action(FinishTabletJobRequest::COMMIT);
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator(initiator);
+        compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+        compaction->add_input_versions(input_version);
+        compaction->add_input_versions(input_version);
+        compaction->add_txn_id(txn_id);
+        compaction->add_output_versions(input_version);
+        compaction->add_output_rowset_ids(output_rowset.rowset_id_v2());
+        compaction->set_output_cumulative_point(3);
+
+        // Compaction stats
+        compaction->set_size_input_rowsets(5000);
+        compaction->set_index_size_input_rowsets(100);
+        compaction->set_segment_size_input_rowsets(200);
+        compaction->set_num_input_rows(100);
+        compaction->set_num_input_rowsets(2);
+        compaction->set_num_input_segments(2);
+
+        compaction->set_size_output_rowsets(4000);
+        compaction->set_index_size_output_rowsets(80);
+        compaction->set_segment_size_output_rowsets(160);
+        compaction->set_num_output_rows(80);
+        compaction->set_num_output_rowsets(1);
+        compaction->set_num_output_segments(1);
+
+        meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Check that tablet compact stats were created with proper zero values for first-time write
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string tablet_compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        std::string tablet_compact_stats_value;
+        Versionstamp* versionstamp = nullptr;
+        ASSERT_EQ(versioned_get(txn.get(), tablet_compact_stats_key, versionstamp,
+                                &tablet_compact_stats_value),
+                  TxnErrorCode::TXN_OK)
+                << "Tablet compact stats should be created by process_compaction_job";
+
+        TabletStatsPB compact_stats;
+        ASSERT_TRUE(compact_stats.ParseFromString(tablet_compact_stats_value));
+
+        // Check TXN_KEY_NOT_FOUND logic: size fields should be cleared to zero for versioned stats
+        ASSERT_EQ(compact_stats.num_rows(), -20) // 80 - 100 = -20
+                << "num_rows should be -20 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.data_size(), -1000) // 4000 - 5000 = -1000
+                << "data_size should be -1000 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.num_rowsets(), -1) // 1 - 2 = -1
+                << "num_rowsets should be -1 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.num_segments(), -1) // 1 - 2 = -1
+                << "num_segments should be -1 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.index_size(), -20) // 80 - 100 = -20
+                << "index_size should be -20 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.segment_size(), -40) // 160 - 200 = -40
+                << "segment_size should be -40 in TXN_KEY_NOT_FOUND logic";
+
+        // Check that compaction count fields are copied from initial tablet stats
+        ASSERT_EQ(compact_stats.base_compaction_cnt(), 2)
+                << "Base compaction count should be copied from initial tablet stats";
+        ASSERT_EQ(compact_stats.cumulative_compaction_cnt(), 4)
+                << "Cumulative compaction count should be incremented from 3 to 4";
+        ASSERT_EQ(compact_stats.full_compaction_cnt(), 1)
+                << "Full compaction count should be copied from initial tablet stats";
+
+        // Check that time fields are copied from initial tablet stats
+        ASSERT_EQ(compact_stats.last_base_compaction_time_ms(), 1000)
+                << "Last base compaction time should be copied from initial tablet stats";
+        ASSERT_GT(compact_stats.last_cumu_compaction_time_ms(), 2000)
+                << "Last cumulative compaction time should be updated after compaction";
+        ASSERT_EQ(compact_stats.last_full_compaction_time_ms(), 3000)
+                << "Last full compaction time should be copied from initial tablet stats";
+
+        // Check that cumulative_point is properly set
+        ASSERT_EQ(compact_stats.cumulative_point(), 3);
+    }
+}
+
+TEST(MetaServiceOperationLogTest, SchemaChangeLog) {
+    // =========================================================================
+    //                    Schema Change Operation Log Test Flow
+    // =========================================================================
+    // This test simulates the complete schema change process and verifies that:
+    // 1. Schema change operation log is correctly generated
+    // 2. Multi-version double write works for new tablet (meta tablet key,
+    //    tablet load stats, meta rowset compact key)
+    // 3. Rowset management is handled correctly during schema change
+    //
+    // Test Scenario:
+    // - Old tablet starts with versions [2-2, 3-3] (20+30=50 rows)
+    // - During schema change, both tablets receive versions [4-4, 5-5] (alter version = 5, 40+50=90 rows)
+    // - After schema change starts, both tablets receive versions [6-6, 7-7] (60+70=130 rows)
+    // - When finishing schema change:
+    //   * Old tablet's [2-2, 3-3, 4-4, 5-5] data is converted to tmp rowsets in new tablet
+    //   * New tablet deletes its own [4-4, 5-5] rowsets and converts tmp rowsets to permanent
+    //   * New tablet keeps [6-6, 7-7] unchanged
+    //   * Schema change net effect: add [2-2, 3-3] data to new tablet's tablet_load_stats
+    //   * Multi-version keys are properly created for new tablet
+    // =========================================================================
+
+    // Step 1: Initialize test environment and create old tablet with versions [2-2, 3-3]
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "schema_change_log_test";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 30001;
+    constexpr int64_t index_id = 30002;
+    constexpr int64_t partition_id = 30003;
+    constexpr int64_t old_tablet_id = 30004;
+    constexpr int64_t new_tablet_id = 30005;
+
+    // Create instance with multi-version support
+    {
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Create old tablet
+    { create_tablet(meta_service.get(), table_id, index_id, partition_id, old_tablet_id); }
+
+    auto txn_kv = meta_service->txn_kv();
+
+    // Create initial rowsets for old tablet: versions 2, 3
+    std::vector<doris::RowsetMetaCloudPB> initial_rowsets;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 2; version <= 3; ++version) {
+            auto rowset = create_rowset(100 + version, old_tablet_id, partition_id, version,
+                                        version * 10);
+            initial_rowsets.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, old_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Step 2: Create new tablet in NOTREADY state (empty, waiting for schema change)
+    {
+        brpc::Controller cntl;
+        CreateTabletsRequest req;
+        CreateTabletsResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        add_tablet(req, table_id, index_id, partition_id, new_tablet_id);
+
+        // Set new tablet state to NOTREADY (for schema change)
+        auto tablet_meta = req.mutable_tablet_metas(0);
+        tablet_meta->set_tablet_state(doris::TabletStatePB::PB_NOTREADY);
+
+        meta_service->create_tablets(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 3: Add alter versions [4-4, 5-5] and start schema change job (alter_version = 5)
+    const std::string job_id = "test_schema_change_job";
+    const std::string initiator = "test_be";
+    constexpr int64_t alter_version = 5; // Determined when starting the job
+
+    // Add versions 4-5 to old tablet (alter versions)
+    std::vector<doris::RowsetMetaCloudPB> alter_rowsets_old;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 4; version <= 5; ++version) {
+            auto rowset = create_rowset(200 + version, old_tablet_id, partition_id, version,
+                                        version * 10);
+            alter_rowsets_old.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, old_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Add versions 4-5 to new tablet (alter versions)
+    std::vector<doris::RowsetMetaCloudPB> alter_rowsets_new;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 4; version <= 5; ++version) {
+            auto rowset = create_rowset(300 + version, new_tablet_id, partition_id, version,
+                                        version * 10);
+            alter_rowsets_new.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, new_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Start schema change job
+    {
+        brpc::Controller cntl;
+        StartTabletJobRequest req;
+        StartTabletJobResponse res;
+        req.mutable_job()->mutable_idx()->set_tablet_id(old_tablet_id);
+        auto* schema_change = req.mutable_job()->mutable_schema_change();
+        schema_change->set_id(job_id);
+        schema_change->set_initiator(initiator);
+        schema_change->mutable_new_tablet_idx()->set_table_id(table_id);
+        schema_change->mutable_new_tablet_idx()->set_index_id(index_id);
+        schema_change->mutable_new_tablet_idx()->set_partition_id(partition_id);
+        schema_change->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
+        schema_change->set_alter_version(alter_version);
+
+        long now = time(nullptr);
+        schema_change->set_expiration(now + 12);
+
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 4: Simulate ongoing data ingestion - add post-alter versions [6-6, 7-7]
+    std::vector<doris::RowsetMetaCloudPB> post_alter_rowsets_old;
+    std::vector<doris::RowsetMetaCloudPB> post_alter_rowsets_new;
+
+    // Add versions 6-7 to old tablet
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 6; version <= 7; ++version) {
+            auto rowset = create_rowset(400 + version, old_tablet_id, partition_id, version,
+                                        version * 10);
+            post_alter_rowsets_old.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, old_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Add versions 6-7 to new tablet
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 6; version <= 7; ++version) {
+            auto rowset = create_rowset(500 + version, new_tablet_id, partition_id, version,
+                                        version * 10);
+            post_alter_rowsets_new.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, new_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Step 5: Complete schema change - convert old tablet data via tmp rowsets
+    // Create tmp rowsets representing old tablet's [2-2, 3-3, 4-4, 5-5] data that will be converted to new tablet
+    std::vector<int64_t> tmp_txn_ids;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create tmp rowsets for versions 2-2, 3-3, 4-4, 5-5 (simulating old tablet data conversion)
+        for (int version = 2; version <= 5; ++version) {
+            int64_t tmp_txn_id = 40000 + version;
+            tmp_txn_ids.push_back(tmp_txn_id);
+
+            // Create tmp rowset with data from old tablet
+            auto tmp_rowset = create_rowset(600 + version, new_tablet_id, partition_id, version,
+                                            version * 10);
+            tmp_rowset.set_txn_id(tmp_txn_id);
+
+            auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, tmp_txn_id, new_tablet_id});
+            auto tmp_rowset_val = tmp_rowset.SerializeAsString();
+            txn->put(tmp_rowset_key, tmp_rowset_val);
+        }
+
+        // Create initial tablet stats for both tablets
+        TabletStatsPB old_tablet_stats;
+        old_tablet_stats.set_num_rows(270); // sum of versions 2-7: 20+30+40+50+60+70
+        old_tablet_stats.set_data_size(270 * 100);
+        old_tablet_stats.set_num_rowsets(6);
+        old_tablet_stats.set_num_segments(6);
+        old_tablet_stats.set_index_size(300);
+        old_tablet_stats.set_segment_size(600);
+        old_tablet_stats.set_cumulative_point(3);
+
+        auto old_stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, old_tablet_id});
+        txn->put(old_stats_key, old_tablet_stats.SerializeAsString());
+
+        // Create tablet load stats for old tablet (versions 2-2, 3-3, 4-4, 5-5, 6-6, 7-7: all data)
+        TabletStatsPB old_tablet_load_stats;
+        old_tablet_load_stats.set_num_rows(270); // all versions 2-7: 20+30+40+50+60+70
+        old_tablet_load_stats.set_data_size(270 * 100);
+        old_tablet_load_stats.set_num_rowsets(6);
+        old_tablet_load_stats.set_num_segments(6);
+        old_tablet_load_stats.set_index_size(300);
+        old_tablet_load_stats.set_segment_size(600);
+        old_tablet_load_stats.set_cumulative_point(3);
+
+        auto old_tablet_load_stats_key =
+                versioned::tablet_load_stats_key({instance_id, old_tablet_id});
+        versioned_put(txn.get(), old_tablet_load_stats_key,
+                      old_tablet_load_stats.SerializeAsString());
+
+        TabletStatsPB new_tablet_stats;
+        new_tablet_stats.set_num_rows(220); // versions 4-7: 40+50+60+70
+        new_tablet_stats.set_data_size(220 * 100);
+        new_tablet_stats.set_num_rowsets(4);
+        new_tablet_stats.set_num_segments(4);
+        new_tablet_stats.set_index_size(200);
+        new_tablet_stats.set_segment_size(400);
+        new_tablet_stats.set_cumulative_point(3);
+
+        auto new_stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, new_tablet_id});
+        txn->put(new_stats_key, new_tablet_stats.SerializeAsString());
+
+        // Create initial tablet load stats for new tablet (versions 4-4, 5-5, 6-6, 7-7)
+        TabletStatsPB new_tablet_load_stats;
+        new_tablet_load_stats.set_num_rows(220); // versions 4-7: 40+50+60+70
+        new_tablet_load_stats.set_data_size(220 * 100);
+        new_tablet_load_stats.set_num_rowsets(4);
+        new_tablet_load_stats.set_num_segments(4);
+        new_tablet_load_stats.set_index_size(200);
+        new_tablet_load_stats.set_segment_size(400);
+        new_tablet_load_stats.set_cumulative_point(6);
+
+        auto new_tablet_load_stats_key =
+                versioned::tablet_load_stats_key({instance_id, new_tablet_id});
+        versioned_put(txn.get(), new_tablet_load_stats_key,
+                      new_tablet_load_stats.SerializeAsString());
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    size_t num_logs_before = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                         versioned::log_key(instance_id) + "\xFF");
+
+    // Call finish_tablet_job to complete schema change (triggers process_schema_change_job)
+    {
+        brpc::Controller cntl;
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        req.set_action(FinishTabletJobRequest::COMMIT);
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(old_tablet_id);
+
+        auto* schema_change = req.mutable_job()->mutable_schema_change();
+        schema_change->set_id(job_id);
+        schema_change->set_initiator(initiator);
+        schema_change->mutable_new_tablet_idx()->set_table_id(table_id);
+        schema_change->mutable_new_tablet_idx()->set_index_id(index_id);
+        schema_change->mutable_new_tablet_idx()->set_partition_id(partition_id);
+        schema_change->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
+        schema_change->set_alter_version(alter_version);
+
+        // Specify tmp txn ids containing converted data from old tablet [2-2, 3-3, 4-4, 5-5]
+        for (int64_t tmp_txn_id : tmp_txn_ids) {
+            schema_change->add_txn_ids(tmp_txn_id);
+        }
+
+        // Add output versions corresponding to tmp rowsets [2-2, 3-3, 4-4, 5-5]
+        for (int version = 2; version <= 5; ++version) {
+            schema_change->add_output_versions(version);
+        }
+
+        // Add schema change statistics
+        // Output rowsets [2-2, 3-3, 4-4, 5-5]: 20+30+40+50 = 140
+        schema_change->set_num_output_rows(140);
+        schema_change->set_num_output_rowsets(4);
+        schema_change->set_num_output_segments(4);
+        schema_change->set_size_output_rowsets(140 * 100);
+        schema_change->set_index_size_output_rowsets(200);
+        schema_change->set_segment_size_output_rowsets(400);
+        schema_change->set_output_cumulative_point(5);
+
+        meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verification Step 1: Check schema change operation log was generated
+    size_t num_logs_after = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                        versioned::log_key(instance_id) + "\xFF");
+    ASSERT_GT(num_logs_after, num_logs_before)
+            << "Expected new schema change operation log, but found no new logs";
+
+    // Verification Step 2: Validate schema change operation log content
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string log_key = versioned::log_key({instance_id});
+        std::string value;
+        Versionstamp log_version;
+        ASSERT_EQ(versioned_get(txn.get(), log_key, &log_version, &value), TxnErrorCode::TXN_OK);
+
+        OperationLogPB operation_log;
+        ASSERT_TRUE(operation_log.ParseFromString(value));
+        ASSERT_TRUE(operation_log.has_schema_change());
+
+        const auto& schema_change_log = operation_log.schema_change();
+        ASSERT_EQ(schema_change_log.old_tablet_id(), old_tablet_id);
+        ASSERT_EQ(schema_change_log.new_tablet_id(), new_tablet_id);
+
+        // Verify tablet load stats were updated for versions [1-3] only
+        // (versions [4-6][7-9] should already be in tablet_load_stats)
+    }
+
+    // Verification Step 3: Check new tablet state changed to RUNNING
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        auto new_tablet_key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, new_tablet_id});
+        std::string new_tablet_val;
+        ASSERT_EQ(txn->get(new_tablet_key, &new_tablet_val), TxnErrorCode::TXN_OK);
+
+        doris::TabletMetaCloudPB new_tablet_meta;
+        ASSERT_TRUE(new_tablet_meta.ParseFromString(new_tablet_val));
+        ASSERT_EQ(new_tablet_meta.tablet_state(), doris::TabletStatePB::PB_RUNNING);
+    }
+
+    // Verification Step 4: Check rowset conversion and cleanup
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Check that tmp rowsets were removed
+        for (int64_t tmp_txn_id : tmp_txn_ids) {
+            auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, tmp_txn_id, new_tablet_id});
+            std::string tmp_rowset_value;
+            ASSERT_EQ(txn->get(tmp_rowset_key, &tmp_rowset_value), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                    << "Tmp rowset should have been removed after schema change";
+        }
+
+        // Verify that new tablet's [4-4, 5-5] rowsets were deleted (multi-version doesn't physically delete)
+        // and [2-2, 3-3, 4-4, 5-5] rowsets from tmp conversion exist
+        for (int version = 2; version <= 5; ++version) {
+            auto rowset_key = meta_rowset_key({instance_id, new_tablet_id, version});
+            std::string rowset_value;
+            ASSERT_EQ(txn->get(rowset_key, &rowset_value), TxnErrorCode::TXN_OK)
+                    << "Converted rowset should exist at version " << version;
+        }
+
+        // Verify [6-6, 7-7] rowsets remain unchanged
+        for (int version = 6; version <= 7; ++version) {
+            auto rowset_key = meta_rowset_key({instance_id, new_tablet_id, version});
+            std::string rowset_value;
+            ASSERT_EQ(txn->get(rowset_key, &rowset_value), TxnErrorCode::TXN_OK)
+                    << "Post-alter rowset should remain at version " << version;
+        }
+    }
+
+    // Verification Step 5: Validate multi-version double writes for new tablet
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Check 1: Versioned meta tablet key (multi-version double write)
+        auto versioned_tablet_key = versioned::meta_tablet_key({instance_id, new_tablet_id});
+        std::string versioned_tablet_value;
+        Versionstamp* versionstamp = nullptr;
+        ASSERT_EQ(versioned_get(txn.get(), versioned_tablet_key, versionstamp,
+                                &versioned_tablet_value),
+                  TxnErrorCode::TXN_OK)
+                << "Versioned meta tablet key should exist for new tablet";
+
+        // Parse and verify the versioned tablet meta
+        doris::TabletMetaCloudPB versioned_tablet_meta;
+        ASSERT_TRUE(versioned_tablet_meta.ParseFromString(versioned_tablet_value))
+                << "Versioned tablet meta should be valid protobuf";
+        ASSERT_EQ(versioned_tablet_meta.tablet_state(), doris::TabletStatePB::PB_RUNNING)
+                << "Versioned tablet should be in RUNNING state after schema change";
+
+        // Check 2: Tablet load stats (only versions [1-3] should be added)
+        auto tablet_load_stats_key = versioned::tablet_load_stats_key({instance_id, new_tablet_id});
+        std::string tablet_load_stats_value;
+        ASSERT_EQ(versioned_get(txn.get(), tablet_load_stats_key, versionstamp,
+                                &tablet_load_stats_value),
+                  TxnErrorCode::TXN_OK)
+                << "Tablet load stats should exist for new tablet";
+
+        TabletStatsPB load_stats;
+        ASSERT_TRUE(load_stats.ParseFromString(tablet_load_stats_value))
+                << "Tablet load stats should be valid protobuf";
+
+        // Schema change tablet load stats logic:
+        // 1. Existing load stats (versions 4-4, 5-5, 6-6, 7-7): 220 (40+50+60+70)
+        // 2. Apply schema change: output_rows 140 - remove_rows (versions 4-4, 5-5: 40+50=90)
+        // 3. Net change: 140 - 90 = 50 (effectively adding versions 2-2, 3-3: 20+30=50)
+        // 4. Final: 220 + 50 = 270
+        int64_t expected_load_rows = 270;
+        ASSERT_EQ(load_stats.num_rows(), expected_load_rows)
+                << "Tablet load stats should show existing data plus schema change net: "
+                << load_stats.num_rows() << " vs expected " << expected_load_rows;
+
+        // Check 3: Meta rowset compact keys for converted rowsets [2-2, 3-3, 4-4, 5-5]
+        for (int version = 2; version <= 5; ++version) {
+            auto meta_rowset_compact_key =
+                    versioned::meta_rowset_compact_key({instance_id, new_tablet_id, version});
+            std::string compact_rowset_value;
+            ASSERT_EQ(versioned_get(txn.get(), meta_rowset_compact_key, versionstamp,
+                                    &compact_rowset_value),
+                      TxnErrorCode::TXN_OK)
+                    << "Meta rowset compact key should exist for version " << version;
+
+            // Parse and verify the compact rowset content
+            doris::RowsetMetaCloudPB compact_meta;
+            ASSERT_TRUE(compact_meta.ParseFromString(compact_rowset_value))
+                    << "Meta rowset compact value should be valid protobuf for version " << version;
+            ASSERT_EQ(compact_meta.tablet_id(), new_tablet_id)
+                    << "Compact rowset tablet_id should match new tablet";
+            ASSERT_EQ(compact_meta.end_version(), version)
+                    << "Compact rowset version should match expected version " << version;
+        }
+
+        // Note: Post-alter rowsets [6-6, 7-7] are normal data ingestion, not compaction/schema change
+        // They don't have meta_rowset_compact_keys, only the converted rowsets [2-2, 3-3, 4-4, 5-5] do
+    }
+
+    // Verification Step 6: Ensure old tablet remains unaffected by schema change
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Old tablet should still have all its rowsets [2-2, 3-3, 4-4, 5-5, 6-6, 7-7]
+        for (int version = 2; version <= 7; ++version) {
+            auto rowset_key = meta_rowset_key({instance_id, old_tablet_id, version});
+            std::string rowset_value;
+            ASSERT_EQ(txn->get(rowset_key, &rowset_value), TxnErrorCode::TXN_OK)
+                    << "Old tablet should still have rowset at version " << version;
+        }
+
+        // Old tablet stats should remain unchanged
+        auto old_stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, old_tablet_id});
+        std::string old_stats_value;
+        ASSERT_EQ(txn->get(old_stats_key, &old_stats_value), TxnErrorCode::TXN_OK)
+                << "Old tablet stats should still exist";
+
+        TabletStatsPB old_stats;
+        ASSERT_TRUE(old_stats.ParseFromString(old_stats_value));
+        ASSERT_EQ(old_stats.num_rows(), 270) // Should remain unchanged
+                << "Old tablet stats should not be modified by schema change";
+    }
+}
+
+TEST(MetaServiceOperationLogTest, SchemaChangeLogFirstTimeTabletStats) {
+    // =========================================================================
+    //         Schema Change First-Time Multi-Version Tablet Stats Test
+    // =========================================================================
+    // This test simulates schema change with first-time multi-version tablet stats creation
+    // and specifically tests the TXN_KEY_NOT_FOUND logic in process_schema_change_job
+    //
+    // Test Scenario Difference from SchemaChangeLog:
+    // - Instance starts in single version mode (MULTI_VERSION_DISABLED)
+    // - Switch to multi-version mode after data creation but before schema change
+    // - This triggers the first-time multi-version tablet stats creation path
+    //
+    // Expected Behavior (TXN_KEY_NOT_FOUND path):
+    // - Multi-version tablet load stats not found triggers first-time creation logic
+    // - new_tablet_load_stats.CopyFrom(*stats) copies single version baseline (220 rows)
+    // - schema_change_update_tablet_stats applies schema change updates (+50 net change)
+    // - Final result: 220 + 50 = 270 rows in multi-version tablet load stats
+    // =========================================================================
+
+    // Step 1: Initialize test environment and create old tablet with versions [2-2, 3-3]
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "first_time_tablet_stats";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 40001;
+    constexpr int64_t index_id = 40002;
+    constexpr int64_t partition_id = 40003;
+    constexpr int64_t old_tablet_id = 40004;
+    constexpr int64_t new_tablet_id = 40005;
+
+    // Create instance with single version mode initially (key difference!)
+    {
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_DISABLED); // Start single version
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_FALSE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Create old tablet
+    { create_tablet(meta_service.get(), table_id, index_id, partition_id, old_tablet_id); }
+
+    auto txn_kv = meta_service->txn_kv();
+
+    // Create initial rowsets for old tablet: versions 2, 3
+    std::vector<doris::RowsetMetaCloudPB> initial_rowsets;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 2; version <= 3; ++version) {
+            auto rowset = create_rowset(100 + version, old_tablet_id, partition_id, version,
+                                        version * 10);
+            initial_rowsets.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, old_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Step 2: Create new tablet in NOTREADY state (empty, waiting for schema change)
+    {
+        brpc::Controller cntl;
+        CreateTabletsRequest req;
+        CreateTabletsResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        add_tablet(req, table_id, index_id, partition_id, new_tablet_id);
+
+        // Set new tablet state to NOTREADY (for schema change)
+        auto tablet_meta = req.mutable_tablet_metas(0);
+        tablet_meta->set_tablet_state(doris::TabletStatePB::PB_NOTREADY);
+
+        meta_service->create_tablets(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 3: Add alter versions [4-4, 5-5] and start schema change job (alter_version = 5)
+    const std::string job_id = "first_time_schema_change_job";
+    const std::string initiator = "test_be";
+    constexpr int64_t alter_version = 5; // Determined when starting the job
+
+    // Add versions 4-5 to old tablet (alter versions)
+    std::vector<doris::RowsetMetaCloudPB> alter_rowsets_old;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 4; version <= 5; ++version) {
+            auto rowset = create_rowset(200 + version, old_tablet_id, partition_id, version,
+                                        version * 10);
+            alter_rowsets_old.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, old_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Add versions 4-5 to new tablet (alter versions)
+    std::vector<doris::RowsetMetaCloudPB> alter_rowsets_new;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 4; version <= 5; ++version) {
+            auto rowset = create_rowset(300 + version, new_tablet_id, partition_id, version,
+                                        version * 10);
+            alter_rowsets_new.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, new_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Start schema change job
+    {
+        brpc::Controller cntl;
+        StartTabletJobRequest req;
+        StartTabletJobResponse res;
+        req.mutable_job()->mutable_idx()->set_tablet_id(old_tablet_id);
+        auto* schema_change = req.mutable_job()->mutable_schema_change();
+        schema_change->set_id(job_id);
+        schema_change->set_initiator(initiator);
+        schema_change->mutable_new_tablet_idx()->set_table_id(table_id);
+        schema_change->mutable_new_tablet_idx()->set_index_id(index_id);
+        schema_change->mutable_new_tablet_idx()->set_partition_id(partition_id);
+        schema_change->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
+        schema_change->set_alter_version(alter_version);
+
+        long now = time(nullptr);
+        schema_change->set_expiration(now + 12);
+
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 4: Simulate ongoing data ingestion - add post-alter versions [6-6, 7-7]
+    std::vector<doris::RowsetMetaCloudPB> post_alter_rowsets_old;
+    std::vector<doris::RowsetMetaCloudPB> post_alter_rowsets_new;
+
+    // Add versions 6-7 to old tablet
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 6; version <= 7; ++version) {
+            auto rowset = create_rowset(400 + version, old_tablet_id, partition_id, version,
+                                        version * 10);
+            post_alter_rowsets_old.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, old_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Add versions 6-7 to new tablet
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int version = 6; version <= 7; ++version) {
+            auto rowset = create_rowset(500 + version, new_tablet_id, partition_id, version,
+                                        version * 10);
+            post_alter_rowsets_new.push_back(rowset);
+
+            auto rowset_key = meta_rowset_key({instance_id, new_tablet_id, version});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Switch to multi-version mode before schema change completion (key difference!)
+    {
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    // Step 5: Complete schema change - convert old tablet data via tmp rowsets
+    // Create tmp rowsets representing old tablet's [2-2, 3-3, 4-4, 5-5] data that will be converted to new tablet
+    std::vector<int64_t> tmp_txn_ids;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create tmp rowsets for versions 2-2, 3-3, 4-4, 5-5 (simulating old tablet data conversion)
+        for (int version = 2; version <= 5; ++version) {
+            int64_t tmp_txn_id = 40000 + version;
+            tmp_txn_ids.push_back(tmp_txn_id);
+
+            // Create tmp rowset with data from old tablet
+            auto tmp_rowset = create_rowset(600 + version, new_tablet_id, partition_id, version,
+                                            version * 10);
+            tmp_rowset.set_txn_id(tmp_txn_id);
+
+            auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, tmp_txn_id, new_tablet_id});
+            auto tmp_rowset_val = tmp_rowset.SerializeAsString();
+            txn->put(tmp_rowset_key, tmp_rowset_val);
+        }
+
+        // Create initial tablet stats for both tablets
+        TabletStatsPB old_tablet_stats;
+        old_tablet_stats.set_num_rows(270); // sum of versions 2-7: 20+30+40+50+60+70
+        old_tablet_stats.set_data_size(270 * 100);
+        old_tablet_stats.set_num_rowsets(6);
+        old_tablet_stats.set_num_segments(6);
+        old_tablet_stats.set_index_size(300);
+        old_tablet_stats.set_segment_size(600);
+        old_tablet_stats.set_cumulative_point(3);
+
+        auto old_stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, old_tablet_id});
+        txn->put(old_stats_key, old_tablet_stats.SerializeAsString());
+
+        TabletStatsPB new_tablet_stats;
+        new_tablet_stats.set_num_rows(220); // versions 4-7: 40+50+60+70
+        new_tablet_stats.set_data_size(220 * 100);
+        new_tablet_stats.set_num_rowsets(4);
+        new_tablet_stats.set_num_segments(4);
+        new_tablet_stats.set_index_size(200);
+        new_tablet_stats.set_segment_size(400);
+        new_tablet_stats.set_cumulative_point(3);
+
+        auto new_stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, new_tablet_id});
+        txn->put(new_stats_key, new_tablet_stats.SerializeAsString());
+
+        // NOTE: Don't create versioned tablet load stats - this will trigger TXN_KEY_NOT_FOUND path
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    size_t num_logs_before = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                         versioned::log_key(instance_id) + "\xFF");
+
+    // Call finish_tablet_job to complete schema change (triggers process_schema_change_job)
+    {
+        brpc::Controller cntl;
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        req.set_action(FinishTabletJobRequest::COMMIT);
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(old_tablet_id);
+
+        auto* schema_change = req.mutable_job()->mutable_schema_change();
+        schema_change->set_id(job_id);
+        schema_change->set_initiator(initiator);
+        schema_change->mutable_new_tablet_idx()->set_table_id(table_id);
+        schema_change->mutable_new_tablet_idx()->set_index_id(index_id);
+        schema_change->mutable_new_tablet_idx()->set_partition_id(partition_id);
+        schema_change->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
+        schema_change->set_alter_version(alter_version);
+
+        // Specify tmp txn ids containing converted data from old tablet [2-2, 3-3, 4-4, 5-5]
+        for (int64_t tmp_txn_id : tmp_txn_ids) {
+            schema_change->add_txn_ids(tmp_txn_id);
+        }
+
+        // Add output versions corresponding to tmp rowsets [2-2, 3-3, 4-4, 5-5]
+        for (int version = 2; version <= 5; ++version) {
+            schema_change->add_output_versions(version);
+        }
+
+        // Add schema change statistics
+        // Output rowsets [2-2, 3-3, 4-4, 5-5]: 20+30+40+50 = 140
+        schema_change->set_num_output_rows(140);
+        schema_change->set_num_output_rowsets(4);
+        schema_change->set_num_output_segments(4);
+        schema_change->set_size_output_rowsets(140 * 100);
+        schema_change->set_index_size_output_rowsets(200);
+        schema_change->set_segment_size_output_rowsets(400);
+        schema_change->set_output_cumulative_point(5);
+
+        meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verification Step 1: Check schema change operation log was generated
+    size_t num_logs_after = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                        versioned::log_key(instance_id) + "\xFF");
+    ASSERT_GT(num_logs_after, num_logs_before)
+            << "Expected new schema change operation log, but found no new logs";
+
+    // Verification Step 2: Validate first-time multi-version tablet stats creation
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string log_key = versioned::log_key({instance_id});
+        std::string value;
+        Versionstamp log_version;
+        ASSERT_EQ(versioned_get(txn.get(), log_key, &log_version, &value), TxnErrorCode::TXN_OK);
+
+        OperationLogPB operation_log;
+        ASSERT_TRUE(operation_log.ParseFromString(value));
+        ASSERT_TRUE(operation_log.has_schema_change());
+
+        const auto& schema_change_log = operation_log.schema_change();
+        ASSERT_EQ(schema_change_log.old_tablet_id(), old_tablet_id);
+        ASSERT_EQ(schema_change_log.new_tablet_id(), new_tablet_id);
+
+        // Verify first-time multi-version tablet load stats were created (TXN_KEY_NOT_FOUND logic)
+        auto tablet_load_stats_key = versioned::tablet_load_stats_key({instance_id, new_tablet_id});
+        std::string tablet_load_stats_value;
+        Versionstamp* versionstamp = nullptr;
+        ASSERT_EQ(versioned_get(txn.get(), tablet_load_stats_key, versionstamp,
+                                &tablet_load_stats_value),
+                  TxnErrorCode::TXN_OK)
+                << "First-time multi-version tablet load stats should exist";
+
+        TabletStatsPB load_stats;
+        ASSERT_TRUE(load_stats.ParseFromString(tablet_load_stats_value));
+
+        // First-time multi-version stats logic (TXN_KEY_NOT_FOUND path):
+        // 1. CopyFrom single version stats: 220 rows (baseline from [4-4, 5-5, 6-6, 7-7])
+        // 2. Apply schema change update: output_rows 140 - remove_rows 90 = +50 net change
+        // 3. Final: 220 + 50 = 270 rows
+        int64_t expected_load_rows = 270;
+        ASSERT_EQ(load_stats.num_rows(), expected_load_rows)
+                << "First-time multi-version stats should copy baseline then apply schema change: "
+                << load_stats.num_rows() << " vs expected " << expected_load_rows;
+    }
+}
+
 } // namespace doris::cloud

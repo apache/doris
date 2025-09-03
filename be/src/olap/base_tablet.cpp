@@ -158,17 +158,7 @@ TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
                                           : a->tablet_schema()->schema_version() <
                                                     b->tablet_schema()->schema_version());
             });
-    TabletSchemaSPtr target_schema = max_schema_version_rs->tablet_schema();
-    if (target_schema->num_variant_columns() > 0) {
-        // For variant columns tablet schema need to be the merged wide tablet schema
-        std::vector<TabletSchemaSPtr> schemas;
-        std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
-                       [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
-        static_cast<void>(
-                vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
-        VLOG_DEBUG << "dump schema: " << target_schema->dump_full_schema();
-    }
-    return target_schema;
+    return max_schema_version_rs->tablet_schema();
 }
 
 Status BaseTablet::set_tablet_state(TabletState state) {
@@ -187,21 +177,6 @@ void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema
         tablet_schema->schema_version() > _max_version_schema->schema_version()) {
         _max_version_schema = tablet_schema;
     }
-}
-
-Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_schema) {
-    std::lock_guard wrlock(_meta_lock);
-    CHECK(_max_version_schema->schema_version() >= update_schema->schema_version());
-    TabletSchemaSPtr final_schema;
-    bool check_column_size = true;
-    VLOG_DEBUG << "dump _max_version_schema: " << _max_version_schema->dump_full_schema();
-    VLOG_DEBUG << "dump update_schema: " << update_schema->dump_full_schema();
-    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
-            {_max_version_schema, update_schema}, _max_version_schema, final_schema,
-            check_column_size));
-    _max_version_schema = final_schema;
-    VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_full_schema();
-    return Status::OK();
 }
 
 uint32_t BaseTablet::get_real_compaction_score() const {
@@ -989,10 +964,9 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
         const auto& column = schema.column(cids[i]);
         if (column.has_default_value()) {
             const auto& default_value = default_values[i];
-            vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
-                                      default_value.size());
-            RETURN_IF_ERROR(ref_block.get_by_position(i).type->from_string(
-                    rb, mutable_default_value_columns[i].get()));
+            StringRef str(default_value);
+            RETURN_IF_ERROR(ref_block.get_by_position(i).type->get_serde()->default_from_string(
+                    str, *mutable_default_value_columns[i]));
         }
     }
     default_value_block.set_columns(std::move(mutable_default_value_columns));

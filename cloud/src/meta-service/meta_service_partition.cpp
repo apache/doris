@@ -24,8 +24,8 @@
 #include "common/logging.h"
 #include "common/stats.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
 #include "meta_service.h"
@@ -106,7 +106,13 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         msg = "failed to create txn";
         return;
     }
-    err = index_exists(txn.get(), instance_id, request);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    MetaReader reader(instance_id);
+    if (!is_versioned_read) {
+        err = index_exists(txn.get(), instance_id, request);
+    } else {
+        err = reader.is_index_exists(txn.get(), request->index_ids(0));
+    }
     // If index has existed, this might be a stale request
     if (err == TxnErrorCode::TXN_OK) {
         code = MetaServiceCode::ALREADY_EXISTED;
@@ -195,12 +201,18 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     commit_index_log.set_db_id(request->db_id());
     commit_index_log.set_table_id(request->table_id());
 
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    MetaReader reader(instance_id);
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
-            err = index_exists(txn.get(), instance_id, request);
+            if (!is_versioned_read) {
+                err = index_exists(txn.get(), instance_id, request);
+            } else {
+                err = reader.is_index_exists(txn.get(), index_id);
+            }
             // If index has existed, this might be a duplicate request
             if (err == TxnErrorCode::TXN_OK) {
                 return; // Index committed, OK
@@ -265,6 +277,16 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     }
 
     if (request->has_db_id() && request->has_is_new_table() && request->is_new_table()) {
+        if (is_versioned_read) {
+            // Read the table version, to build the operation log visible version range.
+            Versionstamp table_version;
+            err = reader.get_table_version(txn.get(), request->table_id(), &table_version, true);
+            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get table version, err={}", err);
+                return;
+            }
+        }
         // init table version, for create and truncate table
         update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
         commit_index_log.set_update_table_version(true);
@@ -274,6 +296,9 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
+        if (is_versioned_read) {
+            operation_log.set_min_timestamp(reader.min_read_version());
+        }
         operation_log.mutable_commit_index()->Swap(&commit_index_log);
         if (!operation_log.SerializeToString(&operation_log_value)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -329,11 +354,13 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     }
     bool need_commit = false;
     bool is_versioned_write = is_version_write_enabled(instance_id);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     DropIndexLogPB drop_index_log;
     drop_index_log.set_db_id(request->db_id());
     drop_index_log.set_table_id(request->table_id());
     drop_index_log.set_expiration(request->expiration());
 
+    MetaReader reader(instance_id);
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
@@ -341,6 +368,16 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             if (is_versioned_write) {
                 drop_index_log.add_index_ids(index_id);
+                if (is_versioned_read) {
+                    // Read the index version, to build the operation log visible version range.
+                    err = reader.is_index_exists(txn.get(), index_id);
+                    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                        code = cast_as<ErrCategory::READ>(err);
+                        msg = fmt::format("failed to check index existence, err={}", err);
+                        LOG_WARNING(msg);
+                        return;
+                    }
+                }
             } else {
                 LOG_INFO("put recycle index").tag("key", hex(key));
                 txn->put(key, to_save_val);
@@ -383,6 +420,9 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
+        if (is_versioned_read) {
+            operation_log.set_min_timestamp(reader.min_read_version());
+        }
         operation_log.mutable_drop_index()->Swap(&drop_index_log);
         if (!operation_log.SerializeToString(&operation_log_value)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -459,7 +499,13 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         msg = "failed to create txn";
         return;
     }
-    err = partition_exists(txn.get(), instance_id, request);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    if (!is_versioned_read) {
+        err = partition_exists(txn.get(), instance_id, request);
+    } else {
+        MetaReader reader(instance_id);
+        err = reader.is_partition_exists(txn.get(), request->partition_ids(0));
+    }
     // If index has existed, this might be a stale request
     if (err == TxnErrorCode::TXN_OK) {
         code = MetaServiceCode::ALREADY_EXISTED;
@@ -577,6 +623,8 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
     commit_partition_log.set_table_id(request->table_id());
     commit_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
 
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    MetaReader reader(instance_id);
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -584,7 +632,11 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             // Compatible with requests without `index_ids`
             if (!request->index_ids().empty()) {
-                err = partition_exists(txn.get(), instance_id, request);
+                if (!is_versioned_read) {
+                    err = partition_exists(txn.get(), instance_id, request);
+                } else {
+                    err = reader.is_partition_exists(txn.get(), part_id);
+                }
                 // If partition has existed, this might be a duplicate request
                 if (err == TxnErrorCode::TXN_OK) {
                     return; // Partition committed, OK
@@ -651,6 +703,16 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
 
     // update table versions
     if (request->has_db_id()) {
+        if (is_versioned_read) {
+            // Read the table version, to build the operation log visible version range.
+            Versionstamp table_version;
+            err = reader.get_table_version(txn.get(), request->table_id(), &table_version, true);
+            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get table version, err={}", err);
+                return;
+            }
+        }
         update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
     }
 
@@ -658,6 +720,9 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
+        if (is_versioned_read) {
+            operation_log.set_min_timestamp(reader.min_read_version());
+        }
         operation_log.mutable_commit_partition()->Swap(&commit_partition_log);
         if (!operation_log.SerializeToString(&operation_log_value)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -714,12 +779,14 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     }
     bool need_commit = false;
     bool is_versioned_write = is_version_write_enabled(instance_id);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     DropPartitionLogPB drop_partition_log;
     drop_partition_log.set_db_id(request->db_id());
     drop_partition_log.set_table_id(request->table_id());
     drop_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
-    drop_partition_log.set_expiration(request->expiration());
+    drop_partition_log.set_expired_at_s(request->expiration());
 
+    MetaReader reader(instance_id);
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -727,6 +794,16 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             if (is_versioned_write) {
                 drop_partition_log.add_partition_ids(part_id);
+                if (is_versioned_read) {
+                    // Read the partition version, to build the operation log visible version range.
+                    err = reader.is_partition_exists(txn.get(), part_id);
+                    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                        code = cast_as<ErrCategory::READ>(err);
+                        msg = fmt::format("failed to check partition existence, err={}", err);
+                        LOG_WARNING(msg);
+                        return;
+                    }
+                }
             } else {
                 LOG_INFO("put recycle partition").tag("key", hex(key));
                 txn->put(key, to_save_val);
@@ -768,6 +845,16 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     // Update table version only when deleting non-empty partitions
     if (request->has_db_id() && request->has_need_update_table_version() &&
         request->need_update_table_version()) {
+        if (is_versioned_read) {
+            // Read the table version, to build the operation log visible version range.
+            Versionstamp table_version;
+            err = reader.get_table_version(txn.get(), request->table_id(), &table_version, true);
+            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get table version, err={}", err);
+                return;
+            }
+        }
         update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
         drop_partition_log.set_update_table_version(true);
     }
@@ -778,6 +865,9 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
+        if (is_versioned_read) {
+            operation_log.set_min_timestamp(reader.min_read_version());
+        }
         operation_log.mutable_drop_partition()->Swap(&drop_partition_log);
         if (!operation_log.SerializeToString(&operation_log_value)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -453,6 +454,58 @@ public class ComputeSignatureHelper {
             signature = signature.withReturnType(
                     TypeCoercionUtils.replaceTimesWithTargetPrecision(signature.returnType, finalTypeScale));
         }
+        return signature;
+    }
+
+    /**
+     * Dynamically compute function signature for variant type arguments.
+     * This method handles cases where the function signature contains variant types
+     * and needs to be adjusted based on the actual argument types.
+     *
+     * @param signature Original function signature
+     * @param arguments List of actual arguments passed to the function
+     * @return Updated function signature with resolved variant types
+     */
+    public static FunctionSignature dynamicComputeVariantArgs(
+            FunctionSignature signature, List<Expression> arguments) {
+
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
+        boolean findVariantType = false;
+
+        for (int i = 0; i < arguments.size(); i++) {
+            // Get signature type for current argument position
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+
+            // Get actual type of the argument expression
+            DataType expressionType = arguments.get(i).getDataType();
+
+            // If both signature type and expression type are variant,
+            // use expression type and update return type
+            if (sigType instanceof VariantType && expressionType instanceof VariantType) {
+                // return type is variant, update return type to expression type
+                if (signature.returnType instanceof VariantType) {
+                    signature = signature.withReturnType(expressionType);
+                    if (findVariantType) {
+                        throw new AnalysisException("variant type is not supported in multiple arguments");
+                    } else {
+                        findVariantType = true;
+                    }
+                }
+                newArgTypes.add(expressionType);
+            } else {
+                // Otherwise keep original signature type
+                newArgTypes.add(sigType);
+            }
+        }
+
+        // Update signature with new argument types
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         return signature;
     }
 

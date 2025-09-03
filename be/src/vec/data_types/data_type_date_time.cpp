@@ -33,7 +33,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -87,17 +86,6 @@ void DataTypeDateTime::to_string(const IColumn& column, size_t row_num,
     char* pos = value.to_string(buf);
     // DateTime to_string the end is /0
     ostr.write(buf, pos - buf - 1);
-}
-
-Status DataTypeDateTime::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnDateTime*>(column);
-    Int64 val = 0;
-    if (!read_datetime_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse datetime fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
-    }
-    column_data->insert_value(val);
-    return Status::OK();
 }
 
 void DataTypeDateTime::cast_to_date_time(Int64& x) {

@@ -42,7 +42,6 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -93,16 +92,12 @@ TEST_F(DataTypeStringTest, MetaInfoTest) {
             .family_name = dt_str.get_family_name(),
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_STRING,
-            .should_align_right_in_pretty_formats = false,
-            .text_can_contain_only_valid_utf8 = false,
             .have_maximum_size_of_value = false,
             .size_of_value_in_memory = 0,
             .precision = size_t(-1),
             .scale = size_t(-1),
             .is_null_literal = false,
-            .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_STRING>(""),
     };
     auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, false);
@@ -264,12 +259,7 @@ TEST_F(DataTypeStringTest, ser_deser) {
 }
 TEST_F(DataTypeStringTest, simple_func_test) {
     auto test_func = [](auto& dt) {
-        EXPECT_FALSE(dt.have_subtypes());
-        EXPECT_FALSE(dt.should_align_right_in_pretty_formats());
-        EXPECT_TRUE(dt.is_comparable());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_FALSE(dt.have_maximum_size_of_value());
-        EXPECT_TRUE(dt.can_be_inside_low_cardinality());
 
         EXPECT_FALSE(dt.is_null_literal());
 
@@ -298,7 +288,7 @@ TEST_F(DataTypeStringTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));
@@ -308,7 +298,7 @@ TEST_F(DataTypeStringTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(source_column, i);
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));
@@ -323,7 +313,7 @@ TEST_F(DataTypeStringTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));

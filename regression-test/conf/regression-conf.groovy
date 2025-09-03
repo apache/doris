@@ -231,6 +231,13 @@ extArrowFlightSqlPassword= ""
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
+iceberg_rest_uri_port_s3=19181
+iceberg_rest_uri_port_oss=19182
+iceberg_rest_uri_port_cos=19183
+
+// polaris rest catalog config
+polaris_rest_uri_port=20181
+polaris_minio_port=20001
 
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.
@@ -280,3 +287,6 @@ icebergS3TablesCatalog = ""
 enableExternalHudiTest = false
 // The properties string of hudi catalog
 hudiEmrCatalog = ""
+icebergS3TablesCatalog=""
+icebergS3TablesCatalogGlueRest=""
+

@@ -41,7 +41,6 @@ class PColumnMeta;
 namespace vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -77,14 +76,6 @@ public:
     }
 
     bool equals(const IDataType& rhs) const override;
-    bool have_subtypes() const override { return true; }
-    bool is_comparable() const override {
-        return key_type->is_comparable() && value_type->is_comparable();
-    }
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
-
     const DataTypePtr& get_key_type() const { return key_type; }
     const DataTypePtr& get_value_type() const { return value_type; }
 
@@ -97,7 +88,6 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     using SerDeType = DataTypeMapSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(key_type->get_serde(nesting_level + 1),

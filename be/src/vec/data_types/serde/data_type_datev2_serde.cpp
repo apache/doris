@@ -82,9 +82,8 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     }
     auto& column_data = assert_cast<ColumnDateV2&>(column);
     UInt32 val = 0;
-    if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (StringRef str(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, str)) {
+        return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
     return Status::OK();

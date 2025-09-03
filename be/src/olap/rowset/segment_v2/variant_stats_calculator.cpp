@@ -24,12 +24,14 @@
 
 namespace doris::segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 VariantStatsCaculator::VariantStatsCaculator(SegmentFooterPB* footer,
                                              TabletSchemaSPtr tablet_schema,
                                              const std::vector<uint32_t>& column_ids)
         : _footer(footer), _tablet_schema(tablet_schema), _column_ids(column_ids) {
     // Build the path to footer index mapping during initialization
-    for (size_t i = 0; i < _footer->columns_size(); ++i) {
+    for (int i = 0; i < _footer->columns_size(); ++i) {
         const auto& column = _footer->columns(i);
         // path that need to record stats
         if (column.has_column_path_info() &&
@@ -54,7 +56,7 @@ Status VariantStatsCaculator::calculate_variant_stats(const vectorized::Block* b
                 return Status::NotFound("Column path not found in footer: {}",
                                         tablet_column.path_info_ptr()->get_path());
             }
-            size_t footer_index = it->second[column_path];
+            int footer_index = it->second[column_path];
             ColumnMetaPB* column_meta = _footer->mutable_columns(footer_index);
 
             // Get the column from the block
@@ -80,7 +82,8 @@ void VariantStatsCaculator::_calculate_sparse_column_stats(const vectorized::ICo
     VariantStatisticsPB* stats = column_meta->mutable_variant_statistics();
 
     // Use the same logic as the original calculate_variant_stats function
-    vectorized::schema_util::calculate_variant_stats(column, stats, row_pos, num_rows);
+    vectorized::schema_util::VariantCompactionUtil::calculate_variant_stats(column, stats, row_pos,
+                                                                            num_rows);
 
     VLOG_DEBUG << "Sparse column stats updated, non-null size count: "
                << stats->sparse_column_non_null_size_size();
@@ -103,5 +106,7 @@ void VariantStatsCaculator::_calculate_sub_column_stats(const vectorized::IColum
     VLOG_DEBUG << "Sub column non-null count updated: " << column_meta->none_null_size()
                << " (added " << current_non_null_count << " from current block)";
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

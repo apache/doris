@@ -71,6 +71,10 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
     return st;
 }
 
+bool VExprContext::is_blockable() const {
+    return _root->is_blockable();
+}
+
 Status VExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     _prepared = true;
     Status st;
@@ -116,6 +120,9 @@ Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
     new_ctx->_is_clone = true;
     new_ctx->_prepared = true;
     new_ctx->_opened = true;
+    // segment_v2::AnnRangeSearchRuntime should be cloned as well.
+    // The object of segment_v2::AnnRangeSearchRuntime is not shared by threads.
+    new_ctx->_ann_range_search_runtime = this->_ann_range_search_runtime;
 
     return _root->open(state, new_ctx.get(), FunctionContext::THREAD_LOCAL);
 }
@@ -432,6 +439,31 @@ Status VExprContext::get_output_block_after_execute_exprs(
 void VExprContext::_reset_memory_usage(const VExprContextSPtrs& contexts) {
     std::for_each(contexts.begin(), contexts.end(),
                   [](auto&& context) { context->_memory_usage = 0; });
+}
+
+void VExprContext::prepare_ann_range_search(const doris::VectorSearchUserParams& params) {
+    if (_root == nullptr) {
+        return;
+    }
+
+    _root->prepare_ann_range_search(params, _ann_range_search_runtime, _suitable_for_ann_index);
+    VLOG_DEBUG << fmt::format("Prepare ann range search result {}, _suitable_for_ann_index {}",
+                              this->_ann_range_search_runtime.to_string(),
+                              this->_suitable_for_ann_index);
+    return;
+}
+
+Status VExprContext::evaluate_ann_range_search(
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
+    if (_root != nullptr) {
+        return _root->evaluate_ann_range_search(_ann_range_search_runtime, cid_to_index_iterators,
+                                                idx_to_cid, column_iterators, row_bitmap,
+                                                ann_index_stats);
+    }
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

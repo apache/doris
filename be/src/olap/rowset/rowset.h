@@ -142,7 +142,7 @@ public:
     // publish rowset to make it visible to read
     void make_visible(Version version);
     void set_version(Version version);
-    const TabletSchemaSPtr& tablet_schema() const { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() const;
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
@@ -161,7 +161,7 @@ public:
     int64_t partition_id() const { return rowset_meta()->partition_id(); }
     // flag for push delete rowset
     bool delete_flag() const { return rowset_meta()->delete_flag(); }
-    int64_t num_segments() const { return rowset_meta()->num_segments(); }
+    MOCK_FUNCTION int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) const { return rowset_meta()->to_rowset_pb(rs_meta); }
     RowsetMetaPB get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
     // The writing time of the newest data in rowset, to measure the freshness of a rowset.
@@ -314,9 +314,14 @@ public:
 
     void clear_cache();
 
-    Result<std::string> segment_path(int64_t seg_id);
+    MOCK_FUNCTION Result<std::string> segment_path(int64_t seg_id);
 
     std::vector<std::string> get_index_file_names();
+
+    // check if the rowset is a hole rowset
+    bool is_hole_rowset() const { return _is_hole_rowset; }
+    // set the rowset as a hole rowset
+    void set_hole_rowset(bool is_hole_rowset) { _is_hole_rowset = is_hole_rowset; }
 
 protected:
     friend class RowsetFactory;
@@ -358,6 +363,11 @@ protected:
 
     // <column_uniq_id>, skip index compaction
     std::set<int32_t> skip_index_compaction;
+
+    // only used for cloud mode, it indicates whether this rowset is a hole rowset.
+    // a hole rowset is a rowset that has no data, but is used to fill the version gap
+    // it is used to ensure that the version sequence is continuous.
+    bool _is_hole_rowset = false;
 };
 
 // `rs_metas` MUST already be sorted by `RowsetMeta::comparator`

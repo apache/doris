@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
@@ -335,6 +336,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitStructLiteral(StructLiteral structLiteral, C context) {
         return visitLiteral(structLiteral, context);
+    }
+
+    public R visitBetween(Between between, C context) {
+        return visit(between, context);
     }
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {

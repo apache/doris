@@ -158,6 +158,11 @@ public class Column implements GsonPostProcessable {
     @SerializedName(value = "fpt")
     private TPatternType fieldPatternType;
 
+    // used for saving some extra information, such as timezone info of datetime column
+    // Maybe deprecated if we implement real timestamp with timezone type.
+    @SerializedName(value = "ei")
+    private String extraInfo;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -946,6 +951,18 @@ public class Column implements GsonPostProcessable {
         if (generatedColumnInfo != null || other.getGeneratedColumnInfo() != null) {
             throw new DdlException("Not supporting alter table modify generated columns.");
         }
+
+        if (type.isVariantType() && other.type.isVariantType()) {
+            if (this.getVariantMaxSubcolumnsCount() != other.getVariantMaxSubcolumnsCount()) {
+                throw new DdlException("Can not change variant max subcolumns count");
+            }
+            if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
+                throw new DdlException("Can not change variant enable typed paths to sparse");
+            }
+            if (!this.getChildren().isEmpty() || !other.getChildren().isEmpty()) {
+                throw new DdlException("Can not change variant schema templates");
+            }
+        }
     }
 
     public boolean nameEquals(String otherColName, boolean ignorePrefix) {
@@ -1185,6 +1202,10 @@ public class Column implements GsonPostProcessable {
         this.uniqueId = colUniqueId;
     }
 
+    public void setWithTZExtraInfo() {
+        this.extraInfo = Strings.isNullOrEmpty(extraInfo) ? "WITH_TIMEZONE" : extraInfo + ", WITH_TIMEZONE";
+    }
+
     public int getUniqueId() {
         return this.uniqueId;
     }
@@ -1281,4 +1302,7 @@ public class Column implements GsonPostProcessable {
         return fieldPatternType;
     }
 
+    public String getExtraInfo() {
+        return extraInfo;
+    }
 }

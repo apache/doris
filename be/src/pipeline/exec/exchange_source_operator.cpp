@@ -36,6 +36,17 @@ namespace doris::pipeline {
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
 
+ExchangeLocalState::~ExchangeLocalState() {
+    // It is necessary to call stream_recvr->close() in ~ExchangeLocalState.
+    // This is because VDataStreamRecvr is initialized during init and then added to VDataStreamMgr.
+    // When closing, VDataStreamRecvr is removed from VDataStreamMgr.
+    // However, in some error situations, the pipeline may not be opened and therefore may not be closed either.
+    // The close method of VDataStreamRecvr contains checks and will not be closed multiple times.
+    if (stream_recvr) {
+        stream_recvr->close();
+    }
+}
+
 std::string ExchangeLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));

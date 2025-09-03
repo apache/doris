@@ -19,9 +19,7 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
@@ -34,6 +32,7 @@ import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvide
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
@@ -46,10 +45,15 @@ import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
 
-    private static final String[] ENDPOINT_NAMES = {
+    private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"
     };
+
+    private static final String[] REGION_NAMES_FOR_GUESSING = {
+            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
+    };
+
     @Setter
     @Getter
     @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
@@ -61,43 +65,63 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Setter
     @Getter
     @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
-            "aws.glue.region"},
+            "aws.glue.region", "iceberg.rest.signing-region"},
             required = false,
             description = "The region of S3.")
     protected String region = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "glue.access_key",
-            "aws.glue.access-key", "client.credentials-provider.glue.access_key"},
+            "aws.glue.access-key", "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id"},
             required = false,
             description = "The access key of S3. Optional for anonymous access to public datasets.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "glue.secret_key",
-            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
+            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key"},
             required = false,
             description = "The secret key of S3. Optional for anonymous access to public datasets.")
     protected String secretKey = "";
 
+    @Getter
+    @ConnectorProperty(names = {"s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of S3.")
+    protected String sessionToken = "";
 
+    @Getter
     @ConnectorProperty(names = {"s3.connection.maximum",
             "AWS_MAX_CONNECTIONS"},
             required = false,
             description = "The maximum number of connections to S3.")
-    protected String s3ConnectionMaximum = "50";
+    protected String maxConnections = "50";
 
+    @Getter
     @ConnectorProperty(names = {"s3.connection.request.timeout",
             "AWS_REQUEST_TIMEOUT_MS"},
             required = false,
             description = "The request timeout of S3 in milliseconds,")
-    protected String s3ConnectionRequestTimeoutS = "3000";
+    protected String requestTimeoutS = "3000";
 
+    @Getter
     @ConnectorProperty(names = {"s3.connection.timeout",
             "AWS_CONNECTION_TIMEOUT_MS"},
             required = false,
             description = "The connection timeout of S3 in milliseconds,")
-    protected String s3ConnectionTimeoutS = "1000";
+    protected String connectionTimeoutS = "1000";
+
+    @Setter
+    @Getter
+    @ConnectorProperty(names = {"use_path_style", "s3.path-style-access"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    protected String usePathStyle = "false";
+
+    @ConnectorProperty(names = {"force_parsing_by_standard_uri"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    @Setter
+    @Getter
+    protected String forceParsingByStandardUrl = "false";
 
     @ConnectorProperty(names = {"s3.sts_endpoint"},
             supported = false,
@@ -124,6 +148,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public static S3Properties of(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.initNormalizeAndCheckProps();
         return propertiesObj;
     }
 
@@ -161,25 +186,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isBlank(s3IAMRole)) {
+            throw new IllegalArgumentException("s3.external_id must be used with s3.role_arn");
+        }
         convertGlueToS3EndpointIfNeeded();
-        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
-            return;
-        }
-        if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
-            return;
-        }
-        // When using vended credentials with a REST catalog, AK/SK are not provided directly.
-        // The credentials will be fetched from the REST service later.
-        // So we skip the credential check in this case.
-        if (Boolean.parseBoolean(origProps.getOrDefault("iceberg.rest.vended-credentials-enabled", "false"))) {
-            return;
-        }
-        // Allow anonymous access if both access_key and secret_key are empty
-        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            return;
-        }
-        throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
-                + "s3.external_id or omit all for anonymous access to public bucket.");
     }
 
     /**
@@ -189,7 +199,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * @return
      */
     protected static boolean guessIsMe(Map<String, String> origProps) {
-        String endpoint = Stream.of(ENDPOINT_NAMES)
+        String endpoint = Stream.of(ENDPOINT_NAMES_FOR_GUESSING)
                 .map(origProps::get)
                 .filter(Objects::nonNull)
                 .findFirst()
@@ -200,14 +210,29 @@ public class S3Properties extends AbstractS3CompatibleProperties {
          * cause the type detection to fail, leading to missed recognition of valid S3 properties.
          * A more robust approach would allow further validation downstream rather than failing early here.
          */
-        if (!Strings.isNullOrEmpty(endpoint)) {
+        if (StringUtils.isNotBlank(endpoint)) {
             return endpoint.contains("amazonaws.com");
         }
+
+        // guess from URI
         Optional<String> uriValue = origProps.entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase("uri"))
                 .map(Map.Entry::getValue)
                 .findFirst();
-        return uriValue.isPresent() && uriValue.get().contains("amazonaws.com");
+        if (uriValue.isPresent()) {
+            return uriValue.get().contains("amazonaws.com");
+        }
+
+        // guess from region
+        String region = Stream.of(REGION_NAMES_FOR_GUESSING)
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (StringUtils.isNotBlank(region)) {
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -217,12 +242,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Override
     public Map<String, String> getBackendConfigProperties() {
-        Map<String, String> backendProperties = generateBackendS3Configuration(s3ConnectionMaximum,
-                s3ConnectionRequestTimeoutS, s3ConnectionTimeoutS, String.valueOf(usePathStyle));
+        Map<String, String> backendProperties = generateBackendS3Configuration();
 
-        if (StringUtils.isNotBlank(s3ExternalId)
-                && StringUtils.isNotBlank(s3IAMRole)) {
+        if (StringUtils.isNotBlank(s3IAMRole)) {
             backendProperties.put("AWS_ROLE_ARN", s3IAMRole);
+        }
+        if (StringUtils.isNotBlank(s3ExternalId)) {
             backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
         }
         return backendProperties;
@@ -242,6 +267,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         }
         if (StringUtils.isNotBlank(s3IAMRole)) {
             StsClient stsClient = StsClient.builder()
+                    .region(Region.of(region))
                     .credentialsProvider(InstanceProfileCredentialsProvider.create())
                     .build();
 
@@ -249,7 +275,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                     .stsClient(stsClient)
                     .refreshRequest(builder -> {
                         builder.roleArn(s3IAMRole).roleSessionName("aws-sdk-java-v2-fe");
-                        if (!Strings.isNullOrEmpty(s3ExternalId)) {
+                        if (StringUtils.isNotBlank(s3ExternalId)) {
                             builder.externalId(s3ExternalId);
                         }
                     }).build();
@@ -270,12 +296,26 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         super.initializeHadoopStorageConfig();
         //Set assumed_roles
         //@See https://hadoop.apache.org/docs/r3.4.1/hadoop-aws/tools/hadoop-aws/assumed_roles.html
-        if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
+        if (StringUtils.isNotBlank(s3IAMRole)) {
             //@See org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider
-            hadoopStorageConfig.set("fs.s3a.assumed.role.external.id", s3ExternalId);
             hadoopStorageConfig.set("fs.s3a.assumed.role.arn", s3IAMRole);
             hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
                     "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider");
+            if (StringUtils.isNotBlank(s3ExternalId)) {
+                hadoopStorageConfig.set("fs.s3a.assumed.role.external.id", s3ExternalId);
+            }
         }
     }
+
+    @Override
+    protected String getEndpointFromRegion() {
+        if (!StringUtils.isBlank(endpoint)) {
+            return endpoint;
+        }
+        if (StringUtils.isBlank(region)) {
+            return "";
+        }
+        return "https://s3." + region + ".amazonaws.com";
+    }
 }
+

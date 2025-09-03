@@ -220,8 +220,6 @@ public:
     static void make_top_consumption_tasks_tracker_profile(RuntimeProfile* profile, int top_num);
     static void make_all_tasks_tracker_profile(RuntimeProfile* profile);
 
-    int64_t write_buffer_size() const { return _write_tracker->consumption(); }
-
     std::shared_ptr<MemTrackerLimiter> write_tracker() { return _write_tracker; }
 
     void print_log_usage(const std::string& msg);

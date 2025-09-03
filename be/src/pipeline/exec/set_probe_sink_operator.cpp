@@ -131,10 +131,7 @@ Status SetProbeSinkLocalState<is_intersect>::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
 
-    // Add the if check only for compatible with old optimiser
-    if (_shared_state->child_quantity > 1) {
-        _probe_columns.resize(_child_exprs.size());
-    }
+    _probe_columns.resize(_child_exprs.size());
     return Status::OK();
 }
 

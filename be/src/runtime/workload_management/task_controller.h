@@ -77,6 +77,8 @@ public:
         return cancel_impl(reason);
     }
 
+    int64_t cancel_elapsed_millis() const { return MonotonicMillis() - cancelled_time_; }
+
     virtual bool cancel_impl(const Status& reason) { return false; }
 
     int64_t cancelled_time() const { return cancelled_time_; }

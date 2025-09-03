@@ -56,7 +56,6 @@ class PColumnMeta;
 namespace vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -221,14 +220,6 @@ public:
     Status check_column(const IColumn& column) const override;
     bool equals(const IDataType& rhs) const override;
 
-    bool have_subtypes() const override { return false; }
-    bool should_align_right_in_pretty_formats() const override { return true; }
-    bool text_can_contain_only_valid_utf8() const override { return true; }
-    bool is_comparable() const override { return true; }
-    bool is_value_represented_by_number() const override { return true; }
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return sizeof(FieldType); }
 
@@ -238,7 +229,6 @@ public:
     template <bool is_const>
     void to_string_batch_impl(const ColumnPtr& column_ptr, ColumnString& column_to) const;
     std::string to_string(const FieldType& value) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     using SerDeType = DataTypeDecimalSerDe<T>;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(precision, scale, nesting_level);
