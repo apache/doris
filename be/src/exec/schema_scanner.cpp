@@ -56,6 +56,7 @@
 #include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_view_dependency_scanner.h"
+#include "exec/schema_scanner/schema_sql_block_rule_status_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
 #include "exec/schema_scanner/schema_workload_group_privileges.h"
 #include "exec/schema_scanner/schema_workload_group_resource_usage_scanner.h"
@@ -240,6 +241,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaTabletsScanner::create_unique();
     case TSchemaTableType::SCH_VIEW_DEPENDENCY:
         return SchemaViewDependencyScanner::create_unique();
+    case TSchemaTableType::SCH_SQL_BLOCK_RULE_STATUS:
+        return SchemaSqlBlockRuleStatusScanner::create_unique();
     case TSchemaTableType::SCH_ENCRYPTION_KEYS:
         return SchemaEncryptionKeysScanner::create_unique();
     default:

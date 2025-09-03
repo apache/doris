@@ -706,7 +706,7 @@ public class SchemaTable extends Table {
                                     .column("BLOCKS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("AVERAGE_DURATION", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("LONGEST_DURATION", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("P99_DURATIONS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("P99_DURATION", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
             .build();
 

@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -108,6 +109,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTasksMetadataParams;
 import org.apache.doris.thrift.TUserIdentity;
 
+import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
@@ -152,6 +154,8 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> PARTITIONS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> VIEW_DEPENDENCY_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -221,6 +225,13 @@ public class MetadataGenerator {
             viewDependencyBuilder.put(viewDependencyBuilderColList.get(i).getName().toLowerCase(), i);
         }
         VIEW_DEPENDENCY_COLUMN_TO_INDEX = viewDependencyBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> sqlBlockRuleStatusBuilder = new ImmutableMap.Builder();
+        List<Column> sqlBlockRuleStatusBuilderColList = SchemaTable.TABLE_MAP.get("sql_block_rule_status").getFullSchema();
+        for (int i = 0; i < sqlBlockRuleStatusBuilderColList.size(); i++) {
+            sqlBlockRuleStatusBuilder.put(sqlBlockRuleStatusBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX = sqlBlockRuleStatusBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -330,6 +341,10 @@ public class MetadataGenerator {
             case VIEW_DEPENDENCY:
                 result = viewDependencyMetadataResult(schemaTableParams);
                 columnIndex = VIEW_DEPENDENCY_COLUMN_TO_INDEX;
+                break;
+            case SQL_BLOCK_RULE_STATUS:
+                result = sqlBlockRuleStatusMetadataResult(schemaTableParams);
+                columnIndex = SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -615,6 +630,41 @@ public class MetadataGenerator {
 
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult sqlBlockRuleStatusMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
+            return result;
+        }
+        List<SqlBlockRule> sqlBlockRules = Env.getCurrentEnv().getSqlBlockRuleMgr().getSqlBlockRule(null);
+
+        for (SqlBlockRule sqlBlockRule : sqlBlockRules) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(sqlBlockRule.getName()));
+            trow.addToColumnValue(new TCell().setStringVal(sqlBlockRule.getSql()));
+            trow.addToColumnValue(new TCell().setStringVal(sqlBlockRule.getSqlHash()));
+            trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getPartitionNum()));
+            trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getTabletNum()));
+            trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getCardinality()));
+            trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getGlobal()));
+            trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getEnable()));
+            trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getBlockCount().getValue()));
+            Snapshot snapshot = sqlBlockRule.getTryBlockHistogram().getSnapshot();
+            trow.addToColumnValue(new TCell().setLongVal((long) snapshot.getMean()));
+            trow.addToColumnValue(new TCell().setLongVal(snapshot.getMax()));
+            trow.addToColumnValue(new TCell().setLongVal((long) snapshot.get99thPercentile()));
+            dataBatch.add(trow);
+        }
         return result;
     }
 

@@ -20,9 +20,13 @@ package org.apache.doris.blockrule;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
+import org.apache.doris.metric.LongCounterMetric;
+import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.SlidingWindowReservoir;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
@@ -72,6 +76,8 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
     private Boolean enable;
 
     private Pattern sqlPattern;
+    private Histogram tryBlockHistogram = new Histogram(new SlidingWindowReservoir(1000));
+    private LongCounterMetric blockCount = new LongCounterMetric("blocks", MetricUnit.ROWS,"");
 
     /**
      * Create SqlBlockRule.
@@ -168,6 +174,14 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
                 this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
                 this.cardinality == null ? "0" : Long.toString(this.cardinality), String.valueOf(this.global),
                 String.valueOf(this.enable));
+    }
+
+    public Histogram getTryBlockHistogram() {
+        return tryBlockHistogram;
+    }
+
+    public LongCounterMetric getBlockCount() {
+        return blockCount;
     }
 
     @Override

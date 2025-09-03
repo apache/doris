@@ -77,7 +77,7 @@ public class SqlBlockRuleMgr implements Writable {
     /**
      * Get SqlBlockRule by rulename.
      **/
-    public List<SqlBlockRule> getSqlBlockRule(String ruleName) throws AnalysisException {
+    public List<SqlBlockRule> getSqlBlockRule(String ruleName) {
         if (StringUtils.isNotEmpty(ruleName)) {
             if (nameToSqlBlockRuleMap.containsKey(ruleName)) {
                 SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
@@ -240,14 +240,20 @@ public class SqlBlockRuleMgr implements Writable {
 
     private void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
         if (rule.getEnable()) {
-            if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
-                    && rule.getSqlHash().equals(sqlHash)) {
-                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
-            } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
-                    && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
-                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+            long startAt = System.currentTimeMillis();
+            try {
+                if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
+                        && rule.getSqlHash().equals(sqlHash)) {
+                    MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                    throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
+                } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
+                        && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
+                    MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                    rule.getBlockCount().increase(1L);
+                    throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+                }
+            } finally {
+                rule.getTryBlockHistogram().update(System.currentTimeMillis() - startAt);
             }
         }
     }
