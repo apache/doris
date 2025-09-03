@@ -22,18 +22,33 @@ suite("test_array_distance_functions") {
     qt_sql "SELECT cosine_distance([0], [0])"
     qt_sql "SELECT inner_product([1, 2], [2, 3])"
 
-    qt_sql "SELECT l2_distance([1, 2, 3], NULL)"
+    test {
+        sql "SELECT l2_distance([1, 2, 3], NULL)"
+        exception "[INVALID_ARGUMENT]Arguments for function l2_distance cannot be null"
+    }
+    
 
     // Test cases for nullable arrays with different null distributions
     // These test the fix for correct array size comparison when nulls are present
-    qt_sql "SELECT l1_distance(NULL, NULL)"
+    test {
+        sql "SELECT l1_distance(NULL, NULL)"
+        exception "Arguments for function l1_distance cannot be null"
+    } 
+
     qt_sql "SELECT l2_distance([1.0, 2.0], [3.0, 4.0])"
     qt_sql "SELECT cosine_distance([1.0, 2.0, 3.0], [4.0, 5.0, 6.0])"
     qt_sql "SELECT inner_product([2.0, 3.0], [4.0, 5.0])"
 
     // Test mixed nullable scenarios - these should work correctly after the fix
-    qt_sql "SELECT l1_distance([1.0, 2.0], [3.0, 4.0]) as result1, l1_distance(NULL, [5.0, 6.0]) as result2"
-    qt_sql "SELECT cosine_distance([1.0], [2.0]) as result1, cosine_distance([3.0], NULL) as result2"
+    test {
+        sql "SELECT l1_distance([1.0, 2.0], [3.0, 4.0]) as result1, l1_distance(NULL, [5.0, 6.0]) as result2"
+        exception "Arguments for function l1_distance cannot be null"
+    }
+
+    test {
+        sql "SELECT cosine_distance([1.0], [2.0]) as result1, cosine_distance([3.0], NULL) as result2"
+        exception "[INVALID_ARGUMENT]Arguments for function cosine_distance cannot be null"
+    }
 
     // abnormal test cases
     try {
@@ -45,7 +60,7 @@ suite("test_array_distance_functions") {
     try {
         sql "SELECT cosine_distance([NULL], [NULL, NULL])"
     } catch (Exception ex) {
-        assert("${ex}".contains("function cosine_distance have different input element sizes"))
+        assert("${ex}".contains("[INVALID_ARGUMENT]Arguments for function cosine_distance cannot have null"))
     }
 
     // Test cases for the nullable array offset fix
@@ -66,7 +81,7 @@ suite("test_array_distance_functions") {
     try {
         sql "SELECT l1_distance([1, 2, 3], [0, NULL, 0])"
     } catch (Exception ex) {
-        assert("${ex}".contains("function l1_distance does not support arrays containing null"))
+        assert("${ex}".contains("[INVALID_ARGUMENT]Arguments for function l1_distance cannot have null"))
     }
 
     // Edge case: empty arrays should work
