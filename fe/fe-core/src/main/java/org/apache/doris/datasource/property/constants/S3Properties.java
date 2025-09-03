@@ -329,7 +329,6 @@ public class S3Properties extends BaseProperties {
             region = S3Properties.getRegionOfEndpoint(endpoint);
         }
         if (Strings.isNullOrEmpty(region)) {
-            String errorMsg = String.format("No '%s' info found, using SDK default region: us-east-1", regionKey);
             return "us-east-1";
         }
         return region;
