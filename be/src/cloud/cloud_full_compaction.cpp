@@ -280,6 +280,7 @@ Status CloudFullCompaction::modify_rowsets() {
         cloud_tablet()->delete_rowsets(_input_rowsets, wrlock);
         cloud_tablet()->add_rowsets({_output_rowset}, false, wrlock);
         cloud_tablet()->set_base_compaction_cnt(stats.base_compaction_cnt());
+        cloud_tablet()->set_full_compaction_cnt(stats.full_compaction_cnt());
         cloud_tablet()->set_cumulative_layer_point(stats.cumulative_point());
         if (stats.cumulative_compaction_cnt() >= cloud_tablet()->cumulative_compaction_cnt()) {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
