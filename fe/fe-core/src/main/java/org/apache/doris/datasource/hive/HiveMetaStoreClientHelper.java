@@ -863,7 +863,7 @@ public class HiveMetaStoreClientHelper {
 
     private static Optional<String> firstNonNullable(String... values) {
         for (String value : values) {
-            if (!Strings.isNullOrEmpty(value)) {
+            if (value != null) {
                 return Optional.of(value);
             }
         }
