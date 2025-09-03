@@ -83,10 +83,13 @@ const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, con
         }
         }
         if (config::enable_csv_reader_fuzzy_test) [[unlikely]] {
-            len = _idx + 1;
+            if (_idx > bound) {
+                break;
+            }
+            len = std::max(_idx + 1, len);
             if (_state.curr_state == ReaderState::NORMAL ||
                 _state.curr_state == ReaderState::MATCH_ENCLOSE) {
-                _idx -= std::min(_column_sep_len - 1, _idx);
+                _idx -= std::min(_column_sep_len, _idx);
             }
         }
     }
