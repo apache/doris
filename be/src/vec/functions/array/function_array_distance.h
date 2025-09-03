@@ -203,19 +203,6 @@ public:
         block.replace_by_position(result, std::move(dst));
         return Status::OK();
     }
-
-private:
-    bool _check_input_type(const DataTypePtr& type) const {
-        if (type->is_nullable()) {
-            return false;
-        }
-        if (type->get_primitive_type() != TYPE_ARRAY) {
-            return false;
-        }
-        auto nested_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*type).get_nested_type());
-        return nested_type->get_primitive_type() == TYPE_FLOAT;
-    }
 };
 
 } // namespace doris::vectorized
