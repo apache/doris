@@ -147,24 +147,8 @@ Status IndexBuilder::update_inverted_index_info() {
                 if (!ann_index) {
                     continue;
                 }
-                if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
-                    InvertedIndexStorageFormatPB::V1) {
-                    const auto& fs = io::global_local_filesystem();
-
-                    for (int seg_id = 0; seg_id < num_segments; seg_id++) {
-                        auto seg_path =
-                                local_segment_path(_tablet->tablet_path(),
-                                                   input_rowset->rowset_id().to_string(), seg_id);
-                        auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
-                                ann_index->index_id(), ann_index->get_index_suffix());
-                        int64_t index_size = 0;
-                        RETURN_IF_ERROR(fs->file_size(index_path, &index_size));
-                        VLOG_DEBUG << "inverted index file:" << index_path
-                                   << " size:" << index_size;
-                        drop_index_size += index_size;
-                    }
-                }
+                DCHECK(output_rs_tablet_schema->get_inverted_index_storage_format() !=
+                       InvertedIndexStorageFormatPB::V1);
                 _dropped_inverted_indexes.push_back(*ann_index);
                 // ATTN: DO NOT REMOVE INDEX AFTER OUTPUT_ROWSET_WRITER CREATED.
                 // remove dropped index_meta from output rowset tablet schema
@@ -224,10 +208,8 @@ Status IndexBuilder::update_inverted_index_info() {
                     if (exist_index->is_same_except_id(&index)) {
                         LOG(WARNING) << fmt::format(
                                 "column: {} has a exist ann index, but the index id not "
-                                "equal "
-                                "request's index id, , exist index id: {}, request's index id: "
-                                "{}, "
-                                "remove exist index in new output_rs_tablet_schema",
+                                "equal request's index id, , exist index id: {}, request's index "
+                                "id: {}, remove exist index in new output_rs_tablet_schema",
                                 column_uid, exist_index->index_id(), index.index_id());
                         without_index_uids.insert(exist_index->index_id());
                         output_rs_tablet_schema->remove_index(exist_index->index_id());

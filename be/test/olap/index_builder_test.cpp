@@ -202,7 +202,7 @@ TEST_F(IndexBuilderTest, BasicBuildTest) {
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 }
 
-TEST_F(IndexBuilderTest, DropIndexTest) {
+TEST_F(IndexBuilderTest, DropInvertedIndexTest) {
     // 0. prepare tablet path
     auto tablet_path = _absolute_dir + "/" + std::to_string(15676);
     _tablet->_tablet_path = tablet_path;
@@ -338,7 +338,7 @@ TEST_F(IndexBuilderTest, DropIndexTest) {
     //EXPECT_FALSE(tablet_schema->has_inverted_index_with_index_id(1));
 }
 
-TEST_F(IndexBuilderTest, AnnIndexTest) {
+TEST_F(IndexBuilderTest, DropAnnIndexTest) {
     // prepare tablet path
     auto tablet_path = _absolute_dir + "/" + std::to_string(15676);
     _tablet->_tablet_path = tablet_path;
@@ -499,7 +499,7 @@ TEST_F(IndexBuilderTest, AnnIndexTest) {
     EXPECT_EQ(new_dat_file_count, 1) << "Tablet path should have 1 .dat file after drop";
 }
 
-TEST_F(IndexBuilderTest, BuildIndexAfterWritingDataTest) {
+TEST_F(IndexBuilderTest, BuildInvertedIndexAfterWritingDataTest) {
     // 0. prepare tablet path
     auto tablet_path = _absolute_dir + "/" + std::to_string(14673);
     _tablet->_tablet_path = tablet_path;
@@ -644,6 +644,184 @@ TEST_F(IndexBuilderTest, BuildIndexAfterWritingDataTest) {
     //auto tablet_schema = _tablet->tablet_schema();
     //EXPECT_TRUE(tablet_schema->has_inverted_index_with_index_id(1));
     //EXPECT_TRUE(tablet_schema->has_inverted_index_with_index_id(2));
+}
+
+TEST_F(IndexBuilderTest, BuildAnnIndexAfterWritingDataTest) {
+    // 0. prepare tablet path
+    auto tablet_path = _absolute_dir + "/" + std::to_string(14686);
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet_path).ok());
+
+    // 1. Prepare data for writing
+    RowsetSharedPtr rowset;
+    const int num_rows = 100;
+
+    // 2. Use ANN schema with array<float> column
+    auto ann_schema = create_ann_tablet_schema();
+
+    // 3. Update schema in tablet meta
+    TabletMetaPB tablet_meta_pb;
+    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+
+    TabletSchemaPB ann_schema_pb;
+    ann_schema->to_schema_pb(&ann_schema_pb);
+    tablet_meta_pb.mutable_schema()->CopyFrom(ann_schema_pb);
+
+    _tablet_meta->init_from_pb(tablet_meta_pb);
+
+    // 4. Reinitialize tablet to use new schema
+    _tablet = std::make_shared<Tablet>(*_engine_ref, _tablet_meta, _data_dir.get());
+    _tablet->_tablet_path = tablet_path;
+    ASSERT_TRUE(_tablet->init().ok());
+
+    _tablet_schema = ann_schema;
+
+    // 3. Create a rowset writer context
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id.init(15686);
+    writer_context.tablet_id = 15686;
+    writer_context.tablet_schema_hash = 567997577;
+    writer_context.partition_id = 10;
+    writer_context.rowset_type = BETA_ROWSET;
+    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15686);
+    writer_context.rowset_state = VISIBLE;
+    writer_context.tablet_schema = _tablet_schema;
+    writer_context.version.first = 10;
+    writer_context.version.second = 10;
+
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+
+    // 4. Create a rowset writer
+    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    // 5. Write data to the rowset with float arrays
+    {
+        vectorized::DataTypePtr inner_float = std::make_shared<vectorized::DataTypeFloat32>();
+        vectorized::DataTypePtr array_type =
+                std::make_shared<vectorized::DataTypeArray>(inner_float);
+
+        // create a MutableColumnPtr
+        vectorized::MutableColumnPtr col = array_type->create_column();
+
+        // Add data for each row - arrays of 4 floats (matching dim=4 in properties)
+        for (int i = 0; i < num_rows; ++i) {
+            vectorized::Array arr;
+            // Create 4-dimensional float vectors
+            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(static_cast<float>(i % 10)));
+            arr.push_back(
+                    vectorized::Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 1) % 10)));
+            arr.push_back(
+                    vectorized::Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 2) % 10)));
+            arr.push_back(
+                    vectorized::Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 3) % 10)));
+            col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+        }
+
+        // wrap the constructed column into a ColumnWithTypeAndName
+        vectorized::ColumnPtr column_array = std::move(col);
+        vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
+
+        // construct Block (containing only this column), with num_rows rows
+        vectorized::Block block;
+        block.insert(type_and_name);
+
+        // Add the block to the rowset
+        Status s = rowset_writer->add_block(&block);
+        ASSERT_TRUE(s.ok()) << s.to_string();
+
+        // Flush the writer
+        s = rowset_writer->flush();
+        ASSERT_TRUE(s.ok()) << s.to_string();
+
+        // Build the rowset
+        ASSERT_TRUE(rowset_writer->build(rowset).ok());
+
+        // Add the rowset to the tablet
+        ASSERT_TRUE(_tablet->add_rowset(rowset).ok());
+    }
+
+    // 6. Prepare ANN index for building
+    std::map<std::string, std::string> properties;
+    properties["index_type"] = "hnsw";
+    properties["metric_type"] = "l2_distance";
+    properties["dim"] = "4";
+    properties["max_degree"] = "16";
+
+    TOlapTableIndex ann_index;
+    ann_index.__set_index_id(1);
+    ann_index.__set_columns({"arr1"});
+    ann_index.__set_index_name("arr1_ann_index");
+    ann_index.__set_index_type(TIndexType::ANN);
+    // NOTE: wrong way, it doesn't set __isset.properties flag
+    // ann_index.properties = properties;
+    ann_index.__set_properties(properties);
+    _alter_indexes.push_back(ann_index);
+
+    // 7. Create IndexBuilder
+    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
+                         _alter_indexes, false);
+
+    // 8. Initialize and verify
+    auto status = builder.init();
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(builder._alter_index_ids.size(), 1);
+
+    // 9. Build ANN index
+    status = builder.do_build_inverted_index();
+    EXPECT_TRUE(status.ok()) << status.to_string();
+
+    // 10. Check paths and files
+    auto old_tablet_path = _absolute_dir + "/" + std::to_string(15686);
+    auto new_tablet_path = _absolute_dir + "/" + std::to_string(14686);
+    bool old_exists = false;
+    bool new_exists = false;
+    EXPECT_TRUE(io::global_local_filesystem()->exists(old_tablet_path, &old_exists).ok());
+    EXPECT_TRUE(old_exists);
+    EXPECT_TRUE(io::global_local_filesystem()->exists(new_tablet_path, &new_exists).ok());
+    EXPECT_TRUE(new_exists);
+
+    // Check files in old and new directories
+    std::vector<io::FileInfo> old_files;
+    bool old_dir_exists = false;
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->list(old_tablet_path, true, &old_files, &old_dir_exists)
+                        .ok());
+    EXPECT_TRUE(old_dir_exists);
+    int idx_file_count = 0;
+    int dat_file_count = 0;
+    for (const auto& file : old_files) {
+        std::string filename = file.file_name;
+        if (filename.find(".idx") != std::string::npos) {
+            idx_file_count++;
+        }
+        if (filename.find(".dat") != std::string::npos) {
+            dat_file_count++;
+        }
+    }
+    EXPECT_EQ(idx_file_count, 0) << "Old directory should contain exactly 0 .idx file";
+    EXPECT_EQ(dat_file_count, 1) << "Old directory should contain exactly 1 .dat file";
+
+    std::vector<io::FileInfo> new_files;
+    bool new_dir_exists = false;
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->list(new_tablet_path, true, &new_files, &new_dir_exists)
+                        .ok());
+    EXPECT_TRUE(new_dir_exists);
+    int new_idx_file_count = 0;
+    int new_dat_file_count = 0;
+    for (const auto& file : new_files) {
+        std::string filename = file.file_name;
+        if (filename.find(".idx") != std::string::npos) {
+            new_idx_file_count++;
+        }
+        if (filename.find(".dat") != std::string::npos) {
+            new_dat_file_count++;
+        }
+    }
+    EXPECT_EQ(new_idx_file_count, 1) << "New directory should contain exactly 1 .idx files";
+    EXPECT_EQ(new_dat_file_count, 1) << "New directory should contain exactly 1 .dat file";
 }
 
 TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTest) {
