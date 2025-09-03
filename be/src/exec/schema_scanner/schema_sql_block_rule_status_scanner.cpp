@@ -39,8 +39,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaSqlBlockRuleStatusScanner::_s_sql_b
         {"PARTITION_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"TABLET_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"CARDINALITY", TYPE_BIGINT, sizeof(int64_t), true},
-        {"GLOBAL", TYPE_BOOLEAN, sizeof(bool), true}};
-        {"ENABLE", TYPE_BOOLEAN, sizeof(bool), true}};
+        {"GLOBAL", TYPE_BOOLEAN, sizeof(bool), true},
+        {"ENABLE", TYPE_BOOLEAN, sizeof(bool), true},
         {"BLOCKS", TYPE_BIGINT, sizeof(int64_t), true},
         {"AVERAGE_DURATION", TYPE_BIGINT, sizeof(int64_t), true},
         {"LONGEST_DURATION", TYPE_BIGINT, sizeof(int64_t), true},
