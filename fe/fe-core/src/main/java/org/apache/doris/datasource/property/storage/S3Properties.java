@@ -113,7 +113,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Setter
     @Getter
-    @ConnectorProperty(names = {"use_path_style", "s3.path-style-access"}, required = false,
+    @ConnectorProperty(names = {USE_PATH_STYLE, "s3.path-style-access"}, required = false,
             description = "Whether to use path style URL for the storage.")
     protected String usePathStyle = "false";
 
