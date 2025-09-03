@@ -1591,6 +1591,14 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createBuiltin(ARRAY_AGG, Lists.newArrayList(t), new ArrayType(t), t, "", "", "", "", "",
                     true, false, true, true));
 
+            // multi-distinct versions
+            addBuiltin(AggregateFunction.createBuiltin("multi_distinct_collect_list", Lists.newArrayList(t), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin("multi_distinct_collect_list", Lists.newArrayList(t, Type.INT), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin("multi_distinct_array_agg", Lists.newArrayList(t), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+
             //first_value/last_value for array
             addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
                     Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
