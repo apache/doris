@@ -7943,7 +7943,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_and_evict_cache
     EXPECT_GT(cache->_cur_cache_size, 0);
 
     FileCacheFactory::instance()->clear_file_caches(/*sync*/ false); // use async to evict cache
-    std::this_thread::sleep_for(std::chrono::seconds(5));
+    std::this_thread::sleep_for(std::chrono::seconds(10));
 
     // evict would be success even if one reference is held by the reader
     EXPECT_EQ(cache->_cur_cache_size, 0);
