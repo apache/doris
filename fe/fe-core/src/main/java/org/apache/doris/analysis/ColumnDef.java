@@ -271,11 +271,37 @@ public class ColumnDef {
     }
 
     public ColumnDefinition translateToColumnDefinition() {
-        return new ColumnDefinition(
-            name,
-            DataType.fromCatalogType(typeDef.getType()),
-            isAllowNull,
-            comment);
+        org.apache.doris.nereids.trees.plans.commands.info.DefaultValue value;
+        if (!defaultValue.isSet) {
+            value = null;
+        } else {
+            if (defaultValue.defaultValueExprDef != null) {
+                value = new org.apache.doris.nereids
+                    .trees.plans.commands.info.DefaultValue(
+                    defaultValue.getValue(),
+                    defaultValue.defaultValueExprDef.getExprName(),
+                    defaultValue.defaultValueExprDef.getPrecision());
+            } else {
+                value = new org.apache.doris.nereids
+                    .trees.plans.commands.info.DefaultValue(defaultValue.getValue());
+            }
+        }
+
+        ColumnDefinition columnDefinition = new ColumnDefinition(
+                name,
+                DataType.fromCatalogType(typeDef.getType()),
+                isKey,
+                aggregateType,
+                isAllowNull ? ColumnNullableType.NULLABLE : ColumnNullableType.NOT_NULLABLE,
+                autoIncInitValue,
+                value == null ? Optional.empty() : Optional.of(value),
+                Optional.empty(),
+                comment,
+                visible,
+                Optional.empty());
+        columnDefinition.setGeneratedColumnsThatReferToThis(generatedColumnsThatReferToThis);
+
+        return columnDefinition;
     }
 
     public static ColumnDef newDeleteSignColumnDef() {

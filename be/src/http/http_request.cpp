@@ -110,6 +110,14 @@ const std::string& HttpRequest::param(const std::string& key) const {
     return iter->second;
 }
 
+std::string HttpRequest::get_all_headers() const {
+    std::stringstream headers;
+    for (const auto& header : _headers) {
+        headers << header.first << ":" << header.second + ", ";
+    }
+    return headers.str();
+}
+
 void HttpRequest::add_output_header(const char* key, const char* value) {
     evhttp_add_header(evhttp_request_get_output_headers(_ev_req), key, value);
 }

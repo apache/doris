@@ -20,7 +20,6 @@ package org.apache.doris.alter;
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Column;
@@ -304,7 +303,7 @@ public class RollupJobV2Test {
 
         short keysCount = 1;
         List<Column> columns = Lists.newArrayList();
-        String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + "to_bitmap_" + "c1";
+        String mvColumnName = "to_bitmap_" + "c1";
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
 

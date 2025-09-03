@@ -56,10 +56,6 @@ public:
         return _nested->evaluate(name_with_type, iterator, num_rows, bitmap);
     }
 
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return _nested->can_do_apply_safely(input_type, is_null);
-    }
-
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
         if (column.has_null()) {

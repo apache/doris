@@ -52,6 +52,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -158,7 +159,7 @@ public class InternalSchemaInitializer extends Thread {
                     StatisticConstants.DB_NAME,
                     table.getName());
             AlterTableCommand alterTableCommand = new AlterTableCommand(tableNameInfo, ops);
-            alterTableCommand.run(ConnectContext.get(), null);
+            Env.getCurrentEnv().alterTable(alterTableCommand);
         }
     }
 
@@ -169,13 +170,24 @@ public class InternalSchemaInitializer extends Thread {
                 .map(String::toLowerCase)
                 .collect(Collectors.toSet());
 
+        Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        boolean isEnableMergeOnWrite = ((OlapTable) table).getEnableUniqueKeyMergeOnWrite();
+
         if (!currentColumnNames.containsAll(InternalSchema.TABLE_STATS_SCHEMA.stream()
                 .map(ColumnDef::getName)
                 .map(String::toLowerCase)
                 .collect(Collectors.toList()))) {
             for (ColumnDef expected : InternalSchema.TABLE_STATS_SCHEMA) {
                 if (!currentColumnNames.contains(expected.getName().toLowerCase())) {
-                    AddColumnOp addColumnOp = new AddColumnOp(expected.translateToColumnDefinition(), null, null, null);
+                    ColumnDefinition columnDefinition = expected.translateToColumnDefinition();
+
+                    AddColumnOp addColumnOp = new AddColumnOp(
+                            columnDefinition,
+                            null,
+                            null,
+                            null);
+                    addColumnOp.setColumn(columnDefinition.translateToCatalogStyleForSchemaChange());
                     alterTableOps.add(addColumnOp);
                 }
             }
@@ -199,10 +211,13 @@ public class InternalSchemaInitializer extends Thread {
                         Optional.empty(),
                         Optional.empty(),
                         "",
+                        col.isVisible(),
                         Optional.empty());
+                columnDefinition.validate(true, keysSet, clusterKeySet, isEnableMergeOnWrite, null);
 
                 ModifyColumnOp modifyColumnOp = new ModifyColumnOp(
                         columnDefinition, null, null, Maps.newHashMap());
+                modifyColumnOp.setColumn(columnDefinition.translateToCatalogStyleForSchemaChange());
                 alterTableOps.add(modifyColumnOp);
             }
         }

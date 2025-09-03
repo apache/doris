@@ -34,7 +34,10 @@ using namespace vectorized;
 
 Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
-    if (_is_dup_mow_key) {
+    if (_optimize_index_scan_parallelism) {
+        return _build_scanners_by_segment(scanners);
+    } else if (_is_dup_mow_key) {
+        // Default strategy for DUP/MOW tables: split by rowids within segments
         return _build_scanners_by_rowid(scanners);
     } else {
         // TODO: support to split by key range
@@ -153,6 +156,53 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
             scanners.emplace_back(_build_scanner(tablet, version, _key_ranges,
                                                  {std::move(partitial_read_source.rs_splits),
                                                   entire_read_source.delete_predicates}));
+        }
+    }
+
+    return Status::OK();
+}
+
+// Build scanners so that each segment is exclusively scanned by a single scanner.
+// This guarantees the number of scanners equals the number of segments across all rowsets
+// for the involved tablets. It preserves delete predicates and key ranges, and clones
+// RowsetReader per scanner to avoid sharing between scanners.
+Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<ScannerSPtr>& scanners) {
+    for (auto&& [tablet, version] : _tablets) {
+        DCHECK(_all_read_sources.contains(tablet->tablet_id()));
+        auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
+
+        if (config::is_cloud_mode()) {
+            // FIXME(plat1ko): Avoid pointer cast
+            ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
+        }
+
+        // For each RowSet split in the read source, split by segment id and build
+        // one scanner per segment. Keep delete predicates shared.
+        for (auto& rs_split : entire_read_source.rs_splits) {
+            auto reader = rs_split.rs_reader;
+            auto rowset = reader->rowset();
+            const auto rowset_id = rowset->rowset_id();
+
+            const auto& segments_rows = _all_segments_rows[rowset_id];
+            if (segments_rows.empty() || rowset->num_rows() == 0) {
+                continue;
+            }
+
+            // Build scanners for [i, i+1) segment range, without row-range slicing.
+            for (int64_t i = 0; i < rowset->num_segments(); ++i) {
+                RowSetSplits split(reader->clone());
+                split.segment_offsets.first = i;
+                split.segment_offsets.second = i + 1;
+                // No row-ranges slicing; scan whole segment i.
+                DCHECK_GE(split.segment_offsets.second, split.segment_offsets.first + 1);
+
+                TabletReader::ReadSource partitial_read_source;
+                partitial_read_source.rs_splits.emplace_back(std::move(split));
+
+                scanners.emplace_back(_build_scanner(tablet, version, _key_ranges,
+                                                     {std::move(partitial_read_source.rs_splits),
+                                                      entire_read_source.delete_predicates}));
+            }
         }
     }
 

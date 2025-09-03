@@ -402,6 +402,8 @@ struct TQueryOptions {
   169: optional bool hnsw_check_relative_distance = true;
   170: optional bool hnsw_bounded_queue = true; 
 
+  171: optional bool optimize_index_scan_parallelism = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
@@ -738,6 +740,7 @@ struct TLLMResource {
   7: optional i64 max_retries
   8: optional i64 retry_delay_second
   9: optional string anthropic_version
+  10: optional i32 dimensions
 }
 
 struct TCondition {

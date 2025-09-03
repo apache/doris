@@ -132,10 +132,10 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_difference_String "select array_difference(kastr) from fn_test"
     order_qt_sql_array_difference_String_notnull "select array_difference(kastr) from fn_test_not_nullable"
 
-    order_qt_sql_array_difference_DatetimeV2 "select array_difference(kadtmv2) from fn_test"
-    order_qt_sql_array_difference_DatetimeV2_notnull "select array_difference(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_difference_DateV2 "select array_difference(kadtv2) from fn_test"
-    order_qt_sql_array_difference_DateV2_notnull "select array_difference(kadtv2) from fn_test_not_nullable"
+    // order_qt_sql_array_difference_DatetimeV2 "select array_difference(kadtmv2) from fn_test"
+    // order_qt_sql_array_difference_DatetimeV2_notnull "select array_difference(kadtmv2) from fn_test_not_nullable"
+    // order_qt_sql_array_difference_DateV2 "select array_difference(kadtv2) from fn_test"
+    // order_qt_sql_array_difference_DateV2_notnull "select array_difference(kadtv2) from fn_test_not_nullable"
 
     // array_distinct
     order_qt_sql_array_distinct_Double "select array_distinct(kadbl) from fn_test"

@@ -28,6 +28,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -171,5 +174,28 @@ public class MTMVUtil {
                 }
             }
         }
+    }
+
+    /**
+     * get MTMV task num by status
+     *
+     * @param status status of task
+     * @return if status is null, return 0
+     */
+    public static Integer getTaskNum(TaskStatus status) {
+        if (status == null) {
+            return 0;
+        }
+        int res = 0;
+        List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(JobType.MV);
+        for (org.apache.doris.job.base.AbstractJob job : jobList) {
+            List<AbstractTask> tasks = job.getRunningTasks();
+            for (AbstractTask task : tasks) {
+                if (task.getStatus().equals(status)) {
+                    res++;
+                }
+            }
+        }
+        return res;
     }
 }

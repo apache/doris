@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
@@ -130,6 +131,23 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
      * prune partition with `idToPartitions` as parameter.
      */
     public static <K extends Comparable<K>> List<K> prune(List<Slot> partitionSlots, Expression partitionPredicate,
+            Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
+            PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
+        long startAt = System.currentTimeMillis();
+        try {
+            return pruneInternal(partitionSlots, partitionPredicate, idToPartitions, cascadesContext,
+                    partitionTableType,
+                    sortedPartitionRanges);
+        } finally {
+            SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
+            if (profile != null) {
+                profile.addNereidsPartitiionPruneTime(System.currentTimeMillis() - startAt);
+            }
+        }
+    }
+
+    private static <K extends Comparable<K>> List<K> pruneInternal(List<Slot> partitionSlots,
+            Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
         partitionPredicate = PartitionPruneExpressionExtractor.extract(

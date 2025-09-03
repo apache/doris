@@ -33,6 +33,7 @@ OPTS="$(getopt \
     -l 'console' \
     -l 'version' \
     -l 'benchmark' \
+    -l 'benchmark_filter:' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -41,6 +42,7 @@ RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
 RUN_BENCHMARK=0
+BENCHMARK_FILTER=""
 
 while true; do
     case "$1" in
@@ -59,6 +61,10 @@ while true; do
     --benchmark)
         RUN_BENCHMARK=1
         shift
+        ;;
+    --benchmark_filter)
+        BENCHMARK_FILTER="$2"
+        shift 2
         ;;
     --)
         shift
@@ -447,10 +453,16 @@ else
 fi
 
 if [[ "${RUN_BENCHMARK}" -eq 1 ]]; then
+    BENCHMARK_ARGS=()
+
+    if [[ -n ${BENCHMARK_FILTER} ]]; then
+        BENCHMARK_ARGS+=("--benchmark_filter=${BENCHMARK_FILTER}")
+    fi
+
     if [[ "$(uname -s)" == 'Darwin' ]]; then
-        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
     else
-        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
     if [[ "$(uname -s)" == 'Darwin' ]]; then

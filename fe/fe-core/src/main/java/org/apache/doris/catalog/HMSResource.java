@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.collect.ImmutableMap;
@@ -59,7 +58,6 @@ public class HMSResource extends Resource {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
-        this.properties = PropertyConverter.convertToMetaProperties(this.properties);
         super.modifyProperties(this.properties);
     }
 
@@ -71,7 +69,6 @@ public class HMSResource extends Resource {
             }
         }
         this.properties.putAll(properties);
-        this.properties = PropertyConverter.convertToMetaProperties(this.properties);
     }
 
     @Override

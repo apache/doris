@@ -28,7 +28,6 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
@@ -262,6 +261,7 @@ import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.StatisticsJobAppender;
+import org.apache.doris.statistics.StatisticsMetricCollector;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
@@ -299,6 +299,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
+import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
@@ -550,6 +551,8 @@ public class Env {
 
     private FollowerColumnSender followerColumnSender;
 
+    private StatisticsMetricCollector statisticsMetricCollector;
+
     private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
@@ -744,7 +747,7 @@ public class Env {
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
         this.feSessionMgr = new FESessionMgr();
         this.temporaryTableMgr = new TemporaryTableMgr();
-        this.aliveSessionSet = new HashSet<>();
+        this.aliveSessionSet = Sets.newConcurrentHashSet();
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
@@ -817,6 +820,7 @@ public class Env {
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.statisticsJobAppender = new StatisticsJobAppender();
+        this.statisticsMetricCollector = new StatisticsMetricCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.computeGroupMgr = new ComputeGroupMgr(systemInfo);
@@ -1959,6 +1963,7 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+        statisticsMetricCollector.start();
         if (keyManager != null) {
             keyManager.init();
         }
@@ -5373,11 +5378,6 @@ public class Env {
         this.alter.processAlterView(command, ConnectContext.get());
     }
 
-    public void createMaterializedView(CreateMaterializedViewStmt stmt)
-            throws AnalysisException, DdlException, MetaNotFoundException {
-        this.alter.processCreateMaterializedView(stmt);
-    }
-
     public void createMaterializedView(CreateMaterializedViewCommand command)
             throws AnalysisException, DdlException, MetaNotFoundException {
         this.alter.processCreateMaterializedView(command);
@@ -7269,6 +7269,10 @@ public class Env {
 
     public StatisticsAutoCollector getStatisticsAutoCollector() {
         return statisticsAutoCollector;
+    }
+
+    public StatisticsMetricCollector getStatisticsMetricCollector() {
+        return statisticsMetricCollector;
     }
 
     public MasterDaemon getTabletStatMgr() {
