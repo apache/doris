@@ -22,7 +22,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include "common/exception.h"
-#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
