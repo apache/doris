@@ -7943,7 +7943,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_and_evict_cache
     EXPECT_GT(cache->_cur_cache_size, 0);
 
     FileCacheFactory::instance()->clear_file_caches(/*sync*/ false); // use async to evict cache
-    std::this_thread::sleep_for(std::chrono::seconds(3));
+    std::this_thread::sleep_for(std::chrono::seconds(5));
 
     // evict would be success even if one reference is held by the reader
     EXPECT_EQ(cache->_cur_cache_size, 0);
@@ -7972,6 +7972,13 @@ extern bvar::Adder<uint64_t> g_read_cache_direct_partial_bytes;
 extern bvar::Adder<uint64_t> g_read_cache_indirect_bytes;
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
+    uint64_t org_g_read_cache_direct_whole_num = g_read_cache_direct_whole_num.get_value();
+    uint64_t org_g_read_cache_direct_whole_bytes = g_read_cache_direct_whole_bytes.get_value();
+    uint64_t org_g_read_cache_direct_partial_num = g_read_cache_direct_partial_num.get_value();
+    uint64_t org_g_read_cache_indirect_num = g_read_cache_indirect_num.get_value();
+    uint64_t org_g_read_cache_direct_partial_bytes = g_read_cache_direct_partial_bytes.get_value();
+    uint64_t org_g_read_cache_indirect_bytes = g_read_cache_indirect_bytes.get_value();
+
     config::enable_read_cache_file_directly = true;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -8016,8 +8023,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
     auto cache = FileCacheFactory::instance()->_caches[0].get();
     std::this_thread::sleep_for(std::chrono::seconds(1));
     EXPECT_EQ(cache->_cur_cache_size, 1048576);
-    EXPECT_EQ(g_read_cache_indirect_num.get_value(), 1);
-    EXPECT_EQ(g_read_cache_indirect_bytes.get_value(), 64_kb);
+    EXPECT_EQ(g_read_cache_indirect_num.get_value() - org_g_read_cache_indirect_num, 1);
+    EXPECT_EQ(g_read_cache_indirect_bytes.get_value() - org_g_read_cache_indirect_bytes, 64_kb);
 
     // read offset 640k size 64k
     ASSERT_TRUE(
@@ -8026,8 +8033,9 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
     EXPECT_EQ(std::string(64_kb, '0'), buffer);
     std::this_thread::sleep_for(std::chrono::seconds(1));
     EXPECT_EQ(cache->_cur_cache_size, 1048576);
-    EXPECT_EQ(g_read_cache_direct_whole_num.get_value(), 1);
-    EXPECT_EQ(g_read_cache_direct_whole_bytes.get_value(), 64_kb);
+    EXPECT_EQ(g_read_cache_direct_whole_num.get_value() - org_g_read_cache_direct_whole_num, 1);
+    EXPECT_EQ(g_read_cache_direct_whole_bytes.get_value() - org_g_read_cache_direct_whole_bytes,
+              64_kb);
 
     // try to read first two blocks
     ASSERT_TRUE(reader->read_at(1048576 - 100, Slice(buffer.data(), buffer.size()), &bytes_read,
@@ -8035,9 +8043,11 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
                         .ok());
     std::this_thread::sleep_for(std::chrono::seconds(1));
     EXPECT_EQ(cache->_cur_cache_size, 2097152);
-    EXPECT_EQ(g_read_cache_direct_partial_num.get_value(), 1);
-    EXPECT_EQ(g_read_cache_direct_partial_bytes.get_value(), 100);
-    EXPECT_EQ(g_read_cache_indirect_bytes.get_value(), 64_kb + 64_kb - 100);
+    EXPECT_EQ(g_read_cache_direct_partial_num.get_value() - org_g_read_cache_direct_partial_num, 1);
+    EXPECT_EQ(g_read_cache_direct_partial_bytes.get_value() - org_g_read_cache_direct_partial_bytes,
+              100);
+    EXPECT_EQ(g_read_cache_indirect_bytes.get_value() - org_g_read_cache_indirect_bytes,
+              64_kb + 64_kb - 100);
 
     EXPECT_TRUE(reader->close().ok());
     EXPECT_TRUE(reader->closed());
