@@ -81,7 +81,8 @@ bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
                                                 _variant_sparse_column_statistics_size;
     DBUG_EXECUTE_IF("exceeded_sparse_column_limit_must_be_false", {
         if (exceeded_sparse_column_limit) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
                     "exceeded_sparse_column_limit_must_be_false, sparse_column_non_null_size: {} : "
                     " _variant_sparse_column_statistics_size: {}",
                     _statistics->sparse_column_non_null_size.size(),

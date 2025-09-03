@@ -154,21 +154,22 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
+    // here will always true
     sql """insert into tn_simple_variant_DUPLICATE values (1, '{"a" : 1, "b" : 2}');"""
-    sql """insert into tn_simple_variant_DUPLICATE values (2, '{"d" : "ddd",  "s" : "fff", "m": 111}');"""
-    // here will aways false
-    try {
-        GetDebugPoint().enableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+    GetDebugPoint().enableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+    test {
         sql """ select v['a'] from tn_simple_variant_DUPLICATE where k = 1"""
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+        exception null
     }
-    try {
-        GetDebugPoint().enableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
-        sql """ select v['m'] from tn_simple_variant_DUPLICATE where k = 2"""
-    } catch (e) {
-        logger.info("catch exception: ${e}")
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+
+    // here will always false
+    sql """ truncate table tn_simple_variant_DUPLICATE --force ; """
+    sql """insert into tn_simple_variant_DUPLICATE values (1, '{"d" : "ddd",  "s" : "fff", "da": "ddd", "m": 111}');"""
+    test {
+        sql """ select v['m'] from tn_simple_variant_DUPLICATE"""
+        exception "exceeded_sparse_column_limit_must_be_false"
     }
+
+    GetDebugPoint().disableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+    
 }
