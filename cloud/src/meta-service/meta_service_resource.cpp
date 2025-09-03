@@ -1842,19 +1842,19 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_intervals(const std::str
     int intervals;
     try {
         intervals = std::stoi(value);
-        if (intervals < 60) {
+        if (intervals < 3600) {
             return std::make_pair(
                     MetaServiceCode::INVALID_ARGUMENT,
-                    "snapshot_intervals too small, minimum is 60 minutes, got: " + value);
+                    "snapshot_intervals too small, minimum is 3600 seconds, got: " + value);
         }
     } catch (const std::exception& e) {
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
                               "Invalid numeric value for snapshot_intervals: " + value);
     }
 
-    instance->set_snapshot_interval_minutes(intervals);
+    instance->set_snapshot_interval_seconds(intervals);
 
-    std::string msg = "Set snapshot_intervals to " + value + " minutes for instance " + instance_id;
+    std::string msg = "Set snapshot_intervals to " + value + " seconds for instance " + instance_id;
     LOG(INFO) << msg;
 
     return std::make_pair(MetaServiceCode::OK, "");

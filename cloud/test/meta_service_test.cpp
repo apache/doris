@@ -11674,7 +11674,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_intervals"] = "60";
+        (*req.mutable_properties())["snapshot_intervals"] = "3600";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11688,7 +11688,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_intervals"] = "1440";
+        (*req.mutable_properties())["snapshot_intervals"] = "14400";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11702,7 +11702,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_intervals"] = "59";
+        (*req.mutable_properties())["snapshot_intervals"] = "3599";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11760,7 +11760,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         req.set_instance_id("test_snapshot_instance");
         (*req.mutable_properties())["enabled"] = "true";
         (*req.mutable_properties())["max_reserved_snapshots"] = "20";
-        (*req.mutable_properties())["snapshot_intervals"] = "120";
+        (*req.mutable_properties())["snapshot_intervals"] = "12000";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);

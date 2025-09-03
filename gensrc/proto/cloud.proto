@@ -107,7 +107,7 @@ message InstanceInfoPB {
 
     // Snapshot properties.
     optional int64 max_reserved_snapshot = 117;
-    optional int64 snapshot_interval_minutes = 118;
+    optional int64 snapshot_interval_seconds = 118;
 }
 
 message StagePB {
