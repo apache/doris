@@ -3961,7 +3961,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
 
     {
         // when there exists full compaction, we can't optimize by "* only one CC happened and CP changed"
-        
+
         // * one CC happened and CP changed, and full compaction happened
         // BE  [=][=][=][=][=====][=][=]
         //                  ^~~~~ req_cp
