@@ -261,6 +261,7 @@ import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.StatisticsJobAppender;
+import org.apache.doris.statistics.StatisticsMetricCollector;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
@@ -584,6 +585,8 @@ public class Env {
 
     private KeyManagerInterface keyManager;
 
+    private StatisticsMetricCollector statisticsMetricCollector;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -817,6 +820,7 @@ public class Env {
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.statisticsJobAppender = new StatisticsJobAppender();
+        this.statisticsMetricCollector = new StatisticsMetricCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.computeGroupMgr = new ComputeGroupMgr(systemInfo);
@@ -1959,6 +1963,7 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+        statisticsMetricCollector.start();
         if (keyManager != null) {
             keyManager.init();
         }
@@ -7264,6 +7269,10 @@ public class Env {
 
     public StatisticsAutoCollector getStatisticsAutoCollector() {
         return statisticsAutoCollector;
+    }
+
+    public StatisticsMetricCollector getStatisticsMetricCollector() {
+        return statisticsMetricCollector;
     }
 
     public MasterDaemon getTabletStatMgr() {

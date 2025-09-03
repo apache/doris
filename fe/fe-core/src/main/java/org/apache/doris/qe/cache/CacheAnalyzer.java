@@ -280,7 +280,7 @@ public class CacheAnalyzer {
 
             sqlCache.setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             sqlCache.setCacheMd5(existsMd5);
-            MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
+            MetricRepo.COUNTER_SQL_CACHE_ADDED.increase(1L);
             return CacheMode.Sql;
         }
         return CacheMode.None;

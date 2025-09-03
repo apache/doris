@@ -35,6 +35,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
@@ -146,16 +147,22 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     protected void parseFile() throws AnalysisException {
+        long startAt = System.currentTimeMillis();
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
+        } finally {
+            SummaryProfile profile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+            if (profile != null) {
+                profile.addExternalTvfInitTime(System.currentTimeMillis() - startAt);
+            }
         }
     }
 
-    //The keys in properties map need to be lowercase.
+    // The keys in properties map need to be lowercase.
     protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
         Map<String, String> mergedProperties = Maps.newHashMap();
         if (properties.containsKey("resource")) {
@@ -187,7 +194,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         pathPartitionKeys = Optional.ofNullable(
-                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
+                        getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
                 .map(str -> Arrays.stream(str.split(","))
                         .map(String::trim)
                         .collect(Collectors.toList()))
@@ -410,7 +417,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         if (getTFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(storageProperties.getBackendConfigProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(
+                    storageProperties.getBackendConfigProperties());
             String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
