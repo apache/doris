@@ -254,7 +254,7 @@ false
 {"Person":{"Name":"Homer","Hobbies":["Eating","Sleeping"]}}
 
 -- !json_remove11 --
-\N
+NULL
 
 -- !json_remove12 --
 \N
