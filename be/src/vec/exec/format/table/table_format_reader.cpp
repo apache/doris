@@ -54,8 +54,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
             file_column_name_idx_map.contains(table_column_name)) {
             auto file_column_idx = file_column_name_idx_map[table_column_name];
             std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
-            RETURN_IF_ERROR(by_parquet_name(slot->type(), parquet_fields_schema[file_column_idx],
-                                            field_node));
+            RETURN_IF_ERROR(by_parquet_name(slot->get_data_type_ptr(),
+                                            parquet_fields_schema[file_column_idx], field_node));
 
             struct_node->add_children(table_column_name,
                                       parquet_fields_schema[file_column_idx].name, field_node);
@@ -177,8 +177,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
             file_column_name_idx_map.contains(table_column_name)) {
             auto file_column_idx = file_column_name_idx_map[table_column_name];
             std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
-            RETURN_IF_ERROR(by_orc_name(slot->type(), orc_type_ptr->getSubtype(file_column_idx),
-                                        field_node));
+            RETURN_IF_ERROR(by_orc_name(slot->get_data_type_ptr(),
+                                        orc_type_ptr->getSubtype(file_column_idx), field_node));
             struct_node->add_children(table_column_name,
                                       orc_type_ptr->getFieldName(file_column_idx), field_node);
         } else {
