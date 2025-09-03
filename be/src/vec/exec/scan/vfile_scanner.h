@@ -30,6 +30,7 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "runtime/descriptors.h"
