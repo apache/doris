@@ -76,7 +76,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     // Serializes the aggregate function's state (including the SpaceSaving structure and threshold) into a buffer.
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).value.write(buf);
 
         buf.write_var_uint(_column_names.size());
@@ -184,7 +184,7 @@ public:
     }
 
     // Merges the state of another aggregate function into the current one (merges two SpaceSaving sets).
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         auto& rhs_set = this->data(rhs).value;
         if (!rhs_set.size()) {
@@ -198,7 +198,7 @@ public:
         set.merge(rhs_set);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& data_to = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to);
 
         const typename State::Set& set = this->data(place).value;

@@ -71,14 +71,14 @@ public:
         WindowFunctionRowNumber::data(place).count = 0;
     }
 
-    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 doris::vectorized::WindowFunctionRowNumber::data(place).count);
     }
 
     bool result_column_could_resize() const override { return true; }
 
-    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+    void insert_result_into_range(AggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
@@ -86,8 +86,8 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {}
-    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void merge(AggregateDataPtr place, AggregateDataPtr rhs, Arena&) const override {}
+    void serialize(AggregateDataPtr place, BufferWritable& buf) const override {}
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {}
 };
 
@@ -127,14 +127,14 @@ public:
         WindowFunctionRank::data(place).peer_group_start = -1;
     }
 
-    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 data(place).rank);
     }
 
     bool result_column_could_resize() const override { return true; }
 
-    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+    void insert_result_into_range(AggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
@@ -142,8 +142,8 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {}
-    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void merge(AggregateDataPtr place, AggregateDataPtr rhs, Arena&) const override {}
+    void serialize(AggregateDataPtr place, BufferWritable& buf) const override {}
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {}
 };
 
@@ -180,14 +180,14 @@ public:
         WindowFunctionDenseRank::data(place).peer_group_start = -1;
     }
 
-    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 data(place).rank);
     }
 
     bool result_column_could_resize() const override { return true; }
 
-    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+    void insert_result_into_range(AggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
@@ -195,8 +195,8 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {}
-    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void merge(AggregateDataPtr place, AggregateDataPtr rhs, Arena&) const override {}
+    void serialize(AggregateDataPtr place, BufferWritable& buf) const override {}
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {}
 };
 
@@ -246,7 +246,7 @@ public:
         WindowFunctionPercentRank::data(place).partition_size = 0;
     }
 
-    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
         auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
         assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 percent_rank);
@@ -254,7 +254,7 @@ public:
 
     bool result_column_could_resize() const override { return true; }
 
-    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+    void insert_result_into_range(AggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
@@ -263,8 +263,8 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {}
-    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void merge(AggregateDataPtr place, AggregateDataPtr rhs, Arena&) const override {}
+    void serialize(AggregateDataPtr place, BufferWritable& buf) const override {}
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {}
 };
 
@@ -311,7 +311,7 @@ public:
         WindowFunctionCumeDist::data(place).peer_group_start = -1;
     }
 
-    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
         auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
         assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 cume_dist);
@@ -319,7 +319,7 @@ public:
 
     bool result_column_could_resize() const override { return true; }
 
-    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+    void insert_result_into_range(AggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
         auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
@@ -328,8 +328,8 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {}
-    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void merge(AggregateDataPtr place, AggregateDataPtr rhs, Arena&) const override {}
+    void serialize(AggregateDataPtr place, BufferWritable& buf) const override {}
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {}
 };
 
@@ -377,14 +377,14 @@ public:
 
     void reset(AggregateDataPtr place) const override { WindowFunctionNTile::data(place).rows = 0; }
 
-    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 WindowFunctionNTile::data(place).bucket_index);
     }
 
     bool result_column_could_resize() const override { return true; }
 
-    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+    void insert_result_into_range(AggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
@@ -392,8 +392,8 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {}
-    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void merge(AggregateDataPtr place, AggregateDataPtr rhs, Arena&) const override {}
+    void serialize(AggregateDataPtr place, BufferWritable& buf) const override {}
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {}
 };
 
@@ -664,7 +664,7 @@ public:
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
-    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
 
@@ -672,11 +672,11 @@ public:
              Arena&) const override {
         throw doris::Exception(Status::FatalError("WindowFunctionLeadLagData do not support add"));
     }
-    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr place, AggregateDataPtr rhs, Arena&) const override {
         throw doris::Exception(
                 Status::FatalError("WindowFunctionLeadLagData do not support merge"));
     }
-    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr place, BufferWritable& buf) const override {
         throw doris::Exception(
                 Status::FatalError("WindowFunctionLeadLagData do not support serialize"));
     }

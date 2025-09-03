@@ -113,17 +113,17 @@ public:
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColumnBitmap&>(to);
         column.get_data().push_back(this->data(place).value);
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -212,7 +212,7 @@ public:
         }
     }
 
-    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+    void serialize_without_key_to_column(AggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnBitmap&>(to);
         size_t old_size = col.size();

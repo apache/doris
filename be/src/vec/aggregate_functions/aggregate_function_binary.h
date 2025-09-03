@@ -75,12 +75,12 @@ struct AggregateFunctionBinary
                         static_cast<const ColVecT2&>(*columns[1]).get_data()[row_num]));
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -89,7 +89,7 @@ struct AggregateFunctionBinary
         this->data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& data = this->data(place);
         auto& dst = static_cast<ColVecResult&>(to).get_data();
         dst.push_back(data.get());

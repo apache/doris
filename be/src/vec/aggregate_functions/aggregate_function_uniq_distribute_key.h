@@ -147,12 +147,12 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         this->data(place).count += this->data(rhs).count;
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         buf.write_var_uint(this->data(place).set.size());
     }
 
@@ -161,7 +161,7 @@ public:
         buf.read_var_uint(this->data(place).count);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(this->data(place).count);
     }
 
@@ -238,7 +238,7 @@ public:
         this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
-    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+    void serialize_without_key_to_column(AggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         CHECK(col.item_size() == sizeof(UInt64))

@@ -80,8 +80,8 @@ struct AggregateFunctionGroupArrayIntersectData {
         const ColVecType* nested_column_data = nullptr;
 
         if (is_column_data_nullable) {
-            auto* const_col_data = const_cast<IColumn*>(&column_data);
-            col_null = static_cast<ColumnNullable*>(const_col_data);
+            const auto* const_col_data = &column_data;
+            col_null = static_cast<const ColumnNullable*>(const_col_data);
             nested_column_data = &assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                     col_null->get_nested_column());
         } else {
@@ -170,7 +170,7 @@ public:
         data.process_col_data(column_data, offset, arr_size, set);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
@@ -212,7 +212,7 @@ public:
         }
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
@@ -249,7 +249,7 @@ public:
         }
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         ColumnArray& arr_to = assert_cast<ColumnArray&>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& to_nested_col = arr_to.get_data();
@@ -367,11 +367,10 @@ public:
         const auto arr_size = offsets[row_num] - offset;
         const auto& column_data = column.get_data();
         const bool is_column_data_nullable = column_data.is_nullable();
-        ColumnNullable* col_null = nullptr;
+        const ColumnNullable* col_null = nullptr;
 
         if (is_column_data_nullable) {
-            auto const_col_data = const_cast<IColumn*>(&column_data);
-            col_null = static_cast<ColumnNullable*>(const_col_data);
+            col_null = static_cast<const ColumnNullable*>(&column_data);
         }
 
         auto process_element = [&](size_t i) {
@@ -410,7 +409,7 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
@@ -451,7 +450,7 @@ public:
         }
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
@@ -487,7 +486,7 @@ public:
         }
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& arr_to = assert_cast<ColumnArray&>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& data_to = arr_to.get_data();

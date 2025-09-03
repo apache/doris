@@ -50,7 +50,7 @@ public:
 
     DataTypePtr get_return_type() const override { return _function->get_return_type(); }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         _function->insert_result_into(place, to);
     }
 };
