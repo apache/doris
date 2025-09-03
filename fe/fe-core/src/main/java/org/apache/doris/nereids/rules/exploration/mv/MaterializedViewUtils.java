@@ -133,7 +133,7 @@ public class MaterializedViewUtils {
         }
         // Check sql pattern
         IncrementCheckerContext checkContext = new IncrementCheckerContext(columnExpr, cascadesContext);
-        checkContext.addPartitionAndRollupExpressionMap(columnExpr, null, true);
+        checkContext.addPartitionEqualSlotToCheck(columnExpr, null, true);
         materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, checkContext);
         if (checkContext.getPartitionAndRollupExpressionChecked().isEmpty()) {
             return RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
@@ -190,7 +190,7 @@ public class MaterializedViewUtils {
         }
         // Check sql pattern
         IncrementCheckerContext checkContext = new IncrementCheckerContext(columnExpr, cascadesContext);
-        checkContext.addPartitionAndRollupExpressionMap(columnExpr, null, true);
+        checkContext.addPartitionEqualSlotToCheck(columnExpr, null, true);
         materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, checkContext);
         if (checkContext.getPartitionAndRollupExpressionChecked().isEmpty()) {
             return RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
@@ -271,6 +271,9 @@ public class MaterializedViewUtils {
         return RelatedTableInfo.successWith(checkedTableColumnInfos);
     }
 
+    /**
+     *
+     * */
     private static boolean checkRollupExpression(Collection<Pair<Optional<Expression>, Boolean>> rollupExpressions) {
         Iterator<Pair<Optional<Expression>, Boolean>> iterator = rollupExpressions.iterator();
         if (!iterator.hasNext()) {
@@ -710,28 +713,27 @@ public class MaterializedViewUtils {
             }
             Plan left = join.child(0);
             Set<Column> leftColumnSet = left.getOutputSet().stream()
-                    .filter(slot -> slot instanceof SlotReference
-                            && slot.isColumnFromTable())
+                    .filter(slot -> slot instanceof SlotReference && slot.isColumnFromTable())
                     .map(slot -> ((SlotReference) slot).getOriginalColumn().get())
                     .collect(Collectors.toSet());
-            Set<SlotReference> contextPartitionColumnSet = new HashSet<>(getPartitionColumnsToCheck(context));
-            if (contextPartitionColumnSet.isEmpty()) {
+            Set<SlotReference> partitionColumnSetToCheck = new HashSet<>(getPartitionColumnsToCheck(context));
+            if (partitionColumnSetToCheck.isEmpty()) {
                 return null;
             }
-            for (SlotReference partitionSlot : contextPartitionColumnSet) {
+            for (SlotReference partitionSlotToCheck : partitionColumnSetToCheck) {
                 // If found equal set, add the slot and rollup expression to checker context
                 Set<Slot> partitionEqualSlotSet =
-                        new HashSet<>(join.getLogicalProperties().getTrait().calEqualSet(partitionSlot));
+                        new HashSet<>(join.getLogicalProperties().getTrait().calEqualSet(partitionSlotToCheck));
                 if (!partitionEqualSlotSet.isEmpty()) {
-                    partitionEqualSlotSet.add(partitionSlot);
+                    partitionEqualSlotSet.add(partitionSlotToCheck);
                     context.addEqualSlotSet(partitionEqualSlotSet, join.children());
                 }
                 for (Slot partitionEqualSlot : partitionEqualSlotSet) {
-                    context.addPartitionAndRollupExpressionMap(partitionEqualSlot, partitionSlot,
-                            context.getPartitionAndRollupExpressionToCheck().get(partitionSlot).key(),
+                    context.addPartitionEqualSlotToCheck(partitionEqualSlot, partitionSlotToCheck,
+                            context.getPartitionAndRollupExpressionToCheck().get(partitionSlotToCheck).key(),
                             false);
                 }
-                boolean useLeft = leftColumnSet.contains(partitionSlot.getOriginalColumn().orElse(null));
+                boolean useLeft = leftColumnSet.contains(partitionSlotToCheck.getOriginalColumn().orElse(null));
                 JoinType joinType = join.getJoinType();
                 if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
                     return visit(join, context);
@@ -747,7 +749,7 @@ public class MaterializedViewUtils {
                     return join.right().accept(this, context);
                 } else {
                     context.addFailReason(String.format("partition column is in un supported join null generate side, "
-                            + "current join type is %s, partitionSlot is %s", joinType, partitionSlot));
+                            + "current join type is %s, partitionSlot is %s", joinType, partitionSlotToCheck));
                 }
             }
             return null;
@@ -807,7 +809,7 @@ public class MaterializedViewUtils {
                                     new BaseTableInfo(table)));
                     if (tableChecked || context.getInvalidCatalogRelation().contains(relation)) {
                         boolean checkSuccess = false;
-                        for (Set<Slot> equalSlotSet : context.getShttuledEqualSlotSet()) {
+                        for (Set<Slot> equalSlotSet : context.getShuttledEqualSlotSet()) {
                             checkSuccess = equalSlotSet.contains(partitionColumn)
                                     && equalSlotSet.contains(currentPartitionSlot);
                             if (checkSuccess) {
@@ -1010,11 +1012,11 @@ public class MaterializedViewUtils {
                     }
                     SlotReference checkedPartition = partitionColumns.iterator().next();
                     if (!partitionColumn.isColumnFromTable()) {
-                        context.addPartitionAndRollupExpressionMap(checkedPartition, partitionExpression,
+                        context.addPartitionEqualSlotToCheck(checkedPartition, partitionExpression,
                                 partitionExpressionEntry.getValue().value());
                     }
                     if (!context.getPartitionAndRollupExpressionToCheck().get(partitionColumn).key().isPresent()) {
-                        context.addPartitionAndRollupExpressionMap(checkedPartition, partitionExpression,
+                        context.addPartitionEqualSlotToCheck(checkedPartition, partitionExpression,
                                 partitionExpressionEntry.getValue().value());
                     }
                 }
@@ -1058,7 +1060,7 @@ public class MaterializedViewUtils {
         private final Set<LogicalCatalogRelation> invalidCatalogRelation = new HashSet<>();
         // This is used to check multi join input partition slot is in the join equal slot set or not
         // if not, can not multi join input trigger partition update
-        private final Set<Set<Slot>> shttuledEqualSlotSet = new HashSet<>();
+        private final Set<Set<Slot>> shuttledEqualSlotSet = new HashSet<>();
 
         public IncrementCheckerContext(NamedExpression mvPartitionColumn,
                 CascadesContext cascadesContext) {
@@ -1086,20 +1088,21 @@ public class MaterializedViewUtils {
             return this.partitionAndRollupExpressionToCheck;
         }
 
-        public void addPartitionAndRollupExpressionMap(NamedExpression partitionSlot,
+        public void addPartitionEqualSlotToCheck(NamedExpression partitionSlot,
                 Expression rollupExpression, boolean originalPartition) {
             this.partitionAndRollupExpressionToCheck.put(partitionSlot,
                     Pair.of(Optional.ofNullable(rollupExpression), originalPartition));
         }
 
-        // partitionEqualSlot is the targetSlot,
-        public void addPartitionAndRollupExpressionMap(NamedExpression partitionEqualSlot,
+        // Add partitionEqualSlot to partitionAndRollupExpressionToCheck if rollupExpression use the partitionSlot,
+        public void addPartitionEqualSlotToCheck(NamedExpression partitionEqualSlot,
                 NamedExpression partitionSlot,
                 Optional<Expression> rollupExpression,
                 boolean originalPartition) {
             if (Objects.equals(partitionSlot, partitionEqualSlot)) {
                 return;
             }
+            // Replace partitionSlot in rollupExpression with partitionEqualSlot
             Expression replacedExpression = rollupExpression.map(partitionExpr ->
                     partitionExpr.accept(new DefaultExpressionRewriter<Void>() {
                         @Override
@@ -1113,21 +1116,25 @@ public class MaterializedViewUtils {
             Set<NamedExpression> partitionSlotSet = replacedExpression == null ? ImmutableSet.of() :
                     replacedExpression.collectToSet(expr -> expr.equals(partitionSlot));
             if (partitionSlotSet.isEmpty()) {
-                // If replaced successfully, then add to partition and rollup expression map
+                // If replaced successfully, then add partitionEqualSlot to partition and rollup
+                // expression map to check
                 this.partitionAndRollupExpressionToCheck.put(partitionEqualSlot,
                         Pair.of(Optional.ofNullable(replacedExpression), originalPartition));
             }
         }
 
-        public Set<Set<Slot>> getShttuledEqualSlotSet() {
-            return shttuledEqualSlotSet;
+        public Set<Set<Slot>> getShuttledEqualSlotSet() {
+            return shuttledEqualSlotSet;
         }
 
         public Map<SlotReference, Pair<Optional<Expression>, Boolean>> getPartitionAndRollupExpressionChecked() {
             return partitionAndRollupExpressionChecked;
         }
 
-        public void addEqualSlotSet(Set<Slot> equalSet, List<Plan> planContext) {
+        /**
+         * Add join condition equal slot set to shuttled equal slot set
+         */
+        private void addEqualSlotSet(Set<Slot> equalSet, List<Plan> planContext) {
             Set<Slot> shuttledEqualSet = new HashSet<>();
             for (Slot slot : equalSet) {
                 for (Plan plan : planContext) {
@@ -1139,7 +1146,7 @@ public class MaterializedViewUtils {
                     }
                 }
             }
-            this.shttuledEqualSlotSet.add(shuttledEqualSet);
+            this.shuttledEqualSlotSet.add(shuttledEqualSet);
         }
 
         public void collectInvalidTableSet(Plan plan) {
