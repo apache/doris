@@ -256,10 +256,10 @@ public:
     virtual bool supported_incremental_mode() const { return false; }
 
     virtual void set_query_context(QueryContext* context) {
-        throw Status::InternalError(
-                "set_query_context is not supported by aggregate function '{}'; only LLM aggregate "
-                "functions implement this method",
-                get_name());
+        throw Exception(ErrorCode::FATAL_ERROR,
+                        "set_query_context is not supported by aggregate function '{}'; "
+                        "only LLM aggregate functions implement this method",
+                        get_name());
     }
 
     /**

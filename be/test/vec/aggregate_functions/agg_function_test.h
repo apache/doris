@@ -85,10 +85,10 @@ private:
             QueryContext* context = nullptr;
             try {
                 agg_fn->function()->set_query_context(context);
-            } catch (const Status& st) {
-                EXPECT_FALSE(st.ok());
+            } catch (const Exception& e) {
+                EXPECT_EQ(e.code(), ErrorCode::FATAL_ERROR);
                 EXPECT_THAT(
-                        st.to_string().c_str(),
+                        e.to_string().c_str(),
                         ::testing::EndsWith("only LLM aggregate functions implement this method"));
             }
         }

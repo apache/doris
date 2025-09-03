@@ -17,6 +17,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_llm_agg.h"
 
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -259,6 +260,14 @@ TEST_F(AggregateFunctionLLMAggTest, empty_data_test) {
     const auto& data = *reinterpret_cast<const AggregateFunctionLLMAggData*>(place);
     EXPECT_TRUE(data.inited);
     EXPECT_EQ(data.data.size(), 0);
+
+    try {
+        ColumnString to;
+        _agg_function->insert_result_into(place, to);
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::INVALID_ARGUMENT);
+        EXPECT_THAT(e.to_string().c_str(), ::testing::EndsWith("data is empty"));
+    }
 
     _agg_function->destroy(place);
 }
