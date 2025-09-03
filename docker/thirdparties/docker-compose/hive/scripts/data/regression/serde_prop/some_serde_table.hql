@@ -170,3 +170,19 @@ INSERT INTO TABLE test_open_csv_standard_prop VALUES
 INSERT INTO TABLE test_open_csv_custom_prop VALUES 
 (1, 'John Doe', 28, 50000.75, true, '2022-01-15', '2023-10-21 14:30:00', 4.5, 'Senior Developer'),
 (2, 'Jane,Smith', NULL, NULL, false, '2020-05-20', NULL, NULL, '\"Project Manager\"');
+
+CREATE TABLE test_empty_null_format_text (
+  id INT,
+  name STRING
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+STORED AS TEXTFILE
+TBLPROPERTIES (
+  "serialization.null.format"=""
+);
+
+INSERT INTO TABLE test_empty_null_format_text VALUES
+  (1, 'Alice'),
+  (2, NULL),
+  (3, '');

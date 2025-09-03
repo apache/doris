@@ -884,8 +884,10 @@ public class HiveMetaStoreClientHelper {
      *
      * @param altValue
      *                 The string containing a number.
+     * @param defValue
+     *                 The default value to return if altValue is invalid.
      */
-    public static String getByte(String altValue) {
+    public static String getByte(String altValue, String defValue) {
         if (altValue != null && altValue.length() > 0) {
             try {
                 return Character.toString((char) ((Byte.parseByte(altValue) + 256) % 256));
@@ -893,6 +895,6 @@ public class HiveMetaStoreClientHelper {
                 return altValue.substring(0, 1);
             }
         }
-        return null;
+        return defValue;
     }
 }
