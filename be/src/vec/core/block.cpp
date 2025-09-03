@@ -698,11 +698,6 @@ const ColumnsWithTypeAndName& Block::get_columns_with_type_and_name() const {
     return data;
 }
 
-void Block::set_columns_with_type_and_name(
-        const ColumnsWithTypeAndName& columns_with_type_and_name) {
-    data = columns_with_type_and_name;
-}
-
 std::vector<std::string> Block::get_names() const {
     std::vector<std::string> res;
     res.reserve(columns());
