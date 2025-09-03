@@ -54,6 +54,45 @@ inline std::string md5(const std::string& str) {
     return ss.str();
 }
 
+std::string hide_access_key(const std::string& ak);
+
+// is_handle_sk: true for encrypting sk, false for hiding ak
+inline void process_ak_sk_pattern(std::string& str, const std::string& pattern, bool is_handle_sk) {
+    size_t pos = 0;
+    while ((pos = str.find(pattern, pos)) != std::string::npos) {
+        size_t colon_pos = str.find(':', pos);
+        if (colon_pos == std::string::npos) {
+            pos += pattern.length();
+            continue;
+        }
+
+        size_t quote_pos = str.find('\"', colon_pos);
+        if (quote_pos == std::string::npos) {
+            pos += pattern.length();
+            continue;
+        }
+
+        size_t value_start = quote_pos + 1;
+        size_t value_end = str.find('\"', value_start);
+        if (value_end == std::string::npos) {
+            pos = value_start;
+            continue;
+        }
+
+        std::string key_value = str.substr(value_start, value_end - value_start);
+
+        if (is_handle_sk) {
+            key_value = "md5: " + md5(key_value);
+        } else {
+            key_value = hide_access_key(key_value);
+        }
+
+        str.replace(value_start, value_end - value_start, key_value);
+
+        pos = value_end + (key_value.length() - key_value.length());
+    }
+};
+
 /**
  * Encrypts all "sk" values in the given debug string with MD5 hashes.
  * 
@@ -61,36 +100,26 @@ inline std::string md5(const std::string& str) {
  * - Input string contains one or more occurrences of "sk: " followed by a value in double quotes.
  * - An md5() function exists that takes a std::string and returns its MD5 hash as a string.
  * 
- * @param debug_string Input string containing "sk: " fields to be encrypted.
+ * @param debug_string Input string containing "sk: " or ""sk": " fields to be encrypted.
  * @return A new string with all "sk" values replaced by their MD5 hashes.
  * 
- * Behavior:
+ * Behavior for "sk: " format:
  * 1. Searches for all occurrences of "sk: " in the input string.
  * 2. For each occurrence, extracts the value between double quotes.
  * 3. Replaces the original value with "md5: " followed by its MD5 hash.
  * 4. Returns the modified string with all "sk" values encrypted.
  */
 inline std::string encryt_sk(std::string debug_string) {
-    // Start position for searching "sk" fields
-    size_t pos = 0;
-    // Iterate through the string and find all occurrences of "sk: "
-    while ((pos = debug_string.find("sk: ", pos)) != std::string::npos) {
-        // Find the start and end of the "sk" value (assumed to be within quotes)
-        // Start after the quote
-        size_t sk_value_start = debug_string.find('\"', pos) + 1;
-        // End at the next quote
-        size_t sk_value_end = debug_string.find('\"', sk_value_start);
+    process_ak_sk_pattern(debug_string, "sk: ", true);
+    process_ak_sk_pattern(debug_string, "\"sk\"", true);
 
-        // Extract the "sk" value
-        std::string sk_value = debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
-        // Encrypt the "sk" value with MD5
-        std::string encrypted_sk = "md5: " + md5(sk_value);
+    return debug_string;
+}
 
-        // Replace the original "sk" value with the encrypted MD5 value
-        debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
-        // Move the position to the end of the current "sk" field and continue searching
-        pos = sk_value_end;
-    }
+inline std::string hide_ak(std::string debug_string) {
+    process_ak_sk_pattern(debug_string, "ak: ", false);
+    process_ak_sk_pattern(debug_string, "\"ak\"", false);
+
     return debug_string;
 }
 
@@ -134,6 +163,13 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                   << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
                   << " expiration=" << req->expiration()
                   << " require_compaction_stats=" << req->require_compaction_stats();
+    } else if constexpr (std::is_same_v<Request, CreateInstanceRequest> ||
+                         std::is_same_v<Request, CreateStageRequest>) {
+        std::string debug_string = encryt_sk(req->ShortDebugString());
+        debug_string = hide_ak(debug_string);
+        TEST_SYNC_POINT_CALLBACK("sk_begin_rpc", &debug_string);
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " request=" << debug_string;
     } else {
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
@@ -179,8 +215,10 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
                   << " original_client_ip=" << req->request_ip()
                   << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
-                         std::is_same_v<Response, GetStageResponse>) {
+                         std::is_same_v<Response, GetStageResponse> ||
+                         std::is_same_v<Response, GetInstanceResponse>) {
         std::string debug_string = encryt_sk(res->DebugString());
+        debug_string = hide_ak(debug_string);
         TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip() << " response=" << debug_string;
