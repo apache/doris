@@ -964,26 +964,6 @@ void TabletSchema::append_index(TabletIndex&& index) {
     }
 }
 
-void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_type,
-                                std::vector<TabletIndex>&& indexes) {
-    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path = escape_for_path_name(col.suffix_path());
-    IndexKey key(index_type, col_unique_id, suffix_path);
-    auto iter = _col_id_suffix_to_index.find(key);
-    if (iter != _col_id_suffix_to_index.end()) {
-        if (iter->second.size() == indexes.size()) {
-            for (size_t i = 0; i < iter->second.size(); ++i) {
-                int32_t pos = iter->second[i];
-                if (pos >= 0 && pos < _indexes.size()) {
-                    _indexes[pos] = std::make_shared<TabletIndex>(std::move(indexes[i]));
-                }
-            }
-        }
-    }
-    LOG(WARNING) << " failed to update_index: " << index_type << " " << col_unique_id << " "
-                 << suffix_path;
-}
-
 void TabletSchema::replace_column(size_t pos, TabletColumn new_col) {
     CHECK_LT(pos, num_columns()) << " outof range";
     _cols[pos] = std::make_shared<TabletColumn>(std::move(new_col));
