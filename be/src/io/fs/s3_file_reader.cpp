@@ -115,6 +115,8 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     size_t bytes_req = result.size;
     char* to = result.data;
     bytes_req = std::min(bytes_req, _file_size - offset);
+    LOG(INFO) << "enter s3 read_at_impl, off=" << offset << " n=" << bytes_req
+              << " req=" << result.size << " file size=" << _file_size;
     if (UNLIKELY(bytes_req == 0)) {
         *bytes_read = 0;
         return Status::OK();

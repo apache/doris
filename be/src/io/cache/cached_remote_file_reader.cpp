@@ -66,8 +66,8 @@ bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
 bvar::LatencyRecorder g_peer_file_reader_latency("peer_file_reader_latency");
 bvar::Adder<uint64_t> peer_file_reader_read_counter("peer_file_reader", "read_at");
 bvar::PerSecond<bvar::Adder<uint64_t>> peer_get_request_qps("peer_file_reader", "peer_get_request",
-    &peer_file_reader_read_counter);
-// no custom launcher needed when using std::thread
+                                                            &peer_file_reader_read_counter);
+bvar::Adder<uint64_t> peer_bytes_read_total("peer_file_reader", "bytes_read");
 
 // Controller to race two fetchers (e.g., S3 vs peer BE) and signal on first success
 struct FetchRangeCntl : std::enable_shared_from_this<FetchRangeCntl> {
@@ -368,6 +368,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         empty_start = empty_blocks.front()->range().left;
         empty_end = empty_blocks.back()->range().right;
         size_t size = empty_end - empty_start + 1;
+        LOG(INFO) << "dx debug empty_blocks size=" << empty_blocks.size()
+                  << " start=" << empty_start << " end=" << empty_end << " size=" << size;
         std::unique_ptr<char[]> buffer(new char[size]);
 
         std::string type = "s3";
@@ -622,6 +624,7 @@ Status CachedRemoteFileReader::_fetch_from_peer_cache_blocks(
         filled += can_copy;
     }
     LOG(INFO) << "peer cache read filled=" << filled;
+    peer_bytes_read_total << filled;
     *n = filled;
     if (filled == s.size) {
         return Status::OK();
