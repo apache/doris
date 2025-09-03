@@ -37,7 +37,6 @@ void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
 void register_function_hll(SimpleFunctionFactory& factory);
 void register_function_logical(SimpleFunctionFactory& factory);
-void register_function_case(SimpleFunctionFactory& factory);
 void register_function_cast(SimpleFunctionFactory& factory);
 void register_function_encode_varchar(SimpleFunctionFactory& factory);
 void register_function_conv(SimpleFunctionFactory& factory);
@@ -260,7 +259,6 @@ public:
             register_function_encode_varchar(instance);
             register_function_decode_as_varchar(instance);
             register_function_logical(instance);
-            register_function_case(instance);
             register_function_cast(instance);
             register_function_conv(instance);
             register_function_plus(instance);
