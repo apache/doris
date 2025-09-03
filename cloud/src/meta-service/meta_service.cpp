@@ -2866,7 +2866,7 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
             //                                           there may be holes if we don't return all version
             //                                           after ms_cp, however it can be optimized.
             // * one CC happened and CP changed, and full compaction happened
-            // BE  [=][=][=][=][=====][=][=]
+            // BE  [=][=][=][=][=][=][=][=][=][=]
             //                  ^~~~~ req_cp
             // MS  [xxxxxxxxxxxxxx][xxxxxxxxxxxxxx][=======][=][=]
             //                      ^~~~~~~ ms_cp
