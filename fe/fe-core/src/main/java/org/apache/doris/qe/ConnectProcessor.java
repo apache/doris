@@ -261,7 +261,17 @@ public abstract class ConnectProcessor {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
             if (Config.isCloudMode()) {
                 try {
-                    MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
+                    String clusterName = ctx.getCloudCluster(false);
+                    String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                            .getPhysicalCluster(clusterName);
+                    if (clusterName.equals(physicalClusterName)) {
+                        // not vcg
+                        MetricRepo.increaseClusterRequestAll(clusterName);
+                    } else {
+                        // vcg
+                        MetricRepo.increaseClusterRequestAll(clusterName);
+                        MetricRepo.increaseClusterRequestAll(physicalClusterName);
+                    }
                 } catch (ComputeGroupException e) {
                     LOG.warn("metrics get cluster exception", e);
                 }
@@ -699,6 +709,7 @@ public abstract class ConnectProcessor {
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
+            result.setAffectedRows(ctx.getState().getAffectedRows());
         } else {
             ErrorCode errorCode = ctx.getState().getErrorCode();
             if (errorCode != null) {

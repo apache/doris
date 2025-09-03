@@ -22,63 +22,17 @@ import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties.Type;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
 public class IcebergVendedCredentialsProvider {
+    private static final Logger LOG = LogManager.getLogger(IcebergVendedCredentialsProvider.class);
 
-    // AWS credential property keys for backend
-    private static final String BACKEND_AWS_ACCESS_KEY = "AWS_ACCESS_KEY";
-    private static final String BACKEND_AWS_SECRET_KEY = "AWS_SECRET_KEY";
-    private static final String BACKEND_AWS_TOKEN = "AWS_TOKEN";
-
-    /**
-     * Interface for future FileIO-based credential extraction.
-     * This interface is designed to be compatible with Iceberg FileIO
-     * when we implement FileIO support in the future.
-     */
-    public interface CredentialExtractor {
-        /**
-         * Extract credentials from a generic properties map.
-         *
-         * @param properties properties map from any source (FileIO, Table IO, etc.)
-         * @return extracted credentials as backend properties
-         */
-        Map<String, String> extractCredentials(Map<String, String> properties);
-    }
-
-    /**
-     * Default credential extractor for S3 credentials.
-     */
-    public static class S3CredentialExtractor implements CredentialExtractor {
-        @Override
-        public Map<String, String> extractCredentials(Map<String, String> properties) {
-            Map<String, String> credentials = Maps.newHashMap();
-
-            if (properties == null || properties.isEmpty()) {
-                return credentials;
-            }
-
-            // Extract AWS credentials from Iceberg S3 FileIO format
-            if (properties.containsKey(S3FileIOProperties.ACCESS_KEY_ID)) {
-                credentials.put(BACKEND_AWS_ACCESS_KEY, properties.get(S3FileIOProperties.ACCESS_KEY_ID));
-            }
-            if (properties.containsKey(S3FileIOProperties.SECRET_ACCESS_KEY)) {
-                credentials.put(BACKEND_AWS_SECRET_KEY, properties.get(S3FileIOProperties.SECRET_ACCESS_KEY));
-            }
-            if (properties.containsKey(S3FileIOProperties.SESSION_TOKEN)) {
-                credentials.put(BACKEND_AWS_TOKEN, properties.get(S3FileIOProperties.SESSION_TOKEN));
-            }
-
-            return credentials;
-        }
-    }
-
-    private static final S3CredentialExtractor s3Extractor = new S3CredentialExtractor();
+    private static final IcebergS3CredentialExtractor s3Extractor = new IcebergS3CredentialExtractor();
 
     /**
      * Extract vended credentials from Iceberg Table and convert to backend properties.
@@ -93,20 +47,6 @@ public class IcebergVendedCredentialsProvider {
 
         Map<String, String> ioProperties = table.io().properties();
         return s3Extractor.extractCredentials(ioProperties);
-    }
-
-    /**
-     * Future method for FileIO-based credential extraction.
-     * This method signature is designed to be compatible with future FileIO implementations.
-     *
-     * @param fileIoProperties properties from FileIO (reserved for future use)
-     * @param extractor custom credential extractor
-     * @return extracted credentials
-     */
-    @VisibleForTesting
-    public static Map<String, String> extractCredentialsFromFileIO(Map<String, String> fileIoProperties,
-            CredentialExtractor extractor) {
-        return extractor.extractCredentials(fileIoProperties);
     }
 
     /**
@@ -134,6 +74,10 @@ public class IcebergVendedCredentialsProvider {
             } else {
                 locationProperties.putAll(storageProperties.getBackendConfigProperties());
             }
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Iceberg backend location properties: {}, vendedCredentialsEnabled: {}, icebergTable: {}",
+                    locationProperties, vendedCredentialsEnabled, icebergTable != null ? icebergTable.name() : "null");
         }
         return locationProperties;
     }

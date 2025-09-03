@@ -130,4 +130,39 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_json_contains6 """
       SELECT JSON_CONTAINS(NULL, '"music"', '{"age": 25}');
     """
+
+    qt_json_keys """
+      SELECT JSON_KEYS('{"name": "John", "age": 30, "city": "New York"}');
+    """
+    qt_json_keys2 """
+      SELECT JSON_KEYS('{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}', '\$.hobbies');
+    """
+
+    qt_json_keys3 """
+      SELECT JSON_KEYS(k1, '\$.c') FROM d_table order by k1;
+    """
+
+    test {
+        sql """
+            SELECT JSON_KEYS('{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}', '\$.*');
+        """
+
+        exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
+    }
+    
+    test {
+        sql """
+            SELECT JSON_KEYS(k1, '\$.*.c') FROM d_table order by k1;
+        """
+
+        exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
+    }
+
+    test {
+        sql """
+            select json_extract('[[1,2,3], {"k": [4,5], "b": "123"}]', '\$**');
+        """
+
+        exception "Json path error: Invalid Json Path for value: \$**"
+    }
 }

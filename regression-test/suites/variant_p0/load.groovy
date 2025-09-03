@@ -443,12 +443,6 @@ suite("regression_test_variant", "p0"){
         sql """insert into var_as_key values(2, '{"b" : 11}')"""
         qt_sql "select * from var_as_key order by k"
 
-        // TODO(lihangyu): fix this test
-        // test {
-        //     sql """select * from ghdata where cast(v['actor']['url'] as ipv4) = '127.0.0.1'""" 
-        //     exception("Invalid type for variant column: 36")
-        // }
-
         if (!isCloudMode()) {
             test {
                 sql """
@@ -466,6 +460,22 @@ suite("regression_test_variant", "p0"){
                 exception("errCode = 2, detailMessage = Variant type rely on light schema change")
             }
         }
+
+        table_name = "variant_type_test"
+        sql """ DROP TABLE IF EXISTS ${table_name} """
+        sql """
+            CREATE TABLE ${table_name} (
+                k int,
+                v variant NULL
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        sql """ insert into ${table_name} values (1, '{"a": 1122323232313223, "b": 1.2, "c" : "ddddd", "d" : {"e": 1.2, "f": "ggggg"}}'), (2, NULL) """
+        qt_sql """ select variant_type(v) from ${table_name} """
     } finally {
         // reset flags
     }

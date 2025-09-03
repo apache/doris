@@ -24,6 +24,7 @@
 
 #include "common/consts.h"
 #include "common/logging.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
@@ -105,6 +106,10 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return HashUtil::zlib_crc_hash(v, 16, seed);
     case TYPE_DECIMAL256:
         return HashUtil::zlib_crc_hash(v, 32, seed);
+    case TYPE_IPV4:
+        return HashUtil::zlib_crc_hash(v, 4, seed);
+    case TYPE_IPV6:
+        return HashUtil::zlib_crc_hash(v, 16, seed);
     default:
         DCHECK(false) << "invalid type: " << type;
         return 0;

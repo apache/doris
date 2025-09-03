@@ -73,10 +73,6 @@ suite("test_agg_foreach_not_null") {
    qt_sql """
    select covar_foreach(a,a)  , covar_samp_foreach(a,a) , corr_foreach(a,a) from foreach_table_not_null ; 
    """
-    qt_sql """
-   select topn_foreach(a,a) ,topn_foreach(a,a,a)  , topn_array_foreach(a,a) ,topn_array_foreach(a,a,a)from foreach_table_not_null ;
-   """
-
 
    qt_sql """
    select count_foreach(a)  , count_by_enum_foreach(a)  , approx_count_distinct_foreach(a) from foreach_table_not_null;

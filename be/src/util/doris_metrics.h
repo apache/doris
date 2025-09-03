@@ -249,6 +249,10 @@ public:
     IntCounter* scanner_cnt = nullptr;
     IntCounter* scanner_task_cnt = nullptr;
     IntCounter* pipeline_task_queue_size = nullptr;
+    IntCounter* ann_index_load_costs_ms = nullptr;
+    IntCounter* ann_index_load_cnt = nullptr;
+    IntCounter* ann_index_search_costs_ms = nullptr;
+    IntCounter* ann_index_search_cnt = nullptr;
 
     IntGauge* runtime_filter_consumer_num = nullptr;
     IntGauge* runtime_filter_consumer_ready_num = nullptr;

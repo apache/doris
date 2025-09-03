@@ -23,7 +23,6 @@
 #include <string>
 #include <unordered_set>
 
-#include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
 
@@ -50,7 +49,7 @@ private:
     std::unordered_set<TNetworkAddress> _broker_set;
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _ping_thread;
+    std::shared_ptr<Thread> _ping_thread;
 };
 
 } // namespace doris

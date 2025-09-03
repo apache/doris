@@ -2,13 +2,6 @@
 -- !query1_0_before --
 2023-12-10	46.00	33.50	2	0
 
--- !shape1_0_after --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------filter((mv1_0.o_custkey = 1) and (mv1_0.o_orderkey = 3))
---------PhysicalOlapScan[mv1_0]
-
 -- !query1_0_after --
 2023-12-10	46.00	33.50	2	0
 
@@ -72,24 +65,11 @@ PhysicalResultSink
 -- !query6_0_before --
 2	2	2	2	1.0	1.0	1	1
 
--- !shape6_0_after --
-PhysicalResultSink
---hashAgg[DISTINCT_LOCAL]
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------filter((mv6_0.o_orderkey = 1) and (mv6_0.o_orderstatus = 'o'))
-----------PhysicalOlapScan[mv6_0]
-
 -- !query6_0_after --
 2	2	2	2	1.0	1.0	1	1
 
 -- !query7_0_before --
 yy	4	11.50	11.50	11.50	1
-
--- !shape7_0_after --
-PhysicalResultSink
---filter((mv7_0.o_orderdate = '2023-12-09') and (mv7_0.o_shippriority = 1))
-----PhysicalOlapScan[mv7_0]
 
 -- !query7_0_after --
 yy	4	11.50	11.50	11.50	1
@@ -97,28 +77,11 @@ yy	4	11.50	11.50	11.50	1
 -- !query7_1_before --
 yy	4	11.50	11.50	11.50	1
 
--- !shape7_1_after --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.l_orderkey = orders.o_orderkey) and (t1.l_shipdate = orders.o_orderdate)) otherCondition=()
---------filter((orders.o_orderdate = '2023-12-09') and (orders.o_shippriority = 1) and (orders.o_totalprice = 11.50))
-----------PhysicalOlapScan[orders]
---------filter((t1.l_shipdate = '2023-12-09'))
-----------PhysicalOlapScan[lineitem]
-
 -- !query7_1_after --
 yy	4	11.50	11.50	11.50	1
 
 -- !query8_0_before --
 yy	4	11.50	11.50	11.50	1
-
--- !shape8_0_after --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------filter((mv8_0.o_orderdate = '2023-12-09'))
---------PhysicalOlapScan[mv8_0]
 
 -- !query8_0_after --
 yy	4	11.50	11.50	11.50	1

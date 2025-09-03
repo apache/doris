@@ -253,7 +253,9 @@ protected:
 template <typename Op>
 class AggregateFunctionBitmapOp final
         : public AggregateFunctionBitmapSerializationHelper<AggregateFunctionBitmapData<Op>,
-                                                            AggregateFunctionBitmapOp<Op>> {
+                                                            AggregateFunctionBitmapOp<Op>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultDataType = BitmapValue;
     using ColVecType = ColumnBitmap;
@@ -333,11 +335,14 @@ template <bool arg_is_nullable, typename ColVecType>
 class AggregateFunctionBitmapCount final
         : public AggregateFunctionBitmapSerializationHelper<
                   AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>,
-                  AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>> {
+                  AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 public:
     // using ColVecType = ColumnBitmap;
     using ColVecResult = ColumnInt64;
     using AggFunctionData = AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>;
+    static int constexpr BATCH_HALF_ROWS = 4064 / 2;
 
     AggregateFunctionBitmapCount(const DataTypes& argument_types_)
             : AggregateFunctionBitmapSerializationHelper<
@@ -396,9 +401,20 @@ public:
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
+        auto normal_add_lambda = [&]() {
+            for (size_t i = 0; i < batch_size; ++i) {
+                this->add(place, columns, i, arena);
+            }
+        };
+
         // now this only for bitmap_union_count function
         if constexpr (std::is_same_v<ColVecType, ColumnBitmap>) {
-            auto lambda_function = [&](const IColumn& data_column, const NullMap* null_map) {
+            // if batch_size is small, the add_batch of fast union seems to be slower than normal add
+            if (batch_size < BATCH_HALF_ROWS) {
+                normal_add_lambda();
+                return;
+            }
+            auto add_batch_lambda = [&](const IColumn& data_column, const NullMap* null_map) {
                 const auto& column = assert_cast<const ColVecType&>(data_column);
                 std::vector<const BitmapValue*> values;
                 for (size_t i = 0; i < batch_size; ++i) {
@@ -414,15 +430,13 @@ public:
 
             if constexpr (arg_is_nullable) {
                 const auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
-                lambda_function(nullable_column.get_nested_column(),
-                                &(nullable_column.get_null_map_data()));
+                add_batch_lambda(nullable_column.get_nested_column(),
+                                 &(nullable_column.get_null_map_data()));
             } else {
-                lambda_function(*columns[0], nullptr);
+                add_batch_lambda(*columns[0], nullptr);
             }
         } else {
-            for (size_t i = 0; i < batch_size; ++i) {
-                this->add(place, columns, i, arena);
-            }
+            normal_add_lambda();
         }
     }
 

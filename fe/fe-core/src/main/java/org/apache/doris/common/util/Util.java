@@ -46,6 +46,7 @@ import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -609,7 +610,7 @@ public class Util {
         }
     }
 
-    public static TFileCompressType getFileCompressType(String compressType) {
+    public static TFileCompressType getFileCompressType(String compressType) throws AnalysisException {
         if (Strings.isNullOrEmpty(compressType)) {
             return TFileCompressType.UNKNOWN;
         }
@@ -617,7 +618,7 @@ public class Util {
         try {
             return TFileCompressType.valueOf(upperCaseType);
         } catch (IllegalArgumentException e) {
-            return TFileCompressType.UNKNOWN;
+            throw new AnalysisException("Unknown compression type: " + compressType);
         }
     }
 
@@ -711,7 +712,7 @@ public class Util {
     public static long sha256long(String str) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(str.getBytes());
+            byte[] hash = digest.digest(str.getBytes(StandardCharsets.UTF_8));
             ByteBuffer buffer = ByteBuffer.wrap(hash);
             return buffer.getLong();
         } catch (NoSuchAlgorithmException e) {

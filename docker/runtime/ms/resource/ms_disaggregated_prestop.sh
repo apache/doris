@@ -18,7 +18,15 @@
 
 
 #get from env
-DORIS_HOME=${DORIS_HOME:="/opt/apache-doris"}
+DORIS_ROOT=${DORIS_ROOT:-"/opt/apache-doris"}
+DORIS_HOME=${DORIS_ROOT}/ms
+MS_CONFFILE=${DORIS_HOME}/conf/doris_cloud.conf.conf
 
-$DORIS_HOME/ms/bin/stop.sh --$1
+log_file="/opt/apache-doris/ms/log/meta_service.INFO"
+kill_time=$(date  "+%Y-%m-%d %H:%M:%S")
+eval echo "[ms_disaggregated_prestop.sh] ${kill_time} kubelet kill call the ms_disaggregated_prestop.sh to stop ms service." >> "$log_file"
+#eval echo "[fe_prestop.sh] ${kill_time} kubelet kill call the fe_prestop.sh to stop fe service." 2>&1
+eval echo "[ms_disaggregated_prestop.sh] ${kill_time} kubelet kill call the ms_disaggregated_prestop.sh to stop ms service ." >> "/proc/1/fd/1"
+
+$DORIS_HOME/bin/stop.sh --$1
 

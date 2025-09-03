@@ -211,3 +211,15 @@ false
 -- !json_contains6 --
 \N
 
+-- !json_keys --
+["name", "age", "city"]
+
+-- !json_keys2 --
+\N
+
+-- !json_keys3 --
+\N
+["d"]
+["d"]
+["d"]
+

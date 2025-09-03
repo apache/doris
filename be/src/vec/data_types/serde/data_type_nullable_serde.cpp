@@ -267,7 +267,7 @@ Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues&
     auto row_count = cast_set<int>(end - start);
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     const auto& null_col = nullable_col.get_null_map_column();
-    if (nullable_col.has_null(row_count)) {
+    if (nullable_col.has_null(start, end)) {
         result.set_has_null(true);
         auto* null_map = result.mutable_null_map();
         null_map->Reserve(row_count);

@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
@@ -32,10 +30,11 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -75,8 +74,11 @@ public class RefreshDbTest extends TestWithFeService {
     protected void runAfterAll() throws Exception {
         super.runAfterAll();
         rootCtx.setThreadLocalInfo();
-        DropCatalogStmt stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test1");
-        env.getCatalogMgr().dropCatalog(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle("drop catalog test1");
+        if (logicalPlan instanceof DropCatalogCommand) {
+            ((DropCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Test
@@ -91,12 +93,10 @@ public class RefreshDbTest extends TestWithFeService {
         Assertions.assertFalse(table.isObjectCreated());
         table.makeSureInitialized();
         Assertions.assertTrue(table.isObjectCreated());
-        RefreshDbStmt refreshDbStmt = new RefreshDbStmt("test1", "db1", null);
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
+
+        RefreshDatabaseCommand refreshDatabaseCommand = new RefreshDatabaseCommand("test1", "db1", null);
+        refreshDatabaseCommand.run(connectContext, null);
+
         long l3 = db1.getLastUpdateTime();
         Assertions.assertTrue(l3 == l2);
         // when use_meta_cache is true, the table will be recreated after refresh.
@@ -105,21 +105,14 @@ public class RefreshDbTest extends TestWithFeService {
         Assertions.assertFalse(table.isObjectCreated());
         test1.getDbNullable("db1").getTables();
         Assertions.assertFalse(table.isObjectCreated());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
+        refreshDatabaseCommand.run(connectContext, null);
+
         Assertions.assertFalse(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
         table.makeSureInitialized();
         long l4 = db1.getLastUpdateTime();
         Assertions.assertTrue(l4 > l3);
         Assertions.assertTrue(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
+        refreshDatabaseCommand.run(connectContext, null);
     }
 
     @Test
@@ -138,9 +131,11 @@ public class RefreshDbTest extends TestWithFeService {
         UserIdentity user1 = new UserIdentity("user1", "%");
         user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
+        RefreshDatabaseCommand command = (RefreshDatabaseCommand) parseStmt(
+                "refresh database test1.db1", user1Ctx);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "Access denied",
-                () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
+                () -> command.run(rootCtx, stmtExecutor));
         ConnectContext.remove();
 
         // add drop priv to user1
@@ -154,8 +149,10 @@ public class RefreshDbTest extends TestWithFeService {
 
         // user1 can do refresh table
         user1Ctx.setThreadLocalInfo();
+        RefreshDatabaseCommand command2 = (RefreshDatabaseCommand) parseStmt(
+                "refresh database test1.db1", user1Ctx);
         ExceptionChecker.expectThrowsNoException(
-                () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
+                () -> command2.run(rootCtx, stmtExecutor));
     }
 
     public static class RefreshTableProvider implements TestExternalCatalog.TestCatalogProvider {

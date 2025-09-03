@@ -185,8 +185,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             // so better to also check low memory and clear free blocks here.
             if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
 
-            if (!scanner->is_init()) {
-                status = scanner->init();
+            if (!scanner->has_prepared()) {
+                status = scanner->prepare();
                 if (!status.ok()) {
                     eos = true;
                 }
@@ -335,9 +335,12 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     }
     // WorkloadGroup Policy will check cputime realtime, so that should update the counter
     // as soon as possible, could not update it on close.
-    scanner->update_scan_cpu_timer();
-    scanner->update_realtime_counters();
-
+    if (scanner->has_prepared()) {
+        // Counter update need prepare successfully, or it maybe core. For example, olap scanner
+        // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
+        scanner->update_scan_cpu_timer();
+        scanner->update_realtime_counters();
+    }
     if (eos) {
         scanner->mark_to_need_to_close();
     }

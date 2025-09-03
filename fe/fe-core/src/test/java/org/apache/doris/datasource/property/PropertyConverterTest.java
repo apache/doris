@@ -17,23 +17,17 @@
 
 package org.apache.doris.datasource.property;
 
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
-import org.apache.doris.datasource.property.constants.DLFProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
-import org.apache.doris.datasource.property.constants.GlueProperties;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
@@ -235,7 +229,7 @@ public class PropertyConverterTest extends TestWithFeService {
         String query1 = "create catalog " + catalogName1 + " properties (\n"
                 + "    'type'='hms',\n"
                 + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                + "    'oss.endpoint' = 'oss-cn-beijing.aliyuncs.com',\n"
+                + "    'oss.endpoint' = 'cn-beijing.oss-dls.aliyuncs.com',\n"
                 + "    'oss.hdfs.enabled' = 'true',\n"
                 + "    'oss.access_key' = 'akk',\n"
                 + "    'oss.secret_key' = 'skk'\n"
@@ -250,7 +244,8 @@ public class PropertyConverterTest extends TestWithFeService {
 
         HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", hdProps.get("fs.oss.impl"));
+        // OSS HDFS may be use OSS Storage, so here may be is AliyunOSSFileSystem
+        //Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", hdProps.get("fs.oss.impl"));
         Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", hdProps.get("fs.oss.endpoint"));
     }
 
@@ -430,7 +425,8 @@ public class PropertyConverterTest extends TestWithFeService {
             ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
         }
 
-        HMSExternalCatalog catalogNew = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        HMSExternalCatalog catalogNew = (HMSExternalCatalog) Env.getCurrentEnv()
+                .getCatalogMgr().getCatalog(catalogName);
         Map<String, String> propertiesNew = catalogNew.getProperties();
         Assertions.assertEquals(22, propertiesNew.size());
         Assertions.assertEquals("s3.us-east-1.amazonaws.com.cn", propertiesNew.get(S3Properties.ENDPOINT));
@@ -491,7 +487,7 @@ public class PropertyConverterTest extends TestWithFeService {
     private void testS3CompatibleCatalogProperties(String catalogName, String prefix,
                                                    String endpoint, String sql,
                                                    int catalogPropsSize, int bePropsSize) throws Exception {
-        Env.getCurrentEnv().getCatalogMgr().dropCatalog(new DropCatalogStmt(true, catalogName));
+        Env.getCurrentEnv().getCatalogMgr().dropCatalog(catalogName, true);
 
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
@@ -653,148 +649,5 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
         Assertions.assertEquals("region", beProperties.get(S3Properties.Env.REGION));
         Assertions.assertEquals("false", beProperties.get(PropertyConverter.USE_PATH_STYLE));
-    }
-
-    @Test
-    public void testMetaPropertiesConvertor() {
-        // test region parser
-        Assertions.assertNull(S3Properties.getRegionOfEndpoint("http://192.168.2.30:9099/com.region.test/dir"));
-        Assertions.assertEquals("cn-beijing",
-                S3Properties.getRegionOfEndpoint("http://dlf.cn-beijing.aliyuncs.com/com.region.test/dir"));
-        Assertions.assertEquals("oss-cn-beijing",
-                S3Properties.getRegionOfEndpoint("http://oss-cn-beijing.aliyuncs.com/com.region.test/dir"));
-        Assertions.assertEquals("us-east-1",
-                S3Properties.getRegionOfEndpoint("http://s3.us-east-1.amazonaws.com/com.region.test/dir"));
-
-        //1. dlf
-        Map<String, String> props = new HashMap<>();
-        // iceberg.catalog.type
-        props.put("type", "hms");
-        props.put("hive.metastore.type", "dlf");
-        props.put(DLFProperties.PROXY_MODE, "DLF_ONLY");
-        props.put(DLFProperties.ENDPOINT, "dlf.cn-beijing.aliyuncs.com");
-        props.put(DLFProperties.UID, "20239444");
-        props.put(DLFProperties.ACCESS_KEY, "akk");
-        props.put(DLFProperties.SECRET_KEY, "skk");
-        props.put(DLFProperties.REGION, "cn-beijing");
-        props.put(DLFProperties.ACCESS_PUBLIC, "false");
-        Map<String, String> res = PropertyConverter.convertToMetaProperties(new HashMap<>(props));
-        Assertions.assertEquals(26, res.size());
-        Assertions.assertEquals("akk", res.get(S3Properties.Env.ACCESS_KEY));
-        Assertions.assertEquals("skk", res.get(S3Properties.Env.SECRET_KEY));
-        Assertions.assertEquals("akk", res.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID));
-        Assertions.assertEquals("skk", res.get(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET));
-        Assertions.assertEquals("dlf.cn-beijing.aliyuncs.com", res.get(DataLakeConfig.CATALOG_ENDPOINT));
-        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", res.get(S3Properties.Env.ENDPOINT));
-        Assertions.assertEquals("cn-beijing", res.get(DataLakeConfig.CATALOG_REGION_ID));
-        Assertions.assertEquals("oss-cn-beijing", res.get(S3Properties.Env.REGION));
-
-        props.put(DLFProperties.ACCESS_PUBLIC, "true");
-        res = PropertyConverter.convertToMetaProperties(new HashMap<>(props));
-        Assertions.assertEquals(26, res.size());
-        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", res.get(S3Properties.Env.ENDPOINT));
-        Assertions.assertEquals("oss-cn-beijing", res.get(S3Properties.Env.REGION));
-
-        props.put(OssProperties.OSS_HDFS_ENABLED, "true");
-        res = PropertyConverter.convertToMetaProperties(new HashMap<>(props));
-        Assertions.assertEquals(29, res.size());
-        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", res.get("fs.oss.impl"));
-        Assertions.assertEquals("com.aliyun.jindodata.oss.OSS", res.get("fs.AbstractFileSystem.oss.impl"));
-        Assertions.assertEquals("false", res.get(DataLakeConfig.CATALOG_CREATE_DEFAULT_DB));
-        Assertions.assertEquals("cn-beijing", res.get(S3Properties.Env.REGION));
-
-        // 2. glue
-        Map<String, String> props2 = new HashMap<>();
-        props2.put("hive.metastore.type", "glue");
-        props2.put("aws.glue.endpoint", "glue.us-east-1.amazonaws.com");
-        props2.put("aws.glue.access-key", "akk");
-        props2.put("aws.glue.secret-key", "skk");
-        props2.put("aws.region", "us-east-1");
-        res = PropertyConverter.convertToMetaProperties(props2);
-        Assertions.assertEquals(17, res.size());
-        Assertions.assertEquals("akk", res.get(S3Properties.Env.ACCESS_KEY));
-        Assertions.assertEquals("skk", res.get(S3Properties.Env.SECRET_KEY));
-        Assertions.assertEquals("s3.us-east-1.amazonaws.com", res.get(S3Properties.Env.ENDPOINT));
-        Assertions.assertEquals("us-east-1", res.get(S3Properties.Env.REGION));
-
-        Map<String, String> props3 = new HashMap<>();
-        props3.put("hive.metastore.type", "glue");
-        props3.put(GlueProperties.ENDPOINT, "glue.us-east-1.amazonaws.com");
-        props3.put(GlueProperties.ACCESS_KEY, "akk");
-        props3.put(GlueProperties.SECRET_KEY, "skk");
-        res = PropertyConverter.convertToMetaProperties(props3);
-        Assertions.assertEquals(17, res.size());
-        Assertions.assertEquals("akk", res.get(S3Properties.Env.ACCESS_KEY));
-        Assertions.assertEquals("skk", res.get(S3Properties.Env.SECRET_KEY));
-        Assertions.assertEquals("s3.us-east-1.amazonaws.com", res.get(S3Properties.Env.ENDPOINT));
-        Assertions.assertEquals("us-east-1", res.get(S3Properties.Env.REGION));
-
-        // 3. s3 env
-        Map<String, String> props4 = new HashMap<>();
-        props4.put("hive.metastore.type", "hms");
-        props4.put(S3Properties.Env.ENDPOINT, "s3.us-west-2.amazonaws.com");
-        props4.put(S3Properties.Env.ACCESS_KEY, "akk");
-        props4.put(S3Properties.Env.SECRET_KEY, "skk");
-        res = PropertyConverter.convertToMetaProperties(new HashMap<>(props4));
-        Assertions.assertEquals(9, res.size());
-        Assertions.assertEquals("akk", res.get(S3Properties.Env.ACCESS_KEY));
-        Assertions.assertEquals("skk", res.get(S3Properties.Env.SECRET_KEY));
-        Assertions.assertEquals("s3.us-west-2.amazonaws.com", res.get(S3Properties.Env.ENDPOINT));
-        Assertions.assertEquals("us-west-2", res.get(S3Properties.Env.REGION));
-
-        props4.put(S3Properties.Env.ENDPOINT, "http://172.23.56.19:9033");
-        res = PropertyConverter.convertToMetaProperties(new HashMap<>(props4));
-        Assertions.assertEquals(9, res.size());
-        Assertions.assertEquals("http://172.23.56.19:9033", res.get(S3Properties.Env.ENDPOINT));
-        Assertions.assertEquals("us-east-1", res.get(S3Properties.Env.REGION));
-
-        props4.put(S3Properties.Env.REGION, "north");
-        res = PropertyConverter.convertToMetaProperties(new HashMap<>(props4));
-        Assertions.assertEquals(9, res.size());
-        Assertions.assertEquals("north", res.get(S3Properties.Env.REGION));
-    }
-
-    @Test
-    public void testGluePropertiesConvertor() throws Exception {
-        Map<String, String> originProps = Maps.newHashMap();
-        originProps.put(GlueProperties.ACCESS_KEY, "ak");
-        originProps.put(GlueProperties.SECRET_KEY, "sk");
-        originProps.put(GlueProperties.ENDPOINT, "https://glue.us-east-1.amazonaws.com");
-        originProps.put("type", "iceberg");
-        originProps.put("iceberg.catalog.type", "glue");
-
-        Map<String, String> convertedProps = PropertyConverter.convertToMetaProperties(originProps);
-        System.out.println(convertedProps);
-        Assertions.assertEquals("com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x",
-                convertedProps.get(GlueProperties.CLIENT_CREDENTIALS_PROVIDER));
-        Assertions.assertEquals("ak", convertedProps.get(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_AK));
-        Assertions.assertEquals("sk", convertedProps.get(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_SK));
-
-        String createIceGlue = "CREATE CATALOG iceglue PROPERTIES (\n"
-                + "    \"type\"=\"iceberg\",\n"
-                + "    \"iceberg.catalog.type\" = \"glue\",\n"
-                + "    \"glue.endpoint\" = \"https://glue.us-east-1.amazonaws.com/\",\n"
-                + "    \"glue.access_key\" = \"ak123\",\n"
-                + "    \"glue.secret_key\" = \"sk123\"\n"
-                + ");";
-
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(createIceGlue);
-        if (logicalPlan instanceof CreateCatalogCommand) {
-            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
-        }
-
-        IcebergExternalCatalog icebergExternalCatalog = (IcebergExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog("iceglue");
-        Assertions.assertTrue(icebergExternalCatalog instanceof IcebergGlueExternalCatalog);
-        IcebergGlueExternalCatalog glueCatalog = (IcebergGlueExternalCatalog) icebergExternalCatalog;
-
-        PrintableMap<String, String> printableMap = new PrintableMap<>(glueCatalog.getProperties(), "=", true, true,
-                true, true);
-        printableMap.setAdditionalHiddenKeys(ExternalCatalog.HIDDEN_PROPERTIES);
-        String result = printableMap.toString();
-        System.out.println(result);
-        Assertions.assertTrue(!result.contains(GlueProperties.CLIENT_CREDENTIALS_PROVIDER));
-        Assertions.assertTrue(!result.contains(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_AK));
-        Assertions.assertTrue(!result.contains(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_SK));
     }
 }

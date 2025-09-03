@@ -1352,7 +1352,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
 std::tuple<int64_t, int64_t> Tablet::get_visible_version_and_time() const {
     // some old tablet has bug, its partition_id is 0, fe couldn't update its visible version.
     // so let this tablet's visible version become int64 max.
-    auto version_info = std::atomic_load_explicit(&_visible_version, std::memory_order_relaxed);
+    auto version_info = _visible_version.load();
     if (version_info != nullptr && partition_id() != 0) {
         return std::make_tuple(version_info->version.load(std::memory_order_relaxed),
                                version_info->update_ts);
@@ -2038,6 +2038,8 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 
     context.data_dir = data_dir();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+
+    context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {

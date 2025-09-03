@@ -25,6 +25,7 @@
 namespace doris {
 
 class CloudStorageEngine;
+enum class WarmUpState : int;
 
 struct SyncRowsetStats {
     int64_t get_remote_rowsets_num {0};
@@ -47,6 +48,12 @@ struct SyncOptions {
     bool full_sync = false;
     bool merge_schema = false;
     int64_t query_version = -1;
+};
+
+struct RecycledRowsets {
+    RowsetId rowset_id;
+    int64_t num_segments;
+    std::vector<std::string> index_file_names;
 };
 
 class CloudTablet final : public BaseTablet {
@@ -211,6 +218,9 @@ public:
     int64_t base_size() const { return _base_size; }
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
+    Result<RowsetSharedPtr> pick_a_rowset_for_index_change(int schema_version,
+                                                           bool& is_base_rowset);
+    Status check_rowset_schema_for_build_index(std::vector<TColumn>& columns, int schema_version);
 
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
@@ -228,7 +238,7 @@ public:
 
     Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                     DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                    int64_t next_visible_version);
+                                    int64_t next_visible_version, RowsetSharedPtr rowset);
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
@@ -252,9 +262,6 @@ public:
 
     const auto& rowset_map() const { return _rs_version_map; }
 
-    // Merge all rowset schemas within a CloudTablet
-    Status merge_rowsets_schema();
-
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
@@ -265,9 +272,6 @@ public:
     std::atomic<int64_t> local_read_time_us = 0;
     std::atomic<int64_t> remote_read_time_us = 0;
     std::atomic<int64_t> exec_compaction_time_us = 0;
-
-    // Return merged extended schema
-    TabletSchemaSPtr merged_tablet_schema() const override;
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
@@ -284,13 +288,23 @@ public:
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
 
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
+    // For each given rowset not in active use, clears its file cache and returns its
+    // ID, segment count, and index file names as RecycledRowsets entries.
+    static std::vector<RecycledRowsets> recycle_cached_data(
+            const std::vector<RowsetSharedPtr>& rowsets);
+
+    // Add warmup state management
+    WarmUpState get_rowset_warmup_state(RowsetId rowset_id);
+    bool add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state);
+    WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status);
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
+
+    bool add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state);
 
     CloudStorageEngine& _engine;
 
@@ -343,13 +357,13 @@ private:
     // signatures being executed concurrently, we use _rowset_update_lock to serialize them
     mutable std::mutex _rowset_update_lock;
 
-    // Schema will be merged from all rowsets when sync_rowsets
-    TabletSchemaSPtr _merged_tablet_schema;
-
     // unused_rowsets, [start_version, end_version]
     std::mutex _gc_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
     std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
+
+    // for warm up states management
+    std::unordered_map<RowsetId, std::pair<WarmUpState, int32_t>> _rowset_warm_up_states;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

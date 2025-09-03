@@ -85,7 +85,7 @@ void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFac
         for (const auto& t : types) {
             auto item_type =
                     assert_cast<const DataTypeArray*>(remove_nullable(t).get())->get_nested_type();
-            transform_arguments.push_back((item_type));
+            transform_arguments.push_back(item_type);
         }
         auto nested_function_name = name.substr(0, name.size() - suffix.size());
         auto nested_function = factory.get(nested_function_name, transform_arguments, true,

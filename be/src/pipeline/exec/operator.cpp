@@ -286,6 +286,12 @@ Status PipelineXLocalStateBase::filter_block(const vectorized::VExprContextSPtrs
     return Status::OK();
 }
 
+bool PipelineXLocalStateBase::is_blockable() const {
+    return std::any_of(
+            _projections.begin(), _projections.end(),
+            [&](vectorized::VExprContextSPtr expr) -> bool { return expr->is_blockable(); });
+}
+
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
                                      vectorized::Block* output_block) const {
     auto* local_state = state->get_local_state(operator_id());

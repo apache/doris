@@ -73,6 +73,8 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
@@ -122,6 +124,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -589,28 +592,24 @@ public class MetadataGenerator {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(0)))); // id
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1))); // name
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(2)))); // cpu_share
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3))); // mem_limit
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4))); // mem overcommit
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(5)))); // write_buffer_ratio
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(6))); // slot_memory_policy
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // max concurrent
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(8)))); // max queue size
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // queue timeout
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(10))); // cpu hard limit
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(11)))); // scan thread num
+            trow.addToColumnValue(new TCell().setStringVal((rGroupsInfo.get(2)))); // min_cpu_percent
+            trow.addToColumnValue(new TCell().setStringVal((rGroupsInfo.get(3)))); // max_cpu_percent
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4))); // min_memory_percent
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(5))); // max_memory_percent
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(6)))); // max concurrent
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // max queue size
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(8)))); // queue timeout
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // scan thread num
             // max remote scan thread num
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(12))));
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(10))));
             // min remote scan thread num
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(13))));
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // spill low watermark
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(15))); // spill high watermark
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // compute group
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(17)))); // read bytes per second
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(11))));
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(12))); // spill low watermark
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(13))); // spill high watermark
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // compute group
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(15)))); // read bytes per second
             trow.addToColumnValue(
-                    new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(18)))); // remote read bytes per second
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(19))); // running query num
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(20))); // waiting query num
+                    new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(16)))); // remote read bytes per second
             dataBatch.add(trow);
         }
 
@@ -623,22 +622,38 @@ public class MetadataGenerator {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> viewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_SCHEMA");
+        List<Expression> viewTypeConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_TYPE");
+        List<Expression> viewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_NAME");
         Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         for (DatabaseIf<? extends TableIf> db : allDbs) {
-            List<? extends TableIf> tables = db.getTables();
             String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(viewSchemaConjuncts, "VIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
             for (TableIf table : tables) {
+                if (FrontendConjunctsUtils.isFiltered(viewTypeConjuncts, "VIEW_TYPE", table.getType().name())) {
+                    continue;
+                }
                 if (table instanceof MTMV) {
                     String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                        continue;
+                    }
                     MTMVRelation relation = ((MTMV) table).getRelation();
                     Set<BaseTableInfo> tablesOneLevel = relation.getBaseTablesOneLevel();
                     for (BaseTableInfo info : tablesOneLevel) {
                         TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal("internal"));
+                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
                         trow.addToColumnValue(new TCell().setStringVal(dbName));
                         trow.addToColumnValue(new TCell().setStringVal(tableName));
                         trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
@@ -650,6 +665,9 @@ public class MetadataGenerator {
                     }
                 } else if (table instanceof View) {
                     String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                        continue;
+                    }
                     String inlineViewDef = ((View) table).getInlineViewDef();
                     Map<List<String>, TableIf> tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
                     for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
