@@ -47,4 +47,24 @@ suite("array_function") {
                 ["""[[["2"]], [["aa"], ["2.0", "1.0"]]]"""]
         ])
     }
+
+    multi_sql """
+    drop table if exists lambda_test_table;
+    CREATE TABLE `lambda_test_table` (   
+        `id` varchar(255) NOT NULL COMMENT '环境标识', 
+        `redirect_links` variant NULL COMMENT '所有跳转链接，JSON格式存储'
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`id`) BUCKETS 10
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "in_memory" = "false",
+    "storage_format" = "V2"
+    );
+    """
+    test {
+        sql """SELECT  redirect_links -> CONCAT('x', JSON_LENGTH(redirect_links) - 1, 'x') AS last_element from lambda_test_table"""
+        exception "Syntax error"
+    }
 }

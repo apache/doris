@@ -1379,6 +1379,10 @@ namedExpressionSeq
 
 expression
     : booleanExpression
+    ;
+
+funcExpression
+    : expression
     | lambdaExpression
     ;
 
@@ -1520,7 +1524,7 @@ functionCallExpression
     : functionIdentifier
               LEFT_PAREN (
                   (DISTINCT|ALL)?
-                  arguments+=expression (COMMA arguments+=expression)*
+                  arguments+=funcExpression (COMMA arguments+=funcExpression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
             (OVER windowSpec)?
