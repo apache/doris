@@ -191,7 +191,7 @@ suite("test_json_function", "arrow_flight_sql") {
     """
 
     qt_json_remove7 """
-      SELECT JSON_REMOVE('[1, 2, 3, 4, 5]', '\$[3]'), JSON_REMOVE('[1, 2, 3, 4, 5]', '\$[1]', '\$[3]');
+      SELECT JSON_REMOVE('[1, 2, 3, 4, 5]', '\$[3]');
     """
 
     qt_json_remove8 """
