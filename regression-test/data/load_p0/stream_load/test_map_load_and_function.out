@@ -1104,6 +1104,12 @@ true
 -- !select_map_contains_entry14 --
 true
 
+-- !select_map_contains_entry15 --
+true
+
+-- !select_map_contains_entry16 --
+\N
+
 -- !select_map_contains_entry101 --
 1	\N	\N
 2	{"  11amory  ":23, "beat":20, " clever ":66}	false
@@ -1543,6 +1549,12 @@ false
 
 -- !select_map_entries6 --
 [{"key":"k1", "value":null}]
+
+-- !select_map_entries7 --
+[{"key":null, "value":null}]
+
+-- !select_map_entries8 --
+\N
 
 -- !select_map_entries_table1 --
 1	\N	\N

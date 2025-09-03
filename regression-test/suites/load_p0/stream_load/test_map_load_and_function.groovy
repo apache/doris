@@ -185,6 +185,8 @@ suite("test_map_load_and_function", "p0") {
     qt_select_map_contains_entry12 "SELECT map_contains_entry(map('k1', 100), '', 100)"
     qt_select_map_contains_entry13 "SELECT map_contains_entry(map(NULL, 100), NULL, 100)"
     qt_select_map_contains_entry14 "SELECT map_contains_entry(map('k1', NULL), 'k1', NULL)"
+    qt_select_map_contains_entry15 "SELECT map_contains_entry(map(NULL, NULL), NULL, NULL)"
+    qt_select_map_contains_entry16 "SELECT map_contains_entry(NULL, NULL, NULL)"
 
     // map_contains_entry: tests with actual data from first table
     qt_select_map_contains_entry101 "SELECT id, m, map_contains_entry(m, 'k1', 23) FROM ${testTable} ORDER BY id"
@@ -298,6 +300,8 @@ suite("test_map_load_and_function", "p0") {
     qt_select_map_entries4 "SELECT map_entries(map('', 0))"
     qt_select_map_entries5 "SELECT map_entries(map(NULL, 100))"
     qt_select_map_entries6 "SELECT map_entries(map('k1', NULL))"
+    qt_select_map_entries7 "SELECT map_entries(map(NULL, NULL))"
+    qt_select_map_entries8 "SELECT map_entries(NULL)"
 
     // map_entries: tests with actual data from first table
     qt_select_map_entries_table1 "SELECT id, m, map_entries(m) FROM ${testTable} ORDER BY id"
