@@ -101,8 +101,6 @@ private:
     std::deque<std::unique_ptr<Block>> _data_queue;
     bool _opened = false;
     std::shared_ptr<std::promise<Status>> _promise = nullptr;
-    std::future<Status>* _future;
-    std::future<Status> _placeholder;
     std::atomic_bool _closed = false;
     std::atomic_bool _thread_submitted = false;
     std::atomic<int> _thread_quit_point = 0;

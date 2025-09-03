@@ -38,9 +38,7 @@ AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs&
                                      std::shared_ptr<pipeline::Dependency> dep,
                                      std::shared_ptr<pipeline::Dependency> fin_dep)
         : _vec_output_expr_ctxs(output_expr_ctxs), _dependency(dep), _finish_dependency(fin_dep) {
-    _future = &_placeholder;
     _promise = std::make_shared<std::promise<Status>>();
-    *_future = _promise->get_future();
     _promise->set_value(Status::OK());
 }
 
@@ -77,7 +75,6 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
     if (!_thread_submitted) {
         // Need to start a new thread
         _promise = std::make_shared<std::promise<Status>>();
-        *_future = _promise->get_future();
         DCHECK(_operator_profile);
         _thread_submitted = true;
         _thread_quit_point = 0;
@@ -124,12 +121,12 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
 
 Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* operator_profile) {
     if (!_opened) {
+        _opened = true;
         auto st = open(state, operator_profile);
         if (!st.ok()) {
             force_close(st);
-            return st;
+            _set_ready_to_finish();
         }
-        _opened = true;
     }
     if (state && state->get_query_ctx() && state->get_query_ctx()->workload_group()) {
         if (auto cg_ctl_sptr =
@@ -185,9 +182,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
         if (!status.ok()) [[unlikely]] {
             std::lock_guard l(_m);
             _writer_status.update(status);
-            if (_is_finished()) {
-                _dependency->set_ready();
-            }
+            _dependency->set_ready();
             break;
         }
 
@@ -256,8 +251,6 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
 
 void AsyncResultWriter::force_close(Status s) {
     // If task is failed or wake up early, `close` will be not called.
-    // TODO(gabriel): This is a light blocking operation. However, this should be removed in future.
-    _future->wait();
     if (!_closed) {
         WARN_IF_ERROR(close(s), "");
         _closed = true;
