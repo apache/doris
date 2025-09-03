@@ -6803,7 +6803,28 @@ public class Env {
         if (expectedVersions == null || expectedVersions.isEmpty()) {
             return; // Skip validation if no expected versions specified
         }
-
+        // Check for concurrent transactions on the table when expected versions are specified
+        try {
+            // Get running transaction info for the database
+            Map<Long, List<Long>> dbRunningTransInfo = getCurrentGlobalTransactionMgr()
+                    .getDbRunningTransInfo(olapTable.getDatabase().getId());
+            // Check if there are any running transactions on this table
+            boolean hasRunningTxn = false;
+            for (Map.Entry<Long, List<Long>> entry : dbRunningTransInfo.entrySet()) {
+                List<Long> tableIds = entry.getValue();
+                if (tableIds != null && tableIds.contains(olapTable.getId())) {
+                    hasRunningTxn = true;
+                    break;
+                }
+            }
+            if (hasRunningTxn) {
+                throw new DdlException("Cannot replace partition with expected versions when there are "
+                        + "concurrent transactions running on table [" + olapTable.getName() + "]. "
+                        + "Please wait for transactions to complete and retry.");
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException("Failed to check concurrent transactions: " + e.getMessage(), e);
+        }
         for (Map.Entry<String, Long> entry : expectedVersions.entrySet()) {
             String partitionName = entry.getKey();
             long expectedVersion = entry.getValue();

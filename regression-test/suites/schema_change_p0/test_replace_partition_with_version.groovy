@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_replace_partition_with_version", "p0") {
+    def dbName = context.config.getDbNameByFile(context.file)
+    sql "USE ${dbName}"
     def tbName = "test_replace_partition_version_tbl"
     def dropSql = "DROP TABLE IF EXISTS ${tbName}"
     
@@ -212,5 +214,92 @@ suite("test_replace_partition_with_version", "p0") {
     assertEquals('Bob', result[1][1])
     
     // Clean up
+    sql dropSql
+    
+    // Test 7: Concurrent transaction scenario - REPLACE PARTITION should fail when there's an active transaction
+    sql dropSql
+    sql initTable
+    
+    // Insert test data
+    sql "INSERT INTO ${tbName} VALUES (1, 'Alice', '2024-06-01'), (2, 'Bob', '2024-06-02')"
+    
+    // Get current partition versions
+    partitionInfo = sql_return_maparray "SHOW PARTITIONS FROM ${tbName}"
+    p20240601Version = null
+    p20240602Version = null
+    for (def partition : partitionInfo) {
+        if (partition.PartitionName == 'p20240601') {
+            p20240601Version = partition.VisibleVersion as long
+        } else if (partition.PartitionName == 'p20240602') {
+            p20240602Version = partition.VisibleVersion as long
+        }
+    }
+    
+    assertNotNull(p20240601Version, "Partition p20240601 version should not be null")
+    assertNotNull(p20240602Version, "Partition p20240602 version should not be null")
+    
+    // Create temporary partitions
+    sql "ALTER TABLE ${tbName} ADD TEMPORARY PARTITION tp20240601_concurrent VALUES [(\"2024-06-01\"), (\"2024-06-02\")) DISTRIBUTED BY HASH(`id`) BUCKETS 4"
+    sql "ALTER TABLE ${tbName} ADD TEMPORARY PARTITION tp20240602_concurrent VALUES [(\"2024-06-02\"), (\"2024-06-03\")) DISTRIBUTED BY HASH(`id`) BUCKETS 4"
+    
+    // Insert data into temporary partitions
+    sql "INSERT INTO ${tbName} TEMPORARY PARTITION(tp20240601_concurrent) VALUES (3001, 'Alice Concurrent', '2024-06-01')"
+    sql "INSERT INTO ${tbName} TEMPORARY PARTITION(tp20240602_concurrent) VALUES (3002, 'Bob Concurrent', '2024-06-02')"
+    
+    // Start a transaction in a separate connection that modifies the target partition
+    def replaceFailed = false
+    
+    // Connection 1: Start transaction and modify data
+    connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+        sql "USE ${dbName}"
+        sql "BEGIN"
+        sql "INSERT INTO ${tbName} VALUES (4001, 'Transaction Data', '2024-06-01')"
+        
+        // Connection 2: Try to replace partition while transaction is active (should fail)
+        // Note: The exact error message may vary depending on Doris implementation
+        // Common scenarios: version mismatch, transaction conflict, or partition locked
+        connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+            sql "USE ${dbName}"
+            
+            try {
+                sql "ALTER TABLE ${tbName} REPLACE PARTITION (p20240601, p20240602) WITH TEMPORARY PARTITION(tp20240601_concurrent, tp20240602_concurrent) PROPERTIES(\"expected_versions\" = \"p20240601:${p20240601Version}, p20240602:${p20240602Version}\")"
+            } catch (Exception e) {
+                replaceFailed = true
+                logger.info("REPLACE PARTITION failed as expected with error: ${e.getMessage()}")
+            }
+        }
+        
+        // Commit the transaction in connection 1
+        sql "COMMIT"
+    }
+    
+    // Verify that REPLACE PARTITION failed
+    assertTrue(replaceFailed, "REPLACE PARTITION should fail when there's a concurrent transaction")
+    
+
+    
+    // Verify original data is unchanged (transaction data should be committed)
+    result = sql "SELECT * FROM ${tbName} WHERE date_col = '2024-06-01' ORDER BY id"
+    assertEquals(2, result.size()) // Original Alice + Transaction Data
+    
+    // Check that Alice record exists (original data)
+    def aliceRecord = result.find { it[0] == 1 }
+    assertNotNull(aliceRecord, "Alice record should exist")
+    assertEquals('Alice', aliceRecord[1])
+    
+    // Check that transaction data was inserted
+    def transactionRecord = result.find { it[0] == 4001 }
+    assertNotNull(transactionRecord, "Transaction data should exist")
+    assertEquals('Transaction Data', transactionRecord[1])
+    
+    // Verify that temporary partition data was NOT applied (since REPLACE failed)
+    def concurrentRecord = result.find { it[0] == 3001 }
+    assertNull(concurrentRecord, "Concurrent data should not exist in main partition")
+    
+    // Clean up temporary partitions
+    sql "ALTER TABLE ${tbName} DROP TEMPORARY PARTITION tp20240601_concurrent"
+    sql "ALTER TABLE ${tbName} DROP TEMPORARY PARTITION tp20240602_concurrent"
+    
+    // Final cleanup
     sql dropSql
 }
