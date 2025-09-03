@@ -16,6 +16,10 @@
 // under the License.
 
 suite("build_ann_index_test") {
+    if (isCloudMode()) {
+        return // TODO enable this case after enable light index in cloud mode
+    }
+
     // prepare test table
     def timeout = 30000
     def delta_time = 1000
