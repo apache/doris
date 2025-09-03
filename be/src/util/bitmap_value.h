@@ -2129,7 +2129,7 @@ public:
      * Return new set with specified range (not include the range_end)
      */
     int64_t sub_range(const int64_t& range_start, const int64_t& range_end,
-                      BitmapValue* ret_bitmap) {
+                      BitmapValue* ret_bitmap) const {
         switch (_type) {
         case EMPTY:
             return 0;
@@ -2181,7 +2181,7 @@ public:
      * @return the real count for subset, maybe less than cardinality_limit
      */
     int64_t sub_limit(const int64_t& range_start, const int64_t& cardinality_limit,
-                      BitmapValue* ret_bitmap) {
+                      BitmapValue* ret_bitmap) const {
         switch (_type) {
         case EMPTY:
             return 0;
@@ -2236,7 +2236,8 @@ public:
      * The number of returned elements is limited by the cardinality_limit parameter.
      * Analog of the substring string function, but for bitmap.
      */
-    int64_t offset_limit(const int64_t& offset, const int64_t& limit, BitmapValue* ret_bitmap) {
+    int64_t offset_limit(const int64_t& offset, const int64_t& limit,
+                         BitmapValue* ret_bitmap) const {
         switch (_type) {
         case EMPTY:
             return 0;

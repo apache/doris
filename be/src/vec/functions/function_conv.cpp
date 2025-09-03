@@ -80,35 +80,25 @@ public:
         bool col_const[3];
         ColumnPtr argument_columns[3];
         for (int i = 0; i < 3; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
 
-        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
-
-        if (col_const[1] && col_const[2]) {
-            execute_scalar_args(
-                    context,
-                    assert_cast<const typename Impl::DataType::ColumnType*>(
-                            argument_columns[0].get()),
-                    assert_cast<const ColumnInt8*>(argument_columns[1].get())->get_element(0),
-                    assert_cast<const ColumnInt8*>(argument_columns[2].get())->get_element(0),
-                    assert_cast<ColumnString*>(result_column.get()),
-                    assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                    input_rows_count);
-        } else {
-            execute_straight(context,
-                             assert_cast<const typename Impl::DataType::ColumnType*>(
-                                     argument_columns[0].get()),
-                             assert_cast<const ColumnInt8*>(argument_columns[1].get()),
-                             assert_cast<const ColumnInt8*>(argument_columns[2].get()),
-                             assert_cast<ColumnString*>(result_column.get()),
-                             assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                             input_rows_count);
-        }
+        std::visit(
+                [&](auto data_const, auto src_base_const, auto dst_base_const) {
+                    _execute<data_const, src_base_const, dst_base_const>(
+                            context,
+                            assert_cast<const typename Impl::DataType::ColumnType*>(
+                                    argument_columns[0].get()),
+                            assert_cast<const ColumnInt8*>(argument_columns[1].get()),
+                            assert_cast<const ColumnInt8*>(argument_columns[2].get()),
+                            assert_cast<ColumnString*>(result_column.get()),
+                            assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                            input_rows_count);
+                },
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]),
+                vectorized::make_bool_variant(col_const[2]));
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));
@@ -123,44 +113,30 @@ private:
                std::abs(dst_base) < MathFunctions::MIN_BASE ||
                std::abs(dst_base) > MathFunctions::MAX_BASE;
     }
-    static void execute_straight(FunctionContext* context,
-                                 const typename Impl::DataType::ColumnType* data_column,
-                                 const ColumnInt8* src_base_column,
-                                 const ColumnInt8* dst_base_column, ColumnString* result_column,
-                                 NullMap& result_null_map, size_t input_rows_count) {
+
+    template <bool data_const, bool src_base_const, bool dst_base_const>
+    static void _execute(FunctionContext* context,
+                         const typename Impl::DataType::ColumnType* data_column,
+                         const ColumnInt8* src_base_column, const ColumnInt8* dst_base_column,
+                         ColumnString* result_column, NullMap& result_null_map,
+                         size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
-            if (result_null_map[i]) {
-                result_column->insert_default();
-                continue;
-            }
-            Int8 src_base = src_base_column->get_element(i);
-            Int8 dst_base = dst_base_column->get_element(i);
+            Int8 src_base = src_base_column->get_element(index_check_const<src_base_const>(i));
+            Int8 dst_base = dst_base_column->get_element(index_check_const<dst_base_const>(i));
             if (_check_oob(src_base, dst_base)) {
                 result_null_map[i] = true;
                 result_column->insert_default();
             } else {
-                Impl::calculate_cell(context, data_column, src_base, dst_base, result_column,
-                                     result_null_map, i);
+                if constexpr (std::is_same_v<typename Impl::DataType, DataTypeString>) {
+                    StringRef str = data_column->get_data_at(index_check_const<data_const>(i));
+                    Impl::calculate_cell(context, str, src_base, dst_base, result_column,
+                                         result_null_map, i);
+                } else {
+                    Int64 num = data_column->get_element(index_check_const<data_const>(i));
+                    Impl::calculate_cell(context, num, src_base, dst_base, result_column,
+                                         result_null_map, i);
+                }
             }
-        }
-    }
-    static void execute_scalar_args(FunctionContext* context,
-                                    const typename Impl::DataType::ColumnType* data_column,
-                                    const Int8 src_base, const Int8 dst_base,
-                                    ColumnString* result_column, NullMap& result_null_map,
-                                    size_t input_rows_count) {
-        if (_check_oob(src_base, dst_base)) {
-            result_null_map.assign(input_rows_count, UInt8 {true});
-            result_column->insert_many_defaults(input_rows_count);
-            return;
-        }
-        for (size_t i = 0; i < input_rows_count; i++) {
-            if (result_null_map[i]) {
-                result_column->insert_default();
-                continue;
-            }
-            Impl::calculate_cell(context, data_column, src_base, dst_base, result_column,
-                                 result_null_map, i);
         }
     }
 };
@@ -168,11 +144,9 @@ private:
 struct ConvInt64Impl {
     using DataType = DataTypeInt64;
 
-    static void calculate_cell(FunctionContext* context, const DataType::ColumnType* data_column,
-                               const Int8 src_base, const Int8 dst_base,
-                               ColumnString* result_column, NullMap& result_null_map,
-                               size_t index) {
-        Int64 num = data_column->get_element(index);
+    static void calculate_cell(FunctionContext* context, const Int64& num, const Int8 src_base,
+                               const Int8 dst_base, ColumnString* result_column,
+                               NullMap& result_null_map, size_t index) {
         if (src_base < 0 && num >= 0) {
             result_null_map[index] = true;
             result_column->insert_default();
@@ -187,18 +161,16 @@ struct ConvInt64Impl {
             }
         }
         StringRef str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-        result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
+        result_column->insert_data(str.data, str.size);
     }
 };
 
 struct ConvStringImpl {
     using DataType = DataTypeString;
 
-    static void calculate_cell(FunctionContext* context, const DataType::ColumnType* data_column,
-                               const Int8 src_base, const Int8 dst_base,
-                               ColumnString* result_column, NullMap& result_null_map,
-                               size_t index) {
-        StringRef str = data_column->get_data_at(index);
+    static void calculate_cell(FunctionContext* context, const StringRef& str, const Int8 src_base,
+                               const Int8 dst_base, ColumnString* result_column,
+                               NullMap& result_null_map, size_t index) {
         auto new_size = str.size;
         // eg: select conv('1.464868',10,2); the result should be return 1.
         // But StringParser::string_to_int will PARSE_FAILURE and return 0,
@@ -223,7 +195,7 @@ struct ConvStringImpl {
             result_column->insert_data("0", 1);
         } else {
             StringRef str_base = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-            result_column->insert_data(reinterpret_cast<const char*>(str_base.data), str_base.size);
+            result_column->insert_data(str_base.data, str_base.size);
         }
     }
 };

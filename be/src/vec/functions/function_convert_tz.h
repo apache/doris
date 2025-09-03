@@ -156,15 +156,9 @@ public:
         bool col_const[3];
         ColumnPtr argument_columns[3];
         for (int i = 0; i < 3; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
-
-        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
-
         if (convert_tz_state->use_state) {
             auto result_column = ColumnType::create();
             execute_tz_const_with_state(
@@ -174,24 +168,22 @@ public:
                     input_rows_count);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
-        } else if (col_const[1] && col_const[2]) {
-            auto result_column = ColumnType::create();
-            execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
-                             assert_cast<const ColumnString*>(argument_columns[1].get()),
-                             assert_cast<const ColumnString*>(argument_columns[2].get()),
-                             assert_cast<ReturnColumnType*>(result_column.get()),
-                             assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                             input_rows_count);
-            block.get_by_position(result).column = ColumnNullable::create(
-                    std::move(result_column), std::move(result_null_map_column));
         } else {
             auto result_column = ColumnType::create();
-            _execute(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
-                     assert_cast<const ColumnString*>(argument_columns[1].get()),
-                     assert_cast<const ColumnString*>(argument_columns[2].get()),
-                     assert_cast<ReturnColumnType*>(result_column.get()),
-                     assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                     input_rows_count);
+            std::visit(
+                    [&](auto data_const, auto from_tz_const, auto to_tz_const) {
+                        _execute<data_const, from_tz_const, to_tz_const>(
+                                context, assert_cast<const ColumnType*>(argument_columns[0].get()),
+                                assert_cast<const ColumnString*>(argument_columns[1].get()),
+                                assert_cast<const ColumnString*>(argument_columns[2].get()),
+                                assert_cast<ReturnColumnType*>(result_column.get()),
+                                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                                input_rows_count);
+                    },
+                    vectorized::make_bool_variant(col_const[0]),
+                    vectorized::make_bool_variant(col_const[1]),
+                    vectorized::make_bool_variant(col_const[2]));
+
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         } //if const
@@ -199,6 +191,7 @@ public:
     }
 
 private:
+    template <bool data_const, bool from_tz_const, bool to_tz_const>
     static void _execute(FunctionContext* context, const ColumnType* date_column,
                          const ColumnString* from_tz_column, const ColumnString* to_tz_column,
                          ReturnColumnType* result_column, NullMap& result_null_map,
@@ -208,9 +201,12 @@ private:
                 result_column->insert_default();
                 continue;
             }
-            auto from_tz = from_tz_column->get_data_at(i).to_string();
-            auto to_tz = to_tz_column->get_data_at(i).to_string();
-            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
+            auto from_tz =
+                    from_tz_column->get_data_at(index_check_const<from_tz_const>(i)).to_string();
+            auto to_tz = to_tz_column->get_data_at(index_check_const<to_tz_const>(i)).to_string();
+            DateValueType ts_value = binary_cast<NativeType, DateValueType>(
+                    date_column->get_element(index_check_const<data_const>(i)));
+            execute_inner_loop(ts_value, from_tz, to_tz, result_column, result_null_map, i);
         }
     }
 
@@ -278,26 +274,9 @@ private:
         }
     }
 
-    static void execute_tz_const(FunctionContext* context, const ColumnType* date_column,
-                                 const ColumnString* from_tz_column,
-                                 const ColumnString* to_tz_column, ReturnColumnType* result_column,
-                                 NullMap& result_null_map, size_t input_rows_count) {
-        auto from_tz = from_tz_column->get_data_at(0).to_string();
-        auto to_tz = to_tz_column->get_data_at(0).to_string();
-        for (size_t i = 0; i < input_rows_count; i++) {
-            if (result_null_map[i]) {
-                result_column->insert_default();
-                continue;
-            }
-            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
-        }
-    }
-
-    static void execute_inner_loop(const ColumnType* date_column, const std::string& from_tz_name,
+    static void execute_inner_loop(const DateValueType& ts_value, const std::string& from_tz_name,
                                    const std::string& to_tz_name, ReturnColumnType* result_column,
                                    NullMap& result_null_map, const size_t index_now) {
-        DateValueType ts_value =
-                binary_cast<NativeType, DateValueType>(date_column->get_element(index_now));
         cctz::time_zone from_tz {}, to_tz {};
         ReturnDateValueType ts_value2;
 
