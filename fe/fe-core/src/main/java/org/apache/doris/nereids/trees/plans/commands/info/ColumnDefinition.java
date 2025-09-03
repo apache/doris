@@ -65,6 +65,8 @@ public class ColumnDefinition {
     private boolean aggTypeImplicit = false;
     private long autoIncInitValue = -1;
     private int clusterKeyId = -1;
+    // if add hidden column, must set enableAddHiddenColumn true
+    private boolean enableAddHiddenColumn = false;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment) {
@@ -131,6 +133,10 @@ public class ColumnDefinition {
         return aggType;
     }
 
+    public void setEnableAddHiddenColumn(boolean enableAddHiddenColumn) {
+        this.enableAddHiddenColumn = enableAddHiddenColumn;
+    }
+
     public void setAggType(AggregateType aggType) {
         this.aggType = aggType;
     }
@@ -180,7 +186,13 @@ public class ColumnDefinition {
      */
     public void validate(boolean isOlap, Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
         try {
-            FeNameFormat.checkColumnName(name);
+            // if enableAddHiddenColumn is true, can add hidden column.
+            // So does not check if the column name starts with __DORIS_
+            if (enableAddHiddenColumn) {
+                FeNameFormat.checkColumnNameBypassHiddenColumn(name);
+            } else {
+                FeNameFormat.checkColumnName(name);
+            }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -639,35 +651,79 @@ public class ColumnDefinition {
         return column;
     }
 
-    // hidden column
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newDeleteSignColumnDefinition() {
-        return new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, null, false,
-                Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris delete flag hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, null,
+                false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
+                "doris delete flag hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newDeleteSignColumnDefinition(AggregateType aggregateType) {
-        return new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false, aggregateType, false,
-                Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris delete flag hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.DELETE_SIGN, TinyIntType.INSTANCE, false,
+                        aggregateType, false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
+                "doris delete flag hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newSequenceColumnDefinition(DataType type) {
-        return new ColumnDefinition(Column.SEQUENCE_COL, type, false, null, true,
-                Optional.empty(), "sequence column hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.SEQUENCE_COL, type, false, null,
+                true, Optional.empty(),
+                "sequence column hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newSequenceColumnDefinition(DataType type, AggregateType aggregateType) {
-        return new ColumnDefinition(Column.SEQUENCE_COL, type, false, aggregateType, true,
-                Optional.empty(), "sequence column hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.SEQUENCE_COL, type, false, aggregateType,
+                true, Optional.empty(),
+                "sequence column hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newRowStoreColumnDefinition(AggregateType aggregateType) {
-        return new ColumnDefinition(Column.ROW_STORE_COL, StringType.INSTANCE, false, aggregateType, false,
-                Optional.of(new DefaultValue("")), "doris row store hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.ROW_STORE_COL, StringType.INSTANCE, false,
+                        aggregateType, false, Optional.of(new DefaultValue("")),
+                "doris row store hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newVersionColumnDefinition(AggregateType aggregateType) {
-        return new ColumnDefinition(Column.VERSION_COL, BigIntType.INSTANCE, false, aggregateType, false,
-                Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)), "doris version hidden column", false);
+        ColumnDefinition columnDefinition = new ColumnDefinition(Column.VERSION_COL, BigIntType.INSTANCE, false,
+                    aggregateType, false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),
+                "doris version hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
     }
 
+    public long getAutoIncInitValue() {
+        return autoIncInitValue;
+    }
 }
