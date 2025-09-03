@@ -3129,7 +3129,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             long metaSize = snapshot.getMetaSize();
             long jobInfoSize = snapshot.getJobInfoSize();
             long snapshotSize = snapshot.getMetaSize() + snapshot.getJobInfoSize();
-            if (metaSize + jobInfoSize >= Integer.MAX_VALUE) {
+            if (metaSize + jobInfoSize >= Integer.MAX_VALUE && !request.isEnableCompress()) {
                 String msg = String.format(
                         "Snapshot %s is too large (%d bytes > 2GB). Please enable compression to continue.",
                         label, snapshotSize);
