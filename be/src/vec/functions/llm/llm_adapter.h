@@ -57,8 +57,8 @@ struct LLMResource {
     std::string api_key;
     double temperature;
     int64_t max_tokens;
-    int64_t max_retries;
-    int64_t retry_delay_second;
+    int32_t max_retries;
+    int32_t retry_delay_second;
     std::string anthropic_version;
     int32_t dimensions;
 
