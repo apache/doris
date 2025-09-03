@@ -460,6 +460,8 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "partition column is in join invalid side, but is not in join condition"));
                             Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
 
