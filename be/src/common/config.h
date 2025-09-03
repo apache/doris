@@ -1628,6 +1628,8 @@ DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 // p0, daily, rqg, external
 DECLARE_String(fuzzy_test_type);
 
+DECLARE_mBool(enable_csv_reader_fuzzy_test);
+
 // The maximum number of threads supported when executing LLMFunction
 DECLARE_mInt32(llm_max_concurrent_requests);
 

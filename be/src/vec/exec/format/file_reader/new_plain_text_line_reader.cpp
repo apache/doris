@@ -19,6 +19,10 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
+
+#include <cstdlib>
+
+#include "common/config.h"
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif
@@ -47,25 +51,36 @@ namespace doris {
 const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, const size_t length) {
     _total_len = length;
     size_t bound = update_reading_bound(start);
+    size_t len = bound;
+    if (config::enable_csv_reader_fuzzy_test) [[unlikely]] {
+        len = 1;
+    }
 
     while (_idx != bound) {
         switch (_state.curr_state) {
         case ReaderState::START: {
-            _on_start(start, bound);
+            _on_start(start, len);
             break;
         }
         case ReaderState::NORMAL: {
-            _on_normal(start, bound);
+            _on_normal(start, len);
             break;
         }
         case ReaderState::PRE_MATCH_ENCLOSE: {
-            _on_pre_match_enclose(start, bound);
+            _on_pre_match_enclose(start, len);
             break;
         }
         case ReaderState::MATCH_ENCLOSE: {
-            _on_match_enclose(start, bound);
+            _on_match_enclose(start, len);
             break;
         }
+        }
+        if (config::enable_csv_reader_fuzzy_test) [[unlikely]] {
+            len = _idx + 1;
+            if (_state.curr_state == ReaderState::NORMAL ||
+                _state.curr_state == ReaderState::MATCH_ENCLOSE) {
+                _idx -= std::min(_column_sep_len - 1, _idx);
+            }
         }
     }
 
