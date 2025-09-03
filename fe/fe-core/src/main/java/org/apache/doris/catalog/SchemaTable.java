@@ -693,6 +693,21 @@ public class SchemaTable extends Table {
                             .column("CTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                             .column("MTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                             .build()))
+            .put("sql_block_rule_status",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "sql_block_rule_status", TableType.SCHEMA,
+                            builder().column("NAME", ScalarType.createStringType())
+                                    .column("PATTERN", ScalarType.createStringType())
+                                    .column("SQL_HASH", ScalarType.createStringType())
+                                    .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLET_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CARDINALITY", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("GLOBAL", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("ENABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("BLOCKS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("AVERAGE_DURATION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("LONGEST_DURATION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("P99_DURATIONS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
             .build();
 
     private boolean fetchAllFe = false;

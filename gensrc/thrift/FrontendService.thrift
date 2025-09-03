@@ -825,6 +825,7 @@ enum TSchemaTableName {
   CATALOG_META_CACHE_STATS = 9,
   PARTITIONS = 10,
   VIEW_DEPENDENCY = 11,
+  SQL_BLOCK_RULE_STATUS = 12,
 }
 
 struct TMetadataTableRequestParams {
