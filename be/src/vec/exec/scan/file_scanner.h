@@ -149,7 +149,7 @@ protected:
     // dest slot desc index to src slot desc index
     std::unordered_map<int, int> _dest_slot_to_src_slot_index;
 
-    std::unordered_map<std::string, size_t> _src_block_name_to_idx;
+    std::unordered_map<std::string, uint32_t> _src_block_name_to_idx;
 
     // Get from GenericReader, save the existing columns in file to their type.
     std::unordered_map<std::string, DataTypePtr> _slot_lower_name_to_col_type;

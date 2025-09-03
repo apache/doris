@@ -46,6 +46,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 const char* JDBC_EXECUTOR_FACTORY_CLASS = "org/apache/doris/jdbc/JdbcExecutorFactory";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
@@ -334,7 +335,7 @@ Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& out
                                  hashmap_object);
     env->DeleteGlobalRef(hashmap_object);
     RETURN_ERROR_IF_EXC(env);
-    *num_rows_sent = block->rows();
+    *num_rows_sent = static_cast<uint32_t>(block->rows());
     return Status::OK();
 }
 
@@ -479,11 +480,14 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
         RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
         if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_HLL) {
-            RETURN_IF_ERROR(_cast_string_to_hll(slot_desc, block, column_index, num_rows));
+            RETURN_IF_ERROR(_cast_string_to_hll(slot_desc, block, static_cast<int>(column_index),
+                                                static_cast<int>(num_rows)));
         } else if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
-            RETURN_IF_ERROR(_cast_string_to_json(slot_desc, block, column_index, num_rows));
+            RETURN_IF_ERROR(_cast_string_to_json(slot_desc, block, static_cast<int>(column_index),
+                                                 static_cast<int>(num_rows)));
         } else if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
-            RETURN_IF_ERROR(_cast_string_to_bitmap(slot_desc, block, column_index, num_rows));
+            RETURN_IF_ERROR(_cast_string_to_bitmap(slot_desc, block, static_cast<int>(column_index),
+                                                   static_cast<int>(num_rows)));
         }
     }
     return Status::OK();
@@ -491,7 +495,8 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
 
 Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block,
                                           int column_index, int rows) {
-    _map_column_idx_to_cast_idx_hll[column_index] = _input_hll_string_types.size();
+    _map_column_idx_to_cast_idx_hll[column_index] =
+            static_cast<int>(_input_hll_string_types.size());
     if (slot_desc->is_nullable()) {
         _input_hll_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
     } else {
@@ -535,7 +540,8 @@ Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block
 
 Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Block* block,
                                              int column_index, int rows) {
-    _map_column_idx_to_cast_idx_bitmap[column_index] = _input_bitmap_string_types.size();
+    _map_column_idx_to_cast_idx_bitmap[column_index] =
+            static_cast<int>(_input_bitmap_string_types.size());
     if (slot_desc->is_nullable()) {
         _input_bitmap_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
     } else {
@@ -580,7 +586,8 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
 // Deprecated, this code is retained only for compatibility with query problems that may be encountered when upgrading the version that maps JSON to JSONB to this version, and will be deleted in subsequent versions.
 Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Block* block,
                                            int column_index, int rows) {
-    _map_column_idx_to_cast_idx_json[column_index] = _input_json_string_types.size();
+    _map_column_idx_to_cast_idx_json[column_index] =
+            static_cast<int>(_input_json_string_types.size());
     if (slot_desc->is_nullable()) {
         _input_json_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
     } else {
@@ -663,5 +670,5 @@ std::string JdbcConnector::_check_and_return_default_driver_url(const std::strin
         return "file://" + config::jdbc_drivers_dir + "/" + url;
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

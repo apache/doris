@@ -43,6 +43,8 @@
 #include "vec/functions/llm/llm_adapter.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 // Base class for LLM-based functions
 template <typename Derived>
 class LLMFunction : public IFunction {
@@ -329,4 +331,5 @@ private:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

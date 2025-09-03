@@ -195,7 +195,7 @@ supportedCreateStatement
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                    #createRowPolicy
     | CREATE STORAGE POLICY (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                              #createStoragePolicy
-    | BUILD INDEX name=identifier ON tableName=multipartIdentifier
+    | BUILD INDEX (name=identifier)? ON tableName=multipartIdentifier
         partitionSpec?                                                          #buildIndex
     | CREATE INDEX (IF NOT EXISTS)? name=identifier
         ON tableName=multipartIdentifier identifierList

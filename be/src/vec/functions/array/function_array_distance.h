@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <faiss/impl/platform_macros.h>
+#include <faiss/utils/distances.h>
 #include <gen_cpp/Types_types.h>
 
 #include "vec/columns/column.h"
@@ -36,53 +38,31 @@ namespace doris::vectorized {
 class L1Distance {
 public:
     static constexpr auto name = "l1_distance";
-    struct State {
-        float sum = 0;
-    };
-    static void accumulate(State& state, float x, float y) { state.sum += fabs(x - y); }
-    static float finalize(const State& state) { return state.sum; }
+    static float distance(const float* x, const float* y, size_t d) {
+        return faiss::fvec_L1(x, y, d);
+    }
 };
 
 class L2Distance {
 public:
     static constexpr auto name = "l2_distance";
-    struct State {
-        float sum = 0;
-    };
-    static void accumulate(State& state, float x, float y) { state.sum += (x - y) * (x - y); }
-    static float finalize(const State& state) { return sqrt(state.sum); }
+    static float distance(const float* x, const float* y, size_t d) {
+        return std::sqrt(faiss::fvec_L2sqr(x, y, d));
+    }
 };
 
 class InnerProduct {
 public:
     static constexpr auto name = "inner_product";
-    struct State {
-        float sum = 0;
-    };
-    static void accumulate(State& state, float x, float y) { state.sum += x * y; }
-    static float finalize(const State& state) { return state.sum; }
+    static float distance(const float* x, const float* y, size_t d) {
+        return faiss::fvec_inner_product(x, y, d);
+    }
 };
 
 class CosineDistance {
 public:
     static constexpr auto name = "cosine_distance";
-    struct State {
-        float dot_prod = 0;
-        float squared_x = 0;
-        float squared_y = 0;
-    };
-    static void accumulate(State& state, float x, float y) {
-        state.dot_prod += x * y;
-        state.squared_x += x * x;
-        state.squared_y += y * y;
-    }
-    static float finalize(const State& state) {
-        // division by zero check
-        if (state.squared_x == 0 || state.squared_y == 0) [[unlikely]] {
-            return 2.0F;
-        }
-        return 1 - state.dot_prod / sqrt(state.squared_x * state.squared_y);
-    }
+    static float distance(const float* x, const float* y, size_t d);
 };
 
 class L2DistanceApproximate : public L2Distance {
@@ -108,7 +88,7 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataType>();
+        return std::make_shared<DataTypeFloat32>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -159,25 +139,9 @@ public:
                         "function {} have different input element sizes of array: {} and {}",
                         get_name(), size1, size2);
             }
-
-            typename DistanceImpl::State st;
-            for (ssize_t pos = offsets1[row - 1]; pos < offsets1[row]; ++pos) {
-                // Calculate corresponding position in the second array
-                ssize_t pos2 = offsets2[row - 1] + (pos - offsets1[row - 1]);
-
-                if ((arr1.nested_nullmap_data && arr1.nested_nullmap_data[pos]) ||
-                    (arr2.nested_nullmap_data && arr2.nested_nullmap_data[pos2])) [[unlikely]] {
-                    return Status::RuntimeError(
-                            "function {} does not support arrays containing null, null found at "
-                            "index {}",
-                            get_name(), pos);
-                }
-
-                DistanceImpl::accumulate(st, nested_col1->get_element(pos),
-                                         nested_col2->get_element(pos2));
-            }
-
-            dst_data[row] = DistanceImpl::finalize(st);
+            dst_data[row] = DistanceImpl::distance(
+                    nested_col1->get_data().data() + offsets1[row - 1],
+                    nested_col2->get_data().data() + offsets1[row - 1], size1);
         }
 
         block.replace_by_position(result, std::move(dst));

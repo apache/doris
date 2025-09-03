@@ -197,8 +197,7 @@ struct ColumnVector<T>::less {
     less(const Self& parent_, int nan_direction_hint_)
             : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
     bool operator()(size_t lhs, size_t rhs) const {
-        return CompareHelper<value_type>::less(parent.data[lhs], parent.data[rhs],
-                                               nan_direction_hint);
+        return Compare::less(parent.data[lhs], parent.data[rhs]);
     }
 };
 
@@ -209,8 +208,7 @@ struct ColumnVector<T>::greater {
     greater(const Self& parent_, int nan_direction_hint_)
             : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
     bool operator()(size_t lhs, size_t rhs) const {
-        return CompareHelper<value_type>::greater(parent.data[lhs], parent.data[rhs],
-                                                  nan_direction_hint);
+        return Compare::greater(parent.data[lhs], parent.data[rhs]);
     }
 };
 

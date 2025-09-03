@@ -39,6 +39,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/compaction.h"
@@ -978,6 +979,82 @@ void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
     // FIXME: could happen in currently unresolved race conditions
     LOG(WARNING) << "Unexpected cumulative point: " << new_point
                  << ", origin: " << _cumulative_point.load();
+}
+
+Status CloudTablet::check_rowset_schema_for_build_index(std::vector<TColumn>& columns,
+                                                        int schema_version) {
+    std::map<std::string, TabletColumn> fe_col_map;
+    for (int i = 0; i < columns.size(); i++) {
+        fe_col_map[columns[i].column_name] = TabletColumn(columns[i]);
+    }
+
+    std::shared_lock rlock(_meta_lock);
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first == 0) {
+            continue;
+        }
+
+        if (rs->tablet_schema()->schema_version() >= schema_version) {
+            continue;
+        }
+
+        for (auto rs_col : rs->tablet_schema()->columns()) {
+            auto find_ret = fe_col_map.find(rs_col->name());
+            if (find_ret == fe_col_map.end()) {
+                return Status::InternalError(
+                        "check rowset meta failed:rowset's col is dropped in FE.");
+            }
+
+            if (rs_col->unique_id() != find_ret->second.unique_id()) {
+                return Status::InternalError("check rowset meta failed:col id not match.");
+            }
+
+            if (rs_col->type() != find_ret->second.type()) {
+                return Status::InternalError("check rowset meta failed:col type not match.");
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(int schema_version,
+                                                                    bool& is_base_rowset) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudTablet::pick_a_rowset_for_index_change",
+                                      Result<RowsetSharedPtr>(nullptr));
+    RowsetSharedPtr ret_rowset = nullptr;
+    std::shared_lock rlock(_meta_lock);
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first == 0) {
+            continue;
+        }
+        if (rs->num_rows() == 0) {
+            VLOG_DEBUG << "[index_change]find empty rs, index change may "
+                          "failed, id="
+                       << rs->rowset_id().to_string();
+        }
+
+        if (rs->tablet_schema()->schema_version() >= schema_version) {
+            VLOG_DEBUG << "[index_change] skip rowset " << rs->tablet_schema()->schema_version()
+                       << "," << schema_version;
+            continue;
+        }
+
+        if (ret_rowset == nullptr) {
+            ret_rowset = rs;
+            continue;
+        }
+
+        if (rs->start_version() > ret_rowset->start_version()) {
+            ret_rowset = rs;
+        }
+    }
+
+    if (ret_rowset != nullptr) {
+        is_base_rowset = ret_rowset->version().first < _cumulative_point;
+    }
+
+    return ret_rowset;
 }
 
 std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction() {

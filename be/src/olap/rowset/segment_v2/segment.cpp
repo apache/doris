@@ -250,9 +250,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             continue;
         }
         if (read_options.col_id_to_predicates.contains(column_id) &&
-            can_apply_predicate_safely(column_id,
-                                       read_options.col_id_to_predicates.at(column_id).get(),
-                                       *schema, read_options.io_ctx.reader_type) &&
+            can_apply_predicate_safely(column_id, *schema,
+                                       read_options.target_cast_type_for_variants,
+                                       read_options.io_ctx.reader_type) &&
             !reader->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
             *iter = std::make_unique<EmptySegmentIterator>(*schema);
@@ -279,8 +279,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             }
             RETURN_IF_ERROR(st);
             DCHECK(reader != nullptr);
-            if (can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
-                                           *schema, read_options.io_ctx.reader_type) &&
+            if (can_apply_predicate_safely(runtime_predicate->column_id(), *schema,
+                                           read_options.target_cast_type_for_variants,
+                                           read_options.io_ctx.reader_type) &&
                 !reader->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
                 *iter = std::make_unique<EmptySegmentIterator>(*schema);
