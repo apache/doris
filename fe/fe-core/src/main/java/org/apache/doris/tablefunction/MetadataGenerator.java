@@ -227,7 +227,8 @@ public class MetadataGenerator {
         VIEW_DEPENDENCY_COLUMN_TO_INDEX = viewDependencyBuilder.build();
 
         ImmutableMap.Builder<String, Integer> sqlBlockRuleStatusBuilder = new ImmutableMap.Builder();
-        List<Column> sqlBlockRuleStatusBuilderColList = SchemaTable.TABLE_MAP.get("sql_block_rule_status").getFullSchema();
+        List<Column> sqlBlockRuleStatusBuilderColList = SchemaTable.TABLE_MAP.get("sql_block_rule_status")
+                .getFullSchema();
         for (int i = 0; i < sqlBlockRuleStatusBuilderColList.size(); i++) {
             sqlBlockRuleStatusBuilder.put(sqlBlockRuleStatusBuilderColList.get(i).getName().toLowerCase(), i);
         }

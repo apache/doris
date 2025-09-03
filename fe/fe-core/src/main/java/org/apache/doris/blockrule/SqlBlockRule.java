@@ -77,7 +77,7 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
 
     private Pattern sqlPattern;
     private Histogram tryBlockHistogram = new Histogram(new SlidingWindowReservoir(1000));
-    private LongCounterMetric blockCount = new LongCounterMetric("blocks", MetricUnit.ROWS,"");
+    private LongCounterMetric blockCount = new LongCounterMetric("blocks", MetricUnit.ROWS, "");
 
     /**
      * Create SqlBlockRule.
