@@ -28,6 +28,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
@@ -52,9 +53,10 @@ class VExprContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 MetaScanner::MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
-                         int64_t tuple_id, const TScanRangeParams& scan_range, int64_t limit,
+                         TupleId tuple_id, const TScanRangeParams& scan_range, int64_t limit,
                          RuntimeProfile* profile, TUserIdentity user_identity)
         : Scanner(state, local_state, limit, profile),
           _meta_eos(false),
@@ -197,7 +199,7 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
                     break;
                 }
                 case TYPE_FLOAT: {
-                    double data = cell.doubleVal;
+                    auto data = static_cast<float>(cell.doubleVal);
                     assert_cast<vectorized::ColumnFloat32*>(col_ptr)->insert_value(data);
                     break;
                 }
@@ -526,4 +528,5 @@ Status MetaScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

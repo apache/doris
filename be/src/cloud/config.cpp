@@ -73,6 +73,14 @@ DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
 
 DEFINE_mInt32(get_delete_bitmap_lock_max_retry_times, "100");
 
+DEFINE_mBool(enable_sync_tablet_delete_bitmap_by_cache, "true");
+DEFINE_mInt32(delete_bitmap_store_write_version, "1");
+DEFINE_mInt32(delete_bitmap_store_read_version, "1");
+DEFINE_mBool(enable_delete_bitmap_store_v2_check_correctness, "false");
+DEFINE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb, "1024"); // TODO change default value
+DEFINE_Int32(sync_delete_bitmap_task_max_thread, "32");
+DEFINE_mBool(enable_agg_delta_delete_bitmap_for_store_v2, "true");
+
 DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
 
 DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
@@ -91,7 +99,9 @@ DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
-DEFINE_mBool(skip_writing_empty_rowset_metadata, "true");
+DEFINE_mBool(skip_writing_empty_rowset_metadata, "false");
+
+DEFINE_mInt64(cloud_index_change_task_timeout_second, "3600");
 
 DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
 

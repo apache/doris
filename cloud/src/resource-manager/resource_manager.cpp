@@ -117,6 +117,9 @@ int ResourceManager::init() {
         for (auto& c : inst.clusters()) {
             add_cluster_to_index_no_lock(inst_id, c);
         }
+        if (inst.has_multi_version_status()) {
+            instance_multi_version_status_[inst_id] = inst.multi_version_status();
+        }
     }
 
     return 0;
@@ -142,12 +145,38 @@ std::string ResourceManager::get_node(const std::string& cloud_unique_id,
 
 bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
                                                  bool check_master_num, bool check_cluster_name) {
-    // check
+    // Check if the cluster has a type
     if (!cluster.has_type()) {
         *err = "cluster must have type arg";
         return false;
     }
 
+    // Validate cluster name
+    if (!validate_cluster_name(cluster, err, check_cluster_name)) {
+        return false;
+    }
+
+    // Validate nodes
+    if (!validate_nodes(cluster, err, check_master_num)) {
+        return false;
+    }
+
+    // Validate virtual cluster specifics
+    if (ClusterPB::VIRTUAL == cluster.type()) {
+        if (!validate_virtual_cluster(cluster, err)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool ResourceManager::validate_cluster_name(const ClusterPB& cluster, std::string* err,
+                                            bool check_cluster_name) {
+    if (check_cluster_name && (!cluster.has_cluster_name() || cluster.cluster_name() == "")) {
+        *err = "not have cluster name";
+        return false;
+    }
     const char* cluster_pattern_str = "^[a-zA-Z][a-zA-Z0-9_]*$";
     std::regex txt_regex(cluster_pattern_str);
     if (config::enable_cluster_name_check && cluster.has_cluster_name() &&
@@ -155,16 +184,16 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
         *err = "cluster name not regex with ^[a-zA-Z][a-zA-Z0-9_]*$, please check it";
         return false;
     }
+    return true;
+}
 
-    if (check_cluster_name && (!cluster.has_cluster_name() || cluster.cluster_name() == "")) {
-        *err = "not have cluster name";
-        return false;
-    }
-
+bool ResourceManager::validate_nodes(const ClusterPB& cluster, std::string* err,
+                                     bool check_master_num) {
     std::stringstream ss;
     bool no_err = true;
     int master_num = 0;
     int follower_num = 0;
+
     for (auto& n : cluster.nodes()) {
         // check here cloud_unique_id
         std::string cloud_unique_id = n.cloud_unique_id();
@@ -187,6 +216,8 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
         } else if (ClusterPB::COMPUTE == cluster.type() && n.has_heartbeat_port() &&
                    n.heartbeat_port()) {
             continue;
+        } else if (ClusterPB::VIRTUAL) {
+            continue;
         }
         ss << "check cluster params failed, edit_log_port is required for frontends while "
               "heatbeat_port is required for banckends, node : "
@@ -197,15 +228,134 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     }
 
     if (check_master_num && ClusterPB::SQL == cluster.type()) {
-        if (master_num == 0 && follower_num == 0) {
-            ss << "cluster is SQL type, but not set master and follower node, master count="
-               << master_num << " follower count=" << follower_num
-               << " so sql cluster can't get a Master node";
-            no_err = false;
-        }
-        *err = ss.str();
+        no_err = validate_master_follower_count(master_num, follower_num, err);
     }
+
     return no_err;
+}
+
+bool ResourceManager::validate_master_follower_count(int master_num, int follower_num,
+                                                     std::string* err) {
+    std::stringstream ss;
+    if (master_num > 0 && follower_num > 0) {
+        ss << "cluster is SQL type, and use multi follower mode, cant set master node, master "
+              "count: "
+           << master_num << " follower count: " << follower_num;
+        *err = ss.str();
+        return false;
+    } else if (!follower_num && master_num != 1) {
+        ss << "cluster is SQL type, must have only one master node, now master count: "
+           << master_num;
+        *err = ss.str();
+        return false;
+    }
+    return true;
+}
+
+void set_default_failover_threshold(doris::cloud::ClusterPolicy& policy) {
+    // if not set failover_failure_threshold in api, set here default value
+    if (!policy.has_failover_failure_threshold()) {
+        policy.set_failover_failure_threshold(3);
+    }
+    // if not set unhealthy_node_threshold_percent in api, set here default value
+    if (!policy.has_unhealthy_node_threshold_percent()) {
+        policy.set_unhealthy_node_threshold_percent(100);
+    }
+}
+
+bool ResourceManager::validate_virtual_cluster(const ClusterPB& cluster, std::string* err) {
+    if (cluster.nodes().size() || cluster.mysql_user_name().size() ||
+        cluster.has_public_endpoint() || cluster.has_private_endpoint() ||
+        cluster.has_cluster_status()) {
+        *err = "Inconsistent virtual cluster args";
+        LOG(WARNING) << *err;
+        return false;
+    }
+
+    if ((cluster.cluster_names().size() && !cluster.has_cluster_policy()) ||
+        (cluster.cluster_names().size() == 0 && cluster.has_cluster_policy())) {
+        *err = "subcgs and policy must be Incoming at the same time or do not transmit at the same "
+               "time";
+        LOG(WARNING) << *err;
+        return false;
+    }
+    // Validate cluster names
+    if (cluster.cluster_names().size()) {
+        // Currently, the number of sub clusters is limited to 2
+        if (cluster.cluster_names().size() != 2) {
+            *err = "Currently, just support two sub clusters";
+            LOG(WARNING) << *err;
+            return false;
+        }
+
+        for (const auto& sub_cluster : cluster.cluster_names()) {
+            if (!std::regex_match(sub_cluster, std::regex("^[a-zA-Z][a-zA-Z0-9_]*$"))) {
+                *err = "cluster name " + sub_cluster +
+                       " does not match regex ^[a-zA-Z][a-zA-Z0-9_]*$";
+                LOG(WARNING) << *err;
+                return false;
+            }
+        }
+    }
+
+    // Validate cluster policy
+    if (cluster.has_cluster_policy()) {
+        const auto& policy = cluster.cluster_policy();
+        if (!policy.has_type()) {
+            *err = "plz set cluster policy type, use virtual cluster policy";
+            LOG(WARNING) << *err;
+            return false;
+        }
+        if (policy.type() != ClusterPolicy::ActiveStandby) {
+            *err = "cluster policy type must be ActiveStandby";
+            LOG(WARNING) << *err;
+            return false;
+        }
+        if ((policy.active_cluster_name().empty() && !policy.standby_cluster_names().empty()) ||
+            (!policy.active_cluster_name().empty() && policy.standby_cluster_names().empty())) {
+            *err = "Inconsistent cluster policy: active_cluster_name must be set if "
+                   "standby_cluster_names are present, and vice versa.";
+            LOG(WARNING) << *err;
+            return false;
+        }
+        if (policy.active_cluster_name().empty() ||
+            std::find(cluster.cluster_names().begin(), cluster.cluster_names().end(),
+                      policy.active_cluster_name()) == cluster.cluster_names().end()) {
+            *err = "active_cluster_name must not be empty and must be in cluster_names";
+            LOG(WARNING) << *err;
+            return false;
+        }
+        for (const auto& standby_name : policy.standby_cluster_names()) {
+            if (std::find(cluster.cluster_names().begin(), cluster.cluster_names().end(),
+                          standby_name) == cluster.cluster_names().end()) {
+                *err = "standby_cluster_name " + standby_name + " must be in cluster_names";
+                LOG(WARNING) << *err;
+                return false;
+            }
+            if (standby_name == policy.active_cluster_name()) {
+                *err = "active_cluster_name is same of standby_cluster_name";
+                LOG(WARNING) << *err;
+                return false;
+            }
+        }
+
+        set_default_failover_threshold(const_cast<std::decay_t<decltype(policy)>&>(policy));
+
+        if (policy.failover_failure_threshold() <= 0 ||
+            policy.unhealthy_node_threshold_percent() > INT64_MAX) {
+            *err = "failover_failure_threshold must be greater than 0 and less than max(int64)";
+            LOG(WARNING) << *err;
+            return false;
+        }
+        if (policy.unhealthy_node_threshold_percent() <= 0 ||
+            policy.unhealthy_node_threshold_percent() > 100) {
+            *err = "unhealthy_node_threshold_percent must be greater than 0 and less than or equal "
+                   "to 100";
+            LOG(WARNING) << *err;
+            return false;
+        }
+    }
+    return true;
 }
 
 std::pair<bool, std::string> ResourceManager::get_instance_id_by_cloud_unique_id(
@@ -379,17 +529,21 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
 
     // Check id and name, they need to be unique
     // One cluster id per name, name is alias of cluster id
-    for (auto& instance_cluster : instance.clusters()) {
-        if (instance_cluster.cluster_id() == req_cluster.cluster_id()) {
+    std::vector<ClusterPB> clusters_in_instance;
+    for (auto& i : instance.clusters()) {
+        clusters_in_instance.emplace_back(i);
+    }
+    for (auto& i : clusters_in_instance) {
+        if (i.cluster_id() == cluster.cluster.cluster_id()) {
             ss << "try to add a existing cluster id,"
-               << " existing_cluster_id=" << instance_cluster.cluster_id();
+               << " existing_cluster_id=" << i.cluster_id();
             msg = ss.str();
             return std::make_pair(MetaServiceCode::ALREADY_EXISTED, msg);
         }
 
-        if (instance_cluster.cluster_name() == req_cluster.cluster_name()) {
+        if (i.cluster_name() == req_cluster.cluster_name()) {
             ss << "try to add a existing cluster name,"
-               << " existing_cluster_name=" << instance_cluster.cluster_name();
+               << " existing_cluster_name=" << i.cluster_name();
             msg = ss.str();
             return std::make_pair(MetaServiceCode::ALREADY_EXISTED, msg);
         }
@@ -417,6 +571,16 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
             }
         }
     }
+    // vitrual cluster
+    if (cluster.cluster.type() == ClusterPB::VIRTUAL) {
+        // if has cluster_names, check it's cluster has been added
+        std::vector<std::string> check_clusters_vec(cluster.cluster.cluster_names().begin(),
+                                                    cluster.cluster.cluster_names().end());
+        auto validation_result = validate_sub_clusters(check_clusters_vec, clusters_in_instance);
+        if (validation_result.first != MetaServiceCode::OK) {
+            return validation_result;
+        }
+    }
 
     auto to_add_cluster = instance.add_clusters();
     to_add_cluster->CopyFrom(cluster.cluster);
@@ -424,6 +588,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
     if (cluster.cluster.type() == ClusterPB::COMPUTE) {
         to_add_cluster->set_cluster_status(ClusterStatus::NORMAL);
     }
+    to_add_cluster->set_ctime(time);
+    to_add_cluster->set_mtime(time);
     LOG(INFO) << "instance " << instance_id << " has " << instance.clusters().size() << " clusters";
 
     InstanceKeyInfo key_info {instance_id};
@@ -551,7 +717,24 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
            << " cluster_name=" << cluster.cluster.cluster_name()
            << " help Msg=" << cache_err_help_msg;
         msg = ss.str();
+        LOG(WARNING) << msg;
         return std::make_pair(MetaServiceCode::CLUSTER_NOT_FOUND, msg);
+    }
+
+    // Checks whether the deleted cluster belongs to a virtual cluster.
+    // If so, drop failed, need drop virtual cluster first
+    for (auto& c : instance.clusters()) {
+        if (ClusterPB::VIRTUAL == c.type() &&
+            std::find(c.cluster_names().begin(), c.cluster_names().end(), to_del.cluster_name()) !=
+                    c.cluster_names().end()) {
+            ss << "failed to drop cluster, this cluster owned by virtual cluster="
+               << c.cluster_name()
+               << " if you want drop this cluster, please drop virtual cluster=" << c.cluster_name()
+               << " firstly";
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return std::make_pair(MetaServiceCode::ALREADY_EXISTED, msg);
+        }
     }
 
     InstanceInfoPB new_instance(instance);
@@ -586,7 +769,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
 std::string ResourceManager::update_cluster(
         const std::string& instance_id, const ClusterInfo& cluster,
         std::function<bool(const ClusterPB&)> filter,
-        std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action,
+        std::function<std::string(ClusterPB&, std::vector<ClusterPB>& clusters_in_instance)> action,
         bool replace_if_existing_empty_target_cluster) {
     std::stringstream ss;
     std::string msg;
@@ -622,10 +805,12 @@ std::string ResourceManager::update_cluster(
         return msg;
     }
 
+    std::vector<ClusterPB> clusters_in_instance;
     std::set<std::string> cluster_names;
-    // collect cluster_names
+    // collect cluster in instance pb for check
     for (auto& i : instance.clusters()) {
         cluster_names.emplace(i.cluster_name());
+        clusters_in_instance.emplace_back(i);
     }
 
     bool found = false;
@@ -682,11 +867,15 @@ std::string ResourceManager::update_cluster(
 
     // do update
     ClusterPB original = clusters[idx];
-    msg = action(clusters[idx], cluster_names);
+    msg = action(clusters[idx], clusters_in_instance);
     if (!msg.empty()) {
         return msg;
     }
     ClusterPB now = clusters[idx];
+    auto now_time = std::chrono::system_clock::now();
+    uint64_t time =
+            std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
+    now.set_mtime(time);
     LOG(INFO) << "before update cluster original: " << proto_to_json(original)
               << " after update now: " << proto_to_json(now);
 
@@ -895,6 +1084,12 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
                 if (msg != "") {
                     return msg;
                 }
+                auto now_time = std::chrono::system_clock::now();
+                uint64_t time = std::chrono::duration_cast<std::chrono::seconds>(
+                                        now_time.time_since_epoch())
+                                        .count();
+                ClusterPB modify_cluster = const_cast<std::decay_t<decltype(c)>&>(c);
+                modify_cluster.set_mtime(time);
             }
         }
         return "";
@@ -1256,6 +1451,47 @@ MultiVersionStatus ResourceManager::get_instance_multi_version_status(
 
     // Default to disabled if not found or not set
     return MultiVersionStatus::MULTI_VERSION_DISABLED;
+}
+
+std::pair<MetaServiceCode, std::string> ResourceManager::validate_sub_clusters(
+        const std::vector<std::string>& check_clusters,
+        const std::vector<ClusterPB>& clusters_in_instance) {
+    std::string msg;
+    for (const auto& check_cluster : check_clusters) {
+        auto it = std::find_if(clusters_in_instance.begin(), clusters_in_instance.end(),
+                               [&check_cluster](const auto& cluster) {
+                                   return check_cluster == cluster.cluster_name();
+                               });
+        if (it == clusters_in_instance.end()) {
+            msg = "sub cluster " + check_cluster +
+                  " not been added in instance, plz add it before create virtual cluster";
+            LOG(WARNING) << msg;
+            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+        }
+        // sub cluster type must be COMPUTE
+        if (ClusterPB::COMPUTE != it->type()) {
+            msg = "sub cluster " + check_cluster + " 's type must be eq COMPUTE";
+            LOG(WARNING) << msg;
+            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+        }
+        // check one cluster can only be mounted by one virtual cluster at most.
+        for (const auto& cluster_in_instance : clusters_in_instance) {
+            if (ClusterPB::VIRTUAL == cluster_in_instance.type()) {
+                auto it = std::find_if(
+                        cluster_in_instance.cluster_names().begin(),
+                        cluster_in_instance.cluster_names().end(),
+                        [&check_cluster](const auto& cluster) { return check_cluster == cluster; });
+                if (it != cluster_in_instance.cluster_names().end()) {
+                    msg = "sub cluster " + check_cluster +
+                          " has been add by other vcg=" + cluster_in_instance.cluster_name();
+                    LOG(WARNING) << msg;
+                    return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+                }
+            }
+        }
+    }
+
+    return std::make_pair(MetaServiceCode::OK, "");
 }
 
 } // namespace doris::cloud

@@ -75,6 +75,10 @@ public class ModifyColumnOp extends AlterTableOp {
         return rollupName;
     }
 
+    public void setColumn(Column column) {
+        this.column = column;
+    }
+
     @Override
     public void validate(ConnectContext ctx) throws UserException {
         if (columnDef == null) {

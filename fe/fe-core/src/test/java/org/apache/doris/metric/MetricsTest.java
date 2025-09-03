@@ -85,7 +85,8 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("doris_fe_query_err{user=\"test_user\"} 1"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
-        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
+        Assert.assertTrue(
+                metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
 
     }
 
@@ -164,5 +165,110 @@ public class MetricsTest {
         Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_catalog_num\""));
         Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_database_num\""));
         Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_table_num\""));
+    }
+
+    @Test
+    public void testMTMVMetrics() {
+        // Test metrics in Prometheus format
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        // doris metrics and system metrics.
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        // histogram
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        String metricResult = visitor.finish();
+
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_failed_num counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_success_num counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_pending_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_skip_num counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_task_running_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_async_materialized_view_num gauge"));
+        Assert.assertTrue(
+                metricResult.contains("# TYPE doris_fe_async_materialized_view_task_duration_ms summary"));
+    }
+
+    @Test
+    public void testStatisticsMetrics() {
+        // Test metrics in Prometheus format
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        // doris metrics and system metrics.
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        // histogram
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        String metricResult = visitor.finish();
+
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_succeed_analyze_job counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_failed_analyze_job counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_succeed_analyze_task counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_failed_analyze_task counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_invalid_stats counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_table_rate gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_column_rate gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_table_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_unhealthy_column_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_not_analyzed_table_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_empty_table_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_high_priority_queue_length gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_mid_priority_queue_length gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_low_priority_queue_length gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_statistics_very_low_priority_queue_length gauge"));
+    }
+
+    @Test
+    public void testSqlCacheMetrics() {
+        // Test metrics in Prometheus format
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        // doris metrics and system metrics.
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        // histogram
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        String metricResult = visitor.finish();
+
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_added counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_hit counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_not_hit counter"));
+    }
+
+    @Test
+    public void testPlanMetrics() {
+        // Test metrics in Prometheus format
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        // doris metrics and system metrics.
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        // histogram
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        String metricResult = visitor.finish();
+
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_parse_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_analyze_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_rewrite_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_fold_const_by_be_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_optimize_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_translate_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_init_scan_node_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_finalize_scan_node_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_create_scan_range_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_distribute_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_external_catalog_meta_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_external_tvf_init_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_lock_tables_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_partition_prune_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_cloud_meta_duration_ms summary"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_materialized_view_rewrite_duration_ms summary"));
     }
 }

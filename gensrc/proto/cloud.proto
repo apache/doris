@@ -150,10 +150,24 @@ enum ClusterStatus {
     MANUAL_SHUTDOWN = 4;
 }
 
+// just for virtual cluster
+message ClusterPolicy {
+    enum PolicyType {
+        ActiveStandby = 0;
+    }
+    optional PolicyType type = 1;
+    optional string active_cluster_name = 2;
+    repeated string standby_cluster_names = 3;
+    optional int64 failover_failure_threshold = 4;
+    optional int64 unhealthy_node_threshold_percent = 5;
+    repeated string cache_warmup_jobids = 6;
+}
+
 message ClusterPB {
     enum Type {
         SQL = 0;
         COMPUTE = 1;
+        VIRTUAL = 2;
     }
     optional string cluster_id = 1;
     optional string cluster_name = 2;
@@ -164,6 +178,10 @@ message ClusterPB {
     optional string public_endpoint = 7;
     optional string private_endpoint = 8;
     optional ClusterStatus cluster_status = 9;
+    optional int64 ctime = 10;
+    optional int64 mtime = 11;
+    repeated string cluster_names = 12; // clusters in virtual cluster
+    optional ClusterPolicy cluster_policy = 13; // virtual cluster policy
 }
 
 message NodeInfoPB {
@@ -696,7 +714,7 @@ message DropPartitionLogPB {
     optional int64 table_id = 2;
     repeated int64 index_ids = 3;
     repeated int64 partition_ids = 4;
-    optional int64 expiration = 5; // expiration timestamp
+    optional int64 expired_at_s = 5; // expiration timestamp
     optional bool update_table_version = 6;
 }
 
@@ -1292,6 +1310,8 @@ message RestoreJobRequest {
     optional int64 expiration = 4;
     optional string request_ip = 5;
     optional Action action = 6;
+    // 50: used for delete bitmap storage v2
+    optional int64 store_version = 50;
 }
 
 message RestoreJobResponse {
@@ -1376,6 +1396,7 @@ message AlterClusterRequest {
         NOTIFY_DECOMMISSIONED = 8;
         UPDATE_CLUSTER_ENDPOINT = 9;
         SET_CLUSTER_STATUS = 10;
+        ALTER_VCLUSTER_INFO = 11;
     }
     optional string instance_id = 1;
     optional string cloud_unique_id = 2; // For auth
@@ -1707,6 +1728,11 @@ enum MetaServiceCode {
     UNDEFINED_ERR = 1000000;
 }
 
+message DeleteBitmapStoragePB {
+    optional bool store_in_fdb = 1;
+    optional DeleteBitmapPB delete_bitmap = 2;
+}
+
 message UpdateDeleteBitmapRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 table_id = 2;
@@ -1714,6 +1740,7 @@ message UpdateDeleteBitmapRequest {
     optional int64 tablet_id = 4;
     optional int64 lock_id = 5;
     optional int64 initiator = 6;
+    // 7-10: used for storage v1
     repeated string rowset_ids = 7;
     repeated uint32 segment_ids = 8;
     repeated int64 versions = 9;
@@ -1731,6 +1758,9 @@ message UpdateDeleteBitmapRequest {
     // when update delete_bitmap of pre rowsets, check the rowset exists
     repeated int64 pre_rowset_versions = 17;
     optional string request_ip = 18;
+    // 50-51: used for storage v2
+    repeated string delta_rowset_ids = 50;
+    repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1748,16 +1778,21 @@ message GetDeleteBitmapRequest {
     optional int64 cumulative_compaction_cnt = 8;
     optional int64 cumulative_point = 9;
     optional string request_ip = 10;
+    optional int64 store_version = 50;
 }
 
 message GetDeleteBitmapResponse {
     optional MetaServiceResponseStatus status = 1;
+    // 2-5: used for storage v1
     repeated string rowset_ids = 2;
     repeated uint32 segment_ids = 3;
     repeated int64 versions = 4;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
     optional int64 tablet_id = 6;
+    // 50-51: used for storage v2
+    repeated string delta_rowset_ids = 50;
+    repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
 }
 
 message RemoveDeleteBitmapRequest {

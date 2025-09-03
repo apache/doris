@@ -71,7 +71,7 @@ inline unsigned int TopLevelDomainLookupHash::hash(const char* str, size_t len) 
                                                110601, 110601, 110601, 110601, 0, 110601, 110601, 110601, 0, 0, 5, 0, 20, 40, 110601, 110601,
                                                110601, 110601, 110601, 110601, 110601, 110601, 110601, 110601, 110601, 110601, 110601, 110601, 110601, 110601, 110601, 110601,
                                                110601, 110601, 110601, 110601};
-    unsigned int hval = len;
+    unsigned int hval = (unsigned int)len;
 
     switch (hval) {
     default:

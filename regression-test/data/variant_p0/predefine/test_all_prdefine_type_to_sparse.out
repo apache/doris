@@ -345,8 +345,8 @@ var.double_1	double	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 
 -- !sql_compaction_before --
 id	bigint	No	true	\N	
@@ -412,8 +412,8 @@ var.decimal32_1	decimal(8,2)	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -489,8 +489,8 @@ var.decimal64_1	decimal(16,9)	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -577,8 +577,8 @@ var.decimal128_1	decimal(36,9)	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -677,8 +677,8 @@ var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -790,8 +790,8 @@ var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -916,8 +916,8 @@ var.date_1	date	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1056,8 +1056,8 @@ var.ipv4_1	ipv4	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1211,8 +1211,8 @@ var.ipv6_1	ipv6	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1382,8 +1382,8 @@ var.ipv6_1	ipv6	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1569,8 +1569,8 @@ var.array_tinyint_1	array<tinyint>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1774,8 +1774,8 @@ var.array_smallint_1	array<smallint>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -1998,8 +1998,8 @@ var.array_int_1	array<int>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -2242,8 +2242,8 @@ var.array_bigint_1	array<bigint>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -2507,8 +2507,8 @@ var.array_largeint_1	array<largeint>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -2794,8 +2794,8 @@ var.array_char_1	array<text>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -3104,8 +3104,8 @@ var.array_string_1	array<text>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -3438,8 +3438,8 @@ var.array_float_1	array<float>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -3797,8 +3797,8 @@ var.array_double_1	array<double>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -4098,8 +4098,8 @@ var.array_double_1	array<double>	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}
@@ -4182,8 +4182,8 @@ var.array_decimal32_1	array<decimal(8,2)>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -4483,8 +4483,8 @@ var.array_decimal32_1	array<decimal(8,2)>	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}
@@ -4594,8 +4594,8 @@ var.array_decimal64_1	array<decimal(16,9)>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -4895,8 +4895,8 @@ var.array_decimal64_1	array<decimal(16,9)>	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}
@@ -5034,8 +5034,8 @@ var.array_decimal128_1	array<decimal(36,9)>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -5335,8 +5335,8 @@ var.array_decimal128_1	array<decimal(36,9)>	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}
@@ -5503,8 +5503,8 @@ var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -5804,8 +5804,8 @@ var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}
@@ -6002,8 +6002,8 @@ var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -6303,8 +6303,8 @@ var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}
@@ -6532,8 +6532,8 @@ var.array_date_1	array<date>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -6833,8 +6833,8 @@ var.array_date_1	array<date>	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}
@@ -7094,8 +7094,8 @@ var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -7395,8 +7395,8 @@ var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}
@@ -7689,8 +7689,8 @@ var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -7990,8 +7990,8 @@ var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}
@@ -8318,8 +8318,8 @@ var.other_1	text	Yes	false	\N	NONE
 {"double_1":5.12}
 {"double_1":6.12}
 {"double_1":7.12}
-{"double_1":8.12}
-{"double_1":9.12}
+{"double_1":8.119999999999999}
+{"double_1":9.119999999999999}
 {"decimal32_1":1.12}
 {"decimal32_1":2.12}
 {"decimal32_1":3.12}
@@ -8619,8 +8619,8 @@ var.other_1	text	Yes	false	\N	NONE
 {"array_double_1":[5.12]}
 {"array_double_1":[6.12]}
 {"array_double_1":[7.12]}
-{"array_double_1":[8.12]}
-{"array_double_1":[9.12]}
+{"array_double_1":[8.119999999999999]}
+{"array_double_1":[9.119999999999999]}
 {"array_double_1":[10.12]}
 {"array_double_1":[11.12]}
 {"array_double_1":[12.12]}

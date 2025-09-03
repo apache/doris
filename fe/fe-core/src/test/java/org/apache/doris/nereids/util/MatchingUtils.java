@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
+import org.apache.doris.nereids.pattern.GroupExpressionMatching.GroupExpressionIterator;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -70,7 +71,14 @@ public class MatchingUtils {
 
     public static boolean topDownFindMatch(GroupExpression groupExpression, Pattern<? extends Plan> pattern) {
         GroupExpressionMatching matchingResult = new GroupExpressionMatching(pattern, groupExpression);
-        if (matchingResult.iterator().hasNext()) {
+        GroupExpressionIterator iterator;
+        try {
+            iterator = matchingResult.iterator();
+        } catch (Throwable throwable) {
+            // if assert in pattern should return false
+            return false;
+        }
+        if (iterator.hasNext()) {
             return true;
         } else {
             for (Group childGroup : groupExpression.children()) {

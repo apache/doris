@@ -508,9 +508,6 @@ public:
 
     bool has_inverted_index_with_index_id(int64_t index_id) const;
 
-    void update_index(const TabletColumn& column, const IndexType& index_type,
-                      std::vector<TabletIndex>&& indexes);
-
     std::vector<const TabletIndex*> inverted_indexs(const TabletColumn& col) const;
 
     std::vector<const TabletIndex*> inverted_indexs(int32_t col_unique_id,
