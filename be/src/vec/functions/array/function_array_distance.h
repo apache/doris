@@ -138,18 +138,13 @@ public:
         }
 
         if (col2->is_nullable()) {
-            LOG_INFO("col2 is nullable");
             if (col2->has_null()) {
-                LOG_INFO("col2 has null");
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "Arguments for function {} cannot be null", get_name());
-            } else {
-                LOG_INFO("col2 is not null");
             }
             auto nullable2 = assert_cast<const ColumnNullable*>(col2.get());
             arr2 = assert_cast<const ColumnArray*>(nullable2->get_nested_column_ptr().get());
         } else {
-            LOG_INFO("col2 is not nullable");
             arr2 = assert_cast<const ColumnArray*>(col2.get());
         }
 
