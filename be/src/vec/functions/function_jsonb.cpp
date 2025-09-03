@@ -2102,8 +2102,6 @@ public:
             }
 
             res_offsets[i] = static_cast<uint32_t>(res_chars.size());
-
-
         }
 
         block.get_by_position(result).column = std::move(result_column);
