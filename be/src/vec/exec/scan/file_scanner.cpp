@@ -94,6 +94,7 @@ class ShardedKVCache;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
@@ -546,7 +547,7 @@ Status FileScanner::_init_src_block(Block* block) {
     // }
 
     _src_block.clear();
-    size_t idx = 0;
+    uint32_t idx = 0;
     // slots in _input_tuple_desc contains all slots describe in load statement, eg:
     // -H "columns: k1, k2, tmp1, k3 = tmp1 + 1"
     // _input_tuple_desc will contains: k1, k2, tmp1
@@ -754,8 +755,8 @@ Status FileScanner::_convert_to_output_block(Block* block) {
     }
 
     // for (auto slot_desc : _output_tuple_desc->slots()) {
-    for (int i = 0; i < mutable_output_columns.size(); ++i) {
-        auto slot_desc = _output_tuple_desc->slots()[i];
+    for (int j = 0; j < mutable_output_columns.size(); ++j) {
+        auto slot_desc = _output_tuple_desc->slots()[j];
         if (!slot_desc->is_materialized()) {
             continue;
         }
@@ -820,7 +821,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         } else if (slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
-        mutable_output_columns[i]->insert_range_from(*column_ptr, 0, rows);
+        mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
         ctx_idx++;
     }
 
@@ -882,7 +883,7 @@ Status FileScanner::_truncate_char_or_varchar_columns(Block* block) {
 // VARCHAR substring(VARCHAR str, INT pos[, INT len])
 void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int len) {
     auto int_type = std::make_shared<DataTypeInt32>();
-    size_t num_columns_without_result = block->columns();
+    uint32_t num_columns_without_result = block->columns();
     const ColumnNullable* col_nullable =
             assert_cast<const ColumnNullable*>(block->get_by_position(idx).column.get());
     const ColumnPtr& string_column_ptr = col_nullable->get_nested_column_ptr();
@@ -897,7 +898,7 @@ void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int le
     temp_arguments[0] = idx;                            // str column
     temp_arguments[1] = num_columns_without_result;     // pos
     temp_arguments[2] = num_columns_without_result + 1; // len
-    size_t result_column_id = num_columns_without_result + 2;
+    uint32_t result_column_id = num_columns_without_result + 2;
 
     SubstringUtil::substring_execute(*block, temp_arguments, result_column_id, block->rows());
     auto res = ColumnNullable::create(block->get_by_position(result_column_id).column,
