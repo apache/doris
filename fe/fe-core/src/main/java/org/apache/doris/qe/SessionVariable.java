@@ -146,6 +146,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String DML_PLAN_RETRY_TIMES = "DML_PLAN_RETRY_TIMES";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
+    public static final String ENABLE_INSERT_VALUE_AUTO_CAST = "enable_insert_value_auto_cast";
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
@@ -1143,6 +1144,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_INSERT_VALUE_AUTO_CAST, needForward = true, description = {
+            "INSERT VALUE 语句是否自动类型转换。当前只针对长字符串自动截短。默认开。",
+            "INSERT VALUE statement whether to automatically type cast. Only use for truncate long string. "
+                    + "ON by default."
+    })
+    public boolean enableInsertValueAutoCast = true;
+
     @VariableMgr.VarAttr(name = INSERT_MAX_FILTER_RATIO, needForward = true)
     public double insertMaxFilterRatio = 1.0;
 
@@ -1699,7 +1707,7 @@ public class SessionVariable implements Serializable, Writable {
     private double leftSemiOrAntiProbeFactor = 0.05;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
-    private double broadcastRowCountLimit = 30000000;
+    private double broadcastRowCountLimit = 30_000_000;
 
     @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE, needForward = true)
     private double broadcastHashtableMemLimitPercentage = 0.2;
@@ -3538,6 +3546,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableInsertStrict(boolean enableInsertStrict) {
         this.enableInsertStrict = enableInsertStrict;
+    }
+
+    public boolean getEnableInsertValueAutoCast() {
+        return enableInsertValueAutoCast;
     }
 
     public double getInsertMaxFilterRatio() {

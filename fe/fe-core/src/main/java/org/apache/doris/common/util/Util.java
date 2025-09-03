@@ -610,7 +610,7 @@ public class Util {
         }
     }
 
-    public static TFileCompressType getFileCompressType(String compressType) {
+    public static TFileCompressType getFileCompressType(String compressType) throws AnalysisException {
         if (Strings.isNullOrEmpty(compressType)) {
             return TFileCompressType.UNKNOWN;
         }
@@ -618,7 +618,7 @@ public class Util {
         try {
             return TFileCompressType.valueOf(upperCaseType);
         } catch (IllegalArgumentException e) {
-            return TFileCompressType.UNKNOWN;
+            throw new AnalysisException("Unknown compression type: " + compressType);
         }
     }
 

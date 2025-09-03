@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.llm.Embed;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
@@ -365,6 +366,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PreparePlaceholder;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
@@ -1812,6 +1814,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(parseDataSize, context);
     }
 
+    default R visitPreparePlaceholer(PreparePlaceholder preparePlaceholder, C context) {
+        return visitScalarFunction(preparePlaceholder, context);
+    }
+
     default R visitPassword(Password password, C context) {
         return visitScalarFunction(password, context);
     }
@@ -2534,5 +2540,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLLMSimilarity(LLMSimilarity llmSimilarity, C context) {
         return visitScalarFunction(llmSimilarity, context);
+    }
+
+    default R visitEmbed(Embed embed, C context) {
+        return visitScalarFunction(embed, context);
     }
 }

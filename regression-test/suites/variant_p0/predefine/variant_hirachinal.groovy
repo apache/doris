@@ -18,7 +18,7 @@
 suite("regression_test_variant_predefine_hirachinal", "variant_type"){
     def table_name = "var_rs"
     sql "DROP TABLE IF EXISTS ${table_name}"
-    int count = new Random().nextInt(10) + 1
+    int count = new Random().nextInt(10)
 
     sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (

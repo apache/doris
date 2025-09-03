@@ -327,7 +327,7 @@ CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-CONF_Int32(aws_log_level, "3");
+CONF_Int32(aws_log_level, "2");
 CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 && config <= 6; });
 
 // azure sdk log level
@@ -335,7 +335,7 @@ CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 
 //    Informational = 2,
 //    Warning = 3,
 //    Error = 4
-CONF_Int32(azure_log_level, "3");
+CONF_Int32(azure_log_level, "4");
 CONF_Validator(azure_log_level,
                [](const int config) -> bool { return config >= 1 && config <= 4; });
 
@@ -352,5 +352,6 @@ CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size
 CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 
 CONF_Bool(enable_logging_for_single_version_reading, "false");
+CONF_mBool(enable_logging_conflict_keys, "false");
 
 } // namespace doris::cloud::config
