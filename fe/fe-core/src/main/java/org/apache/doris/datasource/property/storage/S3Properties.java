@@ -44,6 +44,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
+    public static final String USE_PATH_STYLE = "use_path_style";
 
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
