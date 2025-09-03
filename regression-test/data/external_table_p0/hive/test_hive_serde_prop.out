@@ -62,6 +62,17 @@ b	2.2
 
 -- !test_empty_null_format_text3 --
 
+-- !test_empty_null_defined_text --
+1	Alice
+2	\N
+3	\N
+
+-- !test_empty_null_defined_text2 --
+2	\N
+3	\N
+
+-- !test_empty_null_defined_text3 --
+
 -- !1 --
 a	1.1
 b	2.2
@@ -124,4 +135,15 @@ b	2.2
 3	\N
 
 -- !test_empty_null_format_text3 --
+
+-- !test_empty_null_defined_text --
+1	Alice
+2	\N
+3	\N
+
+-- !test_empty_null_defined_text2 --
+2	\N
+3	\N
+
+-- !test_empty_null_defined_text3 --
 

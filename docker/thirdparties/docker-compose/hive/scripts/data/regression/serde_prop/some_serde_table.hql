@@ -186,3 +186,17 @@ INSERT INTO TABLE test_empty_null_format_text VALUES
   (1, 'Alice'),
   (2, NULL),
   (3, '');
+
+CREATE TABLE test_empty_null_defined_text (
+  id INT,
+  name STRING
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+NULL DEFINED AS ''
+STORED AS TEXTFILE;
+
+INSERT INTO TABLE test_empty_null_defined_text VALUES
+  (1, 'Alice'),
+  (2, NULL),
+  (3, '');
