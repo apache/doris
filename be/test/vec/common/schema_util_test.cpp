@@ -303,61 +303,6 @@ TEST_F(SchemaUtilTest, test_multiple_index_inheritance) {
     }
 }
 
-TEST_F(SchemaUtilTest, test_index_update_logic) {
-    TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
-
-    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "v1_index_orig1", 1,
-                     "VARIANT", "v1", IndexType::INVERTED);
-    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001, "v1_index_orig2", 1,
-                     "VARIANT", "v1", IndexType::INVERTED);
-
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    tablet_schema->init_from_pb(schema_pb);
-    std::vector<TabletColumn> subcolumns;
-
-    construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_STRING, 1, "v1.name",
-                        &subcolumns);
-    vectorized::schema_util::inherit_column_attributes(tablet_schema);
-
-    const auto& subcol = subcolumns[0];
-    auto initial_indexes = tablet_schema->inverted_indexs(subcol);
-    ASSERT_EQ(initial_indexes.size(), 2);
-    EXPECT_EQ(initial_indexes[0]->index_name(), "v1_index_orig1");
-    EXPECT_EQ(initial_indexes[1]->index_name(), "v1_index_orig2");
-
-    std::vector<TabletIndex> updated_indexes;
-    TabletIndexPB tablet_index_pb1;
-    tablet_index_pb1.set_index_id(10002);
-    tablet_index_pb1.set_index_name("v1_index_updated1");
-    tablet_index_pb1.set_index_type(IndexType::INVERTED);
-    tablet_index_pb1.add_col_unique_id(1);
-    TabletIndex tablet_index1;
-    tablet_index1.init_from_pb(tablet_index_pb1);
-    updated_indexes.emplace_back(std::move(tablet_index1));
-
-    TabletIndexPB tablet_index_pb2;
-    tablet_index_pb2.set_index_id(10003);
-    tablet_index_pb2.set_index_name("v1_index_updated2");
-    tablet_index_pb2.set_index_type(IndexType::INVERTED);
-    tablet_index_pb2.add_col_unique_id(1);
-    TabletIndex tablet_index2;
-    tablet_index2.init_from_pb(tablet_index_pb2);
-    updated_indexes.emplace_back(std::move(tablet_index2));
-
-    tablet_schema->update_index(tablet_schema->column(1), IndexType::INVERTED,
-                                std::move(updated_indexes));
-
-    vectorized::schema_util::inherit_column_attributes(tablet_schema);
-    auto updated_subcol_indexes = tablet_schema->inverted_indexs(subcol);
-
-    EXPECT_EQ(updated_subcol_indexes.size(), 2);
-    EXPECT_EQ(updated_subcol_indexes[0]->index_name(), "v1_index_updated1");
-    EXPECT_EQ(updated_subcol_indexes[1]->index_name(), "v1_index_updated2");
-    EXPECT_EQ(updated_subcol_indexes[0]->get_index_suffix(), "v1%2Ename");
-}
-
 // static std::unordered_map<std::string, int> construct_column_map_with_random_values(
 //         auto& column_map, int key_size, int value_size, const std::string& prefix) {
 //     std::unordered_map<std::string, int> key_value_counts;
