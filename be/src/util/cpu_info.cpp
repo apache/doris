@@ -73,21 +73,21 @@ DEFINE_int32(num_cores, 0,
              " according to /proc/cpuinfo.");
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // Helper function to warn if a given file does not contain an expected string as its
 // first line. If the file cannot be opened, no error is reported.
 void WarnIfFileNotEqual(const std::string& filename, const std::string& expected,
                         const std::string& warning_text) {
     std::ifstream file(filename);
-    if (!file) return;
+    if (!file) {
+        return;
+    }
     std::string line;
     getline(file, line);
     if (line != expected) {
         LOG(ERROR) << "Expected " << expected << ", actual " << line << std::endl << warning_text;
     }
 }
-} // namespace doris
-
-namespace doris {
 
 bool CpuInfo::initialized_ = false;
 int64_t CpuInfo::hardware_flags_ = 0;
@@ -105,8 +105,9 @@ static struct {
     std::string name;
     int64_t flag;
 } flag_mappings[] = {
-        {"ssse3", CpuInfo::SSSE3},   {"sse4_1", CpuInfo::SSE4_1}, {"sse4_2", CpuInfo::SSE4_2},
-        {"popcnt", CpuInfo::POPCNT}, {"avx", CpuInfo::AVX},       {"avx2", CpuInfo::AVX2},
+        {.name = "ssse3", .flag = CpuInfo::SSSE3},   {.name = "sse4_1", .flag = CpuInfo::SSE4_1},
+        {.name = "sse4_2", .flag = CpuInfo::SSE4_2}, {.name = "popcnt", .flag = CpuInfo::POPCNT},
+        {.name = "avx", .flag = CpuInfo::AVX},       {.name = "avx2", .flag = CpuInfo::AVX2},
 };
 
 // Helper function to parse for hardware flags.
@@ -124,7 +125,9 @@ int64_t ParseCPUFlags(const std::string& values) {
 }
 
 void CpuInfo::init() {
-    if (initialized_) return;
+    if (initialized_) {
+        return;
+    }
     std::string line;
     std::string name;
     std::string value;
@@ -150,7 +153,7 @@ void CpuInfo::init() {
                 // that when impala is running, the core will not be in a lower power state.
                 // TODO: is there a more robust way to do this, such as
                 // Window's QueryPerformanceFrequency()
-                float mhz = atof(value.c_str());
+                float mhz = std::stof(value);
                 max_mhz = max(mhz, max_mhz);
             } else if (name == "processor") {
                 ++physical_num_cores;
@@ -224,7 +227,9 @@ void CpuInfo::_init_numa() {
     max_num_numa_nodes_ = 0;
     for (; dir_it != fs::directory_iterator(); ++dir_it) {
         const std::string filename = dir_it->path().filename().string();
-        if (filename.find("node") == 0) ++max_num_numa_nodes_;
+        if (filename.starts_with("node")) {
+            ++max_num_numa_nodes_;
+        }
     }
     if (max_num_numa_nodes_ == 0) {
         LOG(WARNING) << "Could not find nodes in /sys/devices/system/node";
@@ -268,7 +273,7 @@ void CpuInfo::_init_numa_node_to_cores() {
     numa_node_core_idx_.resize(max_num_cores_);
     for (int core = 0; core < max_num_cores_; ++core) {
         std::vector<int>* cores_of_node = &numa_node_to_cores_[core_to_numa_node_[core]];
-        numa_node_core_idx_[core] = cores_of_node->size();
+        numa_node_core_idx_[core] = static_cast<int>(cores_of_node->size());
         cores_of_node->push_back(core);
     }
 }
@@ -319,7 +324,9 @@ int CpuInfo::get_current_core() {
     // so that we can build and run with degraded perf.
 #ifdef HAVE_SCHED_GETCPU
     int cpu = sched_getcpu();
-    if (cpu < 0) return 0;
+    if (cpu < 0) {
+        return 0;
+    }
     if (cpu >= max_num_cores_) {
         LOG_FIRST_N(WARNING, 5) << "sched_getcpu() return value " << cpu
                                 << ", which is greater than get_nprocs_conf() retrun value "
@@ -413,5 +420,5 @@ std::string CpuInfo::debug_string() {
     stream << std::endl;
     return stream.str();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris
