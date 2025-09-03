@@ -81,8 +81,9 @@ static void may_logging_single_version_reading(std::string_view key) {
     std::string_view tmp_key(key);
     std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
     tmp_key.remove_prefix(1); // Remove the space tag.
+                              std::string msg;
     if (decode_key(&tmp_key, &out) != 0) {
-        LOG(WARNING) << "Read single version meta key: " << hex(key);
+        msg = fmt::format("Read single version meta key: {}", hex(key));
     } else {
         if (out.size() > 3) {
             auto& first = std::get<0>(out[0]);
@@ -110,11 +111,14 @@ static void may_logging_single_version_reading(std::string_view key) {
             value.push_back(' ');
         }
 
-        LOG(WARNING) << "Read single version meta key: \\x01 " << value << ", raw: " << hex(key);
+        msg = fmt::format("Read single version meta key: \\x01 {}, raw: {}", value, hex(key));
     }
     std::string stack;
     google::glog_internal_namespace_::DumpStackTraceToString(&stack);
-    LOG(WARNING) << "Stack trace: " << stack;
+    if (stack.find("doris::cloud::put_schema_kv()") != std::string::npos) {
+        return;
+    }
+    LOG(WARNING) << msg << ", stack trace: " << stack;
 }
 
 static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector) {
