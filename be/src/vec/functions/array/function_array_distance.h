@@ -180,10 +180,6 @@ public:
         auto dst = ColumnType::create(input_rows_count);
         auto& dst_data = dst->get_data();
 
-        // const auto& offsets1 = *offset1;
-        // const auto& offsets2 = *offset2;
-        // const auto& nested_col1 = assert_cast<const ColumnType*>(arr1->get_data_ptr());
-        // const auto& nested_col2 = assert_cast<const ColumnType*>(arr2->get_data_ptr());
         size_t elemt_cnt = offset1->size();
         for (ssize_t row = 0; row < elemt_cnt; ++row) {
             // Calculate actual array sizes for current row.
