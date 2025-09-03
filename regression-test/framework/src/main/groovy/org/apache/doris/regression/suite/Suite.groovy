@@ -3152,11 +3152,7 @@ class Suite implements GroovyInterceptable {
         for (def tablet_info : tablets) {
             logger.info("tablet: $tablet_info")
             def compact_url = tablet_info.get("CompactionStatus")
-            String command = "curl ${compact_url}"
-            Process process = command.execute()
-            def code = process.waitFor()
-            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            def out = process.getText()
+            def (code, out, err) = curl("GET", compact_url)
             logger.info("code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
 
