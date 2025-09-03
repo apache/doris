@@ -254,16 +254,16 @@ false
 {"Person":{"Name":"Homer","Hobbies":["Eating","Sleeping"]}}
 
 -- !json_remove11 --
-NULL
+\N
 
 -- !json_remove12 --
-NULL
+\N
 
 -- !json_remove13 --
-NULL
+\N
 
 -- !json_remove14 --
-NULL
+\N
 
 -- !json_remove15 --
 {"name":"Alice","skills":["Java","Python","SQL"]}
