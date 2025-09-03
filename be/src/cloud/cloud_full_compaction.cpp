@@ -148,6 +148,16 @@ Status CloudFullCompaction::pick_rowsets_to_compact() {
 }
 
 Status CloudFullCompaction::execute_compact() {
+    DBUG_EXECUTE_IF("CloudFullCompaction::execute_compact.block", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        LOG_INFO(
+                "[verbose] CloudFullCompaction::execute_compact.block, target_tablet_id={}, "
+                "tablet_id={}",
+                target_tablet_id, cloud_tablet()->tablet_id());
+        if (target_tablet_id == cloud_tablet()->tablet_id()) {
+            DBUG_BLOCK;
+        }
+    });
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudFullCompaction::execute_compact_impl", Status::OK(),
                                       this);
 #ifndef __APPLE__
