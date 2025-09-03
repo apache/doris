@@ -74,9 +74,6 @@ size_t get_number_of_dimensions(const IColumn& column);
 /// Returns type of scalars of Array of arbitrary dimensions.
 DataTypePtr get_base_type_of_array(const DataTypePtr& type);
 
-/// Returns Array with requested number of dimensions and no scalars.
-Array create_empty_array_field(size_t num_dimensions);
-
 // Cast column to dst type
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
 
@@ -152,64 +149,70 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
 
-// TODO(lihangyu): uncomment
-// // get the subpaths and sparse paths for the variant column
-// void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
-//                   TabletSchema::PathsSetInfo& paths_set_info);
-//
-// // collect extended info from the variant column
-// Status aggregate_variant_extended_info(
-//         const RowsetSharedPtr& rs,
-//         std::unordered_map<int32_t, VariantExtendedInfo>* uid_to_variant_extended_info);
-//
-// // collect path stats from the variant column
-// Status aggregate_path_to_stats(
-//         const RowsetSharedPtr& rs,
-//         std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats);
-//
-// // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
-// Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
-//                                       TabletSchemaSPtr& target);
-//
-// TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetSharedPtr>& rowsets,
-//                                                    const TabletSchemaSPtr& base_schema);
-//
-// // Check if the path stats are consistent between inputs rowsets and output rowset.
-// // Used to check the correctness of compaction.
-// Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetSharedPtr output,
-//                        BaseTabletSPtr tablet);
-//
-// // Calculate statistics about variant data paths from the encoded sparse column
-// void calculate_variant_stats(const IColumn& encoded_sparse_column,
-//                              segment_v2::VariantStatisticsPB* stats, size_t row_pos,
-//                              size_t num_rows);
-//
-//
-// bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
-//                               const std::string& path,
-//                               TabletSchema::SubColumnInfo* sub_column_info);
-// void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
-//                                const TabletColumnPtr parent_column, const TabletSchemaSPtr& target,
-//                                const PathToDataTypes& path_to_data_types,
-//                                const std::unordered_set<std::string>& sparse_paths,
-//                                TabletSchemaSPtr& output_schema);
-//
-// Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
-//                                     TabletSchemaSPtr& common_schema, bool update_sparse_column,
-//                                     int32_t variant_col_unique_id,
-//                                     const std::map<std::string, TabletColumnPtr>& typed_columns,
-//                                     std::set<PathInData>* path_set = nullptr);
-//
-// Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
-//                                     const std::unordered_set<std::string>& typed_paths,
-//                                     const TabletColumnPtr parent_column,
-//                                     TabletSchemaSPtr& output_schema,
-//                                     TabletSchema::PathsSetInfo& paths_set_info);
-//
-// Status get_compaction_nested_columns(
-//         const std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>&
-//                 nested_paths,
-//         const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
-//         TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info);
+Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
+                                    TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                    const std::map<std::string, TabletColumnPtr>& typed_columns,
+                                    std::set<PathInData>* path_set = nullptr);
+
+bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
+                              const std::string& path,
+                              TabletSchema::SubColumnInfo* sub_column_info);
+
+class VariantCompactionUtil {
+public:
+    // get the subpaths and sparse paths for the variant column
+    static void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& path_stats,
+                             TabletSchema::PathsSetInfo& paths_set_info);
+
+    // collect extended info from the variant column
+    static Status aggregate_variant_extended_info(
+            const RowsetSharedPtr& rs,
+            std::unordered_map<int32_t, VariantExtendedInfo>* uid_to_variant_extended_info);
+
+    // collect path stats from the variant column
+    static Status aggregate_path_to_stats(
+            const RowsetSharedPtr& rs,
+            std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats);
+
+    // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
+    static Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
+                                                 TabletSchemaSPtr& target);
+
+    // Used to collect all the subcolumns types of variant column from rowsets
+    static TabletSchemaSPtr calculate_variant_extended_schema(
+            const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema);
+
+    // Check if the path stats are consistent between inputs rowsets and output rowset.
+    // Used to check the correctness of compaction.
+    static Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs,
+                                   RowsetSharedPtr output, BaseTabletSPtr tablet);
+
+    // Calculate statistics about variant data paths from the encoded sparse column
+    static void calculate_variant_stats(const IColumn& encoded_sparse_column,
+                                        segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                                        size_t num_rows);
+
+    static void get_compaction_subcolumns_from_subpaths(
+            TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+            const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
+            const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema);
+
+    static void get_compaction_subcolumns_from_data_types(
+            TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+            const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
+            TabletSchemaSPtr& output_schema);
+
+    static Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
+                                               const std::unordered_set<std::string>& typed_paths,
+                                               const TabletColumnPtr parent_column,
+                                               TabletSchemaSPtr& output_schema,
+                                               TabletSchema::PathsSetInfo& paths_set_info);
+
+    static Status get_compaction_nested_columns(
+            const std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>&
+                    nested_paths,
+            const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
+            TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info);
+};
 
 } // namespace  doris::vectorized::schema_util

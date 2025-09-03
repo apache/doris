@@ -36,10 +36,6 @@ public:
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
             : ColumnPredicate(column_id, opposite), _value(value) {}
 
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
-    }
-
     PredicateType type() const override { return PT; }
 
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
@@ -71,9 +67,17 @@ public:
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
-            return Status::OK();
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
         }
-        std::string column_name = name_with_type.first;
+
+        if (iterator->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iterator->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
+        }
 
         InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
@@ -104,7 +108,8 @@ public:
                 InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
 
         InvertedIndexParam param;
-        param.column_name = column_name;
+        param.column_name = name_with_type.first;
+        param.column_type = name_with_type.second;
         param.query_value = query_param->get_value();
         param.query_type = query_type;
         param.num_rows = num_rows;

@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("test_uniq_mv_useless") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     def testTable = "test_uniq_mv_useless_table"
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${testTable}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -40,10 +42,10 @@ suite ("test_uniq_mv_useless") {
     sql "insert into ${testTable} select 3,3,3;"
 
     test {
-        sql "create materialized view k1_k2_u12 as select k1,k2 from ${testTable} group by k1,k2;"
+        sql "create materialized view k1_k2_u12 as select k1 as a1,k2 as a2 from ${testTable} group by k1,k2;"
         exception "errCode = 2,"
     }
 
-    createMV ("create materialized view k1_k2_u21 as select k2,k1 from ${testTable};")
+    createMV ("create materialized view k1_k2_u21 as select k2 as a1,k1 as a2 from ${testTable};")
     sql "insert into ${testTable} select 4,4,4;"
 }

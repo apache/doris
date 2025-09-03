@@ -347,7 +347,6 @@ suite("test_date_function") {
     qt_sql """ SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3, CAST('1970-01-09 00:00:00' AS DATETIME)) """
 
     // TIMEDIFF
-    qt_sql """ SELECT TIMEDIFF(now(),utc_timestamp()) """
     qt_sql """ SELECT TIMEDIFF('2019-07-11 16:59:30','2019-07-11 16:59:21') """
     qt_sql """ SELECT TIMEDIFF('2019-01-01 00:00:00', NULL) """
 
@@ -371,6 +370,84 @@ suite("test_date_function") {
     qt_sql """ SELECT TIMESTAMPDIFF(DAY,'2003-02-01','2003-05-01') """
     qt_sql """ SELECT TIMESTAMPDIFF(WEEK,'2003-02-01','2003-05-01') """
 
+    sql "set debug_skip_fold_constant = true"
+    // TIMESTAMPDIFF with QUARTER unit - comprehensive test cases
+    // Normal cases within same year
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01','2023-04-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-15','2023-07-20') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-03-31','2023-12-31') """
+    // Cross year cases
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2022-12-01','2023-03-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2022-10-15','2024-01-15') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2020-01-01','2023-01-01') """
+    // Negative differences (end date before start date)
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-07-01','2023-01-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2024-12-31','2023-03-01') """
+    // Same date (should return 0)
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-06-15','2023-06-15') """
+    // Quarter boundary test cases
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01','2023-03-31') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-04-01','2023-06-30') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-07-01','2023-09-30') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-10-01','2023-12-31') """
+    // Edge cases with leap year
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2024-01-01','2024-12-31') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2024-02-29','2024-05-29') """
+    // Test with datetime including time components
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01 00:00:00','2023-10-01 23:59:59') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-03-31 12:30:45','2023-07-01 08:15:20') """
+    // Large date ranges
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2000-01-01','2023-12-31') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'1990-06-15','2024-06-15') """
+    // Test with null values
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,NULL,'2023-01-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01',NULL) """
+    // Test constant folding with testFoldConst
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2023-01-01','2023-10-01')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2022-12-01','2023-03-01')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2024-02-29','2024-11-30')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2023-06-15','2023-06-15')")
+    testFoldConst("SELECT TIMESTAMPDIFF(QUARTER,'2025-01-01','2020-01-01')")
+
+    // QUARTERS_DIFF - comprehensive test cases
+    // Normal cases within same year
+    qt_sql """ SELECT quarters_diff('2023-04-01','2023-01-01') """
+    qt_sql """ SELECT quarters_diff('2023-07-20','2023-01-15') """
+    qt_sql """ SELECT quarters_diff('2023-12-31','2023-03-31') """
+    // Cross year cases
+    qt_sql """ SELECT quarters_diff('2023-03-01','2022-12-01') """
+    qt_sql """ SELECT quarters_diff('2024-01-15','2022-10-15') """
+    qt_sql """ SELECT quarters_diff('2023-01-01','2020-01-01') """
+    // Negative differences (end date before start date)
+    qt_sql """ SELECT quarters_diff('2023-01-01','2023-07-01') """
+    qt_sql """ SELECT quarters_diff('2023-03-01','2024-12-31') """
+    // Same date (should return 0)
+    qt_sql """ SELECT quarters_diff('2023-06-15','2023-06-15') """
+    // Quarter boundary test cases
+    qt_sql """ SELECT quarters_diff('2023-03-31','2023-01-01') """
+    qt_sql """ SELECT quarters_diff('2023-06-30','2023-04-01') """
+    qt_sql """ SELECT quarters_diff('2023-09-30','2023-07-01') """
+    qt_sql """ SELECT quarters_diff('2023-12-31','2023-10-01') """
+    // Edge cases with leap year
+    qt_sql """ SELECT quarters_diff('2024-12-31','2024-01-01') """
+    qt_sql """ SELECT quarters_diff('2024-05-29','2024-02-29') """
+    // Test with datetime including time components
+    qt_sql """ SELECT quarters_diff('2023-10-01 23:59:59','2023-01-01 00:00:00') """
+    qt_sql """ SELECT quarters_diff('2023-07-01 08:15:20','2023-03-31 12:30:45') """
+    // Large date ranges
+    qt_sql """ SELECT quarters_diff('2023-12-31','2000-01-01') """
+    qt_sql """ SELECT quarters_diff('2024-06-15','1990-06-15') """
+    // Test with null values
+    qt_sql """ SELECT quarters_diff('2023-01-01',NULL) """
+    qt_sql """ SELECT quarters_diff(NULL,'2023-01-01') """
+    // Test constant folding with testFoldConst
+    testFoldConst("SELECT quarters_diff('2023-10-01','2023-01-01')")
+    testFoldConst("SELECT quarters_diff('2023-03-01','2022-12-01')")
+    testFoldConst("SELECT quarters_diff('2024-11-30','2024-02-29')")
+    testFoldConst("SELECT quarters_diff('2023-06-15','2023-06-15')")
+    testFoldConst("SELECT quarters_diff('2020-01-01','2025-01-01')")
+    sql "set debug_skip_fold_constant = false"
+
     // TO_DAYS
     qt_sql """ select to_days('2007-10-07') """
     qt_sql """ select to_days('2050-10-07') """
@@ -387,8 +464,13 @@ suite("test_date_function") {
     qt_sql_ustamp7 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(4))) """
     qt_sql_ustamp8 """ SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59.999'); """
     qt_sql_ustamp9 """ SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59'); """
-    testFoldConst("SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59.999');")
-    testFoldConst("SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59');")
+    qt_sql_ustamp10 """ select UNIX_TIMESTAMP('2015-11-13 10:20:19.000010'); """
+    qt_sql_ustamp11 """ select UNIX_TIMESTAMP(cast('2015-11-13 10:20:19.012' as datetime(6))); """
+    check_fold_consistency(" UNIX_TIMESTAMP('9999-12-30 23:59:59.999')")
+    check_fold_consistency(" UNIX_TIMESTAMP('9999-12-30 23:59:59')")
+    check_fold_consistency(" UNIX_TIMESTAMP('2015-11-13 10:20:19.000010')")
+    check_fold_consistency(" UNIX_TIMESTAMP(cast('2015-11-13 10:20:19.000' as datetime(6)))")
+    check_fold_consistency(" UNIX_TIMESTAMP(cast('2015-11-13 10:20:19.012' as datetime(6)))")
     // these two functions may return different value if we call it in different time. so dont use testFoldConst here
     sql "set debug_skip_fold_constant=true;"
     sql "SELECT UNIX_TIMESTAMP(current_timestamp()) AS unix_timestamp;"
@@ -400,6 +482,9 @@ suite("test_date_function") {
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """
     assertTrue(utc_timestamp_str[0].size() == 2)
+    sql "select utc_timestamp() from ${tableName}"
+    sql "select /*+SET_VAR(debug_skip_fold_constant=true)*/ utc_timestamp(),utc_timestamp() + 1;"
+
     // WEEK
     qt_sql """ select week('2020-1-1') """
     qt_sql """ select week('2020-7-1',1) """
@@ -492,6 +577,16 @@ suite("test_date_function") {
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
     qt_sql_date_format_long """ select date_format(cast('2011-06-24' as DATETIMEV2(0)), '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') """
     qt_sql_date_format_long """ select date_format(null, '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') """
+    sql " drop table if exists dtfmt "
+    sql """
+        create table dtfmt(
+        k0 datetime(3) null
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+    sql """insert into dtfmt select "2024-06-10 12:34:56.789" from numbers("number"="5000");"""
+    sql "select date_format(k0, '%Y-%m-%d') from dtfmt;"
     
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """

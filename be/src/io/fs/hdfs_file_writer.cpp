@@ -146,13 +146,7 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
           _fs_name(std::move(fs_name)),
           _sync_file_data(opts ? opts->sync_file_data : true),
           _batch_buffer(MB * config::hdfs_write_batch_buffer_size_mb) {
-    if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
-        _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
-                opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
-                BlockFileCache::hash(_path.filename().native()),
-                FileCacheFactory::instance()->get_by_path(
-                        BlockFileCache::hash(_path.filename().native()))});
-    }
+    init_cache_builder(opts, _path);
     hdfs_file_writer_total << 1;
 
     TEST_SYNC_POINT("HdfsFileWriter");

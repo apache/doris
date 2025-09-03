@@ -328,4 +328,15 @@ public class Statistics {
     public boolean isFromHbo() {
         return this.isFromHbo;
     }
+
+    public StatisticsBuilder cleanHotValues() {
+        StatisticsBuilder builder = new StatisticsBuilder(this);
+        for (Map.Entry<Expression, ColumnStatistic> entry : columnStatistics().entrySet()) {
+            if (entry.getValue().getHotValues() != null) {
+                builder.putColumnStatistics(entry.getKey(),
+                        new ColumnStatisticBuilder(entry.getValue()).setHotValues(null).build());
+            }
+        }
+        return builder;
+    }
 }

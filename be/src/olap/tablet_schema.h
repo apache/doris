@@ -35,6 +35,7 @@
 
 #include "common/consts.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
@@ -75,6 +76,11 @@ public:
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable,
                  int32_t unique_id, size_t length);
+
+#ifdef BE_TEST
+    virtual ~TabletColumn() = default;
+#endif
+
     void init_from_pb(const ColumnPB& column);
     void init_from_thrift(const TColumn& column);
     void to_schema_pb(ColumnPB* column) const;
@@ -87,7 +93,7 @@ public:
         _col_name = col_name;
         _col_name_lower_case = to_lower(_col_name);
     }
-    FieldType type() const { return _type; }
+    MOCK_FUNCTION FieldType type() const { return _type; }
     void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
@@ -153,7 +159,7 @@ public:
     void add_sub_column(TabletColumn& sub_column);
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
-    const TabletColumn& get_sub_column(uint64_t i) const { return *_sub_columns[i]; }
+    MOCK_FUNCTION const TabletColumn& get_sub_column(uint64_t i) const { return *_sub_columns[i]; }
     const std::vector<TabletColumnPtr>& get_sub_columns() const { return _sub_columns; }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -205,18 +211,30 @@ public:
         return Status::OK();
     }
 
+    void set_precision(int precision) {
+        _precision = precision;
+        _is_decimal = true;
+    }
+
+    void set_frac(int frac) { _frac = frac; }
+
     void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
         _variant_max_subcolumns_count = variant_max_subcolumns_count;
     }
+
+    void set_variant_enable_typed_paths_to_sparse(bool enable) {
+        _variant_enable_typed_paths_to_sparse = enable;
+    }
+
     int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
-    void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {
-        _variant_enable_typed_paths_to_sparse = variant_enable_typed_paths_to_sparse;
-    }
+    PatternTypePB pattern_type() const { return _pattern_type; }
 
     bool variant_enable_typed_paths_to_sparse() const {
         return _variant_enable_typed_paths_to_sparse;
     }
+
+    bool is_decimal() const { return _is_decimal; }
 
 private:
     int32_t _unique_id = -1;
@@ -260,7 +278,7 @@ private:
     vectorized::PathInDataPtr _column_path; // the path of the sub-columns themselves
 
     int32_t _variant_max_subcolumns_count = 0;
-    // PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
+    PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
     bool _variant_enable_typed_paths_to_sparse = false;
 };
 
@@ -277,9 +295,11 @@ public:
 
     int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
-    IndexType index_type() const { return _index_type; }
+    MOCK_FUNCTION IndexType index_type() const { return _index_type; }
     const std::vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
-    const std::map<std::string, std::string>& properties() const { return _properties; }
+    MOCK_FUNCTION const std::map<std::string, std::string>& properties() const {
+        return _properties;
+    }
     int32_t get_gram_size() const {
         if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
@@ -299,6 +319,26 @@ public:
 
     void set_escaped_escaped_index_suffix_path(const std::string& name);
 
+    bool is_inverted_index() const { return _index_type == IndexType::INVERTED; }
+
+    void remove_parser_and_analyzer() {
+        _properties.erase(INVERTED_INDEX_PARSER_KEY);
+        _properties.erase(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+    }
+
+    std::string field_pattern() const {
+        if (_properties.contains("field_pattern")) {
+            return _properties.at("field_pattern");
+        }
+        return "";
+    }
+
+    bool is_same_except_id(const TabletIndex* other) const {
+        return _escaped_index_suffix_path == other->_escaped_index_suffix_path &&
+               _index_name == other->_index_name && _index_type == other->_index_type &&
+               _col_unique_ids == other->_col_unique_ids && _properties == other->_properties;
+    }
+
 private:
     int64_t _index_id = -1;
     // Identify the different index with the same _index_id
@@ -311,6 +351,7 @@ private:
 
 using TabletIndexPtr = std::shared_ptr<TabletIndex>;
 using TabletIndexes = std::vector<std::shared_ptr<TabletIndex>>;
+using PathSet = phmap::flat_hash_set<std::string>;
 
 class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
@@ -340,7 +381,6 @@ public:
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex&& index);
-    void update_index(const TabletColumn& column, const IndexType& index_type, TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();
     // Must make sure the row column is always the last column
@@ -454,24 +494,32 @@ public:
         }
         return false;
     }
+
+    bool has_ann_index() const {
+        for (const auto& index : _indexes) {
+            if (index->index_type() == IndexType::ANN) {
+                if (!index->col_unique_ids().empty() && index->col_unique_ids()[0] >= 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     bool has_inverted_index_with_index_id(int64_t index_id) const;
-    // Check whether this column supports inverted index
-    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
-    const TabletIndex* inverted_index(const TabletColumn& col) const;
-
-    // Regardless of whether this column supports inverted index
-    // TabletIndex information will be returned as long as it exists.
-    const TabletIndex* inverted_index(int32_t col_unique_id,
-                                      const std::string& suffix_path = "") const;
-
-    // TODO(lihangyu): multi indexes
-    void update_index(const TabletColumn& column, const IndexType& index_type,
-                      std::vector<TabletIndex>&& indexes);
 
     std::vector<const TabletIndex*> inverted_indexs(const TabletColumn& col) const;
 
     std::vector<const TabletIndex*> inverted_indexs(int32_t col_unique_id,
                                                     const std::string& suffix_path = "") const;
+    const TabletIndex* ann_index(const TabletColumn& col) const;
+
+    // Regardless of whether this column supports inverted index
+    // TabletIndex information will be returned as long as it exists.
+    const TabletIndex* ann_index(int32_t col_unique_id, const std::string& suffix_path = "") const;
+
+    std::vector<TabletIndexPtr> inverted_index_by_field_pattern(
+            int32_t col_unique_id, const std::string& field_pattern) const;
 
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
@@ -585,6 +633,33 @@ public:
         TabletIndexes indexes;
     };
 
+    // all path in path_set_info are relative to the parent column
+    struct PathsSetInfo {
+        std::unordered_map<std::string, SubColumnInfo> typed_path_set;    // typed columns
+        std::unordered_map<std::string, TabletIndexes> subcolumn_indexes; // subcolumns indexes
+        PathSet sub_path_set;                                             // extracted columns
+        PathSet sparse_path_set;                                          // sparse columns
+    };
+
+    void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>&& path_set_info_map) {
+        _path_set_info_map = std::move(path_set_info_map);
+    }
+
+    const PathsSetInfo& path_set_info(int32_t unique_id) const {
+        return _path_set_info_map.at(unique_id);
+    }
+
+    bool need_record_variant_extended_schema() const { return variant_max_subcolumns_count() == 0; }
+
+    int32_t variant_max_subcolumns_count() const {
+        for (const auto& col : _cols) {
+            if (col->is_variant_type()) {
+                return col->variant_max_subcolumns_count();
+            }
+        }
+        return 0;
+    }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -601,7 +676,7 @@ private:
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
 
-    // index_type/col_unique_id/suffix -> idx in _indexes
+    // index_type/col_unique_id/suffix -> idxs in _indexes
     using IndexKey = std::tuple<IndexType, int32_t, std::string>;
     struct IndexKeyHash {
         size_t operator()(const IndexKey& t) const {
@@ -615,7 +690,7 @@ private:
             return seed;
         }
     };
-    std::unordered_map<IndexKey, int32_t, IndexKeyHash> _col_id_suffix_to_index;
+    std::unordered_map<IndexKey, std::vector<size_t>, IndexKeyHash> _col_id_suffix_to_index;
 
     int32_t _num_columns = 0;
     size_t _num_variant_columns = 0;
@@ -655,6 +730,14 @@ private:
     bool _enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
+
+    // value: extracted path set and sparse path set
+    std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;
+
+    // key: field_pattern
+    // value: indexes
+    using PatternToIndex = std::unordered_map<std::string, std::vector<TabletIndexPtr>>;
+    std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

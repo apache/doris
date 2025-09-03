@@ -150,10 +150,24 @@ enum ClusterStatus {
     MANUAL_SHUTDOWN = 4;
 }
 
+// just for virtual cluster
+message ClusterPolicy {
+    enum PolicyType {
+        ActiveStandby = 0;
+    }
+    optional PolicyType type = 1;
+    optional string active_cluster_name = 2;
+    repeated string standby_cluster_names = 3;
+    optional int64 failover_failure_threshold = 4;
+    optional int64 unhealthy_node_threshold_percent = 5;
+    repeated string cache_warmup_jobids = 6;
+}
+
 message ClusterPB {
     enum Type {
         SQL = 0;
         COMPUTE = 1;
+        VIRTUAL = 2;
     }
     optional string cluster_id = 1;
     optional string cluster_name = 2;
@@ -164,6 +178,10 @@ message ClusterPB {
     optional string public_endpoint = 7;
     optional string private_endpoint = 8;
     optional ClusterStatus cluster_status = 9;
+    optional int64 ctime = 10;
+    optional int64 mtime = 11;
+    repeated string cluster_names = 12; // clusters in virtual cluster
+    optional ClusterPolicy cluster_policy = 13; // virtual cluster policy
 }
 
 message NodeInfoPB {
@@ -442,6 +460,7 @@ message TxnInfoPB {
     repeated int64 sub_txn_ids = 18;
     // TODO: There are more fields TBD
     optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
+    optional bool versioned_read = 20;  // whether to read versioned keys
 }
 
 // For check txn conflict and txn timeout
@@ -475,6 +494,7 @@ message RecycleIndexPB {
     optional int64 creation_time = 2;
     optional int64 expiration = 3; // expiration timestamp
     optional State state = 4;
+    optional int64 db_id = 5;
 }
 
 message RecyclePartitionPB {
@@ -517,17 +537,24 @@ message RestoreJobCloudPB {
     enum State {
         UNKNOWN = 0;
         PREPARED = 1;
-        DROPPED = 2;
+        COMMITTED = 2;
+        DROPPED = 3;
+        COMPLETED = 4;
+        RECYCLING = 5;
     }
     optional int64 tablet_id = 1;
-    optional int64 creation_time = 2;
-    optional int64 expiration = 3; // expiration timestamp
-    optional doris.TabletMetaCloudPB tablet_meta = 4;
-    optional State state = 5;
-    optional int64 total_rowset_num = 6;
-    optional int64 total_row_num = 7;
-    optional int64 total_segment_num = 8;
-    optional int64 total_disk_size = 9;
+    optional int64 ctime_s = 2;
+    optional int64 mtime_s = 3;
+    optional int64 expired_at_s = 4; // expiration timestamp
+    optional doris.TabletMetaCloudPB tablet_meta = 5;
+    optional State state = 6;
+    optional int64 total_rowset_num = 7;
+    optional int64 total_row_num = 8;
+    optional int64 total_segment_num = 9;
+    optional int64 total_disk_size = 10;
+    optional int64 committed_rowset_num = 11;
+    optional bool need_recycle_data = 12;
+    optional int64 version = 13;
 }
 
 message JobRecyclePB {
@@ -553,6 +580,11 @@ message TabletIndexPB {
 }
 
 message PartitionIndexPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+}
+
+message IndexIndexPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
 }
@@ -682,15 +714,22 @@ message DropPartitionLogPB {
     optional int64 table_id = 2;
     repeated int64 index_ids = 3;
     repeated int64 partition_ids = 4;
-    optional int64 expiration = 5; // expiration timestamp
+    optional int64 expired_at_s = 5; // expiration timestamp
     optional bool update_table_version = 6;
+}
+
+message CommitIndexLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    optional bool update_table_version = 4;
 }
 
 message DropIndexLogPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
-    optional RecycleIndexPB recycle_index = 4;
+    repeated int64 index_ids = 3;
+    optional int64 expiration = 4; // expiration timestamp
 }
 
 message UpdateTabletLogPB {
@@ -704,7 +743,7 @@ message UpdateDeleteBitmapLogPB {
 // The operation log records which data needs to be recycled.
 // If the log is not referenced by any snapshot, the operation log will be recycled.
 message OperationLogPB {
-    optional bytes min_timestamp = 1;
+    optional uint64 min_timestamp = 1;
 
     optional CommitTxnLogPB commit_txn = 2;
     optional CompactionLogPB compaction = 3;
@@ -714,6 +753,7 @@ message OperationLogPB {
     optional UpdateTabletLogPB update_tablet = 7;
     optional UpdateDeleteBitmapLogPB update_delete_bitmap = 8;
     optional CommitPartitionLogPB commit_partition = 9;
+    optional CommitIndexLogPB commit_index = 10;
 }
 
 enum SnapshotType {
@@ -1211,6 +1251,8 @@ message GetRowsetResponse {
     optional TabletStatsPB stats = 3;
     // Return dict value if SchemaOp is RETURN_DICT
     optional SchemaCloudDictionary schema_dict = 4;
+    // The current max version of the partition
+    optional int64 partition_max_version = 5;
 }
 
 message GetSchemaDictRequest {
@@ -1255,11 +1297,21 @@ message PartitionResponse {
 }
 
 message RestoreJobRequest {
+    enum Action {
+        UNKONWN  = 0;
+        PREPARE = 1;
+        COMMIT = 2;
+        ABORT = 3;
+        COMPLETE = 4;
+    }
     optional string cloud_unique_id = 1;
     optional int64 tablet_id = 2;
     optional doris.TabletMetaCloudPB tablet_meta = 3;
     optional int64 expiration = 4;
     optional string request_ip = 5;
+    optional Action action = 6;
+    // 50: used for delete bitmap storage v2
+    optional int64 store_version = 50;
 }
 
 message RestoreJobResponse {
@@ -1312,8 +1364,8 @@ message AlterInstanceRequest {
     optional string instance_id = 1;
     optional Operation op = 2;
     optional string name = 3;
-    optional string value = 4;
-    optional string request_ip = 5;
+    optional string request_ip = 4;
+    optional string value = 5;
 }
 
 message AlterInstanceResponse {
@@ -1344,6 +1396,7 @@ message AlterClusterRequest {
         NOTIFY_DECOMMISSIONED = 8;
         UPDATE_CLUSTER_ENDPOINT = 9;
         SET_CLUSTER_STATUS = 10;
+        ALTER_VCLUSTER_INFO = 11;
     }
     optional string instance_id = 1;
     optional string cloud_unique_id = 2; // For auth
@@ -1675,6 +1728,11 @@ enum MetaServiceCode {
     UNDEFINED_ERR = 1000000;
 }
 
+message DeleteBitmapStoragePB {
+    optional bool store_in_fdb = 1;
+    optional DeleteBitmapPB delete_bitmap = 2;
+}
+
 message UpdateDeleteBitmapRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 table_id = 2;
@@ -1682,6 +1740,7 @@ message UpdateDeleteBitmapRequest {
     optional int64 tablet_id = 4;
     optional int64 lock_id = 5;
     optional int64 initiator = 6;
+    // 7-10: used for storage v1
     repeated string rowset_ids = 7;
     repeated uint32 segment_ids = 8;
     repeated int64 versions = 9;
@@ -1693,12 +1752,15 @@ message UpdateDeleteBitmapRequest {
     optional int64 txn_id = 13;
     // for load txn only
     optional int64 next_visible_version = 14;
+    optional string request_ip = 15;
     // remove delete_bitmap of pre rowsets since it is agged when compaction
-    optional int64 pre_rowset_agg_start_version = 15;
-    optional int64 pre_rowset_agg_end_version = 16;
+    optional int64 pre_rowset_agg_start_version = 16;
+    optional int64 pre_rowset_agg_end_version = 17;
     // when update delete_bitmap of pre rowsets, check the rowset exists
-    repeated int64 pre_rowset_versions = 17;
-    optional string request_ip = 18;
+    repeated int64 pre_rowset_versions = 18;
+    // 50-51: used for storage v2
+    repeated string delta_rowset_ids = 50;
+    repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1716,16 +1778,21 @@ message GetDeleteBitmapRequest {
     optional int64 cumulative_compaction_cnt = 8;
     optional int64 cumulative_point = 9;
     optional string request_ip = 10;
+    optional int64 store_version = 50;
 }
 
 message GetDeleteBitmapResponse {
     optional MetaServiceResponseStatus status = 1;
+    // 2-5: used for storage v1
     repeated string rowset_ids = 2;
     repeated uint32 segment_ids = 3;
     repeated int64 versions = 4;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
     optional int64 tablet_id = 6;
+    // 50-51: used for storage v2
+    repeated string delta_rowset_ids = 50;
+    repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
 }
 
 message RemoveDeleteBitmapRequest {
@@ -1945,8 +2012,6 @@ service MetaService {
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
-    // DEPRECATED
-    rpc update_tablet_schema(UpdateTabletSchemaRequest) returns (UpdateTabletSchemaResponse);
 
     rpc prepare_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
     rpc commit_restore_job(RestoreJobRequest) returns (RestoreJobResponse);

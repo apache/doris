@@ -50,13 +50,18 @@ public class Instr extends ScalarFunction
         super("instr", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Instr(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Instr withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Instr(children.get(0), children.get(1));
+        return new Instr(getFunctionParams(children));
     }
 
     @Override

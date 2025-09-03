@@ -195,11 +195,11 @@ supportedCreateStatement
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                    #createRowPolicy
     | CREATE STORAGE POLICY (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                              #createStoragePolicy
-    | BUILD INDEX name=identifier ON tableName=multipartIdentifier
+    | BUILD INDEX (name=identifier)? ON tableName=multipartIdentifier
         partitionSpec?                                                          #buildIndex
     | CREATE INDEX (IF NOT EXISTS)? name=identifier
         ON tableName=multipartIdentifier identifierList
-        (USING (BITMAP | NGRAM_BF | INVERTED))?
+        (USING (BITMAP | NGRAM_BF | INVERTED | ANN))?
         properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
     | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
         (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
@@ -282,7 +282,9 @@ supportedAlterStatement
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
-    | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
+    | ALTER ROUTINE LOAD FOR name=multipartIdentifier 
+            (loadProperty (COMMA loadProperty)*)?
+            properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
@@ -379,6 +381,7 @@ supportedShowStatement
     | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy   
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
+    | SHOW CREATE STORAGE VAULT identifier                                          #showCreateStorageVault
     | SHOW DATA TYPES                                                               #showDataTypes
     | SHOW DATA (ALL)? (FROM tableName=multipartIdentifier)?
         sortClause? propertyClause?                                                 #showData
@@ -473,7 +476,8 @@ supportedOtherStatement
         properties=propertyClause?                                                  #restore
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
-            (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
+            (warmUpItem (AND warmUpItem)*)) FORCE?
+            properties=propertyClause?                                              #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
@@ -1422,7 +1426,7 @@ indexDefs
     ;
 
 indexDef
-    : INDEX (ifNotExists=IF NOT EXISTS)? indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
+    : INDEX (ifNotExists=IF NOT EXISTS)? indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF | ANN ))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
     ;
 
 partitionsDef
@@ -1717,6 +1721,7 @@ dataType
     : complex=ARRAY LT dataType GT                                  #complexDataType
     | complex=MAP LT dataType COMMA dataType GT                     #complexDataType
     | complex=STRUCT LT complexColTypeList GT                       #complexDataType
+    | complex=variantTypeDefinitions                                #variantPredefinedFields
     | AGG_STATE LT functionNameIdentifier
         LEFT_PAREN dataTypes+=dataTypeWithNullable
         (COMMA dataTypes+=dataTypeWithNullable)* RIGHT_PAREN GT     #aggStateDataType
@@ -1767,6 +1772,23 @@ complexColType
     : identifier COLON dataType commentSpec?
     ;
 
+variantTypeDefinitions
+    : VARIANT LT variantSubColTypeList COMMA properties=propertyClause GT  #variant
+    | VARIANT LT variantSubColTypeList GT                                  #variant
+    | VARIANT LT properties=propertyClause GT                              #variant
+    | VARIANT                                                              #variant
+    ;
+
+variantSubColTypeList
+    : variantSubColType (COMMA variantSubColType)*
+    ;
+variantSubColType
+    : variantSubColMatchType? STRING_LITERAL COLON dataType commentSpec?
+    ;
+variantSubColMatchType
+    : (MATCH_NAME | MATCH_NAME_GLOB)
+    ;
+
 commentSpec
     : COMMENT STRING_LITERAL
     ;
@@ -1782,7 +1804,7 @@ sampleMethod
 
 tableSnapshot
     : FOR VERSION AS OF version=(INTEGER_VALUE | STRING_LITERAL)
-    | FOR TIME AS OF time=STRING_LITERAL
+    | FOR TIME AS OF time=(STRING_LITERAL | INTEGER_VALUE)
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
@@ -1831,6 +1853,7 @@ nonReserved
     | ALIAS
     | ALWAYS
     | ANALYZED
+    | ANN
     | ARRAY
     | AT
     | AUTHORS
@@ -2006,6 +2029,8 @@ nonReserved
     | MATCH_PHRASE_EDGE
     | MATCH_PHRASE_PREFIX
     | MATCH_REGEXP
+    | MATCH_NAME
+    | MATCH_NAME_GLOB
     | MATERIALIZED
     | MAX
     | MEMO

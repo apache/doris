@@ -22,7 +22,7 @@
 60	8
 
 -- !explode_json_array_8_invalid --
-0	8
+1	8
 60	8
 
 -- !explode_json_array9 --
@@ -108,23 +108,24 @@
 \N	80	{"id":3,"name":"Bob"}
 
 -- !explode_json_array12 --
-9223372036854775807	8
+\N	4
+9223372036854775807	4
 
 -- !explode_json_array122 --
-9223372036854775807	8
+\N	8
 
 -- !explode_json_array13 --
--9223372036854775808	8
+\N	8
 
 -- !explode_json_array132 --
--9223372036854775808	8
+\N	8
 
 -- !explode_json_array133 --
 123434243	4
 1232423437	4
 
 -- !explode_json_array134 --
--9223372036854775808	4
+\N	4
 1232423437	4
 
 -- !explode_json_array14 --
@@ -204,180 +205,180 @@
 400	Dan	50	4	Street 4	214.1	true
 
 -- !explode_json_array16 --
-100	John	30	1	Street 1	1.23	
-100	John	30	1	Street 1	1.23	
-100	John	30	1	Street 1	22.214	
-100	John	30	1	Street 1	22.214	
-100	John	30	1	Street 1	214.1	
-100	John	30	1	Street 1	214.1	
+100	John	30	1	Street 1	1.23	\N
+100	John	30	1	Street 1	1.23	\N
+100	John	30	1	Street 1	22.214	\N
+100	John	30	1	Street 1	22.214	\N
+100	John	30	1	Street 1	214.1	\N
+100	John	30	1	Street 1	214.1	\N
 100	John	30	1	Street 1	1.23	b
 100	John	30	1	Street 1	22.214	b
 100	John	30	1	Street 1	214.1	b
-200	Mary	\N	1	Street 2	1.23	
-200	Mary	\N	1	Street 2	1.23	
-200	Mary	\N	1	Street 2	22.214	
-200	Mary	\N	1	Street 2	22.214	
-200	Mary	\N	1	Street 2	214.1	
-200	Mary	\N	1	Street 2	214.1	
+200	Mary	\N	1	Street 2	1.23	\N
+200	Mary	\N	1	Street 2	1.23	\N
+200	Mary	\N	1	Street 2	22.214	\N
+200	Mary	\N	1	Street 2	22.214	\N
+200	Mary	\N	1	Street 2	214.1	\N
+200	Mary	\N	1	Street 2	214.1	\N
 200	Mary	\N	1	Street 2	1.23	b
 200	Mary	\N	1	Street 2	22.214	b
 200	Mary	\N	1	Street 2	214.1	b
-300	Mike	80	3	Street 3	1.23	
-300	Mike	80	3	Street 3	1.23	
-300	Mike	80	3	Street 3	22.214	
-300	Mike	80	3	Street 3	22.214	
-300	Mike	80	3	Street 3	214.1	
-300	Mike	80	3	Street 3	214.1	
+300	Mike	80	3	Street 3	1.23	\N
+300	Mike	80	3	Street 3	1.23	\N
+300	Mike	80	3	Street 3	22.214	\N
+300	Mike	80	3	Street 3	22.214	\N
+300	Mike	80	3	Street 3	214.1	\N
+300	Mike	80	3	Street 3	214.1	\N
 300	Mike	80	3	Street 3	1.23	b
 300	Mike	80	3	Street 3	22.214	b
 300	Mike	80	3	Street 3	214.1	b
-400	Dan	50	4	Street 4	1.23	
-400	Dan	50	4	Street 4	1.23	
-400	Dan	50	4	Street 4	22.214	
-400	Dan	50	4	Street 4	22.214	
-400	Dan	50	4	Street 4	214.1	
-400	Dan	50	4	Street 4	214.1	
+400	Dan	50	4	Street 4	1.23	\N
+400	Dan	50	4	Street 4	1.23	\N
+400	Dan	50	4	Street 4	22.214	\N
+400	Dan	50	4	Street 4	22.214	\N
+400	Dan	50	4	Street 4	214.1	\N
+400	Dan	50	4	Street 4	214.1	\N
 400	Dan	50	4	Street 4	1.23	b
 400	Dan	50	4	Street 4	22.214	b
 400	Dan	50	4	Street 4	214.1	b
 
 -- !explode_json_array17 --
-100	John	30	1	Street 1	0.0	0.0
-100	John	30	1	Street 1	0.0	0.0
-100	John	30	1	Street 1	0.0	0.0
-100	John	30	1	Street 1	0.0	0.0
-100	John	30	1	Street 1	0.0	0.0
-100	John	30	1	Street 1	0.0	0.0
-100	John	30	1	Street 1	0.0	0.0
-100	John	30	1	Street 1	0.0	0.0
-100	John	30	1	Street 1	0.0	0.0
-200	Mary	\N	1	Street 2	0.0	0.0
-200	Mary	\N	1	Street 2	0.0	0.0
-200	Mary	\N	1	Street 2	0.0	0.0
-200	Mary	\N	1	Street 2	0.0	0.0
-200	Mary	\N	1	Street 2	0.0	0.0
-200	Mary	\N	1	Street 2	0.0	0.0
-200	Mary	\N	1	Street 2	0.0	0.0
-200	Mary	\N	1	Street 2	0.0	0.0
-200	Mary	\N	1	Street 2	0.0	0.0
-300	Mike	80	3	Street 3	0.0	0.0
-300	Mike	80	3	Street 3	0.0	0.0
-300	Mike	80	3	Street 3	0.0	0.0
-300	Mike	80	3	Street 3	0.0	0.0
-300	Mike	80	3	Street 3	0.0	0.0
-300	Mike	80	3	Street 3	0.0	0.0
-300	Mike	80	3	Street 3	0.0	0.0
-300	Mike	80	3	Street 3	0.0	0.0
-300	Mike	80	3	Street 3	0.0	0.0
-400	Dan	50	4	Street 4	0.0	0.0
-400	Dan	50	4	Street 4	0.0	0.0
-400	Dan	50	4	Street 4	0.0	0.0
-400	Dan	50	4	Street 4	0.0	0.0
-400	Dan	50	4	Street 4	0.0	0.0
-400	Dan	50	4	Street 4	0.0	0.0
-400	Dan	50	4	Street 4	0.0	0.0
-400	Dan	50	4	Street 4	0.0	0.0
-400	Dan	50	4	Street 4	0.0	0.0
+100	John	30	1	Street 1	123.0	\N
+100	John	30	1	Street 1	123.0	\N
+100	John	30	1	Street 1	123.0	\N
+100	John	30	1	Street 1	432.0	\N
+100	John	30	1	Street 1	432.0	\N
+100	John	30	1	Street 1	432.0	\N
+100	John	30	1	Street 1	1123.0	\N
+100	John	30	1	Street 1	1123.0	\N
+100	John	30	1	Street 1	1123.0	\N
+200	Mary	\N	1	Street 2	123.0	\N
+200	Mary	\N	1	Street 2	123.0	\N
+200	Mary	\N	1	Street 2	123.0	\N
+200	Mary	\N	1	Street 2	432.0	\N
+200	Mary	\N	1	Street 2	432.0	\N
+200	Mary	\N	1	Street 2	432.0	\N
+200	Mary	\N	1	Street 2	1123.0	\N
+200	Mary	\N	1	Street 2	1123.0	\N
+200	Mary	\N	1	Street 2	1123.0	\N
+300	Mike	80	3	Street 3	123.0	\N
+300	Mike	80	3	Street 3	123.0	\N
+300	Mike	80	3	Street 3	123.0	\N
+300	Mike	80	3	Street 3	432.0	\N
+300	Mike	80	3	Street 3	432.0	\N
+300	Mike	80	3	Street 3	432.0	\N
+300	Mike	80	3	Street 3	1123.0	\N
+300	Mike	80	3	Street 3	1123.0	\N
+300	Mike	80	3	Street 3	1123.0	\N
+400	Dan	50	4	Street 4	123.0	\N
+400	Dan	50	4	Street 4	123.0	\N
+400	Dan	50	4	Street 4	123.0	\N
+400	Dan	50	4	Street 4	432.0	\N
+400	Dan	50	4	Street 4	432.0	\N
+400	Dan	50	4	Street 4	432.0	\N
+400	Dan	50	4	Street 4	1123.0	\N
+400	Dan	50	4	Street 4	1123.0	\N
+400	Dan	50	4	Street 4	1123.0	\N
 
 -- !explode_json_array18 --
-100	John	30	1	Street 1	1123	
-100	John	30	1	Street 1	1123	
-100	John	30	1	Street 1	123	
-100	John	30	1	Street 1	123	
-100	John	30	1	Street 1	432	
-100	John	30	1	Street 1	432	
+100	John	30	1	Street 1	1123	\N
+100	John	30	1	Street 1	1123	\N
+100	John	30	1	Street 1	123	\N
+100	John	30	1	Street 1	123	\N
+100	John	30	1	Street 1	432	\N
+100	John	30	1	Street 1	432	\N
 100	John	30	1	Street 1	1123	b
 100	John	30	1	Street 1	123	b
 100	John	30	1	Street 1	432	b
-200	Mary	\N	1	Street 2	1123	
-200	Mary	\N	1	Street 2	1123	
-200	Mary	\N	1	Street 2	123	
-200	Mary	\N	1	Street 2	123	
-200	Mary	\N	1	Street 2	432	
-200	Mary	\N	1	Street 2	432	
+200	Mary	\N	1	Street 2	1123	\N
+200	Mary	\N	1	Street 2	1123	\N
+200	Mary	\N	1	Street 2	123	\N
+200	Mary	\N	1	Street 2	123	\N
+200	Mary	\N	1	Street 2	432	\N
+200	Mary	\N	1	Street 2	432	\N
 200	Mary	\N	1	Street 2	1123	b
 200	Mary	\N	1	Street 2	123	b
 200	Mary	\N	1	Street 2	432	b
-300	Mike	80	3	Street 3	1123	
-300	Mike	80	3	Street 3	1123	
-300	Mike	80	3	Street 3	123	
-300	Mike	80	3	Street 3	123	
-300	Mike	80	3	Street 3	432	
-300	Mike	80	3	Street 3	432	
+300	Mike	80	3	Street 3	1123	\N
+300	Mike	80	3	Street 3	1123	\N
+300	Mike	80	3	Street 3	123	\N
+300	Mike	80	3	Street 3	123	\N
+300	Mike	80	3	Street 3	432	\N
+300	Mike	80	3	Street 3	432	\N
 300	Mike	80	3	Street 3	1123	b
 300	Mike	80	3	Street 3	123	b
 300	Mike	80	3	Street 3	432	b
-400	Dan	50	4	Street 4	1123	
-400	Dan	50	4	Street 4	1123	
-400	Dan	50	4	Street 4	123	
-400	Dan	50	4	Street 4	123	
-400	Dan	50	4	Street 4	432	
-400	Dan	50	4	Street 4	432	
+400	Dan	50	4	Street 4	1123	\N
+400	Dan	50	4	Street 4	1123	\N
+400	Dan	50	4	Street 4	123	\N
+400	Dan	50	4	Street 4	123	\N
+400	Dan	50	4	Street 4	432	\N
+400	Dan	50	4	Street 4	432	\N
 400	Dan	50	4	Street 4	1123	b
 400	Dan	50	4	Street 4	123	b
 400	Dan	50	4	Street 4	432	b
 
 -- !explode_json_array19 --
-100	John	30	1	Street 1	1123.123	
-100	John	30	1	Street 1	1123.123	
-100	John	30	1	Street 1	123.434	
-100	John	30	1	Street 1	123.434	
-100	John	30	1	Street 1	432.756	
-100	John	30	1	Street 1	432.756	
+100	John	30	1	Street 1	1123.123	\N
+100	John	30	1	Street 1	1123.123	\N
+100	John	30	1	Street 1	123.434	\N
+100	John	30	1	Street 1	123.434	\N
+100	John	30	1	Street 1	432.756	\N
+100	John	30	1	Street 1	432.756	\N
 100	John	30	1	Street 1	1123.123	b
 100	John	30	1	Street 1	123.434	b
 100	John	30	1	Street 1	432.756	b
-200	Mary	\N	1	Street 2	1123.123	
-200	Mary	\N	1	Street 2	1123.123	
-200	Mary	\N	1	Street 2	123.434	
-200	Mary	\N	1	Street 2	123.434	
-200	Mary	\N	1	Street 2	432.756	
-200	Mary	\N	1	Street 2	432.756	
+200	Mary	\N	1	Street 2	1123.123	\N
+200	Mary	\N	1	Street 2	1123.123	\N
+200	Mary	\N	1	Street 2	123.434	\N
+200	Mary	\N	1	Street 2	123.434	\N
+200	Mary	\N	1	Street 2	432.756	\N
+200	Mary	\N	1	Street 2	432.756	\N
 200	Mary	\N	1	Street 2	1123.123	b
 200	Mary	\N	1	Street 2	123.434	b
 200	Mary	\N	1	Street 2	432.756	b
-300	Mike	80	3	Street 3	1123.123	
-300	Mike	80	3	Street 3	1123.123	
-300	Mike	80	3	Street 3	123.434	
-300	Mike	80	3	Street 3	123.434	
-300	Mike	80	3	Street 3	432.756	
-300	Mike	80	3	Street 3	432.756	
+300	Mike	80	3	Street 3	1123.123	\N
+300	Mike	80	3	Street 3	1123.123	\N
+300	Mike	80	3	Street 3	123.434	\N
+300	Mike	80	3	Street 3	123.434	\N
+300	Mike	80	3	Street 3	432.756	\N
+300	Mike	80	3	Street 3	432.756	\N
 300	Mike	80	3	Street 3	1123.123	b
 300	Mike	80	3	Street 3	123.434	b
 300	Mike	80	3	Street 3	432.756	b
-400	Dan	50	4	Street 4	1123.123	
-400	Dan	50	4	Street 4	1123.123	
-400	Dan	50	4	Street 4	123.434	
-400	Dan	50	4	Street 4	123.434	
-400	Dan	50	4	Street 4	432.756	
-400	Dan	50	4	Street 4	432.756	
+400	Dan	50	4	Street 4	1123.123	\N
+400	Dan	50	4	Street 4	1123.123	\N
+400	Dan	50	4	Street 4	123.434	\N
+400	Dan	50	4	Street 4	123.434	\N
+400	Dan	50	4	Street 4	432.756	\N
+400	Dan	50	4	Street 4	432.756	\N
 400	Dan	50	4	Street 4	1123.123	b
 400	Dan	50	4	Street 4	123.434	b
 400	Dan	50	4	Street 4	432.756	b
 
 -- !explode_json_array20 --
-100	John	30	1	Street 1	false	
-100	John	30	1	Street 1	false	
-100	John	30	1	Street 1	true	
-100	John	30	1	Street 1	true	
+100	John	30	1	Street 1	false	\N
+100	John	30	1	Street 1	false	\N
+100	John	30	1	Street 1	true	\N
+100	John	30	1	Street 1	true	\N
 100	John	30	1	Street 1	false	b
 100	John	30	1	Street 1	true	b
-200	Mary	\N	1	Street 2	false	
-200	Mary	\N	1	Street 2	false	
-200	Mary	\N	1	Street 2	true	
-200	Mary	\N	1	Street 2	true	
+200	Mary	\N	1	Street 2	false	\N
+200	Mary	\N	1	Street 2	false	\N
+200	Mary	\N	1	Street 2	true	\N
+200	Mary	\N	1	Street 2	true	\N
 200	Mary	\N	1	Street 2	false	b
 200	Mary	\N	1	Street 2	true	b
-300	Mike	80	3	Street 3	false	
-300	Mike	80	3	Street 3	false	
-300	Mike	80	3	Street 3	true	
-300	Mike	80	3	Street 3	true	
+300	Mike	80	3	Street 3	false	\N
+300	Mike	80	3	Street 3	false	\N
+300	Mike	80	3	Street 3	true	\N
+300	Mike	80	3	Street 3	true	\N
 300	Mike	80	3	Street 3	false	b
 300	Mike	80	3	Street 3	true	b
-400	Dan	50	4	Street 4	false	
-400	Dan	50	4	Street 4	false	
-400	Dan	50	4	Street 4	true	
-400	Dan	50	4	Street 4	true	
+400	Dan	50	4	Street 4	false	\N
+400	Dan	50	4	Street 4	false	\N
+400	Dan	50	4	Street 4	true	\N
+400	Dan	50	4	Street 4	true	\N
 400	Dan	50	4	Street 4	false	b
 400	Dan	50	4	Street 4	true	b
 
@@ -385,4 +386,142 @@
 4	{"a":1}
 4	{"b":2}
 4	{"c":3}
+
+-- !explode_json_array_double1 --
+1	\N
+1	4.0
+1	5.0
+1	5.23
+
+-- !explode_json_array_double2 --
+1	-9.223372036854776E18
+1	-9.223372036854776E18
+1	123.445
+1	9.223372036854776E18
+1	9.223372036854776E18
+
+-- !explode_json_array_double3 --
+
+-- !explode_json_array_double4 --
+
+-- !explode_json_array_double5 --
+
+-- !explode_json_array_double_outer1 --
+1	\N
+1	4.0
+1	5.0
+1	5.23
+
+-- !explode_json_array_double_outer2 --
+1	-9.223372036854776E18
+1	-9.223372036854776E18
+1	123.445
+1	9.223372036854776E18
+1	9.223372036854776E18
+
+-- !explode_json_array_double_outer3 --
+1	\N
+
+-- !explode_json_array_double_outer4 --
+1	\N
+
+-- !explode_json_array_double_outer5 --
+1	\N
+
+-- !explode_json_array_int1 --
+1	\N
+1	4
+1	5
+1	5
+
+-- !explode_json_array_int2 --
+1	\N
+1	\N
+1	123
+1	9223372036854774784
+
+-- !explode_json_array_int3 --
+
+-- !explode_json_array_int4 --
+
+-- !explode_json_array_int5 --
+
+-- !explode_json_array_int_outer1 --
+1	\N
+1	4
+1	5
+1	5
+
+-- !explode_json_array_int_outer2 --
+1	\N
+1	\N
+1	123
+1	9223372036854774784
+
+-- !explode_json_array_int_outer3 --
+1	\N
+
+-- !explode_json_array_int_outer4 --
+1	\N
+
+-- !explode_json_array_int_outer5 --
+1	\N
+
+-- !explode_json_array_string1 --
+1	\N
+1	4
+1	5
+1	5.23
+1	abc
+
+-- !explode_json_array_string2 --
+
+-- !explode_json_array_string3 --
+
+-- !explode_json_array_string4 --
+
+-- !explode_json_array_string_outer1 --
+1	\N
+1	4
+1	5
+1	5.23
+1	abc
+
+-- !explode_json_array_string_outer2 --
+1	\N
+
+-- !explode_json_array_string_outer3 --
+1	\N
+
+-- !explode_json_array_string_outer4 --
+1	\N
+
+-- !explode_json_array_json1 --
+1	\N
+1	4
+1	5.23
+1	"abc"
+1	{"key":"value"}
+
+-- !explode_json_array_json2 --
+
+-- !explode_json_array_json3 --
+
+-- !explode_json_array_json4 --
+
+-- !explode_json_array_json_outer1 --
+1	\N
+1	4
+1	5.23
+1	"5"
+1	"abc"
+
+-- !explode_json_array_json_outer2 --
+1	\N
+
+-- !explode_json_array_json_outer3 --
+1	\N
+
+-- !explode_json_array_json_outer4 --
+1	\N
 

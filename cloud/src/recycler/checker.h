@@ -107,6 +107,8 @@ public:
 
     int do_mow_job_key_check();
 
+    int do_restore_job_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
@@ -133,7 +135,7 @@ private:
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
 
-    int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
+    int traverse_mow_tablet(const std::function<int(int64_t, bool)>& check_func);
     int traverse_rowset_delete_bitmaps(
             int64_t tablet_id, std::string rowset_id,
             const std::function<int(int64_t, std::string_view, int64_t, int64_t)>& callback);
@@ -142,7 +144,8 @@ private:
             const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
     int get_pending_delete_bitmap_keys(int64_t tablet_id,
                                        std::unordered_set<std::string>& pending_delete_bitmaps);
-    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, int64_t& abnormal_rowsets_num);
+    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, bool has_sequence_col,
+                                                int64_t& abnormal_rowsets_num);
 
     int check_inverted_index_file_storage_format_v1(int64_t tablet_id, const std::string& file_path,
                                                     const std::string& rowset_info,

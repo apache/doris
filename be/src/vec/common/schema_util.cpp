@@ -190,6 +190,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     ctx->set_string_as_jsonb_string(true);
     ctx->set_jsonb_string_as_string(true);
     tmp_block.insert({nullptr, type, arg.name});
+    // TODO(lihangyu): we should handle this error in strict mode
     if (!function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size())) {
         LOG_EVERY_N(WARNING, 100) << fmt::format("cast from {} to {}", arg.type->get_name(),
                                                  type->get_name());
@@ -243,17 +244,17 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_length(cast_set<int32_t>(data_type->get_size_of_value_in_memory()));
         return;
     }
-    // TODO(lihangyu): uncomment
-    // if (is_decimal(type)) {
-    //     column.set_precision_frac(data_type->get_precision(), data_type->get_scale());
-    //     column.set_is_decimal(true);
-    //     return;
-    // }
-    // // datetimev2 needs scale
-    // if (type == PrimitiveType::TYPE_DATETIMEV2) {
-    //     column.set_precision_frac(-1, data_type->get_scale());
-    //     return;
-    // }
+    if (is_decimal(type)) {
+        column.set_precision(data_type->get_precision());
+        column.set_frac(data_type->get_scale());
+        return;
+    }
+    // datetimev2 needs scale
+    if (type == PrimitiveType::TYPE_DATETIMEV2) {
+        column.set_precision(-1);
+        column.set_frac(data_type->get_scale());
+        return;
+    }
 
     throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                            "unexcepted data column type: {}, column name is: {}",
@@ -437,21 +438,25 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     }
 
     // 2. inverted index
-    std::vector<TabletIndex> indexes_to_update;
+    TabletIndexes indexes_to_add;
     auto source_indexes = (*target_schema)->inverted_indexs(source.unique_id());
-    for (const auto& source_index_meta : source_indexes) {
-        TabletIndex index_info = *source_index_meta;
-        index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        indexes_to_update.emplace_back(std::move(index_info));
+    // if target is variant type, we need to inherit all indexes
+    // because this schema is a read schema from fe
+    if (target.is_variant_type()) {
+        for (auto& index : source_indexes) {
+            auto index_info = std::make_shared<TabletIndex>(*index);
+            index_info->set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
+            indexes_to_add.emplace_back(std::move(index_info));
+        }
+    } else {
+        inherit_index(source_indexes, indexes_to_add, target);
     }
     auto target_indexes = (*target_schema)
                                   ->inverted_indexs(target.parent_unique_id(),
                                                     target.path_info_ptr()->get_path());
-    if (!target_indexes.empty()) {
-        (*target_schema)->update_index(target, IndexType::INVERTED, std::move(indexes_to_update));
-    } else {
-        for (auto& index_info : indexes_to_update) {
-            (*target_schema)->append_index(std::move(index_info));
+    if (target_indexes.empty()) {
+        for (auto& index_info : indexes_to_add) {
+            (*target_schema)->append_index(std::move(*index_info));
         }
     }
 
@@ -508,21 +513,8 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         build_schema_without_extracted_columns(base_schema);
     }
 
-    // schema consists of two parts, static part of columns, variant columns (include extracted columns and sparse columns)
-    //     static     extracted       sparse
-    // | --------- | ----------- | ------------|
-    // If a sparse column in one schema's is found in another schema's extracted columns
-    // move it out of the sparse column and merge it into the extracted column.
-    //                     static                extracted                         sparse
-    //                 | --------- | ----------- ------------ ------- ---------| ------------|
-    //    schema 1:       k (int)     v:a (float)       v:c (string)               v:b (int)
-    //    schema 2:       k (int)     v:a (float)       v:b (bigint)               v:d (string)
-    //    schema 3:       k (int)     v:a (double)      v:b (smallint)
-    //    result :        k (int)     v:a (double)  v:b (bigint) v:c (string)      v:d (string)
     for (int32_t unique_id : variant_column_unique_id) {
         std::set<PathInData> path_set;
-        // 1. cast extracted column to common type
-        // path set is used to record the paths of those sparse columns that have been merged into the extracted columns, eg: v:b
         RETURN_IF_ERROR(update_least_common_schema(schemas, output_schema, unique_id, &path_set));
     }
 
@@ -629,20 +621,17 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     auto new_schema_inverted_indexs = new_schema->inverted_indexs(column_new);
     auto old_schema_inverted_indexs = old_schema->inverted_indexs(column_old);
 
-    // TODO(lihangyu): multi indexes, use comment to replace this
-    return new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size();
+    if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
+        return true;
+    }
 
-    // if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
-    //     return true;
-    // }
+    for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
+        if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
+            return true;
+        }
+    }
 
-    // for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
-    //     if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
-    //         return true;
-    //     }
-    // }
-
-    // return false;
+    return false;
 }
 
 TabletColumn create_sparse_column(const TabletColumn& variant) {
@@ -661,7 +650,7 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     return res;
 }
 
-Status aggregate_path_to_stats(
+Status VariantCompactionUtil::aggregate_path_to_stats(
         const RowsetSharedPtr& rs,
         std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats) {
     SegmentCacheHandle segment_cache;
@@ -674,15 +663,17 @@ Status aggregate_path_to_stats(
         }
 
         for (const auto& segment : segment_cache.get_segments()) {
-            segment_v2::ColumnReader* column_reader = nullptr;
-            RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader));
+            std::shared_ptr<ColumnReader> column_reader;
+            OlapReaderStatistics stats;
+            RETURN_IF_ERROR(
+                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
             if (!column_reader) {
                 continue;
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader);
+                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -699,7 +690,7 @@ Status aggregate_path_to_stats(
     return Status::OK();
 }
 
-Status aggregate_variant_extended_info(
+Status VariantCompactionUtil::aggregate_variant_extended_info(
         const RowsetSharedPtr& rs,
         std::unordered_map<int32_t, VariantExtendedInfo>* uid_to_variant_extended_info) {
     SegmentCacheHandle segment_cache;
@@ -710,17 +701,18 @@ Status aggregate_variant_extended_info(
         if (!column->is_variant_type()) {
             continue;
         }
-
         for (const auto& segment : segment_cache.get_segments()) {
-            segment_v2::ColumnReader* column_reader = nullptr;
-            RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader));
+            std::shared_ptr<ColumnReader> column_reader;
+            OlapReaderStatistics stats;
+            RETURN_IF_ERROR(
+                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
             if (!column_reader) {
                 continue;
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             const auto* variant_column_reader =
-                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader);
+                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader.get());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
@@ -753,326 +745,389 @@ Status aggregate_variant_extended_info(
     return Status::OK();
 }
 
-// // TODO(lihangyu): uncomment
-// // get the subpaths and sparse paths for the variant column
-// void get_subpaths(int32_t max_subcolumns_count, const PathToNoneNullValues& stats,
-//                   TabletSchema::PathsSetInfo& paths_set_info) {
-//     if (stats.size() > max_subcolumns_count) {
-//         // 按非空值数量排序
-//         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
-//         paths_with_sizes.reserve(stats.size());
-//         for (const auto& [path, size] : stats) {
-//             paths_with_sizes.emplace_back(size, path);
-//         }
-//         std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
-//
-//         // Select top N paths as subcolumns, remaining paths as sparse columns
-//         for (const auto& [size, path] : paths_with_sizes) {
-//             if (paths_set_info.sub_path_set.size() < max_subcolumns_count) {
-//                 paths_set_info.sub_path_set.emplace(path);
-//             } else {
-//                 paths_set_info.sparse_path_set.emplace(path);
-//             }
-//         }
-//         LOG(INFO) << "subpaths " << paths_set_info.sub_path_set.size() << " sparse paths "
-//                   << paths_set_info.sparse_path_set.size() << " variant max subcolumns count "
-//                   << max_subcolumns_count << " stats size " << paths_with_sizes.size();
-//     } else {
-//         // Apply all paths as subcolumns
-//         for (const auto& [path, _] : stats) {
-//             paths_set_info.sub_path_set.emplace(path);
-//         }
-//     }
-// }
-//
-// // Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetSharedPtr output,
-//                         BaseTabletSPtr tablet) {
-//     // only check path stats for dup_keys since the rows may be merged in other models
-//     if (tablet->keys_type() != KeysType::DUP_KEYS) {
-//         return Status::OK();
-//     }
-//     // if there is a delete predicate in the input rowsets, we skip the path stats check
-//     for (auto& rowset : intputs) {
-//         if (rowset->rowset_meta()->has_delete_predicate()) {
-//             return Status::OK();
-//         }
-//     }
-//     std::unordered_map<int32_t, PathToNoneNullValues> original_uid_to_path_stats;
-//     for (const auto& rs : intputs) {
-//         RETURN_IF_ERROR(aggregate_path_to_stats(rs, &original_uid_to_path_stats));
-//     }
-//     std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
-//     RETURN_IF_ERROR(aggregate_path_to_stats(output, &output_uid_to_path_stats));
-//     for (const auto& [uid, stats] : output_uid_to_path_stats) {
-//         if (original_uid_to_path_stats.find(uid) == original_uid_to_path_stats.end()) {
-//             return Status::InternalError("Path stats not found for uid {}, tablet_id {}", uid,
-//                                          tablet->tablet_id());
-//         }
-//
-//         // In input rowsets, some rowsets may have statistics values exceeding the maximum limit,
-//         // which leads to inaccurate statistics
-//         if (stats.size() > config::variant_max_sparse_column_statistics_size) {
-//             // When there is only one segment, we can ensure that the size of each path in output stats is accurate
-//             if (output->num_segments() == 1) {
-//                 for (const auto& [path, size] : stats) {
-//                     if (original_uid_to_path_stats.at(uid).find(path) ==
-//                         original_uid_to_path_stats.at(uid).end()) {
-//                         continue;
-//                     }
-//                     if (original_uid_to_path_stats.at(uid).at(path) > size) {
-//                         return Status::InternalError(
-//                                 "Path stats not smaller for uid {} with path `{}`, input size {}, "
-//                                 "output "
-//                                 "size {}, "
-//                                 "tablet_id {}",
-//                                 uid, path, original_uid_to_path_stats.at(uid).at(path), size,
-//                                 tablet->tablet_id());
-//                     }
-//                 }
-//             }
-//         }
-//         // in this case, input stats is accurate, so we check the stats size and stats value
-//         else {
-//             for (const auto& [path, size] : stats) {
-//                 if (original_uid_to_path_stats.at(uid).at(path) != size) {
-//                     return Status::InternalError(
-//                             "Path stats not match for uid {} with path `{}`, input size {}, output "
-//                             "size {}, "
-//                             "tablet_id {}",
-//                             uid, path, original_uid_to_path_stats.at(uid).at(path), size,
-//                             tablet->tablet_id());
-//                 }
-//             }
-//         }
-//     }
-//     return Status::OK();
-// }
-//
-// Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
-//                                     const std::unordered_set<std::string>& typed_paths,
-//                                     const TabletColumnPtr parent_column,
-//                                     TabletSchemaSPtr& output_schema,
-//                                     TabletSchema::PathsSetInfo& paths_set_info) {
-//     if (parent_column->variant_enable_typed_paths_to_sparse()) {
-//         return Status::OK();
-//     }
-//     for (const auto& path : typed_paths) {
-//         TabletSchema::SubColumnInfo sub_column_info;
-//         if (generate_sub_column_info(*target, parent_column->unique_id(), path, &sub_column_info)) {
-//             vectorized::schema_util::inherit_column_attributes(*parent_column,
-//                                                                sub_column_info.column);
-//             output_schema->append_column(sub_column_info.column);
-//             paths_set_info.typed_path_set.insert({path, std::move(sub_column_info)});
-//             VLOG_DEBUG << "append typed column " << path;
-//         } else {
-//             return Status::InternalError("Failed to generate sub column info for path {}", path);
-//         }
-//     }
-//     return Status::OK();
-// }
-//
-// Status get_compaction_nested_columns(
-//         const std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>&
-//                 nested_paths,
-//         const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
-//         TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info) {
-//     const auto& parent_indexes = output_schema->inverted_indexs(parent_column->unique_id());
-//     for (const auto& path : nested_paths) {
-//         const auto& find_data_types = path_to_data_types.find(path);
-//         if (find_data_types == path_to_data_types.end() || find_data_types->second.empty()) {
-//             return Status::InternalError("Nested path {} has no data type", path.get_path());
-//         }
-//         DataTypePtr data_type;
-//         get_least_supertype_jsonb(find_data_types->second, &data_type);
-//
-//         const std::string& column_name = parent_column->name_lower_case() + "." + path.get_path();
-//         vectorized::PathInDataBuilder full_path_builder;
-//         auto full_path = full_path_builder.append(parent_column->name_lower_case(), false)
-//                                  .append(path.get_parts(), false)
-//                                  .build();
-//         TabletColumn nested_column = get_column_by_type(
-//                 data_type, column_name,
-//                 vectorized::schema_util::ExtraInfo {.unique_id = -1,
-//                                                     .parent_unique_id = parent_column->unique_id(),
-//                                                     .path_info = full_path});
-//         vectorized::schema_util::inherit_column_attributes(*parent_column, nested_column);
-//         TabletIndexes sub_column_indexes;
-//         vectorized::schema_util::inherit_index(parent_indexes, sub_column_indexes, nested_column);
-//         paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
-//         output_schema->append_column(nested_column);
-//         VLOG_DEBUG << "append nested column " << path.get_path();
-//     }
-//     return Status::OK();
-// }
-//
-// void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
-//                                const TabletColumnPtr parent_column, const TabletSchemaSPtr& target,
-//                                const PathToDataTypes& path_to_data_types,
-//                                const std::unordered_set<std::string>& sparse_paths,
-//                                TabletSchemaSPtr& output_schema) {
-//     auto& path_set = paths_set_info.sub_path_set;
-//     std::vector<StringRef> sorted_subpaths(path_set.begin(), path_set.end());
-//     std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
-//     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
-//     // append subcolumns
-//     for (const auto& subpath : sorted_subpaths) {
-//         auto column_name = parent_column->name_lower_case() + "." + subpath.to_string();
-//         auto column_path = PathInData(column_name);
-//
-//         const auto& find_data_types = path_to_data_types.find(PathInData(subpath));
-//
-//         // some cases: the subcolumn type is variant
-//         // 1. this path has no data type in segments
-//         // 2. this path is in sparse paths
-//         // 3. the sparse paths are too much
-//         TabletSchema::SubColumnInfo sub_column_info;
-//         if (parent_column->variant_enable_typed_paths_to_sparse() &&
-//             generate_sub_column_info(*target, parent_column->unique_id(), std::string(subpath),
-//                                      &sub_column_info)) {
-//             vectorized::schema_util::inherit_column_attributes(*parent_column,
-//                                                                sub_column_info.column);
-//             output_schema->append_column(sub_column_info.column);
-//             paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_info.indexes));
-//             VLOG_DEBUG << "append typed column " << subpath;
-//         } else if (find_data_types == path_to_data_types.end() || find_data_types->second.empty() ||
-//                    sparse_paths.find(std::string(subpath)) != sparse_paths.end() ||
-//                    sparse_paths.size() >= config::variant_max_sparse_column_statistics_size) {
-//             TabletColumn subcolumn;
-//             subcolumn.set_name(column_name);
-//             subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-//             subcolumn.set_parent_unique_id(parent_column->unique_id());
-//             subcolumn.set_path_info(column_path);
-//             subcolumn.set_aggregation_method(parent_column->aggregation());
-//             subcolumn.set_variant_max_subcolumns_count(
-//                     parent_column->variant_max_subcolumns_count());
-//             subcolumn.set_variant_enable_typed_paths_to_sparse(
-//                     parent_column->variant_enable_typed_paths_to_sparse());
-//             subcolumn.set_is_nullable(true);
-//             output_schema->append_column(subcolumn);
-//             VLOG_DEBUG << "append sub column " << subpath << " data type "
-//                        << "VARIANT";
-//         }
-//         // normal case: the subcolumn type can be calculated from the data types in segments
-//         else {
-//             DataTypePtr data_type;
-//             get_least_supertype_jsonb(find_data_types->second, &data_type);
-//             TabletColumn sub_column =
-//                     get_column_by_type(data_type, column_name,
-//                                        vectorized::schema_util::ExtraInfo {
-//                                                .unique_id = -1,
-//                                                .parent_unique_id = parent_column->unique_id(),
-//                                                .path_info = column_path});
-//             vectorized::schema_util::inherit_column_attributes(*parent_column, sub_column);
-//             TabletIndexes sub_column_indexes;
-//             vectorized::schema_util::inherit_index(parent_indexes, sub_column_indexes, sub_column);
-//             paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_indexes));
-//             output_schema->append_column(sub_column);
-//             VLOG_DEBUG << "append sub column " << subpath << " data type " << data_type->get_name();
-//         }
-//     }
-// }
-//
-// // Build the temporary schema for compaction
-// // 1. aggregate path stats and data types from all rowsets
-// // 2. append typed columns and nested columns to the output schema
-// // 3. sort the subpaths and sparse paths for each unique id
-// // 4. append the subpaths and sparse paths to the output schema
-// // 5. set the path set info for each unique id
-// // 6. return the output schema
-// Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
-//                                       TabletSchemaSPtr& target) {
-//     std::unordered_map<int32_t, VariantExtendedInfo> uid_to_variant_extended_info;
-//     // collect path stats from all rowsets and segments
-//     for (const auto& rs : rowsets) {
-//         RETURN_IF_ERROR(aggregate_variant_extended_info(rs, &uid_to_variant_extended_info));
-//     }
-//
-//     // build the output schema
-//     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
-//     output_schema->shawdow_copy_without_columns(*target);
-//     std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-//     for (const TabletColumnPtr& column : target->columns()) {
-//         output_schema->append_column(*column);
-//         if (!column->is_variant_type()) {
-//             continue;
-//         }
-//         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
-//
-//         // 1. append typed columns
-//         RETURN_IF_ERROR(get_compaction_typed_columns(
-//                 target, uid_to_variant_extended_info[column->unique_id()].typed_paths, column,
-//                 output_schema, uid_to_paths_set_info[column->unique_id()]));
-//         // 2. append nested columns
-//         RETURN_IF_ERROR(get_compaction_nested_columns(
-//                 uid_to_variant_extended_info[column->unique_id()].nested_paths,
-//                 uid_to_variant_extended_info[column->unique_id()].path_to_data_types, column,
-//                 output_schema, uid_to_paths_set_info[column->unique_id()]));
-//
-//         // 3. get the subpaths
-//         get_subpaths(column->variant_max_subcolumns_count(),
-//                      uid_to_variant_extended_info[column->unique_id()].path_to_none_null_values,
-//                      uid_to_paths_set_info[column->unique_id()]);
-//
-//         // 4. append subcolumns
-//         get_compaction_subcolumns(
-//                 uid_to_paths_set_info[column->unique_id()], column, target,
-//                 uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
-//                 uid_to_variant_extended_info[column->unique_id()].sparse_paths, output_schema);
-//
-//         // append sparse column
-//         TabletColumn sparse_column = create_sparse_column(*column);
-//         output_schema->append_column(sparse_column);
-//     }
-//
-//     target = output_schema;
-//     // used to merge & filter path to sparse column during reading in compaction
-//     target->set_path_set_info(std::move(uid_to_paths_set_info));
-//     VLOG_DEBUG << "dump schema " << target->dump_full_schema();
-//     return Status::OK();
-// }
-//
-// // Calculate statistics about variant data paths from the encoded sparse column
-// void calculate_variant_stats(const IColumn& encoded_sparse_column,
-//                              segment_v2::VariantStatisticsPB* stats, size_t row_pos,
-//                              size_t num_rows) {
-//     // Cast input column to ColumnMap type since sparse column is stored as a map
-//     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
-//
-//     // Get the keys column which contains the paths as strings
-//     const auto& sparse_data_paths =
-//             assert_cast<const ColumnString*>(map_column.get_keys_ptr().get());
-//     const auto& serialized_sparse_column_offsets =
-//             assert_cast<const ColumnArray::Offsets64&>(map_column.get_offsets());
-//     auto& count_map = *stats->mutable_sparse_column_non_null_size();
-//     // Iterate through all paths in the sparse column
-//     for (size_t i = row_pos; i != row_pos + num_rows; ++i) {
-//         size_t offset = serialized_sparse_column_offsets[i - 1];
-//         size_t end = serialized_sparse_column_offsets[i];
-//         for (size_t j = offset; j != end; ++j) {
-//             auto path = sparse_data_paths->get_data_at(j);
-//
-//             const auto& sparse_path = path.to_string();
-//             // If path already exists in statistics, increment its count
-//             if (auto it = count_map.find(sparse_path); it != count_map.end()) {
-//                 ++it->second;
-//             }
-//             // If path doesn't exist and we haven't hit the max statistics size limit,
-//             // add it with count 1
-//             else if (count_map.size() < config::variant_max_sparse_column_statistics_size) {
-//                 count_map.emplace(sparse_path, 1);
-//             }
-//         }
-//     }
-//
-//     if (stats->sparse_column_non_null_size().size() >
-//         config::variant_max_sparse_column_statistics_size) {
-//         throw doris::Exception(
-//                 ErrorCode::INTERNAL_ERROR,
-//                 "Sparse column non null size: {} is greater than max statistics size: {}",
-//                 stats->sparse_column_non_null_size().size(),
-//                 config::variant_max_sparse_column_statistics_size);
-//     }
-// }
+// get the subpaths and sparse paths for the variant column
+void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
+                                         const PathToNoneNullValues& stats,
+                                         TabletSchema::PathsSetInfo& paths_set_info) {
+    // max_subcolumns_count is 0 means no limit
+    if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
+        std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
+        paths_with_sizes.reserve(stats.size());
+        for (const auto& [path, size] : stats) {
+            paths_with_sizes.emplace_back(size, path);
+        }
+        std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
+
+        // Select top N paths as subcolumns, remaining paths as sparse columns
+        for (const auto& [size, path] : paths_with_sizes) {
+            if (paths_set_info.sub_path_set.size() < max_subcolumns_count) {
+                paths_set_info.sub_path_set.emplace(path);
+            } else {
+                paths_set_info.sparse_path_set.emplace(path);
+            }
+        }
+        LOG(INFO) << "subpaths " << paths_set_info.sub_path_set.size() << " sparse paths "
+                  << paths_set_info.sparse_path_set.size() << " variant max subcolumns count "
+                  << max_subcolumns_count << " stats size " << paths_with_sizes.size();
+    } else {
+        // Apply all paths as subcolumns
+        for (const auto& [path, _] : stats) {
+            paths_set_info.sub_path_set.emplace(path);
+        }
+    }
+}
+
+Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr>& intputs,
+                                               RowsetSharedPtr output, BaseTabletSPtr tablet) {
+    if (output->tablet_schema()->num_variant_columns() == 0) {
+        return Status::OK();
+    }
+    // check no extended schema in input rowsets
+    for (const auto& rowset : intputs) {
+        for (const auto& column : rowset->tablet_schema()->columns()) {
+            if (column->is_extracted_column()) {
+                return Status::OK();
+            }
+        }
+    }
+    // check no extended schema in output rowset
+    for (const auto& column : output->tablet_schema()->columns()) {
+        if (column->is_extracted_column()) {
+            return Status::InternalError("Unexpected extracted column {} in output rowset",
+                                         column->name());
+        }
+    }
+    // only check path stats for dup_keys since the rows may be merged in other models
+    if (tablet->keys_type() != KeysType::DUP_KEYS) {
+        return Status::OK();
+    }
+    // if there is a delete predicate in the input rowsets, we skip the path stats check
+    for (auto& rowset : intputs) {
+        if (rowset->rowset_meta()->has_delete_predicate()) {
+            return Status::OK();
+        }
+    }
+    std::unordered_map<int32_t, PathToNoneNullValues> original_uid_to_path_stats;
+    for (const auto& rs : intputs) {
+        RETURN_IF_ERROR(aggregate_path_to_stats(rs, &original_uid_to_path_stats));
+    }
+    std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
+    RETURN_IF_ERROR(aggregate_path_to_stats(output, &output_uid_to_path_stats));
+    for (const auto& [uid, stats] : output_uid_to_path_stats) {
+        if (original_uid_to_path_stats.find(uid) == original_uid_to_path_stats.end()) {
+            return Status::InternalError("Path stats not found for uid {}, tablet_id {}", uid,
+                                         tablet->tablet_id());
+        }
+
+        // In input rowsets, some rowsets may have statistics values exceeding the maximum limit,
+        // which leads to inaccurate statistics
+        if (stats.size() > config::variant_max_sparse_column_statistics_size) {
+            // When there is only one segment, we can ensure that the size of each path in output stats is accurate
+            if (output->num_segments() == 1) {
+                for (const auto& [path, size] : stats) {
+                    if (original_uid_to_path_stats.at(uid).find(path) ==
+                        original_uid_to_path_stats.at(uid).end()) {
+                        continue;
+                    }
+                    if (original_uid_to_path_stats.at(uid).at(path) > size) {
+                        return Status::InternalError(
+                                "Path stats not smaller for uid {} with path `{}`, input size {}, "
+                                "output "
+                                "size {}, "
+                                "tablet_id {}",
+                                uid, path, original_uid_to_path_stats.at(uid).at(path), size,
+                                tablet->tablet_id());
+                    }
+                }
+            }
+        }
+        // in this case, input stats is accurate, so we check the stats size and stats value
+        else {
+            for (const auto& [path, size] : stats) {
+                if (original_uid_to_path_stats.at(uid).find(path) ==
+                    original_uid_to_path_stats.at(uid).end()) {
+                    return Status::InternalError(
+                            "Path stats not found for uid {}, path {}, tablet_id {}", uid, path,
+                            tablet->tablet_id());
+                }
+                if (original_uid_to_path_stats.at(uid).at(path) != size) {
+                    return Status::InternalError(
+                            "Path stats not match for uid {} with path `{}`, input size {}, output "
+                            "size {}, "
+                            "tablet_id {}",
+                            uid, path, original_uid_to_path_stats.at(uid).at(path), size,
+                            tablet->tablet_id());
+                }
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+Status VariantCompactionUtil::get_compaction_typed_columns(
+        const TabletSchemaSPtr& target, const std::unordered_set<std::string>& typed_paths,
+        const TabletColumnPtr parent_column, TabletSchemaSPtr& output_schema,
+        TabletSchema::PathsSetInfo& paths_set_info) {
+    if (parent_column->variant_enable_typed_paths_to_sparse()) {
+        return Status::OK();
+    }
+    for (const auto& path : typed_paths) {
+        TabletSchema::SubColumnInfo sub_column_info;
+        if (generate_sub_column_info(*target, parent_column->unique_id(), path, &sub_column_info)) {
+            vectorized::schema_util::inherit_column_attributes(*parent_column,
+                                                               sub_column_info.column);
+            output_schema->append_column(sub_column_info.column);
+            paths_set_info.typed_path_set.insert({path, std::move(sub_column_info)});
+            VLOG_DEBUG << "append typed column " << path;
+        } else {
+            return Status::InternalError("Failed to generate sub column info for path {}", path);
+        }
+    }
+    return Status::OK();
+}
+
+Status VariantCompactionUtil::get_compaction_nested_columns(
+        const std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>&
+                nested_paths,
+        const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
+        TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info) {
+    const auto& parent_indexes = output_schema->inverted_indexs(parent_column->unique_id());
+    for (const auto& path : nested_paths) {
+        const auto& find_data_types = path_to_data_types.find(path);
+        if (find_data_types == path_to_data_types.end() || find_data_types->second.empty()) {
+            return Status::InternalError("Nested path {} has no data type", path.get_path());
+        }
+        DataTypePtr data_type;
+        get_least_supertype_jsonb(find_data_types->second, &data_type);
+
+        const std::string& column_name = parent_column->name_lower_case() + "." + path.get_path();
+        vectorized::PathInDataBuilder full_path_builder;
+        auto full_path = full_path_builder.append(parent_column->name_lower_case(), false)
+                                 .append(path.get_parts(), false)
+                                 .build();
+        TabletColumn nested_column = get_column_by_type(
+                data_type, column_name,
+                vectorized::schema_util::ExtraInfo {.unique_id = -1,
+                                                    .parent_unique_id = parent_column->unique_id(),
+                                                    .path_info = full_path});
+        vectorized::schema_util::inherit_column_attributes(*parent_column, nested_column);
+        TabletIndexes sub_column_indexes;
+        vectorized::schema_util::inherit_index(parent_indexes, sub_column_indexes, nested_column);
+        paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
+        output_schema->append_column(nested_column);
+        VLOG_DEBUG << "append nested column " << path.get_path();
+    }
+    return Status::OK();
+}
+
+void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
+        TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+        const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
+        const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema) {
+    auto& path_set = paths_set_info.sub_path_set;
+    std::vector<StringRef> sorted_subpaths(path_set.begin(), path_set.end());
+    std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
+    const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
+    // append subcolumns
+    for (const auto& subpath : sorted_subpaths) {
+        auto column_name = parent_column->name_lower_case() + "." + subpath.to_string();
+        auto column_path = PathInData(column_name);
+
+        const auto& find_data_types = path_to_data_types.find(PathInData(subpath));
+
+        // some cases: the subcolumn type is variant
+        // 1. this path has no data type in segments
+        // 2. this path is in sparse paths
+        // 3. the sparse paths are too much
+        TabletSchema::SubColumnInfo sub_column_info;
+        if (parent_column->variant_enable_typed_paths_to_sparse() &&
+            generate_sub_column_info(*target, parent_column->unique_id(), std::string(subpath),
+                                     &sub_column_info)) {
+            vectorized::schema_util::inherit_column_attributes(*parent_column,
+                                                               sub_column_info.column);
+            output_schema->append_column(sub_column_info.column);
+            paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_info.indexes));
+            VLOG_DEBUG << "append typed column " << subpath;
+        } else if (find_data_types == path_to_data_types.end() || find_data_types->second.empty() ||
+                   sparse_paths.find(std::string(subpath)) != sparse_paths.end() ||
+                   sparse_paths.size() >= config::variant_max_sparse_column_statistics_size) {
+            TabletColumn subcolumn;
+            subcolumn.set_name(column_name);
+            subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+            subcolumn.set_parent_unique_id(parent_column->unique_id());
+            subcolumn.set_path_info(column_path);
+            subcolumn.set_aggregation_method(parent_column->aggregation());
+            subcolumn.set_variant_max_subcolumns_count(
+                    parent_column->variant_max_subcolumns_count());
+            subcolumn.set_variant_enable_typed_paths_to_sparse(
+                    parent_column->variant_enable_typed_paths_to_sparse());
+            subcolumn.set_is_nullable(true);
+            output_schema->append_column(subcolumn);
+            VLOG_DEBUG << "append sub column " << subpath << " data type "
+                       << "VARIANT";
+        }
+        // normal case: the subcolumn type can be calculated from the data types in segments
+        else {
+            DataTypePtr data_type;
+            get_least_supertype_jsonb(find_data_types->second, &data_type);
+            TabletColumn sub_column =
+                    get_column_by_type(data_type, column_name,
+                                       vectorized::schema_util::ExtraInfo {
+                                               .unique_id = -1,
+                                               .parent_unique_id = parent_column->unique_id(),
+                                               .path_info = column_path});
+            vectorized::schema_util::inherit_column_attributes(*parent_column, sub_column);
+            TabletIndexes sub_column_indexes;
+            vectorized::schema_util::inherit_index(parent_indexes, sub_column_indexes, sub_column);
+            paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_indexes));
+            output_schema->append_column(sub_column);
+            VLOG_DEBUG << "append sub column " << subpath << " data type " << data_type->get_name();
+        }
+    }
+}
+
+void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
+        TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+        const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
+        TabletSchemaSPtr& output_schema) {
+    const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
+    for (const auto& [path, data_types] : path_to_data_types) {
+        if (data_types.empty() || path.empty() || path.has_nested_part()) {
+            continue;
+        }
+        DataTypePtr data_type;
+        get_least_supertype_jsonb(data_types, &data_type);
+        auto column_name = parent_column->name_lower_case() + "." + path.get_path();
+        auto column_path = PathInData(column_name);
+        TabletColumn sub_column = get_column_by_type(
+                data_type, column_name,
+                vectorized::schema_util::ExtraInfo {.unique_id = -1,
+                                                    .parent_unique_id = parent_column->unique_id(),
+                                                    .path_info = column_path});
+        vectorized::schema_util::inherit_column_attributes(*parent_column, sub_column);
+        TabletIndexes sub_column_indexes;
+        vectorized::schema_util::inherit_index(parent_indexes, sub_column_indexes, sub_column);
+        paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
+        output_schema->append_column(sub_column);
+        VLOG_DEBUG << "append sub column " << path.get_path() << " data type "
+                   << data_type->get_name();
+    }
+}
+
+// Build the temporary schema for compaction
+// 1. aggregate path stats and data types from all rowsets
+// 2. append typed columns and nested columns to the output schema
+// 3. sort the subpaths and sparse paths for each unique id
+// 4. append the subpaths and sparse paths to the output schema
+// 5. set the path set info for each unique id
+// 6. return the output schema
+Status VariantCompactionUtil::get_extended_compaction_schema(
+        const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target) {
+    std::unordered_map<int32_t, VariantExtendedInfo> uid_to_variant_extended_info;
+    // collect path stats from all rowsets and segments
+    for (const auto& rs : rowsets) {
+        RETURN_IF_ERROR(aggregate_variant_extended_info(rs, &uid_to_variant_extended_info));
+    }
+
+    // build the output schema
+    TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
+    output_schema->shawdow_copy_without_columns(*target);
+    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
+    for (const TabletColumnPtr& column : target->columns()) {
+        if (!column->is_extracted_column()) {
+            output_schema->append_column(*column);
+        }
+        if (!column->is_variant_type()) {
+            continue;
+        }
+        VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
+
+        // 1. append typed columns
+        RETURN_IF_ERROR(get_compaction_typed_columns(
+                target, uid_to_variant_extended_info[column->unique_id()].typed_paths, column,
+                output_schema, uid_to_paths_set_info[column->unique_id()]));
+        // 2. append nested columns
+        RETURN_IF_ERROR(get_compaction_nested_columns(
+                uid_to_variant_extended_info[column->unique_id()].nested_paths,
+                uid_to_variant_extended_info[column->unique_id()].path_to_data_types, column,
+                output_schema, uid_to_paths_set_info[column->unique_id()]));
+
+        // 3. get the subpaths
+        get_subpaths(column->variant_max_subcolumns_count(),
+                     uid_to_variant_extended_info[column->unique_id()].path_to_none_null_values,
+                     uid_to_paths_set_info[column->unique_id()]);
+
+        // 4. append subcolumns
+        if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
+            get_compaction_subcolumns_from_subpaths(
+                    uid_to_paths_set_info[column->unique_id()], column, target,
+                    uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
+                    uid_to_variant_extended_info[column->unique_id()].sparse_paths, output_schema);
+        }
+        // variant_max_subcolumns_count == 0 and no typed paths materialized
+        // it means that all subcolumns are materialized, may be from old data
+        else {
+            get_compaction_subcolumns_from_data_types(
+                    uid_to_paths_set_info[column->unique_id()], column, target,
+                    uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
+                    output_schema);
+        }
+
+        // append sparse column
+        TabletColumn sparse_column = create_sparse_column(*column);
+        output_schema->append_column(sparse_column);
+    }
+
+    target = output_schema;
+    // used to merge & filter path to sparse column during reading in compaction
+    target->set_path_set_info(std::move(uid_to_paths_set_info));
+    VLOG_DEBUG << "dump schema " << target->dump_full_schema();
+    return Status::OK();
+}
+
+// Calculate statistics about variant data paths from the encoded sparse column
+void VariantCompactionUtil::calculate_variant_stats(const IColumn& encoded_sparse_column,
+                                                    segment_v2::VariantStatisticsPB* stats,
+                                                    size_t row_pos, size_t num_rows) {
+    // Cast input column to ColumnMap type since sparse column is stored as a map
+    const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
+
+    // Get the keys column which contains the paths as strings
+    const auto& sparse_data_paths =
+            assert_cast<const ColumnString*>(map_column.get_keys_ptr().get());
+    const auto& serialized_sparse_column_offsets =
+            assert_cast<const ColumnArray::Offsets64&>(map_column.get_offsets());
+    auto& count_map = *stats->mutable_sparse_column_non_null_size();
+    // Iterate through all paths in the sparse column
+    for (size_t i = row_pos; i != row_pos + num_rows; ++i) {
+        size_t offset = serialized_sparse_column_offsets[i - 1];
+        size_t end = serialized_sparse_column_offsets[i];
+        for (size_t j = offset; j != end; ++j) {
+            auto path = sparse_data_paths->get_data_at(j);
+
+            const auto& sparse_path = path.to_string();
+            // If path already exists in statistics, increment its count
+            if (auto it = count_map.find(sparse_path); it != count_map.end()) {
+                ++it->second;
+            }
+            // If path doesn't exist and we haven't hit the max statistics size limit,
+            // add it with count 1
+            else if (count_map.size() < config::variant_max_sparse_column_statistics_size) {
+                count_map.emplace(sparse_path, 1);
+            }
+        }
+    }
+
+    if (stats->sparse_column_non_null_size().size() >
+        config::variant_max_sparse_column_statistics_size) {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Sparse column non null size: {} is greater than max statistics size: {}",
+                stats->sparse_column_non_null_size().size(),
+                config::variant_max_sparse_column_statistics_size);
+    }
+}
 
 /// Calculates number of dimensions in array field.
 /// Returns 0 for scalar fields.
@@ -1211,144 +1266,151 @@ void get_field_info(const Field& field, FieldInfo* info) {
     }
 }
 
-// TODO(lihangyu): uncomment
-// bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
-//                               const std::string& path,
-//                               TabletSchema::SubColumnInfo* sub_column_info) {
-//     const auto& parent_column = schema.column_by_uid(col_unique_id);
-//     std::function<void(const TabletColumn&, TabletColumn*)> generate_result_column =
-//             [&](const TabletColumn& from_column, TabletColumn* to_column) {
-//                 to_column->set_name(parent_column.name_lower_case() + "." + path);
-//                 to_column->set_type(from_column.type());
-//                 to_column->set_parent_unique_id(parent_column.unique_id());
-//                 bool is_typed = !parent_column.variant_enable_typed_paths_to_sparse();
-//                 to_column->set_path_info(
-//                         PathInData(parent_column.name_lower_case() + "." + path, is_typed));
-//                 to_column->set_aggregation_method(parent_column.aggregation());
-//                 to_column->set_is_nullable(true);
-//                 to_column->set_precision(from_column.precision());
-//                 to_column->set_frac(from_column.frac());
-//                 to_column->set_parent_unique_id(parent_column.unique_id());
-//                 to_column->set_is_decimal(from_column.is_decimal());
-//
-//                 if (from_column.is_array_type()) {
-//                     TabletColumn nested_column;
-//                     generate_result_column(*from_column.get_sub_columns()[0], &nested_column);
-//                     to_column->add_sub_column(nested_column);
-//                 }
-//             };
-//
-//     auto generate_index = [&](const std::string& pattern) {
-//         // 1. find subcolumn's index
-//         if (const auto& indexes = schema.inverted_index_by_field_pattern(col_unique_id, pattern);
-//             !indexes.empty()) {
-//             for (const auto& index : indexes) {
-//                 auto index_ptr = std::make_shared<TabletIndex>(*index);
-//                 index_ptr->set_escaped_escaped_index_suffix_path(
-//                         sub_column_info->column.path_info_ptr()->get_path());
-//                 sub_column_info->indexes.emplace_back(std::move(index_ptr));
-//             }
-//         }
-//         // 2. find parent column's index
-//         else if (const auto parent_index = schema.inverted_indexs(col_unique_id);
-//                  !parent_index.empty()) {
-//             inherit_index(parent_index, sub_column_info->indexes, sub_column_info->column);
-//         } else {
-//             sub_column_info->indexes.clear();
-//         }
-//     };
-//
-//     const auto& sub_columns = parent_column.get_sub_columns();
-//     for (const auto& sub_column : sub_columns) {
-//         const char* pattern = sub_column->name().c_str();
-//         switch (sub_column->pattern_type()) {
-//         case PatternTypePB::MATCH_NAME: {
-//             if (strcmp(pattern, path.c_str()) == 0) {
-//                 generate_result_column(*sub_column, &sub_column_info->column);
-//                 generate_index(sub_column->name());
-//                 return true;
-//             }
-//             break;
-//         }
-//         case PatternTypePB::MATCH_NAME_GLOB: {
-//             int result = fnmatch(pattern, path.c_str(), FNM_PATHNAME);
-//             if (result == 0) {
-//                 generate_result_column(*sub_column, &sub_column_info->column);
-//                 generate_index(sub_column->name());
-//                 return true;
-//             }
-//             break;
-//         }
-//         default:
-//             break;
-//         }
-//     }
-//     return false;
-// }
-//
-// TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetSharedPtr>& rowsets,
-//                                                    const TabletSchemaSPtr& base_schema) {
-//     if (rowsets.empty()) {
-//         return nullptr;
-//     }
-//
-//     std::vector<TabletSchemaSPtr> schemas;
-//     for (const auto& rs : rowsets) {
-//         if (rs->num_segments() == 0) {
-//             continue;
-//         }
-//         const auto& tablet_schema = rs->tablet_schema();
-//         SegmentCacheHandle segment_cache;
-//         auto st = SegmentLoader::instance()->load_segments(std::static_pointer_cast<BetaRowset>(rs),
-//                                                            &segment_cache);
-//         if (!st.ok()) {
-//             return base_schema;
-//         }
-//         for (const auto& segment : segment_cache.get_segments()) {
-//             TabletSchemaSPtr schema = tablet_schema->copy_without_variant_extracted_columns();
-//             for (const auto& column : tablet_schema->columns()) {
-//                 if (!column->is_variant_type()) {
-//                     continue;
-//                 }
-//                 segment_v2::ColumnReader* column_reader = nullptr;
-//                 RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader));
-//                 if (!column_reader) {
-//                     continue;
-//                 }
-//
-//                 CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-//                 const auto* subcolumn_readers =
-//                         assert_cast<VariantColumnReader*>(column_reader)->get_subcolumn_readers();
-//                 for (const auto& entry : *subcolumn_readers) {
-//                     if (entry->path.empty()) {
-//                         continue;
-//                     }
-//                     const std::string& column_name =
-//                             column->name_lower_case() + "." + entry->path.get_path();
-//                     const vectorized::DataTypePtr& data_type = entry->data.file_column_type;
-//                     vectorized::PathInDataBuilder full_path_builder;
-//                     auto full_path = full_path_builder.append(column->name_lower_case(), false)
-//                                              .append(entry->path.get_parts(), false)
-//                                              .build();
-//                     TabletColumn subcolumn =
-//                             get_column_by_type(data_type, column_name,
-//                                                vectorized::schema_util::ExtraInfo {
-//                                                        .unique_id = -1,
-//                                                        .parent_unique_id = column->unique_id(),
-//                                                        .path_info = full_path});
-//                     schema->append_column(subcolumn);
-//                 }
-//             }
-//             schemas.emplace_back(schema);
-//         }
-//     }
-//     TabletSchemaSPtr least_common_schema;
-//     auto st = get_least_common_schema(schemas, base_schema, least_common_schema, false);
-//     if (!st.ok()) {
-//         return base_schema;
-//     }
-//     return least_common_schema;
-// }
+bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
+                              const std::string& path,
+                              TabletSchema::SubColumnInfo* sub_column_info) {
+    const auto& parent_column = schema.column_by_uid(col_unique_id);
+    std::function<void(const TabletColumn&, TabletColumn*)> generate_result_column =
+            [&](const TabletColumn& from_column, TabletColumn* to_column) {
+                to_column->set_name(parent_column.name_lower_case() + "." + path);
+                to_column->set_type(from_column.type());
+                to_column->set_parent_unique_id(parent_column.unique_id());
+                bool is_typed = !parent_column.variant_enable_typed_paths_to_sparse();
+                to_column->set_path_info(
+                        PathInData(parent_column.name_lower_case() + "." + path, is_typed));
+                to_column->set_aggregation_method(parent_column.aggregation());
+                to_column->set_is_nullable(true);
+                to_column->set_parent_unique_id(parent_column.unique_id());
+                if (from_column.is_decimal()) {
+                    to_column->set_precision(from_column.precision());
+                }
+                to_column->set_frac(from_column.frac());
+
+                if (from_column.is_array_type()) {
+                    TabletColumn nested_column;
+                    generate_result_column(*from_column.get_sub_columns()[0], &nested_column);
+                    to_column->add_sub_column(nested_column);
+                }
+            };
+
+    auto generate_index = [&](const std::string& pattern) {
+        // 1. find subcolumn's index
+        if (const auto& indexes = schema.inverted_index_by_field_pattern(col_unique_id, pattern);
+            !indexes.empty()) {
+            for (const auto& index : indexes) {
+                auto index_ptr = std::make_shared<TabletIndex>(*index);
+                index_ptr->set_escaped_escaped_index_suffix_path(
+                        sub_column_info->column.path_info_ptr()->get_path());
+                sub_column_info->indexes.emplace_back(std::move(index_ptr));
+            }
+        }
+        // 2. find parent column's index
+        else if (const auto parent_index = schema.inverted_indexs(col_unique_id);
+                 !parent_index.empty()) {
+            inherit_index(parent_index, sub_column_info->indexes, sub_column_info->column);
+        } else {
+            sub_column_info->indexes.clear();
+        }
+    };
+
+    const auto& sub_columns = parent_column.get_sub_columns();
+    for (const auto& sub_column : sub_columns) {
+        const char* pattern = sub_column->name().c_str();
+        switch (sub_column->pattern_type()) {
+        case PatternTypePB::MATCH_NAME: {
+            if (strcmp(pattern, path.c_str()) == 0) {
+                generate_result_column(*sub_column, &sub_column_info->column);
+                generate_index(sub_column->name());
+                return true;
+            }
+            break;
+        }
+        case PatternTypePB::MATCH_NAME_GLOB: {
+            int result = fnmatch(pattern, path.c_str(), FNM_PATHNAME);
+            if (result == 0) {
+                generate_result_column(*sub_column, &sub_column_info->column);
+                generate_index(sub_column->name());
+                return true;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    return false;
+}
+
+TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
+        const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema) {
+    if (rowsets.empty()) {
+        return nullptr;
+    }
+
+    std::vector<TabletSchemaSPtr> schemas;
+    for (const auto& rs : rowsets) {
+        if (rs->num_segments() == 0) {
+            continue;
+        }
+        const auto& tablet_schema = rs->tablet_schema();
+        SegmentCacheHandle segment_cache;
+        auto st = SegmentLoader::instance()->load_segments(std::static_pointer_cast<BetaRowset>(rs),
+                                                           &segment_cache);
+        if (!st.ok()) {
+            return base_schema;
+        }
+        for (const auto& segment : segment_cache.get_segments()) {
+            TabletSchemaSPtr schema = tablet_schema->copy_without_variant_extracted_columns();
+            for (const auto& column : tablet_schema->columns()) {
+                if (!column->is_variant_type()) {
+                    continue;
+                }
+                std::shared_ptr<ColumnReader> column_reader;
+                OlapReaderStatistics stats;
+                st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed to get column reader for column: " << column->name()
+                                 << " error: " << st.to_string();
+                    continue;
+                }
+                if (!column_reader) {
+                    continue;
+                }
+
+                CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
+                const auto* subcolumn_meta_info =
+                        assert_cast<VariantColumnReader*>(column_reader.get())
+                                ->get_subcolumns_meta_info();
+                for (const auto& entry : *subcolumn_meta_info) {
+                    if (entry->path.empty()) {
+                        continue;
+                    }
+                    const std::string& column_name =
+                            column->name_lower_case() + "." + entry->path.get_path();
+                    const vectorized::DataTypePtr& data_type = entry->data.file_column_type;
+                    vectorized::PathInDataBuilder full_path_builder;
+                    auto full_path = full_path_builder.append(column->name_lower_case(), false)
+                                             .append(entry->path.get_parts(), false)
+                                             .build();
+                    TabletColumn subcolumn =
+                            get_column_by_type(data_type, column_name,
+                                               vectorized::schema_util::ExtraInfo {
+                                                       .unique_id = -1,
+                                                       .parent_unique_id = column->unique_id(),
+                                                       .path_info = full_path});
+                    schema->append_column(subcolumn);
+                }
+            }
+            schemas.emplace_back(schema);
+        }
+    }
+    TabletSchemaSPtr least_common_schema;
+    auto st = get_least_common_schema(schemas, base_schema, least_common_schema, false);
+    if (!st.ok()) {
+        return base_schema;
+    }
+    return least_common_schema;
+}
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& subcolumns_indexes, FieldType column_type,
@@ -1364,8 +1426,7 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
         auto index_ptr = std::make_shared<TabletIndex>(*parent_indexes[0]);
         index_ptr->set_escaped_escaped_index_suffix_path(suffix_path);
         // no need parse for bkd index or array index
-        // TODO(lihangyu): uncomment
-        // index_ptr->remove_parser_and_analyzer();
+        index_ptr->remove_parser_and_analyzer();
         subcolumns_indexes.emplace_back(std::move(index_ptr));
         return true;
     }

@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <faiss/impl/platform_macros.h>
+#include <faiss/utils/distances.h>
+#include <gen_cpp/Types_types.h>
+
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/common/assert_cast.h"
@@ -34,63 +38,57 @@ namespace doris::vectorized {
 class L1Distance {
 public:
     static constexpr auto name = "l1_distance";
-    struct State {
-        double sum = 0;
-    };
-    static void accumulate(State& state, double x, double y) { state.sum += fabs(x - y); }
-    static double finalize(const State& state) { return state.sum; }
+    static float distance(const float* x, const float* y, size_t d) {
+        return faiss::fvec_L1(x, y, d);
+    }
 };
 
 class L2Distance {
 public:
     static constexpr auto name = "l2_distance";
-    struct State {
-        double sum = 0;
-    };
-    static void accumulate(State& state, double x, double y) { state.sum += (x - y) * (x - y); }
-    static double finalize(const State& state) { return sqrt(state.sum); }
+    static float distance(const float* x, const float* y, size_t d) {
+        return std::sqrt(faiss::fvec_L2sqr(x, y, d));
+    }
 };
 
 class InnerProduct {
 public:
     static constexpr auto name = "inner_product";
-    struct State {
-        double sum = 0;
-    };
-    static void accumulate(State& state, double x, double y) { state.sum += x * y; }
-    static double finalize(const State& state) { return state.sum; }
+    static float distance(const float* x, const float* y, size_t d) {
+        return faiss::fvec_inner_product(x, y, d);
+    }
 };
 
 class CosineDistance {
 public:
     static constexpr auto name = "cosine_distance";
-    struct State {
-        double dot_prod = 0;
-        double squared_x = 0;
-        double squared_y = 0;
-    };
-    static void accumulate(State& state, double x, double y) {
-        state.dot_prod += x * y;
-        state.squared_x += x * x;
-        state.squared_y += y * y;
-    }
-    static double finalize(const State& state) {
-        return 1 - state.dot_prod / sqrt(state.squared_x * state.squared_y);
-    }
+    static float distance(const float* x, const float* y, size_t d);
+};
+
+class L2DistanceApproximate : public L2Distance {
+public:
+    static constexpr auto name = "l2_distance_approximate";
+};
+
+class InnerProductApproximate : public InnerProduct {
+public:
+    static constexpr auto name = "inner_product_approximate";
 };
 
 template <typename DistanceImpl>
 class FunctionArrayDistance : public IFunction {
 public:
+    using DataType = PrimitiveTypeTraits<TYPE_FLOAT>::DataType;
+    using ColumnType = PrimitiveTypeTraits<TYPE_FLOAT>::ColumnType;
+
     static constexpr auto name = DistanceImpl::name;
     String get_name() const override { return name; }
     static FunctionPtr create() { return std::make_shared<FunctionArrayDistance<DistanceImpl>>(); }
     bool is_variadic() const override { return false; }
     size_t get_number_of_arguments() const override { return 2; }
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeFloat64>());
+        return std::make_shared<DataTypeFloat32>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -120,54 +118,33 @@ public:
         }
 
         // prepare return data
-        auto dst = ColumnFloat64::create(input_rows_count);
+        auto dst = ColumnType::create(input_rows_count);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
-        auto& dst_null_data = dst_null_column->get_data();
 
         const auto& offsets1 = *arr1.offsets_ptr;
         const auto& offsets2 = *arr2.offsets_ptr;
-        const auto& nested_col1 = assert_cast<const ColumnFloat64*>(arr1.nested_col.get());
-        const auto& nested_col2 = assert_cast<const ColumnFloat64*>(arr2.nested_col.get());
+        const auto& nested_col1 = assert_cast<const ColumnType*>(arr1.nested_col.get());
+        const auto& nested_col2 = assert_cast<const ColumnType*>(arr2.nested_col.get());
         for (ssize_t row = 0; row < offsets1.size(); ++row) {
-            if (arr1.array_nullmap_data && arr1.array_nullmap_data[row]) {
-                dst_null_data[row] = true;
-                continue;
-            }
-            if (arr2.array_nullmap_data && arr2.array_nullmap_data[row]) {
-                dst_null_data[row] = true;
-                continue;
-            }
+            // Calculate actual array sizes for current row.
+            // For nullable arrays, we cannot compare absolute offset values directly because:
+            // 1. When a row is null, its offset might equal the previous offset (no elements added)
+            // 2. Or it might include the array size even if the row is null (implementation dependent)
+            // Therefore, we must calculate the actual array size as: offsets[row] - offsets[row-1]
+            ssize_t size1 = offsets1[row] - offsets1[row - 1];
+            ssize_t size2 = offsets2[row] - offsets2[row - 1];
 
-            dst_null_data[row] = false;
-            if (offsets1[row] != offsets2[row]) [[unlikely]] {
+            if (size1 != size2) [[unlikely]] {
                 return Status::InvalidArgument(
                         "function {} have different input element sizes of array: {} and {}",
-                        get_name(), offsets1[row] - offsets1[row - 1],
-                        offsets2[row] - offsets2[row - 1]);
+                        get_name(), size1, size2);
             }
-
-            typename DistanceImpl::State st;
-            for (ssize_t pos = offsets1[row - 1]; pos < offsets1[row]; ++pos) {
-                if (arr1.nested_nullmap_data && arr1.nested_nullmap_data[pos]) {
-                    dst_null_data[row] = true;
-                    break;
-                }
-                if (arr2.nested_nullmap_data && arr2.nested_nullmap_data[pos]) {
-                    dst_null_data[row] = true;
-                    break;
-                }
-                DistanceImpl::accumulate(st, nested_col1->get_element(pos),
-                                         nested_col2->get_element(pos));
-            }
-            if (!dst_null_data[row]) {
-                dst_data[row] = DistanceImpl::finalize(st);
-                dst_null_data[row] = std::isnan(dst_data[row]);
-            }
+            dst_data[row] = DistanceImpl::distance(
+                    nested_col1->get_data().data() + offsets1[row - 1],
+                    nested_col2->get_data().data() + offsets1[row - 1], size1);
         }
 
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(dst), std::move(dst_null_column)));
+        block.replace_by_position(result, std::move(dst));
         return Status::OK();
     }
 
@@ -179,7 +156,7 @@ private:
         }
         auto nested_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        return nested_type->get_primitive_type() == TYPE_DOUBLE;
+        return nested_type->get_primitive_type() == TYPE_FLOAT;
     }
 };
 

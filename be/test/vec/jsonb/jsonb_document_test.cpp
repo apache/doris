@@ -207,7 +207,7 @@ TEST_F(JsonbDocumentTest, writer) {
                                                          writer.getOutput()->getSize());
 
     std::string expected_string(
-            R"({"key_null":null,"key_true":true,"key_false":false,"key_int":12345,"key_float":123.456001281738,)"
+            R"({"key_null":null,"key_true":true,"key_false":false,"key_int":12345,"key_float":123.456,)"
             R"("key_string":"hello world","key_array":[1,"array string"],"key_int128":18446744073709551616,)"
             R"("key_decimal32":9999.9999,"key_decimal64":99999999999999.9999,"key_decimal128":184467440737.09551615,)"
             R"("key_decimal256":3402823669209384634633746074317.68211454})");

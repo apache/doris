@@ -78,7 +78,7 @@ public:
 
     void try_stop() override;
 
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
+    Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
     std::string get_name() override { return FileScanner::NAME; }
 
@@ -149,7 +149,7 @@ protected:
     // dest slot desc index to src slot desc index
     std::unordered_map<int, int> _dest_slot_to_src_slot_index;
 
-    std::unordered_map<std::string, size_t> _src_block_name_to_idx;
+    std::unordered_map<std::string, uint32_t> _src_block_name_to_idx;
 
     // Get from GenericReader, save the existing columns in file to their type.
     std::unordered_map<std::string, DataTypePtr> _slot_lower_name_to_col_type;
@@ -169,6 +169,7 @@ protected:
     // owned by scan node
     ShardedKVCache* _kv_cache = nullptr;
 
+    std::set<TSlotId> _is_file_slot;
     bool _scanner_eof = false;
     int _rows = 0;
     int _num_of_columns_from_file;
@@ -188,8 +189,11 @@ protected:
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::unique_ptr<io::IOContext> _io_ctx;
 
+    // Whether to fill partition columns from path, default is true.
+    bool _fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
+    std::unordered_map<std::string, bool> _partition_value_is_null;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
     // idx of skip_bitmap_col in _input_tuple_desc
@@ -241,7 +245,7 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
-    Status _generate_parititon_columns();
+    Status _generate_partition_columns();
     Status _generate_missing_columns();
     bool _check_partition_prune_expr(const VExprSPtr& expr);
     void _init_runtime_filter_partition_prune_ctxs();
@@ -252,8 +256,10 @@ private:
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);
-    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader);
-    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader);
+    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
+                            FileMetaCache* file_meta_cache_ptr);
+    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader,
+                                FileMetaCache* file_meta_cache_ptr);
     Status _create_row_id_column_iterator();
 
     TFileFormatType::type _get_current_format_type() {
@@ -285,7 +291,7 @@ private:
     // 2. the file number is less than 1/3 of cache's capacibility
     // Otherwise, the cache miss rate will be high
     bool _should_enable_file_meta_cache() {
-        return config::max_external_file_meta_cache_num > 0 &&
+        return ExecEnv::GetInstance()->file_meta_cache()->enabled() &&
                _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
 };

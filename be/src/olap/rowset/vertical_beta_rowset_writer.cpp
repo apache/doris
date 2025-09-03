@@ -170,7 +170,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     DCHECK(segment_file_writer != nullptr);
 
     IndexFileWriterPtr index_file_writer;
-    if (context.tablet_schema->has_inverted_index()) {
+    if (context.tablet_schema->has_inverted_index() || context.tablet_schema->has_ann_index()) {
         RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(seg_id, &index_file_writer));
     }
 
@@ -178,13 +178,14 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &context;
     writer_options.max_rows_per_segment = context.max_rows_per_segment;
+    writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), seg_id, context.tablet_schema, context.tablet,
             context.data_dir, writer_options, index_file_writer.get());
 
     RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(segment_file_writer)));
-    if (context.tablet_schema->has_inverted_index()) {
+    if (context.tablet_schema->has_inverted_index() || context.tablet_schema->has_ann_index()) {
         RETURN_IF_ERROR(this->_idx_files.add(seg_id, std::move(index_file_writer)));
     }
 

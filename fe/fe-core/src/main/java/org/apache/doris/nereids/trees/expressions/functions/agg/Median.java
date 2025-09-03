@@ -72,6 +72,11 @@ public class Median extends NullableAggregateFunction
         super("median", distinct, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Median(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -86,12 +91,12 @@ public class Median extends NullableAggregateFunction
     @Override
     public Median withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Median(distinct, alwaysNullable, children.get(0));
+        return new Median(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Median(distinct, alwaysNullable, children.get(0));
+        return new Median(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

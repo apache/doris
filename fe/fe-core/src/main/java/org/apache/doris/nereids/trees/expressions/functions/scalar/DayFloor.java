@@ -81,6 +81,11 @@ public class DayFloor extends ScalarFunction
         super("day_floor", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DayFloor(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
@@ -89,13 +94,7 @@ public class DayFloor extends ScalarFunction
         Preconditions.checkArgument(children.size() == 1
                 || children.size() == 2
                 || children.size() == 3);
-        if (children.size() == 1) {
-            return new DayFloor(children.get(0));
-        } else if (children.size() == 2) {
-            return new DayFloor(children.get(0), children.get(1));
-        } else {
-            return new DayFloor(children.get(0), children.get(1), children.get(2));
-        }
+        return new DayFloor(getFunctionParams(children));
     }
 
     @Override

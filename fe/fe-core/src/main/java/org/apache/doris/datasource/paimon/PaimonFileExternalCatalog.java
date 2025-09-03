@@ -19,6 +19,7 @@ package org.apache.doris.datasource.paimon;
 
 import java.util.Map;
 
+@Deprecated
 public class PaimonFileExternalCatalog extends PaimonExternalCatalog {
 
     public PaimonFileExternalCatalog(long catalogId, String name, String resource,

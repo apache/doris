@@ -108,6 +108,7 @@ void register_function_match(SimpleFunctionFactory& factory);
 void register_function_tokenize(SimpleFunctionFactory& factory);
 void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
+void register_function_format(SimpleFunctionFactory& factory);
 void register_function_multi_match(SimpleFunctionFactory& factory);
 void register_function_split_by_regexp(SimpleFunctionFactory& factory);
 void register_function_assert_true(SimpleFunctionFactory& factory);
@@ -115,14 +116,9 @@ void register_function_compress(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
-void register_function_llm_translate(SimpleFunctionFactory& factory);
-void register_function_llm_sentiment(SimpleFunctionFactory& factory);
-void register_function_llm_fixgrammar(SimpleFunctionFactory& factory);
-void register_function_llm_extract(SimpleFunctionFactory& factory);
-void register_function_llm_generate(SimpleFunctionFactory& factory);
-void register_function_llm_mask(SimpleFunctionFactory& factory);
-void register_function_llm_classify(SimpleFunctionFactory& factory);
-void register_function_llm_summarize(SimpleFunctionFactory& factory);
+void register_function_llm(SimpleFunctionFactory& factory);
+void register_function_score(SimpleFunctionFactory& factory);
+void register_function_variant_type(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
 void register_function_throw_exception(SimpleFunctionFactory& factory);
@@ -196,6 +192,11 @@ public:
                 key_str == "array_cum_sum") {
                 key_str += DECIMAL256_FUNCTION_SUFFIX;
             }
+        }
+
+        if ((key_str.starts_with("unix_timestamp") || key_str.starts_with("from_unixtime")) &&
+            attr.new_version_unix_timestamp) {
+            key_str += "_new";
         }
 
         temporary_function_update(be_version, key_str);
@@ -329,20 +330,16 @@ public:
             register_function_split_by_regexp(instance);
             register_function_assert_true(instance);
             register_function_bit_test(instance);
+            register_function_format(instance);
             register_function_compress(instance);
             register_function_dict_get(instance);
             register_function_dict_get_many(instance);
-            register_function_llm_translate(instance);
-            register_function_llm_sentiment(instance);
-            register_function_llm_fixgrammar(instance);
-            register_function_llm_extract(instance);
-            register_function_llm_generate(instance);
-            register_function_llm_mask(instance);
-            register_function_llm_classify(instance);
-            register_function_llm_summarize(instance);
+            register_function_llm(instance);
+            register_function_score(instance);
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
             register_function_throw_exception(instance);
 #endif
+            register_function_variant_type(instance);
         });
         return instance;
     }

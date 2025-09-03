@@ -45,6 +45,11 @@ public class GroupingId extends GroupingScalarFunction implements CustomSignatur
         super("Grouping_Id", children);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private GroupingId(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         // any arguments type
@@ -65,8 +70,8 @@ public class GroupingId extends GroupingScalarFunction implements CustomSignatur
 
     @Override
     public GroupingId withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new GroupingId(children);
+        Preconditions.checkArgument(!children.isEmpty());
+        return new GroupingId(getFunctionParams(children));
     }
 
     private long toLongValue(GroupingSetShape groupingSetShape, List<Integer> argumentIndexes) {

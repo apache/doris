@@ -142,6 +142,57 @@ TxnErrorCode versioned_get(Transaction* txn, std::string_view key, Versionstamp 
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode versioned_batch_get(
+        Transaction* txn, const std::vector<std::string>& keys, Versionstamp snapshot_version,
+        std::vector<std::optional<std::pair<std::string, Versionstamp>>>* values, bool snapshot) {
+    std::vector<std::pair<std::string, std::string>> ranges;
+    ranges.reserve(keys.size());
+    for (const auto& key : keys) {
+        ranges.emplace_back(encode_versioned_key(key, Versionstamp::min()),
+                            encode_versioned_key(key, snapshot_version));
+    }
+
+    Transaction::BatchGetOptions options;
+    options.snapshot = snapshot;
+    options.reverse = true; // Get the latest version first
+    std::vector<std::optional<std::pair<std::string, std::string>>> key_value_pairs;
+    TxnErrorCode code = txn->batch_scan(&key_value_pairs, ranges, options);
+    if (code != TxnErrorCode::TXN_OK) {
+        return code;
+    }
+    DCHECK_EQ(key_value_pairs.size(), keys.size());
+
+    values->clear();
+    values->reserve(key_value_pairs.size());
+    for (size_t i = 0; i < key_value_pairs.size(); ++i) {
+        const auto& kv = key_value_pairs[i];
+        const auto& key = keys[i];
+        if (!kv.has_value()) {
+            values->emplace_back(std::nullopt);
+            continue;
+        }
+
+        std::string_view actual_key = kv->first;
+
+        // Ensure the key has the expected prefix
+        if (!actual_key.starts_with(key)) {
+            values->emplace_back(std::nullopt);
+            continue;
+        }
+
+        Versionstamp version;
+        if (decode_tailing_versionstamp_end(&actual_key) ||
+            decode_tailing_versionstamp(&actual_key, &version)) {
+            LOG(ERROR) << "Failed to decode tailing versionstamp from key: " << hex(kv->first);
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+
+        values->emplace_back(std::make_pair(std::move(kv->second), version));
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
 std::unique_ptr<VersionedRangeGetIterator> versioned_get_range(
         Transaction* txn, std::string_view begin, std::string_view end,
         const VersionedRangeGetOptions& opts) {

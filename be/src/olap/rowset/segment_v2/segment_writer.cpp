@@ -47,10 +47,10 @@
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/index_file_writer.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
-// #include "olap/rowset/segment_v2/variant/variant_stats_calculator.h"
+#include "olap/rowset/segment_v2/variant_stats_calculator.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/storage_engine.h"
@@ -69,7 +69,6 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -229,15 +228,18 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (!skip_inverted_index) {
         auto inverted_indexs = schema->inverted_indexs(column);
         if (!inverted_indexs.empty()) {
-            // TODO(lihangyu) multi indexes
-            // for (const auto& index : inverted_indexs) {
-            //     opts.inverted_indexs.emplace_back(index);
-            // }
-            opts.inverted_index = inverted_indexs.front();
+            opts.inverted_indexes = inverted_indexs;
             opts.need_inverted_index = true;
             DCHECK(_index_file_writer != nullptr);
         }
     }
+    // indexes for this column
+    if (const auto& index = schema->ann_index(column); index != nullptr) {
+        opts.ann_index = index;
+        opts.need_ann_index = true;
+        DCHECK(_index_file_writer != nullptr);
+    }
+
     opts.index_file_writer = _index_file_writer;
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
@@ -323,6 +325,10 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     }
 
     RETURN_IF_ERROR(_create_writers(_tablet_schema, col_ids));
+
+    // Initialize variant statistics calculator
+    _variant_stats_calculator =
+            std::make_unique<VariantStatsCaculator>(&_footer, _tablet_schema, col_ids);
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
@@ -605,7 +611,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     if (config::enable_merge_on_write_correctness_check) {
         _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                    _mow_context->rowset_ids);
+                                                    *_mow_context->rowset_ids);
     }
 
     // read to fill full block
@@ -731,7 +737,10 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
                                                     converted_result.second->get_data(), num_rows));
     }
-
+    if (_opts.write_type == DataWriteType::TYPE_COMPACTION) {
+        RETURN_IF_ERROR(
+                _variant_stats_calculator->calculate_variant_stats(block, row_pos, num_rows));
+    }
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
             // for now we don't need to query short key index for CLUSTER BY feature,
@@ -958,6 +967,7 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
+    RETURN_IF_ERROR(_write_ann_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
 
     *index_size = _file_writer->bytes_appended() - index_start;
@@ -1084,6 +1094,13 @@ Status SegmentWriter::_write_bitmap_index() {
 Status SegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
+    }
+    return Status::OK();
+}
+
+Status SegmentWriter::_write_ann_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_ann_index());
     }
     return Status::OK();
 }

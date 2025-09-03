@@ -18,6 +18,7 @@
 #include "olap/tablet_meta.h"
 
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -101,7 +102,8 @@ TabletMetaSharedPtr TabletMeta::create(
             request.time_series_compaction_file_count_threshold,
             request.time_series_compaction_time_threshold_seconds,
             request.time_series_compaction_empty_rowsets_threshold,
-            request.time_series_compaction_level_threshold, inverted_index_file_storage_format);
+            request.time_series_compaction_level_threshold, inverted_index_file_storage_format,
+            request.tde_algorithm);
 }
 
 TabletMeta::~TabletMeta() {
@@ -128,7 +130,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int64_t time_series_compaction_time_threshold_seconds,
                        int64_t time_series_compaction_empty_rowsets_threshold,
                        int64_t time_series_compaction_level_threshold,
-                       TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format)
+                       TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format,
+                       TEncryptionAlgorithm::type tde_algorithm)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -294,6 +297,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             case TIndexType::INVERTED:
                 index_pb->set_index_type(IndexType::INVERTED);
                 break;
+            case TIndexType::ANN:
+                index_pb->set_index_type(IndexType::ANN);
+                break;
             case TIndexType::BLOOMFILTER:
                 index_pb->set_index_type(IndexType::BLOOMFILTER);
                 break;
@@ -359,6 +365,17 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         BinlogConfig tmp_binlog_config;
         tmp_binlog_config = binlog_config.value();
         tmp_binlog_config.to_pb(tablet_meta_pb.mutable_binlog_config());
+    }
+
+    switch (tde_algorithm) {
+    case doris::TEncryptionAlgorithm::AES256:
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::AES_256_CTR);
+        break;
+    case doris::TEncryptionAlgorithm::SM4:
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::SM4_128_CTR);
+        break;
+    default:
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::PLAINTEXT);
     }
 
     init_from_pb(tablet_meta_pb);
@@ -454,10 +471,29 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
     }
+    if (tcolumn.__isset.visible) {
+        column->set_visible(tcolumn.visible);
+    }
     for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
         ColumnPB* children_column = column->add_children_columns();
         init_column_from_tcolumn(tcolumn.children_column[i].col_unique_id,
                                  tcolumn.children_column[i], children_column);
+    }
+    if (tcolumn.column_type.__isset.variant_max_subcolumns_count) {
+        column->set_variant_max_subcolumns_count(tcolumn.column_type.variant_max_subcolumns_count);
+    }
+    if (tcolumn.__isset.pattern_type) {
+        switch (tcolumn.pattern_type) {
+        case TPatternType::MATCH_NAME:
+            column->set_pattern_type(PatternTypePB::MATCH_NAME);
+            break;
+        case TPatternType::MATCH_NAME_GLOB:
+            column->set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
+        }
+    }
+    if (tcolumn.__isset.variant_enable_typed_paths_to_sparse) {
+        column->set_variant_enable_typed_paths_to_sparse(
+                tcolumn.variant_enable_typed_paths_to_sparse);
     }
 }
 
@@ -750,6 +786,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             tablet_meta_pb.time_series_compaction_empty_rowsets_threshold();
     _time_series_compaction_level_threshold =
             tablet_meta_pb.time_series_compaction_level_threshold();
+
+    if (tablet_meta_pb.has_encryption_algorithm()) {
+        _encryption_algorithm = tablet_meta_pb.encryption_algorithm();
+    }
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -841,6 +881,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_empty_rowsets_threshold());
     tablet_meta_pb->set_time_series_compaction_level_threshold(
             time_series_compaction_level_threshold());
+
+    tablet_meta_pb->set_encryption_algorithm(_encryption_algorithm);
 }
 
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
@@ -940,6 +982,7 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
         // put to_delete rowsets in _stale_rs_metas.
         _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
     }
+
     // put to_add rowsets in _rs_metas.
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
     _check_mow_rowset_cache_version_size(rowset_cache_version_size);
@@ -1038,25 +1081,19 @@ void TabletMeta::_check_mow_rowset_cache_version_size(size_t rowset_cache_versio
         rowset_cache_version_size > _rs_metas.size() + _stale_rs_metas.size()) {
         std::stringstream ss;
         auto rowset_ids = _delete_bitmap->get_rowset_cache_version();
-        for (const auto& rowset_id : rowset_ids) {
-            bool found = false;
+        std::set<std::string> tablet_rowset_ids;
+        {
+            std::shared_lock rlock(_meta_lock);
             for (auto& rs_meta : _rs_metas) {
-                if (rs_meta->rowset_id() == rowset_id) {
-                    found = true;
-                    break;
-                }
-            }
-            if (found) {
-                continue;
+                tablet_rowset_ids.emplace(rs_meta->rowset_id().to_string());
             }
             for (auto& rs_meta : _stale_rs_metas) {
-                if (rs_meta->rowset_id() == rowset_id) {
-                    found = true;
-                    break;
-                }
+                tablet_rowset_ids.emplace(rs_meta->rowset_id().to_string());
             }
-            if (!found) {
-                ss << rowset_id.to_string() << ", ";
+        }
+        for (const auto& rowset_id : rowset_ids) {
+            if (tablet_rowset_ids.find(rowset_id) == tablet_rowset_ids.end()) {
+                ss << rowset_id << ", ";
             }
         }
         // size(rowset_cache_version) <= size(_rs_metas) + size(_stale_rs_metas) + size(_unused_rs)
@@ -1307,7 +1344,6 @@ const roaring::Roaring* DeleteBitmap::get(const BitmapKey& bmk) const {
 
 void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
                           DeleteBitmap* subset_rowset_map) const {
-    roaring::Roaring roaring;
     DCHECK(start < end);
     std::shared_lock l(lock);
     for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
@@ -1316,6 +1352,51 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
             break;
         }
         subset_rowset_map->set(k, bm);
+    }
+}
+
+void DeleteBitmap::subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
+                          int64_t start_version, int64_t end_version,
+                          DeleteBitmap* subset_delete_map) const {
+    DCHECK(start_version <= end_version);
+    for (auto& [rowset_id, _] : rowset_ids) {
+        BitmapKey start {rowset_id, 0, 0};
+        BitmapKey end {rowset_id, UINT32_MAX, end_version + 1};
+        std::shared_lock l(lock);
+        for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+            auto& [k, bm] = *it;
+            if (k >= end) {
+                break;
+            }
+            auto version = std::get<2>(k);
+            if (version >= start_version && version <= end_version) {
+                subset_delete_map->merge(k, bm);
+                VLOG_DEBUG << "subset delete bitmap, tablet=" << _tablet_id << ", version=["
+                           << start_version << ", " << end_version
+                           << "]. rowset=" << std::get<0>(k).to_string()
+                           << ", segment=" << std::get<1>(k) << ", version=" << version
+                           << ", cardinality=" << bm.cardinality();
+            }
+        }
+    }
+}
+
+void DeleteBitmap::subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
+                                  int64_t start_version, int64_t end_version,
+                                  DeleteBitmap* subset_delete_map) const {
+    DCHECK(start_version <= end_version);
+    for (auto& [rowset_id, segment_num] : rowset_ids) {
+        for (int64_t seg_id = 0; seg_id < segment_num; ++seg_id) {
+            BitmapKey end {rowset_id, seg_id, end_version};
+            auto bm = get_agg_without_cache(end, start_version);
+            VLOG_DEBUG << "subset delete bitmap, tablet=" << _tablet_id << ", rowset=" << rowset_id
+                       << ", segment=" << seg_id << ", version=[" << start_version << "-"
+                       << end_version << "], cardinality=" << bm->cardinality();
+            if (bm->isEmpty()) {
+                continue;
+            }
+            subset_delete_map->merge(end, *bm);
+        }
     }
 }
 
@@ -1397,11 +1478,11 @@ void DeleteBitmap::clear_rowset_cache_version() {
     VLOG_DEBUG << "clear agg cache version for tablet=" << _tablet_id;
 }
 
-std::set<RowsetId> DeleteBitmap::get_rowset_cache_version() {
-    std::set<RowsetId> set;
+std::set<std::string> DeleteBitmap::get_rowset_cache_version() {
+    std::set<std::string> set;
     std::shared_lock l(_rowset_cache_version_lock);
     for (auto& [k, _] : _rowset_cache_version) {
-        set.insert(k);
+        set.insert(k.to_string());
     }
     return set;
 }
