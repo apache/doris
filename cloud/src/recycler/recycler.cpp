@@ -2121,6 +2121,7 @@ int InstanceRecycler::scan_tablets_and_statistics(int64_t table_id, int64_t inde
     int ret = scan_and_recycle(tablet_key_begin, tablet_key_end, std::move(scan_and_statistics));
     metrics_context.report(true);
     tablet_metrics_context_.report(true);
+    segment_metrics_context_.report(true);
     return ret;
 }
 
@@ -2878,6 +2879,13 @@ int InstanceRecycler::recycle_rowsets() {
                                              rowset.tablet_id(), rowset_id) != 0) {
                 return -1;
             }
+            metrics_context.total_recycled_data_size += rowset.rowset_meta().total_disk_size();
+            metrics_context.total_recycled_num++;
+            segment_metrics_context_.total_recycled_data_size +=
+                    rowset.rowset_meta().total_disk_size();
+            segment_metrics_context_.total_recycled_num += rowset.rowset_meta().num_segments();
+            segment_metrics_context_.report();
+            metrics_context.report();
             return 0;
         }
         // TODO(plat1ko): check rowset not referenced
@@ -4813,6 +4821,10 @@ int InstanceRecycler::scan_and_statistics_rowsets() {
             if (rowset.resource_id().empty()) [[unlikely]] {
                 return 0;
             }
+            metrics_context.total_need_recycle_num++;
+            metrics_context.total_need_recycle_data_size += rowset.rowset_meta().total_disk_size();
+            segment_metrics_context_.total_need_recycle_num += rowset.rowset_meta().num_segments();
+            segment_metrics_context_.total_need_recycle_data_size += rowset.rowset_meta().total_disk_size();
             return 0;
         }
         auto* rowset_meta = rowset.mutable_rowset_meta();
@@ -4824,7 +4836,7 @@ int InstanceRecycler::scan_and_statistics_rowsets() {
         metrics_context.total_need_recycle_num++;
         metrics_context.total_need_recycle_data_size += rowset_meta->total_disk_size();
         segment_metrics_context_.total_need_recycle_num += rowset_meta->num_segments();
-            segment_metrics_context_.total_need_recycle_data_size += rowset_meta->total_disk_size();
+        segment_metrics_context_.total_need_recycle_data_size += rowset_meta->total_disk_size();
         return 0;
     };
     int ret = scan_and_recycle(recyc_rs_key0, recyc_rs_key1, std::move(handle_rowset_kv));
@@ -5200,6 +5212,9 @@ int InstanceRecycler::scan_and_statistics_restore_jobs() {
             return 0;
         }
         metrics_context.total_need_recycle_num++;
+        if(restore_job_pb.need_recycle_data()) {
+            scan_tablet_and_statistics(restore_job_pb.tablet_id(), metrics_context);
+        }
         return 0;
     };
 
