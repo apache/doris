@@ -68,7 +68,7 @@ public class RemoteFileSystemTest {
         dfsPaths.add("ofs://a/b/c");
         dfsPaths.add("gfs://a/b/c");
         dfsPaths.add("hdfs://a/b/c");
-        dfsPaths.add("oss://a/b/c");  // if endpoint contains 'oss-dls.aliyuncs', will use dfs filesystem
+        dfsPaths.add("oss://emr-ssss-oss.cn-beijing.oss-dls.aliyuncs.com/tmp/");  // if endpoint contains 'oss-dls.aliyuncs', will use dfs filesystem
 
         new MockUp<UserGroupInformation>(UserGroupInformation.class) {
             @Mock
