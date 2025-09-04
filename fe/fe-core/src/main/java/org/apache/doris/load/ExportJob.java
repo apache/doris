@@ -578,13 +578,12 @@ public class ExportJob implements Writable {
         if (format.equals("csv") || format.equals("csv_with_names") || format.equals("csv_with_names_and_types")) {
             outfileProperties.put(OutFileClause.PROP_COLUMN_SEPARATOR, columnSeparator);
             outfileProperties.put(OutFileClause.PROP_LINE_DELIMITER, lineDelimiter);
-        } else {
-            // orc / parquet
-            // compressType == null means outfile will use default compression type
-            if (compressType != null) {
-                outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
-            }
         }
+        // compressType == null means outfile will use default compression type
+        if (compressType != null) {
+            outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
+        }
+
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);
         }
