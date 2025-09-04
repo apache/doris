@@ -227,6 +227,7 @@ public:
     int64_t begin_receive_and_read_data_cost_nanos = 0;
 
     std::string error_url = "";
+    std::string first_error_msg = "";
     // if label already be used, set existing job's status here
     // should be RUNNING or FINISHED
     std::string existing_job_status = "";

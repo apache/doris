@@ -265,6 +265,9 @@ public class GroupCommitPlanner {
         String errMsg = "group commit insert failed. db: " + db.getId() + ", table: " + table.getId()
                 + ", query: " + DebugUtil.printId(ctx.queryId()) + ", backend: " + backendId
                 + ", status: " + response.getStatus();
+        if (response.hasFirstErrorMsg()) {
+            errMsg += ", first_error_msg: " + response.getFirstErrorMsg();
+        }
         if (response.hasErrorUrl()) {
             errMsg += ", error url: " + response.getErrorUrl();
         }
@@ -278,6 +281,7 @@ public class GroupCommitPlanner {
         long loadedRows = response.getLoadedRows();
         long filteredRows = (int) response.getFilteredRows();
         String errorUrl = response.getErrorUrl();
+        String firstErrorMsg = response.getFirstErrorMsg();
         // the same as {@OlapInsertExecutor#setReturnInfo}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
@@ -290,6 +294,9 @@ public class GroupCommitPlanner {
         /*if (!Strings.isNullOrEmpty(errMsg)) {
             sb.append(", 'err':'").append(errMsg).append("'");
         }*/
+        if (!Strings.isNullOrEmpty(firstErrorMsg)) {
+            sb.append(", 'first_error_msg':'").append(firstErrorMsg).append("'");
+        }
         if (!Strings.isNullOrEmpty(errorUrl)) {
             sb.append(", 'err_url':'").append(errorUrl).append("'");
         }

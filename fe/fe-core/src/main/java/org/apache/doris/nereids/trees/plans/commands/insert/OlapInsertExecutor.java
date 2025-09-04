@@ -245,6 +245,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             return;
         }
         StringBuilder sb = new StringBuilder(t.getMessage());
+        if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
+            sb.append(". first_error_msg: ").append(coordinator.getFirstErrorMsg());
+        }
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());
         }
