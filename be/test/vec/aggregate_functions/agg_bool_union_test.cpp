@@ -60,7 +60,7 @@ TEST_F(AggregateFunctionBoolUnionTest, test_bool_xor) {
     {
         create_agg("bool_xor", false, {std::make_shared<DataTypeBool>()});
 
-        execute(Block({ColumnHelper::create_column_with_name<DataTypeBool>({true, false, true})}),
+        execute(Block({ColumnHelper::create_column_with_name<DataTypeBool>({true, true, true})}),
                 ColumnHelper::create_column_with_name<DataTypeBool>({false}));
     }
 

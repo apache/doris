@@ -67,17 +67,31 @@ struct AggregateFunctionBoolAndData {
 struct AggregateFunctionBoolXorData {
     static constexpr auto name = "bool_xor";
 
-    bool value = false;
+    // value represents the current XOR state
+    // '0' represents that there are no true values currently
+    // '1' represents that exactly one true value has appeared
+    // '2' represents that two true values have already appeared and will not change thereafter
+    uint8_t value = 0;
 
-    void add(bool x) { value ^= x; }
+    void add(bool x) {
+        if (x && value < 2) {
+            ++value;
+        }
+    }
 
-    void merge(const AggregateFunctionBoolXorData& rhs) { value ^= rhs.value; }
+    void merge(const AggregateFunctionBoolXorData& rhs) {
+        if (value == 0) {
+            value = rhs.value;
+        } else if (value == 1) {
+            value = (rhs.value > 0) ? 2 : 1;
+        }
+    }
 
     void write(BufferWritable& buf) const { buf.write_binary(value); }
 
     void read(BufferReadable& buf) { buf.read_binary(value); }
 
-    void reset() { value = false; }
+    void reset() { value = 0; }
 };
 
 template <typename BoolFunc>
@@ -118,7 +132,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnUInt8&>(to).insert_value(this->data(place).value);
+        assert_cast<ColumnUInt8&>(to).insert_value(this->data(place).value == 1);
     }
 };
 } // namespace doris::vectorized

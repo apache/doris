@@ -171,12 +171,12 @@ true
 true
 
 -- !bool_xor --
-true
+false
 
 -- !bool_xor --
 \N
 false
-true
+false
 
 -- !select_minmax1 --
 20200622	1	\N
