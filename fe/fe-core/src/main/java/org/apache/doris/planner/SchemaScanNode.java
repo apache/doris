@@ -169,12 +169,18 @@ public class SchemaScanNode extends ScanNode {
         if (!table.shouldFetchAllFe()) {
             return scanRangeLocations;
         }
+        FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
+        try {
+            backendPolicy.init();
+        } catch (UserException e) {
+            LOG.warn("backendPolicy.init() failed");
+            return scanRangeLocations;
+        }
         List<TScanRangeLocations> res = Lists.newArrayList();
         for (Frontend fe : Env.getCurrentEnv().getFrontends(null)) {
             if (!fe.isAlive()) {
                 continue;
             }
-            FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
             Backend be = backendPolicy.getNextBe();
             TNetworkAddress networkAddress = new TNetworkAddress(be.getAddress(), be.getBePort());
             TScanRangeLocation scanRangeLocation = new TScanRangeLocation(networkAddress);
