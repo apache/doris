@@ -45,7 +45,7 @@ namespace doris::vectorized {
 class VExprContext;
 
 vectorized::VBitmapPredicate::VBitmapPredicate(const TExprNode& node)
-        : VExpr(node), _filter(nullptr), _expr_name("bitmap_predicate") {}
+        : VExpr(node), _filter(nullptr) {}
 
 doris::Status vectorized::VBitmapPredicate::prepare(doris::RuntimeState* state,
                                                     const RowDescriptor& desc,
@@ -106,13 +106,7 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
         _filter->find_batch(argument_column->get_raw_data().data, nullptr, sz, ptr);
     }
 
-    if (_data_type->is_nullable()) {
-        auto null_map = ColumnUInt8::create(block->rows(), 0);
-        block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
-                       _data_type, _expr_name});
-    } else {
-        block->insert({std::move(res_data_column), _data_type, _expr_name});
-    }
+    block->insert({std::move(res_data_column), _data_type, EXPR_NAME});
     *result_column_id = num_columns_without_result;
     return Status::OK();
 }
@@ -123,7 +117,7 @@ void vectorized::VBitmapPredicate::close(vectorized::VExprContext* context,
 }
 
 const std::string& vectorized::VBitmapPredicate::expr_name() const {
-    return _expr_name;
+    return EXPR_NAME;
 }
 
 void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase> filter) {

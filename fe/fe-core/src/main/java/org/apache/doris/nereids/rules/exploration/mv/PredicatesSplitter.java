@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -114,6 +115,10 @@ public class PredicatesSplitter {
         }
         if (expression instanceof Alias) {
             return containOnlyColumnRef(((Alias) expression).child(), true);
+        }
+        if (expression instanceof ElementAt) {
+            // in RBO rewrite, plan has element at expression
+            return containOnlyColumnRef(((ElementAt) expression).child(0), true);
         }
         return false;
     }

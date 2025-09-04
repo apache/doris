@@ -51,6 +51,7 @@ class TDataSink;
 namespace vectorized {
 class AsyncResultWriter;
 class ScoreRuntime;
+class AnnTopNRuntime;
 } // namespace vectorized
 } // namespace doris
 
@@ -133,6 +134,12 @@ public:
         return Status::OK();
     }
 
+    /**
+     * Pipeline task is blockable means it will be blocked in the next run. So we should put the
+     * pipeline task into the blocking task scheduler.
+     */
+    virtual bool is_blockable(RuntimeState* state) const = 0;
+
     virtual void set_low_memory_mode(RuntimeState* state) {}
 
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
@@ -208,6 +215,7 @@ public:
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
+    [[nodiscard]] virtual bool is_blockable() const;
 
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
@@ -275,6 +283,7 @@ protected:
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
     std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
@@ -481,6 +490,7 @@ public:
     virtual Status terminate(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     [[nodiscard]] virtual bool is_finished() const { return false; }
+    [[nodiscard]] virtual bool is_blockable() const { return false; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
@@ -629,6 +639,9 @@ public:
 
     [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) {
         return state->minimum_operator_memory_required_bytes();
+    }
+    bool is_blockable(RuntimeState* state) const override {
+        return state->get_sink_local_state()->is_blockable();
     }
 
     [[nodiscard]] bool is_spillable() const { return _spillable; }
@@ -871,6 +884,9 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
+    bool is_blockable(RuntimeState* state) const override {
+        return state->get_sink_local_state()->is_blockable();
+    }
 
     Status prepare(RuntimeState* state) override;
 

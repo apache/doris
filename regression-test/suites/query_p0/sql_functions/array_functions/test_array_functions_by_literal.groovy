@@ -407,7 +407,7 @@ suite("test_array_functions_by_literal") {
         // abnormal test
         test {
             sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
-            exception "Can not find the compatibility function signature: array_intersect"
+            exception "array_intersect does not support complex types"
         }
 
         // array_min/max with nested array for args
@@ -836,7 +836,7 @@ suite("test_array_functions_by_literal") {
         // abnormal test
         test {
             sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
-            exception "Can not find the compatibility function signature: array_intersect"
+            exception "array_intersect does not support complex types"
         }
 
         // array_min/max with nested array for args
@@ -1263,7 +1263,7 @@ suite("test_array_functions_by_literal") {
         // abnormal test
         test {
             sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
-            exception "Can not find the compatibility function signature: array_intersect"
+            exception "array_intersect does not support complex type"
         }
 
         // array_min/max with nested array for args

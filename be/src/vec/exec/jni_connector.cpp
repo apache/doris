@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type_struct.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 } // namespace doris
 
@@ -402,7 +403,8 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
     size_t start_offset = string_offsets[origin_offsets_size - 1];
     string_offsets.resize(origin_offsets_size + num_rows);
     for (size_t i = 0; i < num_rows; ++i) {
-        string_offsets[origin_offsets_size + i] = offsets[i] + start_offset;
+        string_offsets[origin_offsets_size + i] =
+                static_cast<unsigned int>(offsets[i] + start_offset);
     }
     return Status::OK();
 }
@@ -861,4 +863,5 @@ void JniConnector::_collect_profile_before_close() {
         }
     }
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

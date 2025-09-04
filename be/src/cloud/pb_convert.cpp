@@ -340,6 +340,10 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+
+    if (in.has___split_schema()) {
+        out->mutable___split_schema()->CopyFrom(in.__split_schema());
+    }
 }
 
 void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in) {
@@ -372,6 +376,10 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+
+    if (in.has___split_schema()) {
+        out->mutable___split_schema()->CopyFrom(in.__split_schema());
+    }
 }
 
 TabletSchemaPB cloud_tablet_schema_to_doris(const TabletSchemaCloudPB& in) {
@@ -417,6 +425,10 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+
+    if (in.has___split_schema()) {
+        out->mutable___split_schema()->CopyFrom(in.__split_schema());
+    }
 }
 
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in) {
@@ -450,6 +462,10 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_storage_dict_page_size(in.storage_dict_page_size());
     out->set_is_in_memory(in.is_in_memory());
     out->set_row_store_page_size(in.row_store_page_size());
+
+    if (in.has___split_schema()) {
+        out->mutable___split_schema()->CopyFrom(in.__split_schema());
+    }
 }
 
 TabletMetaCloudPB doris_tablet_meta_to_cloud(const TabletMetaPB& in) {
@@ -531,6 +547,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
+    if (in.has_encryption_algorithm()) {
+        out->set_encryption_algorithm(in.encryption_algorithm());
+    }
 }
 
 void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
@@ -604,6 +623,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     out->set_ttl_seconds(in.ttl_seconds());
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
+    }
+    if (in.has_encryption_algorithm()) {
+        out->set_encryption_algorithm(in.encryption_algorithm());
     }
 }
 
@@ -686,6 +708,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
+    if (in.has_encryption_algorithm()) {
+        out->set_encryption_algorithm(in.encryption_algorithm());
+    }
 }
 
 void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
@@ -759,6 +784,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     out->set_ttl_seconds(in.ttl_seconds());
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
+    }
+    if (in.has_encryption_algorithm()) {
+        out->set_encryption_algorithm(in.encryption_algorithm());
     }
 }
 #include "common/compile_check_end.h"

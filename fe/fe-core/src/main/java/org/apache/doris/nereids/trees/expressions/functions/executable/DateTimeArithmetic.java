@@ -106,16 +106,6 @@ public class DateTimeArithmetic {
      * datetime arithmetic function quarters-add.
      */
     @ExecFunction(name = "quarters_add")
-    public static Expression quartersAdd(DateLiteral date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
-    }
-
-    @ExecFunction(name = "quarters_add")
-    public static Expression quartersAdd(DateTimeLiteral date, IntegerLiteral quarter) {
-        return date.plusMonths(3 * quarter.getValue());
-    }
-
-    @ExecFunction(name = "quarters_add")
     public static Expression quartersAdd(DateV2Literal date, IntegerLiteral quarter) {
         return date.plusMonths(3 * quarter.getValue());
     }
@@ -321,16 +311,6 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function quarters-sub.
      */
-    @ExecFunction(name = "quarters_sub")
-    public static Expression quartersSub(DateLiteral date, IntegerLiteral quarter) {
-        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
-    }
-
-    @ExecFunction(name = "quarters_sub")
-    public static Expression quartersSub(DateTimeLiteral date, IntegerLiteral quarter) {
-        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
-    }
-
     @ExecFunction(name = "quarters_sub")
     public static Expression quartersSub(DateV2Literal date, IntegerLiteral quarter) {
         return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));

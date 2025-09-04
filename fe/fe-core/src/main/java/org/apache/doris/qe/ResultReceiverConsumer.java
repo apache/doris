@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
@@ -100,7 +101,7 @@ public class ResultReceiverConsumer {
         Integer offset = readyOffsets.poll(timeoutTs - System.currentTimeMillis(),
                 java.util.concurrent.TimeUnit.MILLISECONDS);
         if (offset == null) {
-            throw new TException("query timeout");
+            throw new QueryTimeoutException();
         }
         if (errMsg != null) {
             throw new UserException(errMsg);

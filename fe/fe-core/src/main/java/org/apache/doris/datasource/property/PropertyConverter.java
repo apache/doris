@@ -22,22 +22,16 @@ import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InitCatalogLog.Type;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.CosProperties;
-import org.apache.doris.datasource.property.constants.DLFProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
-import org.apache.doris.datasource.property.constants.GlueProperties;
-import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.amazonaws.auth.InstanceProfileCredentialsProvider;
-import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.CosFileSystem;
@@ -50,7 +44,6 @@ import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
 import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
 import org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,58 +54,6 @@ public class PropertyConverter {
 
     private static final Logger LOG = LogManager.getLogger(PropertyConverter.class);
     public static final String USE_PATH_STYLE = "use_path_style";
-    public static final String USE_PATH_STYLE_DEFAULT_VALUE = "false";
-    public static final String FORCE_PARSING_BY_STANDARD_URI = "force_parsing_by_standard_uri";
-    public static final String FORCE_PARSING_BY_STANDARD_URI_DEFAULT_VALUE = "false";
-
-    /**
-     * Convert properties defined at doris to metadata properties on Cloud
-     *       Step 1: convert and set cloud metadata properties and s3 properties
-     *          example:
-     *                 glue.endpoint -> aws.glue.endpoint for Glue
-     *                               -> s3.endpoint for S3
-     *                 glue.access_key -> aws.glue.access-key for Glue
-     *                                  > s3.access_key for S3
-     *       Step 2: convert props to BE properties, put them all to metaProperties
-     *           example:
-     *                 s3.endpoint -> AWS_ENDPOINT
-     *                 s3.access_key -> AWS_ACCESS_KEY
-     * These properties will be used for catalog/resource, and persisted to catalog/resource properties.
-     * Some properties like AWS_XXX will be hidden, can find from HIDDEN_KEY in PrintableMap
-     * @see org.apache.doris.common.util.PrintableMap
-     */
-    public static Map<String, String> convertToMetaProperties(Map<String, String> props) {
-        Map<String, String> metaProperties = new HashMap<>();
-        if (props.containsKey(GlueProperties.ENDPOINT)
-                || props.containsKey(AWSGlueConfig.AWS_GLUE_ENDPOINT)) {
-            CloudCredential credential = GlueProperties.getCredential(props);
-            if (!credential.isWhole()) {
-                credential = GlueProperties.getCompatibleCredential(props);
-            }
-            metaProperties = convertToGlueProperties(props, credential);
-        } else if (props.containsKey(DLFProperties.ENDPOINT)
-                || props.containsKey(DLFProperties.REGION)
-                || props.containsKey(DataLakeConfig.CATALOG_ENDPOINT)) {
-            metaProperties = convertToDLFProperties(props, DLFProperties.getCredential(props));
-        } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
-            if (!hasS3Properties(props)) {
-                // checkout env in the end
-                // if meet AWS_XXX properties, convert to s3 properties
-                return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), true);
-            }
-        }
-        metaProperties.putAll(props);
-        metaProperties.putAll(S3ClientBEProperties.getBeFSProperties(props));
-        return metaProperties;
-    }
-
-    private static boolean hasS3Properties(Map<String, String> props) {
-        return props.containsKey(ObsProperties.ENDPOINT)
-                || props.containsKey(GCSProperties.ENDPOINT)
-                || props.containsKey(OssProperties.ENDPOINT)
-                || props.containsKey(CosProperties.ENDPOINT)
-                || props.containsKey(MinioProperties.ENDPOINT);
-    }
 
     /**
      * Convert properties defined at doris to FE S3 client properties
@@ -411,230 +352,5 @@ public class PropertyConverter {
             props.put(MinioProperties.REGION, MinioProperties.DEFAULT_REGION);
         }
         return convertToS3Properties(S3Properties.prefixToS3(props), credential);
-    }
-
-    private static Map<String, String> convertToDLFProperties(Map<String, String> props, CloudCredential credential) {
-        getPropertiesFromDLFConf(props);
-        // if configure DLF properties in catalog properties, use them to override config in hive-site.xml
-        getPropertiesFromDLFProps(props, credential);
-        props.put(DataLakeConfig.CATALOG_CREATE_DEFAULT_DB, "false");
-        return props;
-    }
-
-    public static void getPropertiesFromDLFConf(Map<String, String> props) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Get properties from hive-site.xml");
-        }
-        // read properties from hive-site.xml.
-        HiveConf hiveConf = new HiveConf();
-        String metastoreType = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
-        if (!HMSProperties.DLF_TYPE.equalsIgnoreCase(metastoreType)) {
-            return;
-        }
-        String uid = props.get(DataLakeConfig.CATALOG_USER_ID);
-        if (Strings.isNullOrEmpty(uid)) {
-            throw new IllegalArgumentException("Required dlf property: " + DataLakeConfig.CATALOG_USER_ID);
-        }
-        getOSSPropertiesFromDLFConf(props, hiveConf);
-    }
-
-    private static void getOSSPropertiesFromDLFConf(Map<String, String> props, HiveConf hiveConf) {
-        // get following properties from hive-site.xml
-        // 1. region and endpoint. eg: cn-beijing
-        String region = hiveConf.get(DataLakeConfig.CATALOG_REGION_ID);
-        if (!Strings.isNullOrEmpty(region)) {
-            // See: https://help.aliyun.com/document_detail/31837.html
-            // And add "-internal" to access oss within vpc
-            props.put(OssProperties.REGION, "oss-" + region);
-            String publicAccess = hiveConf.get("dlf.catalog.accessPublic", "false");
-            props.put(OssProperties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
-        }
-        // 2. ak and sk
-        String ak = hiveConf.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID);
-        String sk = hiveConf.get(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET);
-        if (!Strings.isNullOrEmpty(ak)) {
-            props.put(OssProperties.ACCESS_KEY, ak);
-        }
-        if (!Strings.isNullOrEmpty(sk)) {
-            props.put(OssProperties.SECRET_KEY, sk);
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Get properties for oss in hive-site.xml: {}", props);
-        }
-    }
-
-    private static void getPropertiesFromDLFProps(Map<String, String> props,
-                                                  CloudCredential credential) {
-        String metastoreType = props.get(HMSProperties.HIVE_METASTORE_TYPE);
-        if (!HMSProperties.DLF_TYPE.equalsIgnoreCase(metastoreType)) {
-            return;
-        }
-        // convert to dlf client properties. not convert if origin key found.
-        if (!props.containsKey(DataLakeConfig.CATALOG_USER_ID)) {
-            props.put(DataLakeConfig.CATALOG_USER_ID, props.get(DLFProperties.UID));
-            String uid = props.get(DLFProperties.UID);
-            if (Strings.isNullOrEmpty(uid)) {
-                throw new IllegalArgumentException("Required dlf property: " + DLFProperties.UID);
-            }
-
-            // region
-            String region = props.get(DLFProperties.REGION);
-            if (Strings.isNullOrEmpty(region)) {
-                throw new IllegalArgumentException("Required dlf property: " + DLFProperties.REGION);
-            }
-            props.put(DataLakeConfig.CATALOG_REGION_ID, region);
-
-            // endpoint
-            props.put(DataLakeConfig.CATALOG_ENDPOINT,
-                    props.getOrDefault(DLFProperties.ENDPOINT, getDlfEndpointByRegion(region)));
-
-            props.put(DataLakeConfig.CATALOG_PROXY_MODE, props.getOrDefault(DLFProperties.PROXY_MODE, "DLF_ONLY"));
-            props.put(DataLakeConfig.CATALOG_ACCESS_KEY_ID, credential.getAccessKey());
-            props.put(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET, credential.getSecretKey());
-            props.put(DLFProperties.Site.ACCESS_PUBLIC, props.getOrDefault(DLFProperties.ACCESS_PUBLIC, "false"));
-        }
-        String uid = props.get(DataLakeConfig.CATALOG_USER_ID);
-        if (Strings.isNullOrEmpty(uid)) {
-            throw new IllegalArgumentException("Required dlf property: " + DataLakeConfig.CATALOG_USER_ID);
-        }
-        if (!props.containsKey(DLFProperties.ENDPOINT)) {
-            // just display DLFProperties in catalog, and hide DataLakeConfig properties
-            putNewPropertiesForCompatibility(props, credential);
-        }
-        // convert to oss property
-        if (credential.isWhole()) {
-            props.put(OssProperties.ACCESS_KEY, credential.getAccessKey());
-            props.put(OssProperties.SECRET_KEY, credential.getSecretKey());
-        }
-        if (credential.isTemporary()) {
-            props.put(OssProperties.SESSION_TOKEN, credential.getSessionToken());
-        }
-        String publicAccess = props.getOrDefault(DLFProperties.Site.ACCESS_PUBLIC, "false");
-        String region = props.getOrDefault(DataLakeConfig.CATALOG_REGION_ID, props.get(DLFProperties.REGION));
-        if (!Strings.isNullOrEmpty(region)) {
-            boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
-            if (hdfsEnabled) {
-                props.putIfAbsent("fs.oss.impl", "com.aliyun.jindodata.oss.JindoOssFileSystem");
-                props.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.OSS");
-                props.putIfAbsent(OssProperties.REGION, region);
-                // example: cn-shanghai.oss-dls.aliyuncs.com
-                // from https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
-                props.putIfAbsent(OssProperties.ENDPOINT, region + ".oss-dls.aliyuncs.com");
-            } else {
-                props.putIfAbsent(OssProperties.REGION, "oss-" + region);
-                props.putIfAbsent(OssProperties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
-            }
-        }
-    }
-
-    private static void putNewPropertiesForCompatibility(Map<String, String> props, CloudCredential credential) {
-        props.put(DLFProperties.UID, props.get(DataLakeConfig.CATALOG_USER_ID));
-        String endpoint = props.get(DataLakeConfig.CATALOG_ENDPOINT);
-        props.put(DLFProperties.ENDPOINT, endpoint);
-        props.put(DLFProperties.REGION, props.getOrDefault(DataLakeConfig.CATALOG_REGION_ID,
-                S3Properties.getRegionOfEndpoint(endpoint)));
-        props.put(DLFProperties.PROXY_MODE, props.getOrDefault(DataLakeConfig.CATALOG_PROXY_MODE, "DLF_ONLY"));
-        props.put(DLFProperties.ACCESS_KEY, credential.getAccessKey());
-        props.put(DLFProperties.SECRET_KEY, credential.getSecretKey());
-        props.put(DLFProperties.ACCESS_PUBLIC, props.getOrDefault(DLFProperties.Site.ACCESS_PUBLIC, "false"));
-    }
-
-    private static String getOssEndpoint(String region, boolean publicAccess) {
-        String prefix = "oss-";
-        String suffix = ".aliyuncs.com";
-        if (!publicAccess) {
-            suffix = "-internal" + suffix;
-        }
-        return prefix + region + suffix;
-    }
-
-    private static String getDlfEndpointByRegion(String region) {
-        return "dlf-vpc." + region + ".aliyuncs.com";
-    }
-
-    private static Map<String, String> convertToGlueProperties(Map<String, String> props, CloudCredential credential) {
-        // convert doris glue property to glue properties, s3 client property and BE property
-        String metastoreType = props.get(HMSProperties.HIVE_METASTORE_TYPE);
-        String icebergType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
-        boolean isGlueIceberg = IcebergExternalCatalog.ICEBERG_GLUE.equals(icebergType);
-        if (!HMSProperties.GLUE_TYPE.equalsIgnoreCase(metastoreType) && !isGlueIceberg) {
-            return props;
-        }
-        if (isGlueIceberg) {
-            // glue ak sk for iceberg
-            props.putIfAbsent(GlueProperties.ACCESS_KEY, credential.getAccessKey());
-            props.putIfAbsent(GlueProperties.SECRET_KEY, credential.getSecretKey());
-            props.putIfAbsent(GlueProperties.CLIENT_CREDENTIALS_PROVIDER,
-                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
-            props.putIfAbsent(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_AK, credential.getAccessKey());
-            props.putIfAbsent(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_SK, credential.getSecretKey());
-        }
-        // set glue client metadata
-        if (props.containsKey(GlueProperties.ENDPOINT)) {
-            String endpoint = props.get(GlueProperties.ENDPOINT);
-            props.put(AWSGlueConfig.AWS_GLUE_ENDPOINT, endpoint);
-            String region = S3Properties.getRegionOfEndpoint(endpoint);
-            props.put(AWSGlueConfig.AWS_REGION, region);
-            if (credential.isWhole()) {
-                props.put(AWSGlueConfig.AWS_GLUE_ACCESS_KEY, credential.getAccessKey());
-                props.put(AWSGlueConfig.AWS_GLUE_SECRET_KEY, credential.getSecretKey());
-            }
-            if (credential.isTemporary()) {
-                props.put(AWSGlueConfig.AWS_GLUE_SESSION_TOKEN, credential.getSessionToken());
-            }
-        } else {
-            // compatible with old version, deprecated in the future version
-            // put GlueProperties to map if origin key found.
-            if (props.containsKey(AWSGlueConfig.AWS_GLUE_ENDPOINT)) {
-                String endpoint = props.get(AWSGlueConfig.AWS_GLUE_ENDPOINT);
-                props.put(GlueProperties.ENDPOINT, endpoint);
-                if (props.containsKey(AWSGlueConfig.AWS_GLUE_ACCESS_KEY)) {
-                    props.put(GlueProperties.ACCESS_KEY, props.get(AWSGlueConfig.AWS_GLUE_ACCESS_KEY));
-                }
-                if (props.containsKey(AWSGlueConfig.AWS_GLUE_SECRET_KEY)) {
-                    props.put(GlueProperties.SECRET_KEY, props.get(AWSGlueConfig.AWS_GLUE_SECRET_KEY));
-                }
-                if (props.containsKey(AWSGlueConfig.AWS_GLUE_SESSION_TOKEN)) {
-                    props.put(GlueProperties.SESSION_TOKEN, props.get(AWSGlueConfig.AWS_GLUE_SESSION_TOKEN));
-                }
-            }
-        }
-        // set s3 client credential
-        // https://docs.aws.amazon.com/general/latest/gr/s3.html
-        // Convert:
-        // (
-        //  "glue.region" = "us-east-1",
-        //  "glue.access_key" = "xx",
-        //  "glue.secret_key" = "yy"
-        // )
-        // To:
-        // (
-        //  "s3.region" = "us-east-1",
-        //  "s3.endpoint" = "s3.us-east-1.amazonaws.com"
-        //  "s3.access_key" = "xx",
-        //  "s3.secret_key" = "yy"
-        // )
-        String endpoint = props.get(GlueProperties.ENDPOINT);
-        String region = S3Properties.getRegionOfEndpoint(endpoint);
-        if (!Strings.isNullOrEmpty(region)) {
-            props.put(S3Properties.REGION, region);
-            String suffix = ".amazonaws.com";
-            if (endpoint.endsWith(".amazonaws.com.cn")) {
-                suffix = ".amazonaws.com.cn";
-            }
-            String s3Endpoint = "s3." + region + suffix;
-            if (isGlueIceberg) {
-                s3Endpoint = "https://" + s3Endpoint;
-            }
-            props.put(S3Properties.ENDPOINT, s3Endpoint);
-        }
-        if (credential.isWhole()) {
-            props.put(S3Properties.ACCESS_KEY, credential.getAccessKey());
-            props.put(S3Properties.SECRET_KEY, credential.getSecretKey());
-        }
-        if (credential.isTemporary()) {
-            props.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
-        }
-        return props;
     }
 }

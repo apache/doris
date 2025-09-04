@@ -46,6 +46,7 @@
 #include "vec/data_types/number_traits.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 namespace vectorized {
 template <DecimalNativeTypeConcept T>
 struct Decimal;
@@ -798,5 +799,5 @@ inline bool StringParser::string_to_bool_internal(const char* __restrict s, int 
     *result = PARSE_FAILURE;
     return false;
 }
-
+#include "common/compile_check_avoid_end.h"
 } // end namespace doris

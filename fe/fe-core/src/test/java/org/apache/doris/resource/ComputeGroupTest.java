@@ -17,7 +17,6 @@
 
 package org.apache.doris.resource;
 
-import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -36,6 +35,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
@@ -121,8 +121,9 @@ public class ComputeGroupTest {
     // }
 
     private static void setProperty(String sql) throws Exception {
-        SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().getAuth().updateUserProperty(setUserPropertyStmt);
+        SetUserPropertiesCommand setUserPropertyStmt
+                = (SetUserPropertiesCommand) UtFrameUtils.parseStmt(sql, connectContext);
+        setUserPropertyStmt.run(connectContext, null);
     }
 
     @Test

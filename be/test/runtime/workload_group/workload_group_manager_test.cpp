@@ -125,6 +125,8 @@ TEST_F(WorkloadGroupManagerTest, get_or_create_workload_group) {
     ASSERT_EQ(wg->id(), 0);
 }
 
+// Query is paused due to query memlimit exceed, after waiting in queue for  spill_in_paused_queue_timeout_ms
+// it should be resumed
 TEST_F(WorkloadGroupManagerTest, query_exceed) {
     auto wg = _wg_manager->get_or_create_workload_group({});
     auto query_context = _generate_on_query(wg);
@@ -132,19 +134,21 @@ TEST_F(WorkloadGroupManagerTest, query_exceed) {
     query_context->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
     query_context->query_mem_tracker()->consume(1024 * 4);
 
+    std::cout << config::spill_in_paused_queue_timeout_ms << std::endl;
+
     _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L * 1024 * 1024,
                                   Status::Error(ErrorCode::QUERY_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
         ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 1)
-                << "pasued queue should not be empty";
+                << "paused queue should not be empty";
     }
 
     query_context->query_mem_tracker()->consume(-1024 * 4);
     _run_checking_loop(wg);
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
-    ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
+    ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "paused queue should be empty";
     ASSERT_EQ(query_context->is_cancelled(), false) << "query should be not canceled";
     ASSERT_EQ(query_context->resource_ctx()->task_controller()->is_enable_reserve_memory(), false)
             << "query should disable reserve memory";
@@ -172,7 +176,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed1) {
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
-    ASSERT_EQ(query_context->is_cancelled(), false) << "query should be canceled";
+    ASSERT_EQ(query_context->is_cancelled(), false) << "query should not be canceled";
 }
 
 // TWgSlotMemoryPolicy::NONE
@@ -201,6 +205,8 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed2) {
 
 // TWgSlotMemoryPolicy::NONE
 // query_ctx->workload_group()->exceed_limit() == true
+// query limit > workload group limit
+// query's limit will be set to workload group limit
 TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
     WorkloadGroupInfo wg_info {
             .id = 1, .memory_limit = 1024L * 1024, .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
@@ -209,12 +215,15 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
 
     query_context->query_mem_tracker()->consume(1024L * 1024 * 4);
 
+    // adjust memlimit is larger than mem limit
+    query_context->resource_ctx()->memory_context()->set_adjusted_mem_limit(1024L * 1024 * 10);
+
     _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
         ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 1)
-                << "pasued queue should not be empty";
+                << "paused queue should not be empty";
     }
 
     wg->refresh_memory_usage();
@@ -224,10 +233,19 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
 
     // Query was not cancelled, because the query's limit is bigger than the wg's limit and the wg's policy is NONE.
     ASSERT_FALSE(query_context->is_cancelled());
-    ASSERT_GT(query_context->resource_ctx()->memory_context()->mem_limit(), wg->memory_limit());
+    // Its limit == workload group's limit
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), wg->memory_limit());
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
-    ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
+    ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty())
+            << "paused queue should be empty, because the query will be resumed";
+    // Query's memory usage + reserve size > adjusted memory size it will be resumed
+    // it's memlimit will be set to adjusted size.
+    ASSERT_EQ(query_context->resource_ctx()->task_controller()->is_enable_reserve_memory(), true)
+            << "query should disable reserve memory";
+    // adjust memlimit is larger than workload group memlimit, so adjust memlimit is reset to workload group mem limit.
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->adjusted_mem_limit(),
+              wg->memory_limit());
 }
 
 // TWgSlotMemoryPolicy::FIXED
@@ -251,7 +269,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed4) {
                 << "pasued queue should not be empty";
     }
 
-    _wg_manager->refresh_wg_weighted_memory_limit();
+    _wg_manager->refresh_workload_group_memory_state();
     LOG(INFO) << "***** wg usage " << wg->refresh_memory_usage();
     _run_checking_loop(wg);
 
@@ -260,7 +278,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed4) {
     LOG(INFO) << "***** query_context->get_mem_limit(): "
               << query_context->resource_ctx()->memory_context()->mem_limit();
     const auto delta = std::abs(query_context->resource_ctx()->memory_context()->mem_limit() -
-                                ((1024L * 1024 * 100 * 95) / 100 - 10 * 1024 * 1024) / 5);
+                                (1024L * 1024 * 100 * 95) / 100 / 5);
     ASSERT_LE(delta, 1);
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
@@ -271,6 +289,8 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed4) {
 TEST_F(WorkloadGroupManagerTest, wg_exceed5) {
     WorkloadGroupInfo wg_info {.id = 1,
                                .memory_limit = 1024L * 1024 * 100,
+                               .min_memory_percent = 10,
+                               .max_memory_percent = 100,
                                .memory_low_watermark = 80,
                                .memory_high_watermark = 95,
                                .total_query_slot_count = 5,
@@ -285,10 +305,10 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed5) {
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
         ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 1)
-                << "pasued queue should not be empty";
+                << "paused queue should not be empty";
     }
 
-    _wg_manager->refresh_wg_weighted_memory_limit();
+    _wg_manager->refresh_workload_group_memory_state();
     LOG(INFO) << "***** wg usage " << wg->refresh_memory_usage();
     _run_checking_loop(wg);
 
@@ -296,8 +316,10 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed5) {
     ASSERT_TRUE(query_context->resource_ctx()->task_controller()->paused_reason().ok());
     LOG(INFO) << "***** query_context->get_mem_limit(): "
               << query_context->resource_ctx()->memory_context()->mem_limit();
+
+    // + slot count, because in query memlimit it + slot count
     ASSERT_LE(query_context->resource_ctx()->memory_context()->mem_limit(),
-              (1024L * 1024 * 100 * 95) / 100);
+              ((1024L * 1024 * 100 * 95) / 100 + 5));
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
@@ -383,90 +405,119 @@ TEST_F(WorkloadGroupManagerTest, query_released) {
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
 }
 
-TEST_F(WorkloadGroupManagerTest, overcommit1) {
-    WorkloadGroupInfo wg1_info {.id = 1, .memory_limit = 1024L * 1024 * 100};
-    WorkloadGroupInfo wg2_info {.id = 2, .memory_limit = 1024L * 1024 * 100};
-    WorkloadGroupInfo wg3_info {.id = 3, .memory_limit = 1024L * 1024 * 100};
-    WorkloadGroupInfo wg4_info {.id = 4, .memory_limit = 1024L * 1024 * 1024 * 10};
-    WorkloadGroupInfo wg5_info {.id = 5, .memory_limit = 1024L * 1024 * 1024 * 100};
+TEST_F(WorkloadGroupManagerTest, ProcessMemoryNotEnough) {
+    WorkloadGroupInfo wg1_info {.id = 1,
+                                .memory_limit = 1024L * 1024 * 1000,
+                                .min_memory_percent = 10,
+                                .max_memory_percent = 100};
+    WorkloadGroupInfo wg2_info {.id = 2,
+                                .memory_limit = 1024L * 1024 * 1000,
+                                .min_memory_percent = 10,
+                                .max_memory_percent = 100};
+    WorkloadGroupInfo wg3_info {.id = 3,
+                                .memory_limit = 1024L * 1024 * 1000,
+                                .min_memory_percent = 10,
+                                .max_memory_percent = 100};
+
     auto wg1 = _wg_manager->get_or_create_workload_group(wg1_info);
     auto wg2 = _wg_manager->get_or_create_workload_group(wg2_info);
     auto wg3 = _wg_manager->get_or_create_workload_group(wg3_info);
-    auto wg4 = _wg_manager->get_or_create_workload_group(wg4_info);
-    auto wg5 = _wg_manager->get_or_create_workload_group(wg5_info);
+
     EXPECT_EQ(wg1->id(), wg1_info.id);
     EXPECT_EQ(wg2->id(), wg2_info.id);
     EXPECT_EQ(wg3->id(), wg3_info.id);
-    EXPECT_EQ(wg5->id(), wg5_info.id);
+
+    EXPECT_EQ(1024L * 1024 * 100, wg1->min_memory_limit());
 
     auto query_context11 = _generate_on_query(wg1);
-
-    // wg2 is overcommited, some query is overcommited
-    auto query_context21 = _generate_on_query(wg2);
-    auto query_context22 = _generate_on_query(wg2);
-    auto query_context23 = _generate_on_query(wg2);
-    auto query_context24 = _generate_on_query(wg2);
-    auto query_context25 = _generate_on_query(wg2);
-    auto query_context26 = _generate_on_query(wg2);
-    query_context21->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
-    query_context21->query_mem_tracker()->consume(1024 * 1024 * 1024);
-    query_context22->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
-    query_context22->query_mem_tracker()->consume(1024 * 1024 * 64);
-    query_context23->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
-    query_context23->query_mem_tracker()->consume(1024 * 1024 * 10);
-    query_context24->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
-    query_context24->query_mem_tracker()->consume(1024);
-    query_context25->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 512);
-    query_context25->query_mem_tracker()->consume(1024 * 1024 * 1024);
-    query_context26->resource_ctx()->memory_context()->set_mem_limit(1024L * 1024 * 1024 * 100);
-    query_context26->query_mem_tracker()->consume(1024 * 1024 * 1024);
-
-    // wg3 is overcommited, some query is overcommited
-    auto query_context31 = _generate_on_query(wg3);
-    auto query_context32 = _generate_on_query(wg3);
-    auto query_context33 = _generate_on_query(wg3);
-    query_context31->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
-    query_context31->query_mem_tracker()->consume(1024 * 1024 * 1024);
-    query_context32->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
-    query_context32->query_mem_tracker()->consume(1024 * 1024 * 512);
-    query_context33->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 512);
-    query_context33->query_mem_tracker()->consume(1024 * 1024 * 1024);
-
-    // wg4 not overcommited, query is overcommited
-    auto query_context41 = _generate_on_query(wg4);
-    query_context41->resource_ctx()->memory_context()->set_mem_limit(1024L * 1024);
-    query_context41->query_mem_tracker()->consume(1024L * 1024 * 1024 * 9);
-
-    // wg5 disable overcommited, query is overcommited
-    auto query_context51 = _generate_on_query(wg5);
-    query_context51->resource_ctx()->memory_context()->set_mem_limit(1024L * 1024);
-    query_context51->query_mem_tracker()->consume(1024L * 1024 * 1024 * 99);
+    query_context11->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
+    query_context11->query_mem_tracker()->consume(1024 * 1024 * 10);
 
     wg1->refresh_memory_usage();
     wg2->refresh_memory_usage();
     wg3->refresh_memory_usage();
-    wg4->refresh_memory_usage();
-    wg5->refresh_memory_usage();
 
-    // step1, wg2 is overcommited largest, cancel some overcommited query, freed memory less than need_free_mem.
-    // step2, wg3 is less overcommited than wg2, cancel some overcommited query, terminate after freed memory is greater than need_free_mem.
-    // query41 in wg4 has largest overcommited, but wg4 not overcommited, so not cancel query41.
-    EXPECT_EQ(_wg_manager->revoke_memory_from_other_overcommited_groups_(
-                      query_context11->resource_ctx(), 1024L * 1024 * 1024 * 3 + 1),
-              1024L * 1024 * 1024 * 4);
+    // There is no query in workload groups, so that revoke memory will return 0
+    EXPECT_EQ(0, _wg_manager->revoke_memory_from_other_groups_());
 
-    ASSERT_FALSE(query_context11->is_cancelled());
-    ASSERT_TRUE(query_context21->is_cancelled());
+    // If exceed memory less than 128MB, then not revoke
+    auto query_context21 = _generate_on_query(wg2);
+    query_context21->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
+    query_context21->query_mem_tracker()->consume(1024 * 1024 * 50);
+    wg2->refresh_memory_usage();
+    EXPECT_EQ(wg2->total_mem_used(), 1024 * 1024 * 50);
+    EXPECT_EQ(wg2->min_memory_limit(), 1024 * 1024 * 100);
+    // There is not workload group's memory usage > it's min memory limit.
+    EXPECT_EQ(0, _wg_manager->revoke_memory_from_other_groups_());
+    ASSERT_FALSE(query_context21->is_cancelled());
+
+    // Add another query that use a lot of memory
+    auto query_context22 = _generate_on_query(wg2);
+    query_context22->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
+    query_context22->query_mem_tracker()->consume(1024 * 1024 * 60);
+    wg2->refresh_memory_usage();
+    EXPECT_EQ(wg2->total_mem_used(), 1024 * 1024 * 110);
+    EXPECT_EQ(wg2->min_memory_limit(), 1024 * 1024 * 100);
+    // Could not revoke larger than 128MB, not revoke.
+    EXPECT_EQ(0, _wg_manager->revoke_memory_from_other_groups_());
+    ASSERT_FALSE(query_context21->is_cancelled());
     ASSERT_FALSE(query_context22->is_cancelled());
-    ASSERT_FALSE(query_context23->is_cancelled());
-    ASSERT_FALSE(query_context24->is_cancelled());
-    ASSERT_TRUE(query_context25->is_cancelled());
-    ASSERT_TRUE(query_context26->is_cancelled());
+
+    // Add another query that use a lot of memory
+    auto query_context23 = _generate_on_query(wg2);
+    query_context23->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
+    query_context23->query_mem_tracker()->consume(1024 * 1024 * 300);
+    wg2->refresh_memory_usage();
+    EXPECT_EQ(wg2->total_mem_used(), 1024 * 1024 * 410);
+    EXPECT_EQ(wg2->min_memory_limit(), 1024 * 1024 * 100);
+    EXPECT_EQ(31 * 1024 * 1024, _wg_manager->revoke_memory_from_other_groups_());
+    ASSERT_FALSE(query_context21->is_cancelled());
+    ASSERT_FALSE(query_context22->is_cancelled());
+    ASSERT_TRUE(query_context23->is_cancelled());
+    // Although query23 is cancelled, but it is not removed from workload group2, so that it still occupy memory usage.
+    wg2->refresh_memory_usage();
+    EXPECT_EQ(wg2->total_mem_used(), 1024 * 1024 * 410);
+    // clear cancelled query from workload group.
+    wg2->clear_cancelled_resource_ctx();
+    wg2->refresh_memory_usage();
+    EXPECT_EQ(wg2->total_mem_used(), 1024 * 1024 * 110);
+    // todo 应该是cancel 最大的query
+
+    auto query_context24 = _generate_on_query(wg2);
+    query_context24->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
+    query_context24->query_mem_tracker()->consume(1024 * 1024 * 300);
+    wg2->refresh_memory_usage();
+    EXPECT_EQ(wg2->total_mem_used(), 1024 * 1024 * 410); // WG2 exceed 310MB
+
+    // wg3 is overcommited, some query is overcommited
+    auto query_context31 = _generate_on_query(wg3);
+    query_context31->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
+    query_context31->query_mem_tracker()->consume(1024 * 1024 * 500);
+    wg3->refresh_memory_usage();
+    EXPECT_EQ(wg3->total_mem_used(), 1024 * 1024 * 500); // WG3 exceed 400MB
+
+    EXPECT_EQ(40 * 1024 * 1024, _wg_manager->revoke_memory_from_other_groups_());
+
+    wg1->refresh_memory_usage();
+    wg2->refresh_memory_usage();
+    wg3->refresh_memory_usage();
+
     ASSERT_TRUE(query_context31->is_cancelled());
-    ASSERT_FALSE(query_context32->is_cancelled());
-    ASSERT_FALSE(query_context33->is_cancelled());
-    ASSERT_FALSE(query_context41->is_cancelled());
-    ASSERT_FALSE(query_context51->is_cancelled());
+    // query31 is still in wg3, so that it is not cancel again.
+    EXPECT_EQ(40 * 1024 * 1024, _wg_manager->revoke_memory_from_other_groups_());
+    ASSERT_FALSE(query_context11->is_cancelled());
+    ASSERT_FALSE(query_context21->is_cancelled());
+    ASSERT_FALSE(query_context22->is_cancelled());
+    ASSERT_FALSE(query_context24->is_cancelled());
+    ASSERT_TRUE(query_context31->is_cancelled());
+
+    // remove query31 from wg
+    wg3->clear_cancelled_resource_ctx();
+
+    wg1->refresh_memory_usage();
+    wg2->refresh_memory_usage();
+    wg3->refresh_memory_usage();
+    EXPECT_EQ(wg3->total_mem_used(), 0); // WG3 exceed 400MB
 }
 
 } // namespace doris

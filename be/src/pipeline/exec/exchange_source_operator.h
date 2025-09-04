@@ -41,6 +41,8 @@ public:
     using Base = PipelineXLocalState<>;
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
+    ~ExchangeLocalState() override;
+
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;

@@ -78,7 +78,7 @@ public:
 
     void try_stop() override;
 
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
+    Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
     std::string get_name() override { return FileScanner::NAME; }
 
@@ -149,7 +149,7 @@ protected:
     // dest slot desc index to src slot desc index
     std::unordered_map<int, int> _dest_slot_to_src_slot_index;
 
-    std::unordered_map<std::string, size_t> _src_block_name_to_idx;
+    std::unordered_map<std::string, uint32_t> _src_block_name_to_idx;
 
     // Get from GenericReader, save the existing columns in file to their type.
     std::unordered_map<std::string, DataTypePtr> _slot_lower_name_to_col_type;
@@ -256,8 +256,10 @@ private:
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);
-    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader);
-    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader);
+    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
+                            FileMetaCache* file_meta_cache_ptr);
+    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader,
+                                FileMetaCache* file_meta_cache_ptr);
     Status _create_row_id_column_iterator();
 
     TFileFormatType::type _get_current_format_type() {
@@ -289,7 +291,7 @@ private:
     // 2. the file number is less than 1/3 of cache's capacibility
     // Otherwise, the cache miss rate will be high
     bool _should_enable_file_meta_cache() {
-        return config::max_external_file_meta_cache_num > 0 &&
+        return ExecEnv::GetInstance()->file_meta_cache()->enabled() &&
                _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
 };

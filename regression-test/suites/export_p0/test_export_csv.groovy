@@ -403,5 +403,74 @@ suite("test_export_csv", "p0") {
         delete_files.call("${outFilePath}")
     }
 
+    // 5. test csv with compression
+    uuid = UUID.randomUUID().toString()
+    outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
+    label = "label_${uuid}"
+    try {
+        // check export path
+        check_path_exists.call("${outFilePath}")
+
+        // exec export
+        sql """
+            EXPORT TABLE ${table_export_name} where user_id < 11 TO "file://${outFilePath}/"
+            PROPERTIES(
+                "label" = "${label}",
+                "format" = "csv",
+                "compress_type"="gz"
+            );
+        """
+        waiting_export.call(label)
+        
+        // check data correctness
+        sql """ DROP TABLE IF EXISTS ${table_load_name} """
+        sql """
+        CREATE TABLE IF NOT EXISTS ${table_load_name} (
+            `user_id` LARGEINT NOT NULL COMMENT "用户id",
+            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
+            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
+            `city` VARCHAR(20) COMMENT "用户所在城市",
+            `age` SMALLINT COMMENT "用户年龄",
+            `sex` TINYINT COMMENT "用户性别",
+            `bool_col` boolean COMMENT "",
+            `int_col` int COMMENT "",
+            `bigint_col` bigint COMMENT "",
+            `largeint_col` largeint COMMENT "",
+            `float_col` float COMMENT "",
+            `double_col` double COMMENT "",
+            `char_col` CHAR(10) COMMENT "",
+            `decimal_col` decimal COMMENT "",
+            `ipv4_col` ipv4 COMMENT "",
+            `ipv6_col` ipv6 COMMENT ""
+            )
+            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
+        """
+
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+           logger.info("Begin to insert into ${table_load_name} from local()")
+           sql """
+                insert into ${table_load_name}
+                select *
+                from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "compress_type" = "gz");
+                """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
+        }
+
+        qt_select_load5 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
+    
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
+        delete_files.call("${outFilePath}")
+    }
+
     try_sql("DROP TABLE IF EXISTS ${table_export_name}")
 }

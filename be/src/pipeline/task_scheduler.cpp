@@ -70,7 +70,7 @@ Status TaskScheduler::start() {
     return Status::OK();
 }
 
-Status TaskScheduler::schedule_task(PipelineTaskSPtr task) {
+Status TaskScheduler::submit(PipelineTaskSPtr task) {
     return _task_queue.push_back(task);
 }
 
@@ -117,9 +117,11 @@ void TaskScheduler::_do_work(int index) {
             // Fragment already finished
             continue;
         }
-        task->set_running(true).set_task_queue(&_task_queue).set_core_id(index);
+        task->set_running(true).set_core_id(index);
         bool done = false;
         auto status = Status::OK();
+        int64_t exec_ns = 0;
+        SCOPED_RAW_TIMER(&exec_ns);
         Defer task_running_defer {[&]() {
             // If fragment is finished, fragment context will be de-constructed with all tasks in it.
             if (done || !status.ok()) {
@@ -130,6 +132,7 @@ void TaskScheduler::_do_work(int index) {
             } else {
                 task->set_running(false);
             }
+            _task_queue.update_statistics(task.get(), exec_ns);
         }};
         bool canceled = fragment_context->is_canceled();
 
@@ -177,6 +180,25 @@ void TaskScheduler::stop() {
         // not check it and will free task scheduler.
         _shutdown = true;
     }
+}
+
+Status HybridTaskScheduler::submit(PipelineTaskSPtr task) {
+    if (task->is_blockable()) {
+        return _blocking_scheduler.submit(task);
+    } else {
+        return _simple_scheduler.submit(task);
+    }
+}
+
+Status HybridTaskScheduler::start() {
+    RETURN_IF_ERROR(_blocking_scheduler.start());
+    RETURN_IF_ERROR(_simple_scheduler.start());
+    return Status::OK();
+}
+
+void HybridTaskScheduler::stop() {
+    _blocking_scheduler.stop();
+    _simple_scheduler.stop();
 }
 
 } // namespace doris::pipeline

@@ -46,6 +46,7 @@ namespace segment_v2 {
 class ColumnIterator;
 class InvertedIndexIterator;
 class InvertedIndexFileReader;
+class ColumnReaderCache;
 
 class VariantColumnReader : public ColumnReader {
 public:
@@ -57,7 +58,10 @@ public:
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt) override;
 
-    const SubcolumnColumnReaders::Node* get_reader_by_path(
+    Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
+                        const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache);
+
+    virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
             const vectorized::PathInData& relative_path) const;
 
     ~VariantColumnReader() override = default;
@@ -74,7 +78,9 @@ public:
 
     bool is_exceeded_sparse_column_limit() const;
 
-    const SubcolumnColumnReaders* get_subcolumn_readers() const { return _subcolumn_readers.get(); }
+    const SubcolumnColumnMetaInfo* get_subcolumns_meta_info() const {
+        return _subcolumns_meta_info.get();
+    }
 
     void get_subcolumns_types(
             std::unordered_map<vectorized::PathInData, vectorized::DataTypes,
@@ -87,21 +93,28 @@ public:
 
 private:
     // init for compaction read
-    Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator,
-                                              const TabletColumn& col);
+    Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator, const TabletColumn& col,
+                                              const StorageReadOptions* opt,
+                                              ColumnReaderCache* column_reader_cache);
     Status _new_iterator_with_flat_leaves(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                           const StorageReadOptions* opts,
                                           bool exceeded_sparse_column_limit,
-                                          bool existed_in_sparse_column);
+                                          bool existed_in_sparse_column,
+                                          ColumnReaderCache* column_reader_cache);
 
-    Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, vectorized::PathInData path,
-                                       const SubcolumnColumnReaders::Node* node,
-                                       const SubcolumnColumnReaders::Node* root);
+    Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid,
+                                       vectorized::PathInData path,
+                                       const SubcolumnColumnMetaInfo::Node* node,
+                                       const SubcolumnColumnMetaInfo::Node* root,
+                                       ColumnReaderCache* column_reader_cache,
+                                       OlapReaderStatistics* stats);
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
                                        const TabletColumn& target_col,
-                                       ColumnIteratorUPtr inner_iter);
-    std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;
-    std::unique_ptr<ColumnReader> _sparse_column_reader;
+                                       ColumnIteratorUPtr inner_iter,
+                                       ColumnReaderCache* column_reader_cache);
+    std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
+    std::shared_ptr<ColumnReader> _sparse_column_reader;
+    std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
     // key: subcolumn path, value: subcolumn indexes
     std::unordered_map<std::string, TabletIndexes> _variant_subcolumns_indexes;

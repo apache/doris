@@ -21,6 +21,7 @@
 #include "vec/common/allocator_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 template <class T, typename MemoryAllocator = Allocator<false>>
 class CustomStdAllocator;
@@ -61,10 +62,17 @@ public:
 
     T* allocate(size_t n, const void*) { return allocate(n); }
 
-    template <class Up, class... Args>
-    void construct(Up* p, Args&&... args) {
-        ::new ((void*)p) Up(std::forward<Args>(args)...);
-    }
+    // https://en.cppreference.com/w/cpp/memory/allocator/construct.html
+    // void construct( pointer p, const_reference val ); (1)	(until C++11)
+    //
+    // template< class U, class... Args >
+    // void construct( U* p, Args&&... args ); (2)	(since C++11)
+    //                                              (deprecated in C++17)
+    //                                              (removed in C++20)
+    // template <class Up, class... Args>
+    // void construct(Up* p, Args&&... args) {
+    //     ::new ((void*)p) Up(std::forward<Args>(args)...);
+    // }
 
     void destroy(T* p) { p->~T(); }
 
@@ -83,4 +91,5 @@ bool operator!=(const CustomStdAllocator<T>&, const CustomStdAllocator<Up>&) {
     return false;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

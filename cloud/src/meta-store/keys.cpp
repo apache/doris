@@ -705,6 +705,14 @@ void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, std::string* ou
     encode_int64(std::get<2>(in), out);               // version
 }
 
+void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);              // "meta"
+    encode_bytes(std::get<0>(in), out);              // instance_id
+    encode_bytes(META_KEY_INFIX_DELETE_BITMAP, out); // "delete_bitmap"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+    encode_bytes(std::get<2>(in), out);              // rowset_id
+}
 //==============================================================================
 // Data keys
 //==============================================================================
@@ -792,4 +800,16 @@ std::set<std::string> get_key_prefix_contants() {
     key_prefix_set.insert(VAULT_KEY_PREFIX);
     return key_prefix_set;
 }
+
+std::vector<std::string> get_single_version_meta_key_prefixs() {
+    std::vector<std::string> key_prefix_list;
+    for (std::string_view prefix : {"meta", "version", "stats"}) {
+        std::string key_prefix;
+        key_prefix.push_back(CLOUD_USER_KEY_SPACE01);
+        encode_bytes(prefix, &key_prefix);
+        key_prefix_list.push_back(std::move(key_prefix));
+    }
+    return key_prefix_list;
+}
+
 } // namespace doris::cloud

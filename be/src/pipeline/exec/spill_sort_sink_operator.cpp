@@ -25,7 +25,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
         : Base(parent, state) {}
 
@@ -189,10 +189,13 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
                               print_id(state->query_id()), _parent->node_id(), state->task_id(),
                               _eos);
 
+    int32_t batch_size =
+            _shared_state->spill_block_batch_row_count > std::numeric_limits<int32_t>::max()
+                    ? std::numeric_limits<int32_t>::max()
+                    : static_cast<int32_t>(_shared_state->spill_block_batch_row_count);
     auto status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
             state, _spilling_stream, print_id(state->query_id()), "sort", _parent->node_id(),
-            _shared_state->spill_block_batch_row_count, state->spill_sort_batch_bytes(),
-            operator_profile());
+            batch_size, state->spill_sort_batch_bytes(), operator_profile());
     RETURN_IF_ERROR(status);
 
     _shared_state->sorted_streams.emplace_back(_spilling_stream);
@@ -236,12 +239,16 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
 
         bool eos = false;
         vectorized::Block block;
+
+        int32_t batch_size =
+                _shared_state->spill_block_batch_row_count > std::numeric_limits<int32_t>::max()
+                        ? std::numeric_limits<int32_t>::max()
+                        : static_cast<int32_t>(_shared_state->spill_block_batch_row_count);
         while (!eos && !state->is_cancelled()) {
             {
                 SCOPED_TIMER(_spill_merge_sort_timer);
                 status = parent._sort_sink_operator->merge_sort_read_for_spill(
-                        _runtime_state.get(), &block, _shared_state->spill_block_batch_row_count,
-                        &eos);
+                        _runtime_state.get(), &block, batch_size, &eos);
             }
             RETURN_IF_ERROR(status);
             status = _spilling_stream->spill_block(state, block, eos);
@@ -282,5 +289,5 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
                     state, spill_context, _spill_dependency, operator_profile(),
                     _shared_state->shared_from_this(), exception_catch_func));
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -77,7 +77,7 @@ Status RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& arg
     for (size_t col_idx : arguments) {
         PValues* arg = request->add_args();
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
-        arg->set_has_null(column.column->has_null(row_count));
+        arg->set_has_null(column.column->has_null(0, row_count));
         auto col = column.column->convert_to_full_column_if_const();
         RETURN_IF_ERROR(column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count));
     }

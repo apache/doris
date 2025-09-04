@@ -31,6 +31,7 @@ import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
 import com.aliyun.odps.Project;
 import com.aliyun.odps.account.Account;
+import com.aliyun.odps.account.AccountFormat;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.security.SecurityManager;
 import com.aliyun.odps.table.configuration.RestOptions;
@@ -77,6 +78,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private int retryTimes;
 
     public boolean dateTimePredicatePushDown;
+
+    AccountFormat accountFormat = AccountFormat.DISPLAYNAME;
 
     private static final Map<String, ZoneId> REGION_ZONE_MAP;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
@@ -211,6 +214,14 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         this.odps = new Odps(account);
         odps.setDefaultProject(defaultProject);
         odps.setEndpoint(endpoint);
+
+        String accountFormatProp = props.getOrDefault(MCProperties.ACCOUNT_FORMAT, MCProperties.DEFAULT_ACCOUNT_FORMAT);
+        if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_NAME)) {
+            accountFormat = AccountFormat.DISPLAYNAME;
+        } else if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_ID)) {
+            accountFormat = AccountFormat.ID;
+        }
+        odps.setAccountFormat(accountFormat);
         Credentials credentials = Credentials.newBuilder().withAccount(odps.getAccount())
                 .withAppAccount(odps.getAppAccount()).build();
 
@@ -427,6 +438,14 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                     + MCProperties.SPLIT_ROW_COUNT + "must be an integer");
         }
 
+        String accountFormatProp = props.getOrDefault(MCProperties.ACCOUNT_FORMAT, MCProperties.DEFAULT_ACCOUNT_FORMAT);
+        if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_NAME)) {
+            accountFormat = AccountFormat.DISPLAYNAME;
+        } else if (accountFormatProp.equals(MCProperties.ACCOUNT_FORMAT_ID)) {
+            accountFormat = AccountFormat.ID;
+        } else {
+            throw new DdlException("property " + MCProperties.ACCOUNT_FORMAT + "only support name and id");
+        }
 
         try {
             connectTimeout = Integer.parseInt(

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -387,52 +386,42 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
 
         createDbAndTableForHmsCatalog((HMSExternalCatalog) env.getCatalogMgr().getCatalog(HMS_CATALOG));
         // force use nereids planner to query hive views
-        queryViews(true);
+        queryViews();
     }
 
-    private void testParseAndAnalyze(boolean useNereids, String sql) {
+    private void testParseAndAnalyze(String sql) {
         try {
-            if (useNereids) {
-                checkAnalyze(sql);
-            } else {
-                parseAndAnalyzeStmt(sql, connectContext);
-            }
+            checkAnalyze(sql);
         } catch (Exception exception) {
             exception.printStackTrace();
             Assert.fail();
         }
     }
 
-    private void testParseAndAnalyzeWithThrows(boolean useNereids, String sql,
-                                               Class<? extends Throwable> throwableClass) {
+    private void testParseAndAnalyzeWithThrows(String sql) {
         try {
-            if (useNereids) {
-                Assert.assertThrows(throwableClass, () -> checkAnalyze(sql));
-            } else {
-                Assert.assertThrows(throwableClass, () -> parseAndAnalyzeStmt(sql, connectContext));
-            }
+            Assert.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () -> checkAnalyze(sql));
         } catch (Exception exception) {
             exception.printStackTrace();
             Assert.fail();
         }
     }
 
-    private void queryViews(boolean useNereids) {
+    private void queryViews() {
         // test normal table
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_tbl");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_tbl");
 
         // test simple view
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view1");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view1");
 
         // test view with subquery
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view2");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view2");
 
         // test view with union
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view3");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view3");
 
         // test view with not support func
-        testParseAndAnalyzeWithThrows(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view4",
-                    useNereids ? org.apache.doris.nereids.exceptions.AnalysisException.class : AnalysisException.class);
+        testParseAndAnalyzeWithThrows("SELECT * FROM hms_ctl.hms_db.hms_view4");
 
         // change to hms_ctl
         try {
@@ -443,17 +432,16 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         }
 
         // test in hms_ctl
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view1");
+        testParseAndAnalyze("SELECT * FROM hms_db.hms_view1");
 
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view2");
+        testParseAndAnalyze("SELECT * FROM hms_db.hms_view2");
 
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view3");
+        testParseAndAnalyze("SELECT * FROM hms_db.hms_view3");
 
-        testParseAndAnalyzeWithThrows(useNereids, "SELECT * FROM hms_db.hms_view4",
-                    useNereids ? org.apache.doris.nereids.exceptions.AnalysisException.class : AnalysisException.class);
+        testParseAndAnalyzeWithThrows("SELECT * FROM hms_db.hms_view4");
 
         // test federated query
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view3, internal.test.tbl1");
+        testParseAndAnalyze("SELECT * FROM hms_db.hms_view3, internal.test.tbl1");
 
         // change to internal catalog
         try {
@@ -463,9 +451,9 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
             Assert.fail();
         }
 
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view3, internal.test.tbl1");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view3, internal.test.tbl1");
 
-        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view3, test.tbl1");
+        testParseAndAnalyze("SELECT * FROM hms_ctl.hms_db.hms_view3, test.tbl1");
     }
 
 }

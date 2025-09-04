@@ -34,6 +34,7 @@
 #include "common/object_pool.h"
 #include "exec/olap_common.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -53,7 +54,9 @@ class VExprContext;
 
 class ParquetReaderTest : public testing::Test {
 public:
-    ParquetReaderTest() {}
+    ParquetReaderTest() : cache(1024) {}
+
+    FileMetaCache cache;
 };
 
 static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
@@ -140,8 +143,8 @@ TEST_F(ParquetReaderTest, normal) {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    auto p_reader =
-            new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr);
+    auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr,
+                                      &cache);
     p_reader->set_file_reader(reader);
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);

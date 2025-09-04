@@ -56,6 +56,8 @@ class TabletColumn;
 
 namespace vectorized {
 
+#include "common/compile_check_begin.h"
+
 class Block;
 class ColumnArray;
 class ColumnMap;
@@ -189,7 +191,7 @@ private:
             memset(padded_column->chars.data(), 0, input->size() * padding_length);
 
             for (size_t i = 0; i < input->size(); i++) {
-                column->offsets[i] = (i + 1) * padding_length;
+                column->offsets[i] = cast_set<uint32_t, size_t, false>((i + 1) * padding_length);
 
                 auto str = input->get_data_at(i);
 
@@ -538,6 +540,8 @@ private:
 private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace vectorized
 } // namespace doris

@@ -154,7 +154,7 @@ suite("test_spark_load_with_index_p0", "p0") {
                 create_test_table.call(testTable)
                 create_test_table.call(testTable2)
                 def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-                load_from_hdfs.call(testTable, testTable2, test_load_label, hdfs_txt_file_path1, hdfs_txt_file_path2)
+                load_from_hdfs_use_spark.call(testTable, testTable2, test_load_label, hdfs_txt_file_path1, hdfs_txt_file_path2)
                 check_load_result.call(test_load_label, testTable, testTable2)
 
             } finally {

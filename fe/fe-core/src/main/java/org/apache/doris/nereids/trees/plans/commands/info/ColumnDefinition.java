@@ -184,6 +184,10 @@ public class ColumnDefinition {
         return isVisible;
     }
 
+    public void setGeneratedColumnsThatReferToThis(Set<String> generatedColumnsThatReferToThis) {
+        this.generatedColumnsThatReferToThis = generatedColumnsThatReferToThis;
+    }
+
     /**
      * toSql
      */

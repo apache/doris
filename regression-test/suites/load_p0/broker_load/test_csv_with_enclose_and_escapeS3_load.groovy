@@ -51,24 +51,24 @@ suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
     for (i in 0..<normalCases.size()) {
         attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/${normalCases[i]}.csv",
                 "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
-                "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
+                "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")"))
     }
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/enclose_incomplete.csv",
         "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
-        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")").addProperties("max_filter_ratio", "0.5"))
+        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")").addProperties("max_filter_ratio", "0.5"))
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/enclose_without_escape.csv",
         "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
-        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
+        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")"))
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/enclose_multi_char_delimiter.csv",
         "${tableName}", "LINES TERMINATED BY \"\$\$\$\"", "COLUMNS TERMINATED BY \"@@\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
-        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
+        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")"))
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/enclose_not_trim_quotes.csv",
         "${tableName}", "", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
-        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")").addProperties("trim_double_quotes", "false"))
+        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")"))
 
     def ak = getS3AK()
     def sk = getS3SK()

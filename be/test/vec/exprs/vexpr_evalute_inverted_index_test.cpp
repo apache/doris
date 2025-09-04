@@ -162,7 +162,7 @@ TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
             std::vector<doris::ColumnId>(),
             std::vector<std::unique_ptr<doris::segment_v2::IndexIterator>>(),
             std::vector<doris::vectorized::IndexFieldNameAndTypePair>(),
-            common_expr_inverted_index_status);
+            common_expr_inverted_index_status, nullptr);
     expr_ctx.set_inverted_index_context(inverted_index_context);
     doris::RuntimeState state;
     doris::RowDescriptor row_desc;

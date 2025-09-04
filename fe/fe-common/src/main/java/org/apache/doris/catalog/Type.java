@@ -2217,8 +2217,42 @@ public abstract class Type {
     public static boolean matchExactType(Type type1, Type type2, boolean ignorePrecision) {
         // we should make type decide to match other for itself to impl matchesType instead of switch case types
         if (type1.matchesType(type2)) {
-            if (PrimitiveType.typeWithPrecision.contains(type2.getPrimitiveType())) {
-                // For types which has precision and scale, we also need to check quality between precisions and scales
+            if (type1.isArrayType()) {
+                return matchExactType(((ArrayType) type1).getItemType(), ((ArrayType) type2).getItemType(),
+                        ignorePrecision);
+            } else if (type1.isMapType()) {
+                MapType map1 = (MapType) type1;
+                MapType map2 = (MapType) type2;
+                return matchExactType(map1.getKeyType(), map2.getKeyType(), ignorePrecision)
+                        && matchExactType(map1.getValueType(), map2.getValueType(), ignorePrecision);
+            } else if (type1.isStructType()) {
+                StructType struct1 = (StructType) type1;
+                StructType struct2 = (StructType) type2;
+                if (struct1.getFields().size() != struct2.getFields().size()) {
+                    return false;
+                }
+                for (int i = 0; i < struct1.getFields().size(); i++) {
+                    if (!matchExactType(struct1.getFields().get(i).getType(),
+                            struct2.getFields().get(i).getType(), ignorePrecision)) {
+                        return false;
+                    }
+                }
+                return true;
+            } else if (type1.isVariantType()) {
+                ArrayList<VariantField> fields1 = ((VariantType) type1).getPredefinedFields();
+                ArrayList<VariantField> fields2 = ((VariantType) type2).getPredefinedFields();
+                if (fields1.size() != fields2.size()) {
+                    return false;
+                }
+                for (int i = 0; i < fields1.size(); i++) {
+                    if (!matchExactType(fields1.get(i).getType(), fields2.get(i).getType(), ignorePrecision)) {
+                        return false;
+                    }
+                }
+                return true;
+            } else if (PrimitiveType.typeWithPrecision.contains(type2.getPrimitiveType())) {
+                //FIXME: this branch will never be executed ScalarType.matchesType and checks below are
+                // self-contradictory. double check and remove the argument `ignorePrecision`.
                 if ((((ScalarType) type2).decimalPrecision()
                         == ((ScalarType) type1).decimalPrecision()) && (((ScalarType) type2).decimalScale()
                         == ((ScalarType) type1).decimalScale())) {

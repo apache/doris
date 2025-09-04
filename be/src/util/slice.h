@@ -32,7 +32,7 @@
 #include "vec/common/allocator_fwd.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class faststring;
 
 /// @brief A wrapper around externally allocated data.
@@ -299,7 +299,7 @@ inline bool operator!=(const Slice& x, const Slice& y) {
 }
 
 inline int Slice::compare(const Slice& b) const {
-    const int min_len = (size < b.size) ? size : b.size;
+    const auto min_len = (size < b.size) ? size : b.size;
     int r = mem_compare(data, b.data, min_len);
     if (r == 0) {
         if (size < b.size)
@@ -376,3 +376,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

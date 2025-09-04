@@ -122,9 +122,9 @@ suite("test_sc_fail_release_delete_bitmap_lock", "nonConcurrent") {
             assert res[0].State == "CANCELLED"
             assert res[0].Msg.contains("[DELETE_BITMAP_LOCK_ERROR]test update delete bitmap failed")
             GetDebugPoint().disableDebugPointForAllBEs("CloudMetaMgr::test_update_delete_bitmap_fail")
-            now = System.currentTimeMillis()
+            def now = System.currentTimeMillis()
             do_insert_into()
-            time_cost = System.currentTimeMillis() - now
+            def time_cost = System.currentTimeMillis() - now
             log.info("time_cost(ms): ${time_cost}")
             assertTrue(time_cost < 10000, "wait time should less than 10s")
         }
