@@ -26,32 +26,16 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename BoolFunc>
-AggregateFunctionPtr create_aggregate_function_bool(const std::string& name,
-                                                    const DataTypes& argument_types,
-                                                    const bool result_is_nullable,
-                                                    const AggregateFunctionAttr& attr) {
-    if (argument_types.size() != 1) {
-        LOG(WARNING) << "Aggregate function " << name << " requires exactly 1 argument";
-        return nullptr;
-    }
-    if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_BOOLEAN) {
-        LOG(WARNING) << "Unsupported input type " << argument_types[0]->get_name()
-                     << " for aggregate function " << name;
-        return nullptr;
-    }
-
-    return creator_without_type::create<AggregateFuntionBoolUnion<BoolFunc>>(
-            argument_types, result_is_nullable, attr);
-}
-
 void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("bool_or",
-                                   create_aggregate_function_bool<AggregateFunctionBoolOrData>);
-    factory.register_function_both("bool_and",
-                                   create_aggregate_function_bool<AggregateFunctionBoolAndData>);
-    factory.register_function_both("bool_xor",
-                                   create_aggregate_function_bool<AggregateFunctionBoolXorData>);
+    factory.register_function_both(
+            "bool_or", creator_with_type_list<TYPE_BOOLEAN>::template creator<
+                               AggregateFunctionBitwise, AggregateFunctionGroupBitOrData>);
+    factory.register_function_both(
+            "bool_and", creator_with_type_list<TYPE_BOOLEAN>::template creator<
+                                AggregateFunctionBitwise, AggregateFunctionGroupBitAndData>);
+    factory.register_function_both(
+            "bool_xor",
+            creator_without_type::creator<AggregateFuntionBoolUnion<AggregateFunctionBoolXorData>>);
     factory.register_alias("bool_or", "boolor_agg");
     factory.register_alias("bool_and", "booland_agg");
     factory.register_alias("bool_xor", "boolxor_agg");

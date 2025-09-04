@@ -31,14 +31,6 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-struct AggregateFunctionBoolOrData : AggregateFunctionGroupBitOrData<PrimitiveType::TYPE_BOOLEAN> {
-    static constexpr auto name = "bool_or";
-};
-
-struct AggregateFunctionBoolAndData
-        : AggregateFunctionGroupBitAndData<PrimitiveType::TYPE_BOOLEAN> {
-    static constexpr auto name = "bool_and";
-};
 
 struct AggregateFunctionBoolXorData {
     static constexpr auto name = "bool_xor";
