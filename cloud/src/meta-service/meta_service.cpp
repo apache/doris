@@ -3007,7 +3007,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 response->set_partition_max_version(partition_version);
             } else {
                 err = reader.get_partition_pending_txn_id(txn.get(), idx.partition_id(),
-                                                          &first_txn_id);
+                                                          &first_txn_id, &partition_version);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
                     msg = fmt::format(
@@ -3017,6 +3017,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     LOG(WARNING) << msg;
                     return;
                 }
+                response->set_partition_max_version(partition_version);
             }
             if (first_txn_id >= 0) {
                 stats.get_bytes += txn->get_bytes();

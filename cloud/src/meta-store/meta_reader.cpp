@@ -754,7 +754,7 @@ TxnErrorCode MetaReader::get_tablet_indexes(
 }
 
 TxnErrorCode MetaReader::get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
-                                                      bool snapshot) {
+                                                      int64_t* partition_version, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";
     if (!txn_kv_) {
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
@@ -764,11 +764,13 @@ TxnErrorCode MetaReader::get_partition_pending_txn_id(int64_t partition_id, int6
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
-    return get_partition_pending_txn_id(txn.get(), partition_id, first_txn_id, snapshot);
+    return get_partition_pending_txn_id(txn.get(), partition_id, first_txn_id, partition_version,
+                                        snapshot);
 }
 
 TxnErrorCode MetaReader::get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
-                                                      int64_t* first_txn_id, bool snapshot) {
+                                                      int64_t* first_txn_id,
+                                                      int64_t* partition_version, bool snapshot) {
     // Initialize to -1 to indicate no pending transactions
     *first_txn_id = -1;
 
@@ -787,6 +789,7 @@ TxnErrorCode MetaReader::get_partition_pending_txn_id(Transaction* txn, int64_t 
     if (version_pb.pending_txn_ids_size() > 0) {
         *first_txn_id = version_pb.pending_txn_ids(0);
     }
+    *partition_version = version_pb.version();
 
     return TxnErrorCode::TXN_OK;
 }
