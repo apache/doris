@@ -18,14 +18,20 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.action.OptimizeAction;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -60,9 +66,50 @@ public class OptimizeTableCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        // TODO: Implement optimize table logic
-        // Env.getCurrentEnv().optimizeTable(this);
-        throw new AnalysisException("OPTIMIZE TABLE is not implemented yet");
+        
+        // Get the table
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
+        if (catalog == null) {
+            throw new AnalysisException("Catalog " + tableNameInfo.getCtl() + " does not exist");
+        }
+        
+        DatabaseIf<?> database = catalog.getDbNullable(tableNameInfo.getDb());
+        if (database == null) {
+            throw new AnalysisException("Database " + tableNameInfo.getDb() + " does not exist");
+        }
+        
+        TableIf table = database.getTableNullable(tableNameInfo.getTbl());
+        if (table == null) {
+            throw new AnalysisException("Table " + tableNameInfo.getTbl() + " does not exist");
+        }
+        
+        if (!(table instanceof ExternalTable)) {
+            throw new AnalysisException("OPTIMIZE TABLE is currently only supported for external tables");
+        }
+        
+        ExternalTable externalTable = (ExternalTable) table;
+        
+        // Get action type from properties
+        String actionType = properties.get("action");
+        if (actionType == null || actionType.isEmpty()) {
+            throw new AnalysisException("OPTIMIZE TABLE requires 'action' property to be specified");
+        }
+        
+        // Create and execute the appropriate action
+        try {
+            OptimizeAction action = OptimizeAction.createAction(
+                actionType, properties, partitionNamesInfo, whereClause, externalTable);
+            
+            if (!action.isSupported(externalTable)) {
+                throw new AnalysisException("Action '" + actionType + "' is not supported for this table engine");
+            }
+            
+            action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
+            action.execute(externalTable);
+            
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
     }
 
     /**
