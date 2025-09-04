@@ -36,8 +36,9 @@ constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 constexpr size_t INIT_META_SIZE = 48 * 1024; // 48k
 
-static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_metadata,
-                                  size_t* meta_size, io::IOContext* io_ctx) {
+static Status parse_thrift_footer(io::FileReaderSPtr file,
+                                  std::unique_ptr<FileMetaData>* file_metadata, size_t* meta_size,
+                                  io::IOContext* io_ctx) {
     size_t file_size = file->size();
     size_t bytes_read = std::min(file_size, INIT_META_SIZE);
     std::vector<uint8_t> footer(bytes_read);
@@ -78,7 +79,7 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     tparquet::FileMetaData t_metadata;
     // deserialize footer
     RETURN_IF_ERROR(deserialize_thrift_msg(meta_ptr, &metadata_size, true, &t_metadata));
-    *file_metadata = new FileMetaData(t_metadata, metadata_size);
+    *file_metadata = std::make_unique<FileMetaData>(t_metadata, metadata_size);
     RETURN_IF_ERROR((*file_metadata)->init_schema());
     *meta_size = PARQUET_FOOTER_SIZE + metadata_size;
     return Status::OK();
