@@ -70,6 +70,16 @@ public class ArrayRemove extends ScalarFunction
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child(0).getDataType();
+        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
+                    || ((ArrayType) argType).getItemType().isVariantType()
+                    || ((ArrayType) argType).getItemType().isJsonType())) {
+            throw new AnalysisException("array_remove does not support types: " + argType.toSql());
+        }
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitArrayRemove(this, context);
     }
