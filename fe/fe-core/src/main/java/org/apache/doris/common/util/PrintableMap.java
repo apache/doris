@@ -22,9 +22,12 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.COSProperties;
 import org.apache.doris.datasource.property.storage.GCSProperties;
 import org.apache.doris.datasource.property.storage.MinioProperties;
 import org.apache.doris.datasource.property.storage.OBSProperties;
+import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 
 import com.google.common.collect.Sets;
@@ -65,7 +68,10 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(GCSProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AzureProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OSSProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OSSHdfsProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(COSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OBSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(MinioProperties.class));
 
