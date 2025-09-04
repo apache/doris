@@ -11479,4 +11479,323 @@ TEST(MetaServiceTest, RestoreJobTest) {
     }
 }
 
+TEST(MetaServiceTest, SetSnapshotPropertyTest) {
+    auto meta_service = get_meta_service();
+
+    // Create a test instance first
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_snapshot_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    // Test case 1: Snapshot not ready (SNAPSHOT_SWITCH_DISABLED) - should fail
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["enabled"] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("Snapshot not ready") != std::string::npos);
+    }
+
+    // Initialize snapshot switch status to OFF so we can test snapshot functionality
+    {
+        InstanceKeyInfo key_info {"test_snapshot_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Test case 2: Valid "enabled" property with "true" value (after initialization)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["enabled"] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 3: Valid "enabled" property with "false" value
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["enabled"] = "false";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 4: Invalid "enabled" property value
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["enabled"] = "invalid";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 5: Valid "max_reserved_snapshots" property (minimum value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["max_reserved_snapshots"] = "0";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 6: Valid "max_reserved_snapshots" property (maximum value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["max_reserved_snapshots"] = "35";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 7: Valid "max_reserved_snapshots" property (middle value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["max_reserved_snapshots"] = "10";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 8: Invalid "max_reserved_snapshots" property (negative value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["max_reserved_snapshots"] = "-1";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 9: Invalid "max_reserved_snapshots" property (too large value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["max_reserved_snapshots"] = "36";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 10: Invalid "max_reserved_snapshots" property (non-numeric value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["max_reserved_snapshots"] = "abc";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 11: Valid "snapshot_interval_seconds" property (minimum value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "3600";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 12: Valid "snapshot_interval_seconds" property (large value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "14400";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 13: Invalid "snapshot_interval_seconds" property (too small value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "3599";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 14: Invalid "snapshot_interval_seconds" property (non-numeric value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "invalid";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 15: Unsupported property key
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["unsupported_property"] = "value";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 16: Empty properties map
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        // Don't add any properties - properties map will be empty
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 17: Multiple valid properties in single request
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())["max_reserved_snapshots"] = "20";
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "12000";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 18: Mixed valid and invalid properties (should fail on first invalid)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())["invalid_property"] = "value";
+        (*req.mutable_properties())["max_reserved_snapshots"] = "10";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 19: Non-existent instance ID
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("non_existent_instance");
+        (*req.mutable_properties())["enabled"] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::CLUSTER_NOT_FOUND);
+    }
+}
+
 } // namespace doris::cloud

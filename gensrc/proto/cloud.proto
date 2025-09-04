@@ -1354,18 +1354,13 @@ message AlterInstanceRequest {
         DISABLE_SSE                 = 5;
         SET_OVERDUE                 = 6;
         SET_NORMAL                  = 7;
-        SNAPSHOT_SWITCH_ON          = 8;
-        SNAPSHOT_SWITCH_OFF         = 9;
-        WRITE_MULTI_VERSION_KEYS    = 10;
-        READ_MULTI_VERSION_KEYS     = 11;
-        DISABLE_SINGLE_VERSION_KEYS = 12;
-        SET_SNAPSHOT_PROPERTY       = 13;
+        SET_SNAPSHOT_PROPERTY       = 8;
     }
     optional string instance_id = 1;
     optional Operation op = 2;
     optional string name = 3;
     optional string request_ip = 4;
-    optional string value = 5;
+    map<string, string> properties = 5;
 }
 
 message AlterInstanceResponse {

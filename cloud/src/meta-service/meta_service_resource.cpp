@@ -46,6 +46,11 @@ using namespace std::chrono;
 
 namespace {
 constexpr char pattern_str[] = "^[a-zA-Z][0-9a-zA-Z_]*$";
+
+constexpr char SNAPSHOT_ENABLED_KEY[] = "enabled";
+constexpr char SNAPSHOT_MAX_RESERVED_KEY[] = "max_reserved_snapshots";
+constexpr char SNAPSHOT_INTERVAL_SECONDS_KEY[] = "snapshot_interval_seconds";
+
 bool is_valid_storage_vault_name(const std::string& str) {
     const std::regex pattern(pattern_str);
     return std::regex_match(str, pattern);
@@ -1772,6 +1777,94 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     }
 }
 
+std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string& instance_id,
+                                                               const std::string& key,
+                                                               const std::string& value,
+                                                               InstanceInfoPB* instance) {
+    if (value != "true" && value != "false") {
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              "Invalid value for enabled property: " + value +
+                                      ", expected 'true' or 'false'" +
+                                      ", instance_id: " + instance_id);
+    }
+    if (instance->snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED) {
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              "Snapshot not ready, instance_id: " + instance_id);
+    }
+    if (value == "true" && instance->snapshot_switch_status() == SNAPSHOT_SWITCH_ON) {
+        return std::make_pair(
+                MetaServiceCode::INVALID_ARGUMENT,
+                "Snapshot is already set to SNAPSHOT_SWITCH_ON, instance_id: " + instance_id);
+    }
+    if (value == "false" && instance->snapshot_switch_status() == SNAPSHOT_SWITCH_OFF) {
+        return std::make_pair(
+                MetaServiceCode::INVALID_ARGUMENT,
+                "Snapshot is already set to SNAPSHOT_SWITCH_OFF, instance_id: " + instance_id);
+    }
+    if (value == "true") {
+        instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_ON);
+    } else {
+        instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+    }
+
+    std::string msg = "Set snapshot enabled to " + value + " for instance " + instance_id;
+    LOG(INFO) << msg;
+
+    return std::make_pair(MetaServiceCode::OK, "");
+}
+
+std::pair<MetaServiceCode, std::string> handle_max_reserved_snapshots(
+        const std::string& instance_id, const std::string& key, const std::string& value,
+        InstanceInfoPB* instance) {
+    int max_snapshots;
+    try {
+        max_snapshots = std::stoi(value);
+        if (max_snapshots < 0) {
+            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                                  "max_reserved_snapshots must be non-negative, got: " + value);
+        }
+        if (max_snapshots > 35) {
+            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                                  "max_reserved_snapshots too large, maximum is 35, got: " + value);
+        }
+    } catch (const std::exception& e) {
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              "Invalid numeric value for max_reserved_snapshots: " + value);
+    }
+
+    instance->set_max_reserved_snapshot(max_snapshots);
+
+    std::string msg = "Set max_reserved_snapshots to " + value + " for instance " + instance_id;
+    LOG(INFO) << msg;
+
+    return std::make_pair(MetaServiceCode::OK, "");
+}
+
+std::pair<MetaServiceCode, std::string> handle_snapshot_intervals(const std::string& instance_id,
+                                                                  const std::string& key,
+                                                                  const std::string& value,
+                                                                  InstanceInfoPB* instance) {
+    int intervals;
+    try {
+        intervals = std::stoi(value);
+        if (intervals < 3600) {
+            return std::make_pair(
+                    MetaServiceCode::INVALID_ARGUMENT,
+                    "snapshot_intervals too small, minimum is 3600 seconds, got: " + value);
+        }
+    } catch (const std::exception& e) {
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              "Invalid numeric value for snapshot_intervals: " + value);
+    }
+
+    instance->set_snapshot_interval_seconds(intervals);
+
+    std::string msg = "Set snapshot_intervals to " + value + " seconds for instance " + instance_id;
+    LOG(INFO) << msg;
+
+    return std::make_pair(MetaServiceCode::OK, "");
+}
+
 void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller,
                                      const AlterInstanceRequest* request,
                                      AlterInstanceResponse* response,
@@ -1949,6 +2042,73 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             instance->set_status(InstanceInfoPB::NORMAL);
             instance->set_mtime(
                     duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
+
+            std::string ret = instance->SerializeAsString();
+            if (ret.empty()) {
+                msg = "failed to serialize";
+                LOG(WARNING) << msg;
+                return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
+            }
+            LOG(INFO) << "put instance_id=" << request->instance_id()
+                      << "set instance normal json=" << proto_to_json(*instance);
+            return std::make_pair(MetaServiceCode::OK, ret);
+        });
+    } break;
+    /**
+     * Handle SET_SNAPSHOT_PROPERTY operation - configures snapshot-related properties for an instance.
+     * 
+     * Supported property keys and their expected values:
+     * - "enabled": "true" | "false" 
+     *   Controls whether snapshot functionality is enabled for the instance
+     * 
+     * - "max_reserved_snapshots": numeric string (0-35)
+     *   Sets the maximum number of snapshots to retain for the instance
+     *   
+     * - "snapshot_intervals": numeric string (60-max)
+     *   Sets the snapshot creation interval in seconds (minimum 60s)
+     *   
+     * Each property is validated by its respective handler function which ensures
+     * the provided values conform to the expected format and constraints.
+     */
+    case AlterInstanceRequest::SET_SNAPSHOT_PROPERTY: {
+        ret = alter_instance(request, [&request](InstanceInfoPB* instance) {
+            std::string msg;
+            auto properties = request->properties();
+            if (properties.empty()) {
+                msg = "propertiy is empty, instance_id = " + request->instance_id();
+                LOG(WARNING) << msg;
+                return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+            }
+            for (const auto& property : properties) {
+                std::string key = property.first;
+                std::string value = property.second;
+
+                std::pair<MetaServiceCode, std::string> result;
+
+                if (key == SNAPSHOT_ENABLED_KEY) {
+                    result = handle_snapshot_switch(request->instance_id(), key, value, instance);
+                } else if (key == SNAPSHOT_MAX_RESERVED_KEY) {
+                    result = handle_max_reserved_snapshots(request->instance_id(), key, value,
+                                                           instance);
+                } else if (key == SNAPSHOT_INTERVAL_SECONDS_KEY) {
+                    result =
+                            handle_snapshot_intervals(request->instance_id(), key, value, instance);
+                } else {
+                    msg = "unsupported property: " + key;
+                    LOG(WARNING) << msg;
+                    return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+                }
+
+                LOG(INFO) << "Property handling result for key=" << key
+                          << ", result_code=" << static_cast<int>(result.first)
+                          << ", result_msg=" << result.second;
+
+                if (result.first != MetaServiceCode::OK) {
+                    msg = result.second;
+                    LOG(WARNING) << msg;
+                    return result;
+                }
+            }
 
             std::string ret = instance->SerializeAsString();
             if (ret.empty()) {
