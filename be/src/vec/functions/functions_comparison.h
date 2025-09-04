@@ -238,11 +238,11 @@ struct StringEqualsImpl {
     }
 };
 
-template <PrimitiveType A, PrimitiveType B>
-struct StringComparisonImpl<EqualsOp<A, B>> : StringEqualsImpl<true> {};
+template <PrimitiveType PT>
+struct StringComparisonImpl<EqualsOp<PT>> : StringEqualsImpl<true> {};
 
-template <PrimitiveType A, PrimitiveType B>
-struct StringComparisonImpl<NotEqualsOp<A, B>> : StringEqualsImpl<false> {};
+template <PrimitiveType PT>
+struct StringComparisonImpl<NotEqualsOp<PT>> : StringEqualsImpl<false> {};
 
 struct NameEquals {
     static constexpr auto name = "eq";
@@ -263,7 +263,7 @@ struct NameGreaterOrEquals {
     static constexpr auto name = "ge";
 };
 
-template <template <PrimitiveType, PrimitiveType> class Op, typename Name>
+template <template <PrimitiveType> class Op, typename Name>
 class FunctionComparison : public IFunction {
 public:
     static constexpr auto name = Name::name;
@@ -281,6 +281,8 @@ private:
         const auto* col_left = assert_cast<const ColumnVector<PT>*>(col_left_untype.get());
         const auto* col_right = assert_cast<const ColumnVector<PT>*>(col_right_untyped.get());
 
+        DCHECK(!(left_is_const && right_is_const));
+
         if (!left_is_const && !right_is_const) {
             auto col_res = ColumnUInt8::create();
 
@@ -288,8 +290,8 @@ private:
             vec_res.resize(col_left->get_data().size());
             NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
                               typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              Op<PT, PT>>::vector_vector(col_left->get_data(),
-                                                         col_right->get_data(), vec_res);
+                              Op<PT>>::vector_vector(col_left->get_data(), col_right->get_data(),
+                                                     vec_res);
 
             block.replace_by_position(result, std::move(col_res));
         } else if (!left_is_const && right_is_const) {
@@ -299,8 +301,8 @@ private:
             vec_res.resize(col_left->size());
             NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
                               typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              Op<PT, PT>>::vector_constant(col_left->get_data(),
-                                                           col_right->get_element(0), vec_res);
+                              Op<PT>>::vector_constant(col_left->get_data(),
+                                                       col_right->get_element(0), vec_res);
 
             block.replace_by_position(result, std::move(col_res));
         } else if (left_is_const && !right_is_const) {
@@ -310,20 +312,10 @@ private:
             vec_res.resize(col_right->size());
             NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
                               typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              Op<PT, PT>>::constant_vector(col_left->get_element(0),
-                                                           col_right->get_data(), vec_res);
+                              Op<PT>>::constant_vector(col_left->get_element(0),
+                                                       col_right->get_data(), vec_res);
 
             block.replace_by_position(result, std::move(col_res));
-        } else {
-            UInt8 res = 0;
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              Op<PT, PT>>::constant_constant(col_left->get_element(0),
-                                                             col_right->get_element(0), res);
-
-            block.replace_by_position(
-                    result, DataTypeUInt8().create_column_const(col_left->size(),
-                                                                to_field<TYPE_BOOLEAN>(res)));
         }
         return Status::OK();
     }
@@ -359,12 +351,7 @@ private:
             return Status::NotSupported("Illegal columns {}, {} of argument of function {}",
                                         c0->get_name(), c1->get_name(), name);
         }
-
-        if (c0_const && c1_const) {
-            execute_generic_identical_types(block, result, c0, c1);
-            return Status::OK();
-        }
-
+        DCHECK(!(c0_const && c1_const));
         const ColumnString::Chars* c0_const_chars = nullptr;
         const ColumnString::Chars* c1_const_chars = nullptr;
         ColumnString::Offset c0_const_size = 0;
@@ -396,7 +383,7 @@ private:
             }
         }
 
-        using StringImpl = StringComparisonImpl<Op<TYPE_INT, TYPE_INT>>;
+        using StringImpl = StringComparisonImpl<Op<TYPE_INT>>;
 
         auto c_res = ColumnUInt8::create();
         ColumnUInt8::Container& vec_res = c_res->get_data();
@@ -426,26 +413,21 @@ private:
         bool c0_const = is_column_const(*c0);
         bool c1_const = is_column_const(*c1);
 
-        if (c0_const && c1_const) {
-            UInt8 res = 0;
-            GenericComparisonImpl<Op<TYPE_INT, TYPE_INT>>::constant_constant(*c0, *c1, res);
-            block.replace_by_position(result, DataTypeUInt8().create_column_const(
-                                                      c0->size(), to_field<TYPE_BOOLEAN>(res)));
+        DCHECK(!(c0_const && c1_const));
+
+        auto c_res = ColumnUInt8::create();
+        ColumnUInt8::Container& vec_res = c_res->get_data();
+        vec_res.resize(c0->size());
+
+        if (c0_const) {
+            GenericComparisonImpl<Op<TYPE_INT>>::constant_vector(*c0, *c1, vec_res);
+        } else if (c1_const) {
+            GenericComparisonImpl<Op<TYPE_INT>>::vector_constant(*c0, *c1, vec_res);
         } else {
-            auto c_res = ColumnUInt8::create();
-            ColumnUInt8::Container& vec_res = c_res->get_data();
-            vec_res.resize(c0->size());
-
-            if (c0_const) {
-                GenericComparisonImpl<Op<TYPE_INT, TYPE_INT>>::constant_vector(*c0, *c1, vec_res);
-            } else if (c1_const) {
-                GenericComparisonImpl<Op<TYPE_INT, TYPE_INT>>::vector_constant(*c0, *c1, vec_res);
-            } else {
-                GenericComparisonImpl<Op<TYPE_INT, TYPE_INT>>::vector_vector(*c0, *c1, vec_res);
-            }
-
-            block.replace_by_position(result, std::move(c_res));
+            GenericComparisonImpl<Op<TYPE_INT>>::vector_vector(*c0, *c1, vec_res);
         }
+
+        block.replace_by_position(result, std::move(c_res));
     }
 
     Status execute_generic(Block& block, uint32_t result, const ColumnWithTypeAndName& c0,
@@ -557,11 +539,9 @@ public:
             col_left_untyped == col_right_untyped) {
             /// Always true: =, <=, >=
             // TODO: Return const column in the future. But seems so far to do. We need a unified approach for passing const column.
-            if constexpr (std::is_same_v<Op<TYPE_INT, TYPE_INT>, EqualsOp<TYPE_INT, TYPE_INT>> ||
-                          std::is_same_v<Op<TYPE_INT, TYPE_INT>,
-                                         LessOrEqualsOp<TYPE_INT, TYPE_INT>> ||
-                          std::is_same_v<Op<TYPE_INT, TYPE_INT>,
-                                         GreaterOrEqualsOp<TYPE_INT, TYPE_INT>>) {
+            if constexpr (std::is_same_v<Op<TYPE_INT>, EqualsOp<TYPE_INT>> ||
+                          std::is_same_v<Op<TYPE_INT>, LessOrEqualsOp<TYPE_INT>> ||
+                          std::is_same_v<Op<TYPE_INT>, GreaterOrEqualsOp<TYPE_INT>>) {
                 block.get_by_position(result).column =
                         DataTypeUInt8()
                                 .create_column_const(input_rows_count,
