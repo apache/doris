@@ -276,7 +276,7 @@ public abstract class MaterializationContext {
             if (sourceExpression != null && targetExpression instanceof NamedExpression
                     && sourceExpression instanceof NamedExpression) {
                 normalizedExpressionMap.put(MaterializedViewUtils.normalizeExpression(
-                                (NamedExpression) sourceExpression, (NamedExpression) targetExpression).toSlot(),
+                        (NamedExpression) sourceExpression, (NamedExpression) targetExpression, false).toSlot(),
                         entry.getValue());
             }
         }
