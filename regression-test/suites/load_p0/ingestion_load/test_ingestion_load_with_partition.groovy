@@ -71,7 +71,7 @@ suite('test_ingestion_load_with_partition', 'p0') {
             }
         }
 
-        etlResultFilePaths = []
+        def etlResultFilePaths = []
         for(int i=0; i < dataFiles.size(); i++) {
             Files.copy(Paths.get(dataFiles[i]),
                 Paths.get(context.config.dataPath + "/load_p0/ingestion_load/${resultFileNames[i]}"), StandardCopyOption.REPLACE_EXISTING)
@@ -115,7 +115,7 @@ suite('test_ingestion_load_with_partition', 'p0') {
 
         max_try_milli_secs = 120000
         while (max_try_milli_secs) {
-            result = sql "show load where label = '${loadLabel}'"
+            def result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "FINISHED") {
                 sql "sync"
                 qt_select "select c1, count(*) from ${testTable} group by c1 order by c1"
@@ -132,9 +132,8 @@ suite('test_ingestion_load_with_partition', 'p0') {
     }
 
     if (enableHdfs()) {
-
-        tableName = 'tbl_test_spark_load_partition'
-
+        def tableName = 'tbl_test_spark_load_with_partition'
+        sql "DROP TABLE if exists ${tableName}"
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 c0 int not null,
@@ -151,7 +150,7 @@ suite('test_ingestion_load_with_partition', 'p0') {
             )
             """
 
-        def label = "test_ingestion_load_partition"
+        def label = "test_ingestion_load_with_partition__"
 
         testIngestLoadJob.call(tableName, label, [context.config.dataPath + '/load_p0/ingestion_load/data2-0.parquet', context.config.dataPath + '/load_p0/ingestion_load/data2-1.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-2.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-3.parquet'])
 

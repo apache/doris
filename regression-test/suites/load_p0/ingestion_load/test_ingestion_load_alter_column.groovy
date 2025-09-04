@@ -85,7 +85,7 @@ suite('test_ingestion_load_alter_column', 'p0') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath}\\": 5745}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -112,7 +112,7 @@ suite('test_ingestion_load_alter_column', 'p0') {
         while (max_try_milli_secs) {
             result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "CANCELLED") {
-                msg = result[0][7]
+                def  msg = result[0][7]
                 logger.info("err msg: " + msg)
                 assertTrue((result[0][7] =~ /schema of index \[\d+\] has changed/).find())
                 break
@@ -134,6 +134,8 @@ suite('test_ingestion_load_alter_column', 'p0') {
 
         try {
 
+            sql "DROP TABLE if exists ${tableName1}"
+            sql "DROP TABLE if exists ${tableName2}"
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName1} (
                     c_int int(11) NULL,
@@ -199,9 +201,6 @@ suite('test_ingestion_load_alter_column', 'p0') {
             })
 
         } finally {
-            sql "DROP TABLE ${tableName1}"
-            sql "DROP TABLE ${tableName2}"
-        }
 
     }
 
