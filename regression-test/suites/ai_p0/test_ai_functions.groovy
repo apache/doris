@@ -25,7 +25,7 @@ suite("test_ai_functions") {
         return
     }
 
-    try_sql("""SET default_llm_resource = default;""")
+    try_sql("""SET default_ai_resource = default;""")
     try_sql("""DROP RESOURCE '${resourceName}'""")
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
@@ -76,7 +76,7 @@ suite("test_ai_functions") {
 
     // for AI_agg, the task(third arg) must be literal
     test {
-        sql """SELECT AI_AGG('${resourceName}', text, tar_lag) FROM ${test_table_for_AI_functions};"""
+        sql """SELECT AI_AGG('${resourceName}', text, tar_lag) FROM ${test_table_for_ai_functions};"""
         exception "AI_AGG must accept literal for the task."
     }
 
@@ -116,7 +116,7 @@ suite("test_ai_functions") {
     test_query_timeout_exception("SELECT AI_MASK('${resourceName}', 'this is a test', label) FROM ${test_table_for_ai_functions};")
     test_query_timeout_exception("SELECT AI_FILTER('${resourceName}', text) FROM ${test_table_for_ai_functions};")
     test_query_timeout_exception("SELECT AI_SIMILARITY('${resourceName}', 'this is a similarity test', text) FROM ${test_table_for_ai_functions};")
-    test_query_timeout_exception("SELECT AI_AGG('${resourceName}', text, 'this is a test') FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT AI_AGG('${resourceName}', text, 'this is a test') FROM ${test_table_for_ai_functions};")
 
     String embedResourceName = "embedResourceName"
     try_sql("""DROP RESOURCE IF EXISTS '${embedResourceName}'""")
