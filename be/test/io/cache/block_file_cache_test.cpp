@@ -7900,6 +7900,7 @@ TEST_F(BlockFileCacheTest, test_reset_capacity) {
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_and_evict_cache) {
     config::enable_read_cache_file_directly = true;
+    std::string cache_base_path = caches_dir / "cache_direct_read" / "";
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -7939,7 +7940,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_and_evict_cache
             reader->read_at(100, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(std::string(64_kb, '0'), buffer);
 
-    auto cache = FileCacheFactory::instance()->_caches[0].get();
+    auto cache = FileCacheFactory::instance()->_path_to_cache[cache_base_path];
     EXPECT_GT(cache->_cur_cache_size, 0);
 
     auto ret_str = FileCacheFactory::instance()->clear_file_caches(
