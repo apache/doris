@@ -281,6 +281,10 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
                             _ctx->error_url =
                                     to_load_error_http_path(state->get_error_log_file_path());
                         }
+                        if (!state->get_first_error_msg().empty()) {
+                            _ctx->first_error_msg =
+                                    to_load_error_http_path(state->get_first_error_msg());
+                        }
                         if (!status->ok()) {
                             LOG(WARNING) << "plan fragment exec failed. errmsg=" << *status
                                          << _ctx->brief();

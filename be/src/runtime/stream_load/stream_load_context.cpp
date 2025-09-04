@@ -119,6 +119,10 @@ std::string StreamLoadContext::to_json() const {
         writer.Key("ErrorURL");
         writer.String(error_url.c_str());
     }
+    if (!first_error_msg.empty()) {
+        writer.Key("FirstErrorMsg");
+        writer.String(first_error_msg.c_str());
+    }
     writer.EndObject();
     return s.GetString();
 }
@@ -238,6 +242,15 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
     } else {
         stream_load_item.__set_url("N/A");
         ss << ", ErrorURL: N/A";
+    }
+
+    if (document.HasMember("FirstErrorMsg")) {
+        const rapidjson::Value& first_error_msg = document["FirstErrorMsg"];
+        stream_load_item.__set_url(first_error_msg.GetString());
+        ss << ", FirstErrorMsg: " << first_error_msg.GetString();
+    } else {
+        stream_load_item.__set_url("N/A");
+        ss << ", FirstErrorMsg: N/A";
     }
 
     if (document.HasMember("NumberTotalRows")) {
