@@ -177,7 +177,7 @@ public class MysqlSerializer {
         // length of the following fields(always 0x0c)
         writeVInt(0x0c);
         // Character set: two byte integer
-        writeInt2(33);
+        writeInt2(type.getMysqlResultSetFieldCharsetIndex());
         // Column length: four byte integer
         writeInt4(getMysqlTypeLength(type));
         // Column type: one byte integer
@@ -206,7 +206,7 @@ public class MysqlSerializer {
         // length of the following fields(always 0x0c)
         writeVInt(0x0c);
         // Character set: two byte integer
-        writeInt2(33);
+        writeInt2(column.getType().getMysqlResultSetFieldCharsetIndex());
         // TODO(zhaochun): fix Column length: four byte integer
         writeInt4(getMysqlTypeLength(column.getType()));
         // Column type: one byte integer
@@ -241,7 +241,7 @@ public class MysqlSerializer {
         // length of the following fields(always 0x0c)
         writeVInt(0x0c);
         // Character set: two byte integer
-        writeInt2(33);
+        writeInt2(type.getMysqlResultSetFieldCharsetIndex());
         // Column length: four byte integer
         writeInt4(getMysqlTypeLength(type));
         // Column type: one byte integer

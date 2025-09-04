@@ -53,6 +53,7 @@ public enum PrimitiveType {
     // Aligning to 8 bytes so 16 total.
     VARCHAR("VARCHAR", 16, TPrimitiveType.VARCHAR, true),
     JSONB("JSON", 16, TPrimitiveType.JSONB, true),
+    VARBINARY("VARBINARY", 16, TPrimitiveType.VARBINARY, true),
 
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2, true),
     DECIMAL32("DECIMAL32", 4, TPrimitiveType.DECIMAL32, true),
@@ -620,6 +621,9 @@ public enum PrimitiveType {
         builder.put(TIMEV2, DATEV2);
         builder.put(TIMEV2, DATETIMEV2);
 
+        // VARBINARY
+        builder.put(VARBINARY, VARBINARY);
+
         implicitCastMap = builder.build();
     }
 
@@ -799,6 +803,8 @@ public enum PrimitiveType {
                 return ALL;
             case VARIANT:
                 return VARIANT;
+            case VARBINARY:
+                return VARBINARY;
             default:
                 return INVALID_TYPE;
         }
@@ -935,6 +941,10 @@ public enum PrimitiveType {
         return (this == IPV6);
     }
 
+    public boolean isVarbinaryType() {
+        return (this == VARBINARY);
+    }
+
     // TODO(zhaochun): Add Mysql Type to it's private field
     public MysqlColType toMysqlType() {
         switch (this) {
@@ -982,6 +992,8 @@ public enum PrimitiveType {
             case JSONB:
             case VARIANT:
                 return MysqlColType.MYSQL_TYPE_JSON;
+            case VARBINARY:
+                return MysqlColType.MYSQL_TYPE_BLOB;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

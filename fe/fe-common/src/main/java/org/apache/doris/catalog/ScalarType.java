@@ -517,6 +517,13 @@ public class ScalarType extends Type {
         }
     }
 
+    public static ScalarType createVarbinaryType(int len) {
+        // length checked in analysis
+        ScalarType type = new ScalarType(PrimitiveType.VARBINARY);
+        type.len = len;
+        return type;
+    }
+
     public static ScalarType createVarcharType(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
@@ -694,6 +701,15 @@ public class ScalarType extends Type {
             case JSONB:
                 stringBuilder.append("json");
                 break;
+            case VARBINARY:
+                if (isWildcardVarbinary()) {
+                    return "varbinary(" + MAX_VARCHAR_LENGTH + ")";
+                } else if (Strings.isNullOrEmpty(lenStr)) {
+                    stringBuilder.append("varbinary").append("(").append(len).append(")");
+                } else {
+                    stringBuilder.append("varbinary").append("(`").append(lenStr).append("`)");
+                }
+                break;
             default:
                 stringBuilder.append("unknown type: ").append(type);
                 break;
@@ -836,6 +852,11 @@ public class ScalarType extends Type {
     @Override
     public boolean isWildcardChar() {
         return type == PrimitiveType.CHAR && (len == -1 || len == MAX_CHAR_LENGTH);
+    }
+
+    @Override
+    public boolean isWildcardVarbinary() {
+        return type == PrimitiveType.VARBINARY && (len == -1 || len == MAX_CHAR_LENGTH);
     }
 
     @Override

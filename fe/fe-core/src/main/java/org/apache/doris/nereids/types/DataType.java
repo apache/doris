@@ -84,6 +84,7 @@ public abstract class DataType {
                     .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
                     .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
                     .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .put(Type.VARBINARY.getPrimitiveType(), VarBinaryType.INSTANCE)
                     .build();
         }
     }
@@ -355,6 +356,10 @@ public abstract class DataType {
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
+            case "varbinary":
+                // NOTICE, Maybe. not supported create table, and varbinary do not have len now
+                dataType = VarBinaryType.INSTANCE;
+                break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
@@ -403,6 +408,7 @@ public abstract class DataType {
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
+            case VARBINARY: return VarBinaryType.INSTANCE;
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)

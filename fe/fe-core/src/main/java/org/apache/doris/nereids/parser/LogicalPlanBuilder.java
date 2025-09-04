@@ -576,6 +576,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.DistributeType.JoinDistributeType;
@@ -3350,6 +3351,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new StringLiteral(s);
         }
         return new VarcharLiteral(s, strLength);
+    }
+
+    @Override
+    public Literal visitVarbinaryLiteral(DorisParser.VarbinaryLiteralContext ctx) {
+        String txt = ctx.VARBINARY_LITERAL().getText();
+        // Parse hex string from X'...' or X"..." format
+        String hexString;
+        char firstChar = Character.toUpperCase(txt.charAt(0));
+        if (firstChar == 'X' && txt.endsWith("'")) {
+            hexString = txt.substring(2, txt.length() - 1);
+        } else if (firstChar == 'X' && txt.endsWith("\"")) {
+            hexString = txt.substring(2, txt.length() - 1);
+        } else {
+            throw new ParseException("Invalid varbinary literal format: " + txt);
+        }
+        return new VarBinaryLiteral(hexString.getBytes());
     }
 
     @Override

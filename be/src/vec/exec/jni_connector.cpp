@@ -24,6 +24,7 @@
 
 #include "jni.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_array.h"
@@ -31,6 +32,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
@@ -373,18 +375,35 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
         return _fill_map_column(address, data_column, data_type, num_rows);
     case PrimitiveType::TYPE_STRUCT:
         return _fill_struct_column(address, data_column, data_type, num_rows);
+    case PrimitiveType::TYPE_VARBINARY:
+        return _fill_varbinary_column(address, data_column, num_rows);
     default:
         return Status::InvalidArgument("Unsupported type {} in jni scanner", data_type->get_name());
     }
     return Status::OK();
 }
 
+Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
+                                            MutableColumnPtr& doris_column, size_t num_rows) {
+    auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
+    int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
+    char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
+    if (num_rows == 0) {
+        return Status::OK();
+    }
+    for (size_t i = 0; i < num_rows; ++i) {
+        int start_offset = (i == 0) ? 0 : offsets[i - 1];
+        int end_offset = offsets[i];
+        varbinary_col.insert_data(chars + start_offset, end_offset - start_offset);
+    }
+    return Status::OK();
+}
+
 Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          size_t num_rows) {
-    auto& string_col = static_cast<const ColumnString&>(*doris_column);
-    ColumnString::Chars& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
-    ColumnString::Offsets& string_offsets =
-            const_cast<ColumnString::Offsets&>(string_col.get_offsets());
+    const auto& string_col = static_cast<const ColumnString&>(*doris_column);
+    auto& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
+    auto& string_offsets = const_cast<ColumnString::Offsets&>(string_col.get_offsets());
     int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
     char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
 
@@ -624,6 +643,8 @@ std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& 
     }
     case TYPE_STRING:
         return "string";
+    case TYPE_VARBINARY:
+        return "varbinary";
     case TYPE_DECIMALV2: {
         buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
         return buffer.str();
