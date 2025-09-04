@@ -21,11 +21,9 @@
 #include <memory>
 
 #include "common/status.h"
-#include "gutil/macros.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
-#include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
@@ -33,6 +31,7 @@
 namespace doris::io {
 class FileSystem;
 struct FileCacheAllocatorBuilder;
+struct EncryptionInfo;
 
 // Only affects remote file writers
 struct FileWriterOptions {

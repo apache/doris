@@ -120,7 +120,6 @@ under the License.
         <dependency>
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-hadoop-bundle</artifactId>
-            <version>${parquet.version}</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.parquet/parquet-avro -->

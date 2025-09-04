@@ -1937,4 +1937,6 @@ service FrontendService {
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
 
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
+
+    TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 }

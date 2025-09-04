@@ -219,6 +219,7 @@ under the License.
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
+        <module>fe-enterprise</module>
     </modules>
     <properties>
         <doris.hive.catalog.shade.version>3.0.1</doris.hive.catalog.shade.version>
@@ -226,6 +227,7 @@ under the License.
         <avro.version>1.12.0</avro.version>
        <parquet.version>1.15.2</parquet.version>
         <spark.version>3.4.3</spark.version>
+        <hive-storage.version>SELECTDB-2.8.1</hive-storage.version>
         <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
@@ -350,6 +352,7 @@ under the License.
         <project.scm.id>github</project.scm.id>
         <spring.version>2.7.18</spring.version>
         <spring-framework.version>5.3.39</spring-framework.version>
+        <spring-web.version>SELECTDB-5.3.39</spring-web.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
@@ -458,6 +461,16 @@ under the License.
                 <groupId>com.ibm.icu</groupId>
                 <artifactId>icu4j</artifactId>
                 <version>${icu4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-web</artifactId>
+                <version>${spring-web.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-webmvc</artifactId>
+                <version>${spring-web.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.ini4j</groupId>
@@ -1361,6 +1374,11 @@ under the License.
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-avro</artifactId>
                 <version>${parquet.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-hadoop-bundle</artifactId>
+                <version>1.13.1</version>
             </dependency>
 
             <dependency>

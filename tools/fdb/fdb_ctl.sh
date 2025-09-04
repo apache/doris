@@ -36,7 +36,7 @@ else
 fi
 
 if [[ ! -d "${FDB_HOME}" ]]; then
-    echo "Please set and create FDB_HOME first"
+    echo "Please set and create FDB_HOME:${FDB_HOME} first"
     exit 1
 fi
 
@@ -510,6 +510,9 @@ fdbcli)
     ;;
 config)
     generate_regression_config true
+    ;;
+download)
+    download_fdb
     ;;
 *)
     unknown_cmd "${cmd}"

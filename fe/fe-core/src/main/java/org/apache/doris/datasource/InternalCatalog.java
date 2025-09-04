@@ -139,6 +139,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
+import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -167,6 +168,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
@@ -1711,6 +1713,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM, olapTable.getTDEAlgorithm().name());
+            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -2211,7 +2216,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
                             tbl.variantEnableFlattenNested(),
-                            tbl.storagePageSize(),
+                            tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize());
 
                     task.setStorageFormat(tbl.getStorageFormat());
@@ -3094,6 +3099,27 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.setGroupCommitDataBytes(groupCommitDataBytes);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
+        }
+
+        try {
+            TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
+            if (tdeAlgorithm != TEncryptionAlgorithm.PLAINTEXT) {
+                List<EncryptionKey> masterKeys = Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
+                if (masterKeys == null || masterKeys.isEmpty()) {
+                    throw new DdlException("The TDE master key does not exist, so encrypted table cannot be created. "
+                        + "Please check whether the root key is correctly set");
+                }
+
+                for (EncryptionKey masterKey : masterKeys) {
+                    if (masterKey.algorithm.toThrift() == tdeAlgorithm && !masterKey.isDecrypted()) {
+                        throw new DdlException("The master key has not been decrypted. Please check whether"
+                            + " the root key is functioning properly or configured correctly.");
+                    }
+                }
+            }
+            olapTable.setEncryptionAlgorithm(tdeAlgorithm);
+        } catch (Exception e) {
+            throw new DdlException("Failed to set TDE algorithm: " + e.getMessage(), e);
         }
 
         olapTable.initSchemaColumnUniqueId();
