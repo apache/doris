@@ -32,9 +32,12 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -843,5 +846,31 @@ public class NereidsParserTest extends ParserTestBase {
         parsePlan("SELECT 1 from ( select 2 as a1 ) t1 join ( select 2 as a2 ) as t2 on x -> x + 1 = t1.a1")
                 .assertThrowsExactly(ParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testCtasWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+        CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
+        Assertions.assertTrue(createTableCommand.getCtasQuery().isPresent());
+    }
+
+    @Test
+    public void testCreateViewWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testCreateMvWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE MATERIALIZED VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(UnsupportedCommand.class, logicalPlan);
     }
 }

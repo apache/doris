@@ -108,7 +108,7 @@ public class DropMaterializedViewTest {
     }
 
     private static void dropTable(String db, String tbl, boolean isMaterializedView) throws Exception {
-        DropTableStmt dropTableStmt = new DropTableStmt(false,
+        DropTableStmt dropTableStmt = new DropTableStmt(false, false,
                 new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, db, tbl), false, false);
         if (isMaterializedView) {
             dropTableStmt.setMaterializedView(true);
