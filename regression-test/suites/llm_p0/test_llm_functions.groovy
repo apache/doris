@@ -25,8 +25,8 @@ suite("test_llm_functions") {
         return
     }
 
+    try_sql("""SET default_llm_resource = default;""")
     try_sql("""DROP RESOURCE '${resourceName}'""")
-
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
                 'type' = 'llm',
@@ -74,6 +74,12 @@ suite("test_llm_functions") {
         exception "LLM Function must accept literal for the resource name."
     }
 
+    // for llm_agg, the task(third arg) must be literal
+    test {
+        sql """SELECT LLM_AGG('${resourceName}', text, tar_lag) FROM ${test_table_for_llm_functions};"""
+        exception "LLM_AGG must accept literal for the task."
+    }
+
     // Test for normal call
     // test the default resource
     try {
@@ -110,6 +116,7 @@ suite("test_llm_functions") {
     test_query_timeout_exception("SELECT LLM_MASK('${resourceName}', 'this is a test', label) FROM ${test_table_for_llm_functions};")
     test_query_timeout_exception("SELECT LLM_FILTER('${resourceName}', text) FROM ${test_table_for_llm_functions};")
     test_query_timeout_exception("SELECT LLM_SIMILARITY('${resourceName}', 'this is a similarity test', text) FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT LLM_AGG('${resourceName}', text, 'this is a test') FROM ${test_table_for_llm_functions};")
 
     String embedResourceName = "embedResourceName"
     try_sql("""DROP RESOURCE IF EXISTS '${embedResourceName}'""")
