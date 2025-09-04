@@ -31,19 +31,23 @@ import com.google.common.base.Strings;
 public class DropTableStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExists;
     private final TableName tableName;
+    private boolean mustTemporary;
     private final boolean isView;
     private boolean forceDrop;
     private boolean isMaterializedView;
 
-    public DropTableStmt(boolean ifExists, TableName tableName, boolean forceDrop) {
+    public DropTableStmt(boolean ifExists, boolean mustTemporary, TableName tableName, boolean forceDrop) {
         this.ifExists = ifExists;
+        this.mustTemporary = mustTemporary;
         this.tableName = tableName;
         this.isView = false;
         this.forceDrop = forceDrop;
     }
 
-    public DropTableStmt(boolean ifExists, TableName tableName, boolean isView, boolean forceDrop) {
+    public DropTableStmt(boolean ifExists, boolean mustTemporary,
+            TableName tableName, boolean isView, boolean forceDrop) {
         this.ifExists = ifExists;
+        this.mustTemporary = mustTemporary;
         this.tableName = tableName;
         this.isView = isView;
         this.forceDrop = forceDrop;
@@ -81,6 +85,10 @@ public class DropTableStmt extends DdlStmt implements NotFallbackInParser {
         return isMaterializedView;
     }
 
+    public boolean isMustTemporary() {
+        return mustTemporary;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
@@ -89,7 +97,7 @@ public class DropTableStmt extends DdlStmt implements NotFallbackInParser {
         tableName.analyze(analyzer);
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         // check access
-        if (!Env.getCurrentEnv().getAccessManager()
+        if (!mustTemporary && !Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
                         tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");

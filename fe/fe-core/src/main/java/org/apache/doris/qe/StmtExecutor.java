@@ -3236,7 +3236,7 @@ public class StmtExecutor {
     private void handleCtasRollback(TableName table) {
         if (context.getSessionVariable().isDropTableIfCtasFailed()) {
             // insert error drop table
-            DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+            DropTableStmt dropTableStmt = new DropTableStmt(true, false, table, true);
             try {
                 DdlExecutor.execute(context.getEnv(), dropTableStmt);
             } catch (Exception ex) {
@@ -3412,7 +3412,7 @@ public class StmtExecutor {
 
     private void handleIotRollback(TableName table) {
         // insert error drop the tmp table
-        DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+        DropTableStmt dropTableStmt = new DropTableStmt(true, false, table, true);
         try {
             Analyzer tempAnalyzer = new Analyzer(Env.getCurrentEnv(), context);
             dropTableStmt.analyze(tempAnalyzer);
