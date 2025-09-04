@@ -115,24 +115,15 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     DCHECK(_memory_used_counter != nullptr);
     // Should set to false here, to
     DCHECK(_finish_dependency);
+    if (!_opened) {
+        _opened = true;
+        RETURN_IF_ERROR(open(state, operator_profile));
+    }
     _finish_dependency->block();
     return Status::OK();
 }
 
 Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* operator_profile) {
-    if (!_opened) {
-        _opened = true;
-        auto st = open(state, operator_profile);
-        if (!st.ok()) {
-            {
-                std::lock_guard l(_m);
-                _writer_status.update(st);
-                _dependency->set_ready();
-            }
-            _set_ready_to_finish();
-            return st;
-        }
-    }
     if (state && state->get_query_ctx() && state->get_query_ctx()->workload_group()) {
         if (auto cg_ctl_sptr =
                     state->get_query_ctx()->workload_group()->get_cgroup_cpu_ctl_wptr().lock()) {
