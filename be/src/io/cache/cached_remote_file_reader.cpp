@@ -56,6 +56,13 @@ bvar::Adder<uint64_t> g_read_cache_direct_whole_bytes(
 bvar::Adder<uint64_t> g_read_cache_direct_partial_bytes(
         "cached_remote_reader_cache_direct_partial_bytes");
 bvar::Adder<uint64_t> g_read_cache_indirect_bytes("cached_remote_reader_cache_indirect_bytes");
+bvar::Adder<uint64_t> g_read_cache_indirect_total_bytes(
+        "cached_remote_reader_cache_indirect_total_bytes");
+bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_bytes_1min_window(
+        "cached_remote_reader_indirect_bytes_1min_window", &g_read_cache_indirect_bytes, 60);
+bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_total_bytes_1min_window(
+        "cached_remote_reader_indirect_total_bytes_1min_window", &g_read_cache_indirect_total_bytes,
+        60);
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -355,6 +362,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         current_offset = right + 1;
     }
     g_read_cache_indirect_bytes << indirect_read_bytes;
+    g_read_cache_indirect_total_bytes << *bytes_read;
+
     DCHECK(*bytes_read == bytes_req);
     return Status::OK();
 }
