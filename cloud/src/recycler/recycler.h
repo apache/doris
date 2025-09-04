@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/cloud.pb.h>
+#include <glog/logging.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -46,6 +47,8 @@ class StorageVaultAccessor;
 class Checker;
 class SimpleThreadPool;
 class RecyclerMetricsContext;
+class TabletRecyclerMetricsContext;
+class SegmentRecyclerMetricsContext;
 struct RecyclerThreadPoolGroup {
     RecyclerThreadPoolGroup() = default;
     RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
@@ -117,6 +120,109 @@ private:
 enum class RowsetRecyclingState {
     FORMAL_ROWSET,
     TMP_ROWSET,
+};
+
+class RecyclerMetricsContext {
+public:
+    RecyclerMetricsContext() = default;
+
+    RecyclerMetricsContext(std::string instance_id, std::string operation_type)
+            : operation_type(std::move(operation_type)), instance_id(std::move(instance_id)) {
+        start();
+    }
+
+    ~RecyclerMetricsContext() = default;
+
+    std::atomic_ullong total_need_recycle_data_size = 0;
+    std::atomic_ullong total_need_recycle_num = 0;
+
+    std::atomic_ullong total_recycled_data_size = 0;
+    std::atomic_ullong total_recycled_num = 0;
+
+    std::string operation_type;
+    std::string instance_id;
+
+    double start_time = 0;
+
+    void start() {
+        start_time = duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    }
+
+    double duration() const {
+        return duration_cast<std::chrono::milliseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count() -
+               start_time;
+    }
+
+    void reset() {
+        total_need_recycle_data_size = 0;
+        total_need_recycle_num = 0;
+        total_recycled_data_size = 0;
+        total_recycled_num = 0;
+        start_time = duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    }
+
+    void finish_report() {
+        if (!operation_type.empty()) {
+            double cost = duration();
+            g_bvar_recycler_instance_last_round_recycle_elpased_ts.put(
+                    {instance_id, operation_type}, cost);
+            g_bvar_recycler_instance_recycle_round.put({instance_id, operation_type}, 1);
+            LOG(INFO) << "recycle instance: " << instance_id
+                      << ", operation type: " << operation_type << ", cost: " << cost
+                      << " ms, total recycled num: " << total_recycled_num.load()
+                      << ", total recycled data size: " << total_recycled_data_size.load()
+                      << " bytes";
+            if (cost != 0) {
+                if (total_recycled_num.load() != 0) {
+                    g_bvar_recycler_instance_recycle_time_per_resource.put(
+                            {instance_id, operation_type}, cost / total_recycled_num.load());
+                }
+                g_bvar_recycler_instance_recycle_bytes_per_ms.put(
+                        {instance_id, operation_type}, total_recycled_data_size.load() / cost);
+            }
+        }
+    }
+
+    // `is_begin` is used to initialize total num of items need to be recycled
+    void report(bool is_begin = false) {
+        if (!operation_type.empty()) {
+            // is init
+            if (is_begin) {
+                auto value = total_need_recycle_num.load();
+
+                g_bvar_recycler_instance_last_round_to_recycle_bytes.put(
+                        {instance_id, operation_type}, total_need_recycle_data_size.load());
+                g_bvar_recycler_instance_last_round_to_recycle_num.put(
+                        {instance_id, operation_type}, value);
+            } else {
+                g_bvar_recycler_instance_last_round_recycled_bytes.put(
+                        {instance_id, operation_type}, total_recycled_data_size.load());
+                g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
+                        {instance_id, operation_type}, total_recycled_data_size.load());
+                g_bvar_recycler_instance_last_round_recycled_num.put({instance_id, operation_type},
+                                                                     total_recycled_num.load());
+                g_bvar_recycler_instance_recycle_total_num_since_started.put(
+                        {instance_id, operation_type}, total_recycled_num.load());
+            }
+        }
+    }
+};
+
+class TabletRecyclerMetricsContext : public RecyclerMetricsContext {
+public:
+    TabletRecyclerMetricsContext() : RecyclerMetricsContext("global_recycler", "recycle_tablet") {}
+};
+
+class SegmentRecyclerMetricsContext : public RecyclerMetricsContext {
+public:
+    SegmentRecyclerMetricsContext()
+            : RecyclerMetricsContext("global_recycler", "recycle_segment") {}
 };
 
 class InstanceRecycler {
@@ -304,115 +410,9 @@ private:
     RecyclerThreadPoolGroup _thread_pool_group;
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
-};
 
-class RecyclerMetricsContext {
-public:
-    RecyclerMetricsContext() = default;
-
-    RecyclerMetricsContext(std::string instance_id, std::string operation_type)
-            : operation_type(std::move(operation_type)), instance_id(std::move(instance_id)) {
-        start();
-    }
-
-    ~RecyclerMetricsContext() = default;
-
-    int64_t total_need_recycle_data_size = 0;
-    int64_t total_need_recycle_num = 0;
-
-    std::atomic_long total_recycled_data_size {0};
-    std::atomic_long total_recycled_num {0};
-
-    std::string operation_type {};
-    std::string instance_id {};
-
-    double start_time = 0;
-
-    void start() {
-        start_time = duration_cast<std::chrono::milliseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
-                             .count();
-    }
-
-    double duration() const {
-        return duration_cast<std::chrono::milliseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count() -
-               start_time;
-    }
-
-    void reset() {
-        total_need_recycle_data_size = 0;
-        total_need_recycle_num = 0;
-        total_recycled_data_size.store(0);
-        total_recycled_num.store(0);
-        start_time = duration_cast<std::chrono::milliseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
-                             .count();
-    }
-
-    void finish_report() {
-        if (!operation_type.empty()) {
-            double cost = duration();
-            g_bvar_recycler_instance_last_round_recycle_elpased_ts.put(
-                    {instance_id, operation_type}, cost);
-            g_bvar_recycler_instance_recycle_round.put({instance_id, operation_type}, 1);
-            LOG(INFO) << "recycle instance: " << instance_id
-                      << ", operation type: " << operation_type << ", cost: " << cost
-                      << " ms, total recycled num: " << total_recycled_num.load()
-                      << ", total recycled data size: " << total_recycled_data_size.load()
-                      << " bytes";
-            if (total_recycled_num.load()) {
-                g_bvar_recycler_instance_recycle_time_per_resource.put(
-                        {instance_id, operation_type}, cost / total_recycled_num.load());
-            } else {
-                g_bvar_recycler_instance_recycle_time_per_resource.put(
-                        {instance_id, operation_type}, -1);
-            }
-            if (total_recycled_data_size.load()) {
-                g_bvar_recycler_instance_recycle_bytes_per_ms.put(
-                        {instance_id, operation_type}, total_recycled_data_size.load() / cost);
-            } else {
-                g_bvar_recycler_instance_recycle_bytes_per_ms.put({instance_id, operation_type},
-                                                                  -1);
-            }
-        }
-    }
-
-    // `is_begin` is used to initialize total num of items need to be recycled
-    void report(bool is_begin = false) {
-        if (!operation_type.empty()) {
-            // is init
-            if (is_begin) {
-                if (total_need_recycle_data_size) {
-                    g_bvar_recycler_instance_last_round_to_recycle_bytes.put(
-                            {instance_id, operation_type}, total_need_recycle_data_size);
-                }
-            } else {
-                if (total_recycled_data_size.load()) {
-                    g_bvar_recycler_instance_last_round_recycled_bytes.put(
-                            {instance_id, operation_type}, total_recycled_data_size.load());
-                }
-                g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
-                        {instance_id, operation_type}, total_recycled_data_size.load());
-            }
-
-            // is init
-            if (is_begin) {
-                if (total_need_recycle_num) {
-                    g_bvar_recycler_instance_last_round_to_recycle_num.put(
-                            {instance_id, operation_type}, total_need_recycle_num);
-                }
-            } else {
-                if (total_recycled_num.load()) {
-                    g_bvar_recycler_instance_last_round_recycled_num.put(
-                            {instance_id, operation_type}, total_recycled_num.load());
-                }
-                g_bvar_recycler_instance_recycle_total_num_since_started.put(
-                        {instance_id, operation_type}, total_recycled_num.load());
-            }
-        }
-    }
+    TabletRecyclerMetricsContext tablet_metrics_context_;
+    SegmentRecyclerMetricsContext segment_metrics_context_;
 };
 
 } // namespace doris::cloud

@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.BoundType;
@@ -113,8 +114,10 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (right.isNullLiteral()) {
                 return new UnknownValue(context, predicate);
             }
-            // only handle `NumericType` and `DateLikeType`
-            if (right.isLiteral() && (right.getDataType().isNumericType() || right.getDataType().isDateLikeType())) {
+            // only handle `NumericType` and `DateLikeType` and `StringLikeType`
+            DataType rightDataType = right.getDataType();
+            if (right.isLiteral() && (rightDataType.isNumericType() || rightDataType.isDateLikeType()
+                    || rightDataType.isStringLikeType())) {
                 return ValueDesc.range(context, predicate);
             }
             return new UnknownValue(context, predicate);

@@ -830,6 +830,8 @@ DECLARE_Int64(brpc_max_body_size);
 // Default, if the physical memory is less than or equal to 64G, the value is 1G
 //          if the physical memory is greater than 64G, the value is physical memory * mem_limit(0.8) / 1024 * 20
 DECLARE_Int64(brpc_socket_max_unwritten_bytes);
+// Whether to set FLAGS_usercode_in_pthread to true in brpc
+DECLARE_mBool(brpc_usercode_in_pthread);
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
@@ -1111,6 +1113,8 @@ DECLARE_Bool(enable_java_support);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
+
+DECLARE_Bool(enable_graceful_exit_check);
 
 DECLARE_Bool(enable_debug_points);
 

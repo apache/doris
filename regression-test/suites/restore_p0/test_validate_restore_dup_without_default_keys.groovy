@@ -65,6 +65,6 @@ suite("test_validate_restore_dup_without_default_keys", "validate_restore") {
     }
 
     runValidateRestoreDupWithoutDefaultKeys("3.0")
-    //runValidateRestoreDupWithoutDefaultKeys("2.1")
+    runValidateRestoreDupWithoutDefaultKeys("2.1")
 }
 
