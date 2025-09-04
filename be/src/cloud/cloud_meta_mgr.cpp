@@ -822,6 +822,103 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
     return true;
 }
 
+Status CloudMetaMgr::_get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req,
+                                                GetDeleteBitmapResponse& res) {
+    VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
+
+    auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
+    if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
+        return st;
+    }
+
+    if (res.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
+        return Status::NotFound("failed to get delete bitmap: {}", res.status().msg());
+    }
+    // The delete bitmap of stale rowsets will be removed when commit compaction job,
+    // then delete bitmap of stale rowsets cannot be obtained. But the rowsets obtained
+    // by sync_tablet_rowsets may include these stale rowsets. When this case happend, the
+    // error code of ROWSETS_EXPIRED will be returned, we need to retry sync rowsets again.
+    //
+    // Be query thread             meta-service          Be compaction thread
+    //      |                            |                         |
+    //      |        get rowset          |                         |
+    //      |--------------------------->|                         |
+    //      |    return get rowset       |                         |
+    //      |<---------------------------|                         |
+    //      |                            |        commit job       |
+    //      |                            |<------------------------|
+    //      |                            |    return commit job    |
+    //      |                            |------------------------>|
+    //      |      get delete bitmap     |                         |
+    //      |--------------------------->|                         |
+    //      |  return get delete bitmap  |                         |
+    //      |<---------------------------|                         |
+    //      |                            |                         |
+    if (res.status().code() == MetaServiceCode::ROWSETS_EXPIRED) {
+        return Status::Error<ErrorCode::ROWSETS_EXPIRED, false>("failed to get delete bitmap: {}",
+                                                                res.status().msg());
+    }
+    if (res.status().code() != MetaServiceCode::OK) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to get delete bitmap: {}",
+                                                               res.status().msg());
+    }
+    return Status::OK();
+}
+
+Status CloudMetaMgr::_get_delete_bitmap_from_ms_by_batch(GetDeleteBitmapRequest& req,
+                                                         GetDeleteBitmapResponse& res,
+                                                         int64_t bytes_threadhold) {
+    std::unordered_set<std::string> finished_rowset_ids {};
+    int count = 0;
+    do {
+        GetDeleteBitmapRequest cur_req;
+        GetDeleteBitmapResponse cur_res;
+
+        cur_req.set_cloud_unique_id(config::cloud_unique_id);
+        cur_req.set_tablet_id(req.tablet_id());
+        cur_req.set_base_compaction_cnt(req.base_compaction_cnt());
+        cur_req.set_cumulative_compaction_cnt(req.cumulative_compaction_cnt());
+        cur_req.set_cumulative_point(req.cumulative_point());
+        *(cur_req.mutable_idx()) = req.idx();
+        cur_req.set_store_version(req.store_version());
+        for (int i = 0; i < req.rowset_ids_size(); i++) {
+            if (!finished_rowset_ids.contains(req.rowset_ids(i))) {
+                cur_req.add_rowset_ids(req.rowset_ids(i));
+                cur_req.add_begin_versions(req.begin_versions(i));
+                cur_req.add_end_versions(req.end_versions(i));
+            }
+        }
+
+        RETURN_IF_ERROR(_get_delete_bitmap_from_ms(cur_req, cur_res));
+        ++count;
+
+        // v1 delete bitmap
+        res.mutable_rowset_ids()->MergeFrom(cur_res.rowset_ids());
+        res.mutable_segment_ids()->MergeFrom(cur_res.segment_ids());
+        res.mutable_versions()->MergeFrom(cur_res.versions());
+        res.mutable_segment_delete_bitmaps()->MergeFrom(cur_res.segment_delete_bitmaps());
+
+        // v2 delete bitmap
+        res.mutable_delta_rowset_ids()->MergeFrom(cur_res.delta_rowset_ids());
+        res.mutable_delete_bitmap_storages()->MergeFrom(cur_res.delete_bitmap_storages());
+
+        for (const auto& rowset_id : cur_res.returned_rowset_ids()) {
+            finished_rowset_ids.insert(rowset_id);
+        }
+
+        bool has_more = cur_res.has_has_more() && cur_res.has_more();
+        if (!has_more) {
+            break;
+        }
+        LOG_INFO("batch get delete bitmap, progress={}/{}", finished_rowset_ids.size(),
+                 req.rowset_ids_size())
+                .tag("tablet_id", req.tablet_id())
+                .tag("cur_returned_rowsets", cur_res.returned_rowset_ids_size())
+                .tag("rpc_count", count);
+    } while (finished_rowset_ids.size() < req.rowset_ids_size());
+    return Status::OK();
+}
+
 Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                                std::ranges::range auto&& rs_metas,
                                                const TabletStatsPB& stats, const TabletIndexPB& idx,
@@ -888,46 +985,15 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         sync_stats->get_remote_delete_bitmap_rowsets_num += req.rowset_ids_size();
     }
 
-    VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
-
     auto start = std::chrono::steady_clock::now();
-    auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
+    if (config::enable_batch_get_delete_bitmap) {
+        RETURN_IF_ERROR(_get_delete_bitmap_from_ms_by_batch(
+                req, res, config::get_delete_bitmap_bytes_threshold));
+    } else {
+        RETURN_IF_ERROR(_get_delete_bitmap_from_ms(req, res));
+    }
     auto end = std::chrono::steady_clock::now();
-    if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
-        return st;
-    }
 
-    if (res.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
-        return Status::NotFound("failed to get delete bitmap: {}", res.status().msg());
-    }
-    // The delete bitmap of stale rowsets will be removed when commit compaction job,
-    // then delete bitmap of stale rowsets cannot be obtained. But the rowsets obtained
-    // by sync_tablet_rowsets may include these stale rowsets. When this case happend, the
-    // error code of ROWSETS_EXPIRED will be returned, we need to retry sync rowsets again.
-    //
-    // Be query thread             meta-service          Be compaction thread
-    //      |                            |                         |
-    //      |        get rowset          |                         |
-    //      |--------------------------->|                         |
-    //      |    return get rowset       |                         |
-    //      |<---------------------------|                         |
-    //      |                            |        commit job       |
-    //      |                            |<------------------------|
-    //      |                            |    return commit job    |
-    //      |                            |------------------------>|
-    //      |      get delete bitmap     |                         |
-    //      |--------------------------->|                         |
-    //      |  return get delete bitmap  |                         |
-    //      |<---------------------------|                         |
-    //      |                            |                         |
-    if (res.status().code() == MetaServiceCode::ROWSETS_EXPIRED) {
-        return Status::Error<ErrorCode::ROWSETS_EXPIRED, false>("failed to get delete bitmap: {}",
-                                                                res.status().msg());
-    }
-    if (res.status().code() != MetaServiceCode::OK) {
-        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to get delete bitmap: {}",
-                                                               res.status().msg());
-    }
     // v1 delete bitmap
     const auto& rowset_ids = res.rowset_ids();
     const auto& segment_ids = res.segment_ids();
@@ -972,12 +1038,12 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     }
     int64_t latency = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     if (latency > 100 * 1000) { // 100ms
-        LOG(INFO) << "finish get_delete_bitmap rpc. rowset_ids.size()=" << rowset_ids.size()
+        LOG(INFO) << "finish get_delete_bitmap rpcs. rowset_ids.size()=" << rowset_ids.size()
                   << ", delete_bitmaps.size()=" << delete_bitmaps.size()
                   << ", delta_delete_bitmaps.size()=" << delta_rowset_ids.size()
                   << ", latency=" << latency << "us, read_version=" << read_version;
     } else {
-        LOG_EVERY_N(INFO, 100) << "finish get_delete_bitmap rpc. rowset_ids.size()="
+        LOG_EVERY_N(INFO, 100) << "finish get_delete_bitmap rpcs. rowset_ids.size()="
                                << rowset_ids.size()
                                << ", delete_bitmaps.size()=" << delete_bitmaps.size()
                                << ", delta_delete_bitmaps.size()=" << delta_rowset_ids.size()
