@@ -86,7 +86,7 @@ update_conf_from_configmap()
         if [[ "$conffile" == "be.conf" ]]; then
              cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$file
              echo "deploy_mode = cloud" >> $DORIS_HOME/conf/$file
-             ontinue
+             continue
          fi
         ln -sfT $CONFIGMAP_MOUNT_PATH/$conffile $tgt
     done
