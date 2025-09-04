@@ -647,7 +647,7 @@ struct TScanRange {
 }
 
 struct TSchemaScanRange {
- optional list<string> fe_ips;
+  1: optional list<string> fe_ips
 }
 
 struct TMySQLScanNode {
