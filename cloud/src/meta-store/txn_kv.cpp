@@ -81,7 +81,7 @@ static void may_logging_single_version_reading(std::string_view key) {
     std::string_view tmp_key(key);
     std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
     tmp_key.remove_prefix(1); // Remove the space tag.
-                              std::string msg;
+    std::string msg;
     if (decode_key(&tmp_key, &out) != 0) {
         msg = fmt::format("Read single version meta key: {}", hex(key));
     } else {
