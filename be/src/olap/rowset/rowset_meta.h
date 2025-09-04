@@ -217,6 +217,8 @@ public:
                                               : _rowset_meta_pb.creation_time();
     }
 
+    bool has_stale_at() const { return _rowset_meta_pb.has_stale_at(); }
+
     void set_stale_at(int64_t stale_at) { _rowset_meta_pb.set_stale_at(stale_at); }
 
     int64_t partition_id() const { return _rowset_meta_pb.partition_id(); }
