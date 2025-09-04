@@ -130,6 +130,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
                 _dependency->set_ready();
             }
             _set_ready_to_finish();
+            return st;
         }
     }
     if (state && state->get_query_ctx() && state->get_query_ctx()->workload_group()) {
@@ -211,7 +212,9 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
         // Should not call finish in lock because it may hang, and it will lock _m too long.
         // And get_writer_status will also need this lock, it will block pipeline exec thread.
         Status st = finish(state);
-        _writer_status.update(st);
+        if (!st.ok()) {
+            _writer_status.update(st);
+        }
     }
     Status st = Status::OK();
     { st = _writer_status.status(); }
@@ -225,7 +228,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
         // If it is already failed before, then not update the write status so that we could get
         // the real reason.
         std::lock_guard l(_m);
-        if (_writer_status.ok()) {
+        if (_writer_status.ok() && !close_st.ok()) {
             _writer_status.update(close_st);
         }
     }
@@ -260,7 +263,9 @@ void AsyncResultWriter::force_close(Status s) {
         _closed = true;
     }
     std::lock_guard l(_m);
-    _writer_status.update(s);
+    if (!s.ok()) {
+        _writer_status.update(s);
+    }
     DCHECK(_dependency);
     if (_is_finished()) {
         _dependency->set_ready();
