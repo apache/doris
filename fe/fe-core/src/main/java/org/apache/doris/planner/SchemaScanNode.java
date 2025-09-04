@@ -29,17 +29,13 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TScanRange;
-import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaScanNode;
-import org.apache.doris.thrift.TSchemaScanRange;
 import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.MoreObjects;
@@ -165,36 +161,7 @@ public class SchemaScanNode extends ScanNode {
 
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        SchemaTable table = (SchemaTable) desc.getTable();
-        if (!table.shouldFetchAllFe()) {
-            return scanRangeLocations;
-        }
-        FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
-        try {
-            backendPolicy.init();
-        } catch (UserException e) {
-            LOG.warn("backendPolicy.init() failed");
-            return scanRangeLocations;
-        }
-        List<TScanRangeLocations> res = Lists.newArrayList();
-        for (Frontend fe : Env.getCurrentEnv().getFrontends(null)) {
-            if (!fe.isAlive()) {
-                continue;
-            }
-            Backend be = backendPolicy.getNextBe();
-            TNetworkAddress networkAddress = new TNetworkAddress(be.getAddress(), be.getBePort());
-            TScanRangeLocation scanRangeLocation = new TScanRangeLocation(networkAddress);
-            scanRangeLocation.setBackendId(be.getId());
-            TScanRangeLocations locations = new TScanRangeLocations();
-            locations.addToLocations(scanRangeLocation);
-            TScanRange scanRange = new TScanRange();
-            TSchemaScanRange tSchemaScanRange = new TSchemaScanRange();
-            tSchemaScanRange.addToFeIps(fe.getHost());
-            scanRange.setSchemaScanRange(tSchemaScanRange);
-            locations.setScanRange(scanRange);
-            res.add(locations);
-        }
-        return res;
+        return scanRangeLocations;
     }
 
     @Override
