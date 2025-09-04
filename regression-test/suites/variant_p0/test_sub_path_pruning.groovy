@@ -219,4 +219,10 @@ suite("variant_sub_path_pruning", "variant_type"){
     order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select 1 as id, cast('{"a":1, "b":2}' as variant) as c1 order by id limit 100) tmp;"""
     order_qt_sql """select c1['a'] from (select  1 as id, cast('{"b":{"a":1}}' as variant)["b"] as c1 order by id limit 100) tmp;"""
     order_qt_sql """select c1['a'] as c2, c1['b'] as c3 from (select 1 as id, cast('{"b":{"a":1, "b":2}}' as variant)["b"] as c1 order by id limit 100) tmp;"""
+
+    order_qt_sql_no_dead_loop """
+      select
+      FIRST_VALUE(dt['a']) over (PARTITION by id) A12708
+      FROM pruning_test
+    """
 }
