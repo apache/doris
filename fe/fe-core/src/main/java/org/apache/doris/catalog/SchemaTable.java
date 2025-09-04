@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.SchemaTableType;
 import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TSchemaTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -695,7 +696,7 @@ public class SchemaTable extends Table {
                             .build()))
             .put("sql_block_rule_status",
                     new SchemaTable(SystemIdGenerator.getNextId(), "sql_block_rule_status", TableType.SCHEMA,
-                            builder().column("NAME", ScalarType.createStringType())
+                            builder().column("NAME", ScalarType.createStringType(), null, true)
                                     .column("PATTERN", ScalarType.createStringType())
                                     .column("SQL_HASH", ScalarType.createStringType())
                                     .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.BIGINT))
@@ -703,11 +704,15 @@ public class SchemaTable extends Table {
                                     .column("CARDINALITY", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("GLOBAL", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("ENABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
-                                    .column("BLOCKS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("AVERAGE_DURATION", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("LONGEST_DURATION", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("P99_DURATION", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .build()))
+                                    .column("BLOCKS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("AVERAGE_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.AVG, false)
+                                    .column("LONGEST_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.MAX, false)
+                                    .column("P99_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.MAX, false)
+                                    .build(), true))
             .build();
 
     private boolean fetchAllFe = false;
@@ -738,6 +743,46 @@ public class SchemaTable extends Table {
         return false;
     }
 
+    public boolean shouldFetchAllFe() {
+        return ConnectContext.get().getSessionVariable().showAllFeConnection && fetchAllFe;
+    }
+
+    public boolean shouldAddAgg() {
+        if (!shouldFetchAllFe()) {
+            return false;
+        }
+        List<Column> columns = getColumns();
+        for (Column column : columns) {
+            SchemaColumn schemaColumn = (SchemaColumn) column;
+            if (schemaColumn.isKey() || schemaColumn.getSchemaTableAggregateType() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public enum SchemaTableAggregateType {
+        SUM,
+        AVG,
+        MAX,
+        MIN
+    }
+
+    public static class SchemaColumn extends Column {
+        private SchemaTableAggregateType schemaTableAggregateType;
+
+        public SchemaColumn(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
+                boolean isKey) {
+            super(name, type, true);
+            this.schemaTableAggregateType = schemaTableAggregateType;
+            setIsKey(isKey);
+        }
+
+        public SchemaTableAggregateType getSchemaTableAggregateType() {
+            return schemaTableAggregateType;
+        }
+    }
+
     /**
      * For TABLE_MAP.
      **/
@@ -749,7 +794,13 @@ public class SchemaTable extends Table {
         }
 
         public Builder column(String name, ScalarType type) {
-            columns.add(new Column(name, type, true));
+            columns.add(new SchemaColumn(name, type, null, false));
+            return this;
+        }
+
+        public Builder column(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
+                boolean isKey) {
+            columns.add(new SchemaColumn(name, type, schemaTableAggregateType, isKey));
             return this;
         }
 

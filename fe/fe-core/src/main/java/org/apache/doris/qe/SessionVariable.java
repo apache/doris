@@ -2551,7 +2551,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SHOW_ALL_FE_CONNECTION,
             description = {"when it's true show processlist statement list all fe's connection",
                     "当变量为true时，show processlist命令展示所有fe的连接"})
-    public boolean showAllFeConnection = false;
+    public boolean showAllFeConnection = true;
 
     @VariableMgr.VarAttr(name = MAX_MSG_SIZE_OF_RESULT_RECEIVER,
             description = {"Max message size during result deserialization, change this if you meet error"
