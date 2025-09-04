@@ -345,6 +345,7 @@ int main(int argc, char** argv) {
         }
         options.mutable_ssl_options()->verify.ca_file_path = config::tls_ca_certificate_path;
         options.mutable_ssl_options()->alpns = "h2";
+        options.force_ssl = true;
     }
     if (config::brpc_idle_timeout_sec != -1) {
         options.idle_timeout_sec = config::brpc_idle_timeout_sec;

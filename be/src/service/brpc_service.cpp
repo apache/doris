@@ -98,6 +98,7 @@ Status BRpcService::start(int port, int num_threads) {
         }
         options.mutable_ssl_options()->verify.ca_file_path = config::tls_ca_certificate_path;
         options.mutable_ssl_options()->alpns = "h2";
+        options.force_ssl = true;
     }
 
     options.has_builtin_services = config::enable_brpc_builtin_services;
