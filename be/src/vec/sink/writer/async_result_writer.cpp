@@ -126,7 +126,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
         if (!st.ok()) {
             {
                 std::lock_guard l(_m);
-                _writer_status.update(s);
+                _writer_status.update(st);
                 _dependency->set_ready();
             }
             _set_ready_to_finish();
