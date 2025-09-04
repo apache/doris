@@ -111,6 +111,7 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -145,6 +146,30 @@ public class TypeCoercionUtils {
             SmallIntType.INSTANCE,
             TinyIntType.INSTANCE
     );
+
+    private static final Map<String, IntegralType> TIMESTAMP_ARITHMETIC_INTERVAL_TYPES =
+            ImmutableMap.<String, IntegralType>builder()
+                .put("years_add", IntegerType.INSTANCE)
+                .put("years_sub", IntegerType.INSTANCE)
+                .put("quarters_add", IntegerType.INSTANCE)
+                .put("quarters_sub", IntegerType.INSTANCE)
+                .put("months_add", IntegerType.INSTANCE)
+                .put("months_sub", IntegerType.INSTANCE)
+                .put("weeks_add", IntegerType.INSTANCE)
+                .put("weeks_sub", IntegerType.INSTANCE)
+                .put("days_add", IntegerType.INSTANCE)
+                .put("days_sub", IntegerType.INSTANCE)
+                .put("hours_add", IntegerType.INSTANCE)
+                .put("hours_sub", IntegerType.INSTANCE)
+                .put("minutes_add", BigIntType.INSTANCE)
+                .put("minutes_sub", BigIntType.INSTANCE)
+                .put("seconds_add", BigIntType.INSTANCE)
+                .put("seconds_sub", BigIntType.INSTANCE)
+                .put("milliseconds_add", BigIntType.INSTANCE)
+                .put("milliseconds_sub", BigIntType.INSTANCE)
+                .put("microseconds_add", BigIntType.INSTANCE)
+                .put("microseconds_sub", BigIntType.INSTANCE)
+                .build();
 
     private static final Logger LOG = LogManager.getLogger(TypeCoercionUtils.class);
 
@@ -920,6 +945,7 @@ public class TypeCoercionUtils {
         // check
         timestampArithmetic.checkLegalityBeforeTypeCoercion();
 
+        String name = timestampArithmetic.getFuncName().toLowerCase();
         Expression left = timestampArithmetic.left();
         Expression right = timestampArithmetic.right();
         // left
@@ -957,7 +983,7 @@ public class TypeCoercionUtils {
                         + "' of timestamp arithmetic expression '" + timestampArithmetic.toSql() + "' returns type '"
                         + right.getDataType() + "' which is incompatible with expected type 'INT'.");
             }
-            right = castIfNotSameType(right, IntegerType.INSTANCE);
+            right = castIfNotSameType(right, TIMESTAMP_ARITHMETIC_INTERVAL_TYPES.get(name));
         }
 
         return timestampArithmetic.withChildren(left, right);

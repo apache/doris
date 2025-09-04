@@ -40,12 +40,10 @@ import java.util.List;
 public class QuartersSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
         ComputeSignatureForDateArithmetic, PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
 
-    // When enable_date_conversion is true, we prefer to V2 signature.
-    // This preference follows original planner. refer to ScalarType.getDefaultDateType()
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
-                    IntegerType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE));
+                    IntegerType.INSTANCE));
 
     public QuartersSub(Expression arg0, Expression arg1) {
         super("quarters_sub", arg0, arg1);
