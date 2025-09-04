@@ -147,9 +147,9 @@ Suite.metaClass.curl = { String method, String url, String body = null, Integer 
 
         def outputGlobber = new ByteArrayOutputStream()
         def errorGlobber = new ByteArrayOutputStream()
-        process.consumeProcessOutput(outputGlobber, errorGlobber)
+        process.waitForProcessOutput(outputGlobber, errorGlobber)
 
-        code = process.waitFor()
+        code = process.exitValue()
         err = errorGlobber.toString()
         out = outputGlobber.toString()
 
