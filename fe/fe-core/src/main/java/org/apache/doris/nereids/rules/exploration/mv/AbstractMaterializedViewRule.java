@@ -59,21 +59,25 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -450,6 +454,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
             }
             trySetStatistics(materializationContext, cascadesContext);
+            // Derive the operative column for materialized view scan
+            rewrittenPlan = deriveOperativeColumn(rewrittenPlan, queryStructInfo,
+                    materializationContext.getShuttledExprToScanExprMapping(), viewToQuerySlotMapping,
+                    materializationContext);
             rewriteResults.add(rewrittenPlan);
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
             // If rewrite successfully, try to clear mv scan currently because it maybe used again
@@ -537,6 +545,51 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
         return tempRewritedPlan;
+    }
+
+    /**
+     * Derive the operative column for materialized view scan, if the operative column in query can be
+     * represented by the operative column in materialized view, then set the operative column in
+     * materialized view scan, otherwise return the materialized view scan without operative column
+     */
+    private static Plan deriveOperativeColumn(Plan rewrittenPlan, StructInfo queryStructInfo,
+            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping,
+            MaterializationContext materializationContext) {
+        ExpressionMapping expressionMappingKeySourceBased = targetExpressionMapping.keyPermute(targetToSourceMapping);
+        // target to target replacement expression mapping, because mv is 1:1 so get first element
+        List<Map<Expression, Expression>> flattenExpressionMap = expressionMappingKeySourceBased.flattenMap();
+        Map<Expression, Expression> targetToTargetReplacementMappingQueryBased =
+                flattenExpressionMap.get(0);
+        final Multimap<NamedExpression, Slot> slotMapping = ArrayListMultimap.create();
+        for (Map.Entry<Expression, Expression> entry : targetToTargetReplacementMappingQueryBased.entrySet()) {
+            if (entry.getValue() instanceof Slot) {
+                entry.getKey().collect(NamedExpression.class::isInstance).forEach(
+                        namedExpression -> slotMapping.put(
+                                (NamedExpression) namedExpression, (Slot) entry.getValue()));
+            }
+        }
+        Set<Slot> operativeSlots = new HashSet<>();
+        for (CatalogRelation relation : queryStructInfo.getRelations()) {
+            List<Slot> relationOperativeSlots = relation.getOperativeSlots();
+            if (relationOperativeSlots.isEmpty()) {
+                continue;
+            }
+            for (Slot slot : relationOperativeSlots) {
+                Collection<Slot> mvOutputSlots = slotMapping.get(slot);
+                if (!mvOutputSlots.isEmpty()) {
+                    operativeSlots.addAll(mvOutputSlots);
+                }
+            }
+        }
+        return rewrittenPlan.accept(new DefaultPlanRewriter<MaterializationContext>() {
+            @Override
+            public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, MaterializationContext context) {
+                if (context.generateMaterializationIdentifier().equals(olapScan.getTable().getFullQualifiers())) {
+                    return olapScan.withOperativeSlots(operativeSlots);
+                }
+                return super.visitLogicalOlapScan(olapScan, context);
+            }
+        }, materializationContext);
     }
 
     /**

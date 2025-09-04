@@ -228,8 +228,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                             // so there may be two filters we need to merge them
                                             new MergeFilters()
                                     ),
-                                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
-                                            AggScalarSubQueryToWindowFunction::new),
                                     bottomUp(
                                             new EliminateUselessPlanUnderApply(),
                                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -244,13 +242,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                              *   we expected.
                                              */
                                             new CorrelateApplyToUnCorrelateApply(),
-                                            new ApplyToJoin(),
-                                            // UnCorrelatedApplyAggregateFilter rule will create new aggregate outputs,
-                                            // The later rule CheckPrivileges which inherent from ColumnPruning
-                                            // only works
-                                            // if the aggregation node is normalized, so we need call
-                                            // NormalizeAggregate here
-                                            new NormalizeAggregate()
+                                            new ApplyToJoin()
                                     )
                             ),
                             // before `Subquery unnesting` topic, some correlate slots should have appeared at
@@ -263,6 +255,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             // 2. and then check the column privileges
                             // 3. finally, we can eliminate the LogicalView
                             topic("Inline view and check column privileges",
+                                    bottomUp(
+                                            // The later rule CHECK_PRIVILEGES which inherent from ColumnPruning
+                                            // only works if the aggregation node is normalized, so we need call
+                                            // NormalizeAggregate here
+                                            new NormalizeAggregate()
+                                    ),
                                     bottomUp(new InlineLogicalView())
                             ),
                             topic("Eliminate optimization",
@@ -409,7 +407,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
                             ),
                             topic("add projection for join",
-                                    // this is for hint project join rewrite rule
                                     custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                                     topDown(new MergeProjectable())
                             )

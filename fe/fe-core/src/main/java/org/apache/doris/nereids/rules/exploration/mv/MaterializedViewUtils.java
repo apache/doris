@@ -48,9 +48,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.qe.SessionVariable;
@@ -415,7 +419,7 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Normalize expression such as nullable property and output slot id
+     * Normalize expression such as nullable property and output slot id when plan in the plan tree
      */
     public static Plan normalizeExpressions(Plan rewrittenPlan, Plan originPlan) {
         if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
@@ -424,9 +428,43 @@ public class MaterializedViewUtils {
         // normalize nullable
         List<NamedExpression> normalizeProjects = new ArrayList<>();
         for (int i = 0; i < originPlan.getOutput().size(); i++) {
-            normalizeProjects.add(normalizeExpression(originPlan.getOutput().get(i), rewrittenPlan.getOutput().get(i)));
+            normalizeProjects.add(normalizeExpression(originPlan.getOutput().get(i),
+                    rewrittenPlan.getOutput().get(i), false));
         }
         return new LogicalProject<>(normalizeProjects, rewrittenPlan);
+    }
+
+    /**
+     * Normalize expression such as nullable property and output slot id when plan is on the top of tree
+     */
+    public static Plan normalizeSinkExpressions(Plan rewrittenPlan, Plan originPlan) {
+        return rewrittenPlan.accept(new DefaultPlanRewriter<Void>() {
+            @Override
+            public Plan visitLogicalSink(LogicalSink<? extends Plan> rewrittenPlan, Void context) {
+                if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
+                    return null;
+                }
+                if (rewrittenPlan.getLogicalProperties().equals(originPlan.getLogicalProperties())) {
+                    return rewrittenPlan;
+                }
+                List<NamedExpression> rewrittenPlanOutputExprList = rewrittenPlan.getOutputExprs();
+                List<? extends NamedExpression> originPlanOutputExprList = originPlan.getOutput();
+                if (rewrittenPlanOutputExprList.size() != originPlanOutputExprList.size()) {
+                    return null;
+                }
+                List<NamedExpression> normalizedOutputExprList = new ArrayList<>();
+                for (int i = 0; i < rewrittenPlanOutputExprList.size(); i++) {
+                    NamedExpression rewrittenExpression = rewrittenPlanOutputExprList.get(i);
+                    NamedExpression originalExpression = originPlanOutputExprList.get(i);
+                    normalizedOutputExprList.add(normalizeExpression(originalExpression,
+                            rewrittenExpression, true));
+                }
+                LogicalProject<Plan> project = new LogicalProject<>(normalizedOutputExprList,
+                        rewrittenPlan.child());
+                return rewrittenPlan.withChildren(project);
+            }
+        }, null);
+
     }
 
     /**
@@ -435,9 +473,18 @@ public class MaterializedViewUtils {
      * Keep the replacedExpression slot property is the same as the sourceExpression
      */
     public static NamedExpression normalizeExpression(
-            NamedExpression sourceExpression, NamedExpression replacedExpression) {
+            NamedExpression sourceExpression, NamedExpression replacedExpression, boolean isSink) {
         Expression innerExpression = replacedExpression;
-        if (replacedExpression.nullable() != sourceExpression.nullable()) {
+        boolean isExprEquals = replacedExpression.getExprId().equals(sourceExpression.getExprId());
+        boolean isNullableEquals = replacedExpression.nullable() == sourceExpression.nullable();
+        if (isExprEquals && isNullableEquals) {
+            return replacedExpression;
+        }
+        if (isExprEquals && isSink && replacedExpression instanceof SlotReference) {
+            // for sink, if expr id is the same, but nullable is different, should keep the same expr id
+            return ((SlotReference) replacedExpression).withNullable(sourceExpression.nullable());
+        }
+        if (!isNullableEquals) {
             // if enable join eliminate, query maybe inner join and mv maybe outer join.
             // If the slot is at null generate side, the nullable maybe different between query and view
             // So need to force to consistent.

@@ -78,6 +78,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -85,7 +86,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -96,8 +96,39 @@ import javax.annotation.Nullable;
 public class MTMVPlanUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPlanUtil.class);
 
-    public static ConnectContext createMTMVContext(MTMV mtmv) {
-        ConnectContext ctx = createBasicMvContext(null);
+    // The rules should be disabled when generate MTMV cache
+    // Because these rules may change the plan structure and cause the plan can not match the mv
+    // this is mainly for final CBO phase rewrite, pre RBO phase does not need to consider, because
+    // maintain tmp plan alone for rewrite when pre RBO rewrite
+    public static final List<RuleType> DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE = ImmutableList.of(
+            RuleType.COMPRESSED_MATERIALIZE_AGG,
+            RuleType.COMPRESSED_MATERIALIZE_SORT,
+            RuleType.ELIMINATE_CONST_JOIN_CONDITION,
+            RuleType.CONSTANT_PROPAGATION,
+            RuleType.ADD_DEFAULT_LIMIT,
+            RuleType.ELIMINATE_JOIN_BY_FK,
+            RuleType.ELIMINATE_JOIN_BY_UK,
+            RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
+            RuleType.ELIMINATE_GROUP_BY,
+            RuleType.SALT_JOIN,
+            RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION
+    );
+    // The rules should be disabled when run MTMV task
+    public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = ImmutableList.of(
+            RuleType.COMPRESSED_MATERIALIZE_AGG,
+            RuleType.COMPRESSED_MATERIALIZE_SORT,
+            RuleType.ELIMINATE_CONST_JOIN_CONDITION,
+            RuleType.CONSTANT_PROPAGATION,
+            RuleType.ADD_DEFAULT_LIMIT,
+            RuleType.ELIMINATE_JOIN_BY_FK,
+            RuleType.ELIMINATE_JOIN_BY_UK,
+            RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
+            RuleType.ELIMINATE_GROUP_BY,
+            RuleType.SALT_JOIN
+    );
+
+    public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
+        ConnectContext ctx = createBasicMvContext(null, disableRules);
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
@@ -109,7 +140,8 @@ public class MTMVPlanUtil {
         return ctx;
     }
 
-    public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext) {
+    public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
+            List<RuleType> disableRules) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
@@ -123,16 +155,6 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().skipStorageEngineMerge = false;
         ctx.getSessionVariable().showHiddenColumns = false;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
-        // Rules disabled during materialized view plan generation. These rules can cause significant plan changes,
-        // which may affect transparent query rewriting by mv
-        List<RuleType> disableRules = Arrays.asList(
-                RuleType.COMPRESSED_MATERIALIZE_AGG,
-                RuleType.COMPRESSED_MATERIALIZE_SORT,
-                RuleType.ELIMINATE_CONST_JOIN_CONDITION,
-                RuleType.CONSTANT_PROPAGATION,
-                RuleType.ADD_DEFAULT_LIMIT,
-                RuleType.ELIMINATE_GROUP_BY
-        );
         ctx.getSessionVariable().setDisableNereidsRules(
                 disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
         ctx.setStartTime();
