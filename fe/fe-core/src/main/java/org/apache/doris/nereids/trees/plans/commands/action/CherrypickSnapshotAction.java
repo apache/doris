@@ -36,9 +36,9 @@ public class CherrypickSnapshotAction extends OptimizeAction {
     public static final String SNAPSHOT_ID = "snapshot_id";
 
     public CherrypickSnapshotAction(Map<String, String> properties,
-                                   Optional<PartitionNamesInfo> partitionNamesInfo,
-                                   Optional<Expression> whereCondition,
-                                   ExternalTable table) throws DdlException {
+            Optional<PartitionNamesInfo> partitionNamesInfo,
+            Optional<Expression> whereCondition,
+            ExternalTable table) throws DdlException {
         super(ACTION_CHERRYPICK_SNAPSHOT, properties, partitionNamesInfo, whereCondition);
         validateIcebergTable(table);
     }
@@ -48,7 +48,7 @@ public class CherrypickSnapshotAction extends OptimizeAction {
         validateCommon(tableNameInfo, currentUser);
         validateNoPartitions();
         validateNoWhereCondition();
-        
+
         String snapshotId = getRequiredProperty(SNAPSHOT_ID);
         try {
             Long.parseLong(snapshotId);

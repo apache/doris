@@ -37,15 +37,14 @@ import java.util.Optional;
  * Rolls back the table to a specific snapshot ID.
  */
 public class RollbackToSnapshotAction extends OptimizeAction {
-    private static final Logger LOG = LogManager.getLogger(RollbackToSnapshotAction.class);
-
-    // RollbackToSnapshot-specific properties
     public static final String SNAPSHOT_ID = "snapshot_id";
 
+    private static final Logger LOG = LogManager.getLogger(RollbackToSnapshotAction.class);
+
     public RollbackToSnapshotAction(Map<String, String> properties,
-                                   Optional<PartitionNamesInfo> partitionNamesInfo,
-                                   Optional<Expression> whereCondition,
-                                   ExternalTable table) throws DdlException {
+            Optional<PartitionNamesInfo> partitionNamesInfo,
+            Optional<Expression> whereCondition,
+            ExternalTable table) throws DdlException {
         super(ACTION_ROLLBACK_TO_SNAPSHOT, properties, partitionNamesInfo, whereCondition);
         validateIcebergTable(table);
     }
@@ -58,7 +57,7 @@ public class RollbackToSnapshotAction extends OptimizeAction {
 
         // Validate that snapshot_id is specified
         String snapshotId = getRequiredProperty(SNAPSHOT_ID);
-        
+
         // Validate snapshot ID format
         try {
             Long.parseLong(snapshotId);
@@ -71,18 +70,18 @@ public class RollbackToSnapshotAction extends OptimizeAction {
     public void execute(ExternalTable table) throws UserException {
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
         String snapshotId = getRequiredProperty(SNAPSHOT_ID);
-        
-        LOG.info("Executing rollback to snapshot action for table: {}.{}.{}, snapshot_id: {}", 
-                icebergTable.getCatalog().getName(), icebergTable.getDbName(), 
+
+        LOG.info("Executing rollback to snapshot action for table: {}.{}.{}, snapshot_id: {}",
+                icebergTable.getCatalog().getName(), icebergTable.getDbName(),
                 icebergTable.getName(), snapshotId);
 
         try {
             // TODO: Implement actual Iceberg rollback to snapshot logic
             throw new DdlException("Rollback to snapshot action implementation is not yet complete");
-            
+
         } catch (Exception e) {
-            LOG.error("Failed to execute rollback to snapshot action for Iceberg table: {}", 
-                     icebergTable.getName(), e);
+            LOG.error("Failed to execute rollback to snapshot action for Iceberg table: {}",
+                    icebergTable.getName(), e);
             throw new DdlException("Failed to rollback Iceberg table to snapshot: " + e.getMessage());
         }
     }
