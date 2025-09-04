@@ -118,6 +118,11 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     process.inputStream.eachLine{line -> output.append(line).append("\n")}
     process.errorStream.eachLine{line -> errorOutput.append(line).append("\n")}
 
+    // Wait for process completion and check exit status
+    def exitCode = process.waitFor()
+    logger.info("File cache clear command output: ${output.toString()}")
+    assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
+
     // brpc metrics will be updated at most 20 seconds
     def totalWaitTime = 20
     def interval = 5
@@ -217,7 +222,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     process.errorStream.eachLine{line -> errorOutput.append(line).append("\n")}
 
     // Wait for process completion and check exit status
-    def exitCode = process.waitFor()
+    exitCode = process.waitFor()
     logger.info("File cache clear command output: ${output.toString()}")
     assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
 
@@ -394,6 +399,11 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     errorOutput = new StringBuilder()
     process.inputStream.eachLine{line -> output.append(line).append("\n")}
     process.errorStream.eachLine{line -> errorOutput.append(line).append("\n")}
+
+    // Wait for process completion and check exit status
+    exitCode = process.waitFor()
+    logger.info("File cache clear command output: ${output.toString()}")
+    assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
 
     // Waiting for file cache clearing
     (1..iterations).each { count ->
