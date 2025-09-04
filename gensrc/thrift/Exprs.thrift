@@ -84,6 +84,7 @@ enum TExprNodeType {
   NULL_AWARE_BINARY_PRED = 37,
   TIMEV2_LITERAL = 38,
   VIRTUAL_SLOT_REF = 39,
+  VARBINARY_LITERAL = 40
 }
 
 //enum TAggregationOp {
@@ -201,6 +202,10 @@ struct TStringLiteral {
   1: required string value;
 }
 
+struct TVarBinaryLiteral {
+  1: required binary value;
+}
+
 struct TNullableStringLiteral {
   1: optional string value;
   2: optional bool is_null = false;
@@ -277,6 +282,7 @@ struct TExprNode {
   35: optional TIPv6Literal ipv6_literal
   36: optional string label // alias name, a/b in `select xxx as a, count(1) as b`
   37: optional TTimeV2Literal timev2_literal
+  38: optional TVarBinaryLiteral varbinary_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first
