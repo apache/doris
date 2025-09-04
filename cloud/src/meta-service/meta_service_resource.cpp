@@ -46,6 +46,11 @@ using namespace std::chrono;
 
 namespace {
 constexpr char pattern_str[] = "^[a-zA-Z][0-9a-zA-Z_]*$";
+
+constexpr char SNAPSHOT_ENABLED_KEY[] = "enabled";
+constexpr char SNAPSHOT_MAX_RESERVED_KEY[] = "max_reserved_snapshots";
+constexpr char SNAPSHOT_INTERVALS_KEY[] = "snapshot_intervals";
+
 bool is_valid_storage_vault_name(const std::string& str) {
     const std::regex pattern(pattern_str);
     return std::regex_match(str, pattern);
@@ -2080,12 +2085,12 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
 
                 std::pair<MetaServiceCode, std::string> result;
 
-                if (key == "enabled") {
+                if (key == SNAPSHOT_ENABLED_KEY) {
                     result = handle_snapshot_switch(request->instance_id(), key, value, instance);
-                } else if (key == "max_reserved_snapshots") {
+                } else if (key == SNAPSHOT_MAX_RESERVED_KEY) {
                     result = handle_max_reserved_snapshots(request->instance_id(), key, value,
                                                            instance);
-                } else if (key == "snapshot_intervals") {
+                } else if (key == SNAPSHOT_INTERVALS_KEY) {
                     result =
                             handle_snapshot_intervals(request->instance_id(), key, value, instance);
                 } else {
@@ -2093,6 +2098,10 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                     LOG(WARNING) << msg;
                     return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
                 }
+
+                LOG(INFO) << "Property handling result for key=" << key
+                          << ", result_code=" << static_cast<int>(result.first)
+                          << ", result_msg=" << result.second;
 
                 if (result.first != MetaServiceCode::OK) {
                     msg = result.second;
