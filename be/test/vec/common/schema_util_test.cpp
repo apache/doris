@@ -1741,7 +1741,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns) {
     variant.set_unique_id(30);
     variant.set_variant_max_subcolumns_count(3);
     variant.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
-
+    variant.set_variant_max_sparse_column_statistics_size(10000);
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
     schema->append_column(variant);
 
@@ -1798,7 +1798,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns) {
     output_schema = std::make_shared<TabletSchema>();
     sparse_paths.clear();
 
-    for (int i = 0; i < config::variant_max_sparse_column_statistics_size + 1; ++i) {
+    for (int i = 0; i < variant.variant_max_sparse_column_statistics_size() + 1; ++i) {
         sparse_paths.insert("dummy" + std::to_string(i));
     }
     schema_util::get_compaction_subcolumns(paths_set_info, parent_column, schema,
@@ -1815,6 +1815,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
     variant.set_variant_max_subcolumns_count(3);
     variant.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
     variant.set_variant_enable_typed_paths_to_sparse(true);
+    variant.set_variant_max_sparse_column_statistics_size(10000);
     TabletColumn subcolumn;
     subcolumn.set_name("c");
     subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_DATEV2);
@@ -1890,7 +1891,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
     output_schema = std::make_shared<TabletSchema>();
     sparse_paths.clear();
 
-    for (int i = 0; i < config::variant_max_sparse_column_statistics_size + 1; ++i) {
+    for (int i = 0; i < variant.variant_max_sparse_column_statistics_size() + 1; ++i) {
         sparse_paths.insert("dummy" + std::to_string(i));
     }
     schema_util::get_compaction_subcolumns(paths_set_info, parent_column, schema,

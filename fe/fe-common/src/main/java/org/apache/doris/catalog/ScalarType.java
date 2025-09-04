@@ -1235,4 +1235,13 @@ public class ScalarType extends Type {
         }
         return false;
     }
+
+    public int getVariantMaxSparseColumnStatisticsSize() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantMaxSparseColumnStatisticsSize();
+        }
+        return 0; // The old variant type had a default value of 0.
+    }
 }

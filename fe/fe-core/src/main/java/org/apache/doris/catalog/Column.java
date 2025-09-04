@@ -683,6 +683,7 @@ public class Column implements GsonPostProcessable {
         }
         tColumn.setClusterKeyId(this.clusterKeyId);
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
+        tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -899,6 +900,7 @@ public class Column implements GsonPostProcessable {
         } else if (this.type.isVariantType()) {
             builder.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
+            builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -1289,7 +1291,11 @@ public class Column implements GsonPostProcessable {
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
     }
-
+    
+    public int getVariantMaxSparseColumnStatisticsSize() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantMaxSparseColumnStatisticsSize() : -1;
+    }
+    
     public String getExtraInfo() {
         return extraInfo;
     }
