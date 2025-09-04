@@ -18,23 +18,29 @@
 #include "olap/rowset/rowset_meta.h"
 
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
 #include <memory>
 #include <random>
 
 #include "cloud/cloud_storage_engine.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "google/protobuf/util/message_differencer.h"
+#include "io/fs/encrypted_fs_factory.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
+#include "olap/base_tablet.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
+#include "runtime/exec_env.h"
 #include "vec/common/schema_util.h"
 
 namespace doris {
@@ -92,17 +98,38 @@ bool RowsetMeta::json_rowset_meta(std::string* json_rowset_meta) {
 }
 
 io::FileSystemSPtr RowsetMeta::fs() {
-    if (is_local()) {
-        return io::global_local_filesystem();
-    }
+    auto fs = [this]() -> io::FileSystemSPtr {
+        if (is_local()) {
+            return io::global_local_filesystem();
+        }
 
-    auto storage_resource = remote_storage_resource();
-    if (storage_resource) {
-        return storage_resource.value()->fs;
-    } else {
-        LOG(WARNING) << storage_resource.error();
+        auto storage_resource = remote_storage_resource();
+        if (storage_resource) {
+            return storage_resource.value()->fs;
+        } else {
+            LOG(WARNING) << storage_resource.error();
+            return nullptr;
+        }
+    }();
+
+#ifndef BE_TEST
+    auto algorithm = _determine_encryption_once.call([this]() -> Result<EncryptionAlgorithmPB> {
+        auto maybe_tablet = ExecEnv::get_tablet(tablet_id());
+        if (!maybe_tablet) {
+            LOG(WARNING) << "get tablet failed: " << maybe_tablet.error();
+            return ResultError(maybe_tablet.error());
+        }
+        auto tablet = maybe_tablet.value();
+        return tablet->tablet_meta()->encryption_algorithm();
+    });
+    if (!algorithm.has_value()) {
+        // TODO: return a Result<FileSystemSPtr> in this method?
         return nullptr;
     }
+    return io::make_file_system(fs, algorithm.value());
+#else
+    return fs;
+#endif
 }
 
 Result<const StorageResource*> RowsetMeta::remote_storage_resource() {

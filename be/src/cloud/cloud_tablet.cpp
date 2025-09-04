@@ -688,6 +688,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.index_id = index_id();
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
@@ -729,6 +730,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
+    context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
 
     auto storage_resource = rowset.rowset_meta()->remote_storage_resource();
     if (!storage_resource) {
