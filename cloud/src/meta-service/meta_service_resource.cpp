@@ -49,7 +49,7 @@ constexpr char pattern_str[] = "^[a-zA-Z][0-9a-zA-Z_]*$";
 
 constexpr char SNAPSHOT_ENABLED_KEY[] = "enabled";
 constexpr char SNAPSHOT_MAX_RESERVED_KEY[] = "max_reserved_snapshots";
-constexpr char SNAPSHOT_INTERVALS_KEY[] = "snapshot_intervals";
+constexpr char SNAPSHOT_INTERVAL_SECONDS_KEY[] = "snapshot_interval_seconds";
 
 bool is_valid_storage_vault_name(const std::string& str) {
     const std::regex pattern(pattern_str);
@@ -2090,7 +2090,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                 } else if (key == SNAPSHOT_MAX_RESERVED_KEY) {
                     result = handle_max_reserved_snapshots(request->instance_id(), key, value,
                                                            instance);
-                } else if (key == SNAPSHOT_INTERVALS_KEY) {
+                } else if (key == SNAPSHOT_INTERVAL_SECONDS_KEY) {
                     result =
                             handle_snapshot_intervals(request->instance_id(), key, value, instance);
                 } else {
