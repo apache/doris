@@ -128,7 +128,7 @@ public:
         if (col1->is_nullable()) {
             if (col1->has_null()) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Arguments for function {} cannot be null", get_name());
+                                       "First argument for function {} cannot be null", get_name());
             }
             auto nullable1 = assert_cast<const ColumnNullable*>(col1.get());
             arr1 = assert_cast<const ColumnArray*>(nullable1->get_nested_column_ptr().get());
@@ -139,7 +139,8 @@ public:
         if (col2->is_nullable()) {
             if (col2->has_null()) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Arguments for function {} cannot be null", get_name());
+                                       "Second argument for function {} cannot be null",
+                                       get_name());
             }
             auto nullable2 = assert_cast<const ColumnNullable*>(col2.get());
             arr2 = assert_cast<const ColumnArray*>(nullable2->get_nested_column_ptr().get());
@@ -152,7 +153,8 @@ public:
         if (arr1->get_data_ptr()->is_nullable()) {
             if (arr1->get_data_ptr()->has_null()) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Arguments for function {} cannot have null", get_name());
+                                       "First argument for function {} cannot have null",
+                                       get_name());
             }
             auto nullable1 = assert_cast<const ColumnNullable*>(arr1->get_data_ptr().get());
             float1 = assert_cast<const ColumnFloat32*>(nullable1->get_nested_column_ptr().get());
@@ -163,7 +165,8 @@ public:
         if (arr2->get_data_ptr()->is_nullable()) {
             if (arr2->get_data_ptr()->has_null()) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Arguments for function {} cannot have null", get_name());
+                                       "Second argument for function {} cannot have null",
+                                       get_name());
             }
             auto nullable2 = assert_cast<const ColumnNullable*>(arr2->get_data_ptr().get());
             float2 = assert_cast<const ColumnFloat32*>(nullable2->get_nested_column_ptr().get());
