@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -437,12 +438,9 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start pre rewrite plan by mv");
         }
         List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        Plan originalPlan = cascadesContext.getRewritePlan();
         List<Plan> plansWhichContainMv = new ArrayList<>();
         for (Plan planForRewrite : tmpPlansForMvRewrite) {
-            if (!planForRewrite.getLogicalProperties().equals(
-                    cascadesContext.getRewritePlan().getLogicalProperties())) {
-                continue;
-            }
             try {
                 // pre rewrite
                 Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
@@ -455,7 +453,12 @@ public class NereidsPlanner extends Planner {
                 if (ruleOptimizedPlan == null) {
                     continue;
                 }
-                plansWhichContainMv.add(ruleOptimizedPlan);
+                // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
+                Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
+                        (LogicalSink<Plan>) ruleOptimizedPlan, (LogicalSink<Plan>) originalPlan);
+                if (normalizedPlan != null) {
+                    plansWhichContainMv.add(normalizedPlan);
+                }
             } catch (Exception e) {
                 LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
                         cascadesContext.getConnectContext().getQueryIdentifier(), e);

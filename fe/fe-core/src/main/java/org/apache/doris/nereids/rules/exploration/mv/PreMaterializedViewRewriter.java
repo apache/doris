@@ -155,22 +155,6 @@ public class PreMaterializedViewRewriter {
             }
             return false;
         }
-        boolean outputAnyEquals = false;
-        Plan finalRewritePlan = cascadesContext.getRewritePlan();
-        for (Plan tmpPlanForRewrite : statementContext.getTmpPlanForMvRewrite()) {
-            if (finalRewritePlan.getLogicalProperties().equals(tmpPlanForRewrite.getLogicalProperties())) {
-                outputAnyEquals = true;
-                break;
-            }
-        }
-        if (!outputAnyEquals) {
-            // if tmp plan has no same logical properties to the finalRewritePlan, should not be written in rbo
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("does not need pre rewrite, because outputAnyEquals is false, query id is {}",
-                        cascadesContext.getConnectContext().getQueryIdentifier());
-            }
-            return false;
-        }
         if (Optimizer.isDpHyp(cascadesContext)) {
             // dp hyper only support one group expression in each group when init
             if (LOG.isDebugEnabled()) {
