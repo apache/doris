@@ -599,6 +599,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
+    out->set_encryption_algorithm(in.encryption_algorithm());
 }
 
 TabletMetaPB cloud_tablet_meta_to_doris(const TabletMetaCloudPB& in) {

@@ -60,6 +60,8 @@ public:
     // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
     io::FileSystemSPtr fs();
 
+    io::FileSystemSPtr physical_fs();
+
     Result<const StorageResource*> remote_storage_resource();
 
     void set_remote_storage_resource(StorageResource resource);
