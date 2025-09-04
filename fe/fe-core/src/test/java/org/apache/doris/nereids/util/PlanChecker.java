@@ -58,6 +58,8 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -66,6 +68,8 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -75,6 +79,7 @@ import org.junit.jupiter.api.Assertions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -114,6 +119,17 @@ public class PlanChecker {
         consumer.accept(checker);
         checker.parsedSupplier.get();
         return this;
+    }
+
+    public AbstractInsertExecutor getInsertExecutor(String sql) throws Exception {
+        StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
+        LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) parsedPlan;
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(parsedPlan, statementContext);
+        return insertIntoTableCommand.initPlan(connectContext,
+                new StmtExecutor(connectContext, logicalPlanAdapter));
     }
 
     public PlanChecker parse(String sql) {
