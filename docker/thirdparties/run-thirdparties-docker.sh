@@ -815,15 +815,12 @@ if [[ "${RUN_MINIO}" -eq 1 ]]; then
     start_minio > start_minio.log 2>&1 &
     pids["minio"]=$!
 fi
-<<<<<<< HEAD
-=======
 
 if [[ "${RUN_POLARIS}" -eq 1 ]]; then
     start_polaris > start_polaris.log 2>&1 &
     pids["polaris"]=$!
 fi
 
->>>>>>> 2dfdb759d0 ([test](iceberg) add polaris test (#55484))
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     start_kerberos > start_kerberos.log 2>&1 &
     pids["kerberos"]=$!
