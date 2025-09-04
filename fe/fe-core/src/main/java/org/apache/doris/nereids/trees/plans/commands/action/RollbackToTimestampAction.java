@@ -36,9 +36,9 @@ public class RollbackToTimestampAction extends OptimizeAction {
     public static final String TIMESTAMP = "timestamp";
 
     public RollbackToTimestampAction(Map<String, String> properties,
-                                    Optional<PartitionNamesInfo> partitionNamesInfo,
-                                    Optional<Expression> whereCondition,
-                                    ExternalTable table) throws DdlException {
+            Optional<PartitionNamesInfo> partitionNamesInfo,
+            Optional<Expression> whereCondition,
+            ExternalTable table) throws DdlException {
         super(ACTION_ROLLBACK_TO_TIMESTAMP, properties, partitionNamesInfo, whereCondition);
         validateIcebergTable(table);
     }
@@ -48,7 +48,7 @@ public class RollbackToTimestampAction extends OptimizeAction {
         validateCommon(tableNameInfo, currentUser);
         validateNoPartitions();
         validateNoWhereCondition();
-        
+
         String timestamp = getRequiredProperty(TIMESTAMP);
         try {
             Long.parseLong(timestamp);

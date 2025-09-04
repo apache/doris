@@ -23,9 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -42,20 +40,21 @@ import java.util.Optional;
 
 /**
  * Abstract base class for all OPTIMIZE TABLE actions.
- * This class provides a framework for implementing different optimization strategies
+ * This class provides a framework for implementing different optimization
+ * strategies
  * across various table engines, with special focus on Iceberg procedures.
  */
 public abstract class OptimizeAction {
-    private static final Logger LOG = LogManager.getLogger(OptimizeAction.class);
-
     // Common action types
-    public static final String ACTION_REWRITE_DATA_FILES = "rewrite_data_files";
+    public static final String ACTION_CHERRYPICK_SNAPSHOT = "cherrypick_snapshot";
     public static final String ACTION_EXPIRE_SNAPSHOTS = "expire_snapshots";
+    public static final String ACTION_FAST_FORWARD = "fast_forward";
+    public static final String ACTION_REWRITE_DATA_FILES = "rewrite_data_files";
     public static final String ACTION_ROLLBACK_TO_SNAPSHOT = "rollback_to_snapshot";
     public static final String ACTION_ROLLBACK_TO_TIMESTAMP = "rollback_to_timestamp";
     public static final String ACTION_SET_CURRENT_SNAPSHOT = "set_current_snapshot";
-    public static final String ACTION_CHERRYPICK_SNAPSHOT = "cherrypick_snapshot";
-    public static final String ACTION_FAST_FORWARD = "fast_forward";
+
+    private static final Logger LOG = LogManager.getLogger(OptimizeAction.class);
 
     protected final String actionType;
     protected final Map<String, String> properties;
@@ -63,8 +62,8 @@ public abstract class OptimizeAction {
     protected final Optional<Expression> whereCondition;
 
     protected OptimizeAction(String actionType, Map<String, String> properties,
-                           Optional<PartitionNamesInfo> partitionNamesInfo,
-                           Optional<Expression> whereCondition) {
+            Optional<PartitionNamesInfo> partitionNamesInfo,
+            Optional<Expression> whereCondition) {
         this.actionType = actionType;
         this.properties = properties != null ? properties : Maps.newHashMap();
         this.partitionNamesInfo = partitionNamesInfo;
@@ -72,18 +71,15 @@ public abstract class OptimizeAction {
     }
 
     /**
-     * Factory method to create specific action instances based on action type and table engine.
+     * Factory method to create specific action instances based on action type and
+     * table engine.
      */
     public static OptimizeAction createAction(String actionType, Map<String, String> properties,
-                                            Optional<PartitionNamesInfo> partitionNamesInfo,
-                                            Optional<Expression> whereCondition,
-                                            ExternalTable table) throws DdlException {
-        
+            Optional<PartitionNamesInfo> partitionNamesInfo,
+            Optional<Expression> whereCondition,
+            ExternalTable table) throws DdlException {
+
         switch (actionType.toLowerCase()) {
-            case ACTION_REWRITE_DATA_FILES:
-                return new RewriteDataFilesAction(properties, partitionNamesInfo, whereCondition, table);
-            case ACTION_EXPIRE_SNAPSHOTS:
-                return new ExpireSnapshotsAction(properties, partitionNamesInfo, whereCondition, table);
             case ACTION_ROLLBACK_TO_SNAPSHOT:
                 return new RollbackToSnapshotAction(properties, partitionNamesInfo, whereCondition, table);
             case ACTION_ROLLBACK_TO_TIMESTAMP:
@@ -148,7 +144,7 @@ public abstract class OptimizeAction {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(currentUser, catalogName, dbName, tableName, PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER",
-                    currentUser.getQualifiedUser(), ConnectContext.get().getRemoteIP(), 
+                    currentUser.getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     catalogName + "." + dbName + "." + tableName);
         }
     }

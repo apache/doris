@@ -36,9 +36,9 @@ public class FastForwardAction extends OptimizeAction {
     public static final String TARGET_BRANCH = "target_branch";
 
     public FastForwardAction(Map<String, String> properties,
-                            Optional<PartitionNamesInfo> partitionNamesInfo,
-                            Optional<Expression> whereCondition,
-                            ExternalTable table) throws DdlException {
+            Optional<PartitionNamesInfo> partitionNamesInfo,
+            Optional<Expression> whereCondition,
+            ExternalTable table) throws DdlException {
         super(ACTION_FAST_FORWARD, properties, partitionNamesInfo, whereCondition);
         validateIcebergTable(table);
     }
@@ -48,7 +48,7 @@ public class FastForwardAction extends OptimizeAction {
         validateCommon(tableNameInfo, currentUser);
         validateNoPartitions();
         validateNoWhereCondition();
-        
+
         getRequiredProperty(TARGET_BRANCH);
     }
 
