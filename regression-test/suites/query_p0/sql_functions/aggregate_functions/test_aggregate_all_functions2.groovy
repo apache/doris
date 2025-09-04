@@ -106,10 +106,13 @@ suite("test_aggregate_all_functions2") {
     qt_bool_and """SELECT bool_and(k0) FROM baseall;"""
     qt_bool_and """SELECT bool_and(k1) FROM baseall;"""
     qt_bool_and """SELECT bool_and(k8) over(partition by k6) from baseall order by k1;"""
+    qt_bool_and """SELECT booland_agg(k0) over(partition by k8) from baseall order by k3;"""
     qt_bool_or """SELECT bool_or(k2) FROM baseall group by k6 order by 1;"""
     qt_bool_or """SELECT bool_or(k3) FROM baseall;"""
+    qt_bool_or """SELECT boolor_agg(k4) over(partition by k9) from baseall order by k7;"""
     qt_bool_xor """SELECT bool_xor(k4) FROM baseall;"""
     qt_bool_xor """SELECT bool_xor(k5) FROM baseall group by k6 order by 1;"""
+    qt_bool_xor """SELECT boolxor_agg(k13) over(partition by k10) from baseall order by k2;"""
     
     test {
         sql """SELECT booland_agg(k7) FROM baseall;"""

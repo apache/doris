@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include <cmath>
-
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_bit.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -31,67 +31,46 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-
-struct AggregateFunctionBoolOrData {
+struct AggregateFunctionBoolOrData : AggregateFunctionGroupBitOrData<PrimitiveType::TYPE_BOOLEAN> {
     static constexpr auto name = "bool_or";
-
-    bool value = false;
-
-    void add(bool x) { value |= x; }
-
-    void merge(const AggregateFunctionBoolOrData& rhs) { value |= rhs.value; }
-
-    void write(BufferWritable& buf) const { buf.write_binary(value); }
-
-    void read(BufferReadable& buf) { buf.read_binary(value); }
-
-    void reset() { value = false; }
 };
 
-struct AggregateFunctionBoolAndData {
+struct AggregateFunctionBoolAndData
+        : AggregateFunctionGroupBitAndData<PrimitiveType::TYPE_BOOLEAN> {
     static constexpr auto name = "bool_and";
-
-    bool value = true;
-
-    void add(bool x) { value &= x; }
-
-    void merge(const AggregateFunctionBoolAndData& rhs) { value &= rhs.value; }
-
-    void write(BufferWritable& buf) const { buf.write_binary(value); }
-
-    void read(BufferReadable& buf) { buf.read_binary(value); }
-
-    void reset() { value = true; }
 };
 
 struct AggregateFunctionBoolXorData {
     static constexpr auto name = "bool_xor";
 
-    // value represents the current XOR state
-    // '0' represents that there are no true values currently
-    // '1' represents that exactly one true value has appeared
-    // '2' represents that two true values have already appeared and will not change thereafter
-    uint8_t value = 0;
-
     void add(bool x) {
-        if (x && value < 2) {
-            ++value;
+        if (x && _st < 2) {
+            ++_st;
         }
     }
 
     void merge(const AggregateFunctionBoolXorData& rhs) {
-        if (value == 0) {
-            value = rhs.value;
-        } else if (value == 1) {
-            value = (rhs.value > 0) ? 2 : 1;
+        if (_st == 0) {
+            _st = rhs._st;
+        } else if (_st == 1) {
+            _st = (rhs._st > 0) ? 2 : 1;
         }
     }
 
-    void write(BufferWritable& buf) const { buf.write_binary(value); }
+    void write(BufferWritable& buf) const { buf.write_binary(_st); }
 
-    void read(BufferReadable& buf) { buf.read_binary(value); }
+    void read(BufferReadable& buf) { buf.read_binary(_st); }
 
-    void reset() { value = 0; }
+    void reset() { _st = 0; }
+
+    bool get() const { return _st == 1; }
+
+private:
+    // represents the current XOR state
+    // '0': there are no true values currently
+    // '1': exactly one true value has appeared
+    // '2': two true values have already appeared and will not change thereafter
+    uint8_t _st = 0;
 };
 
 template <typename BoolFunc>
@@ -132,7 +111,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnUInt8&>(to).insert_value(this->data(place).value == 1);
+        assert_cast<ColumnUInt8&>(to).insert_value(this->data(place).get());
     }
 };
 } // namespace doris::vectorized
