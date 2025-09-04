@@ -687,7 +687,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     if (config::enable_merge_on_write_correctness_check) {
         _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                    _mow_context->rowset_ids);
+                                                    *_mow_context->rowset_ids);
     }
 
     // read and fill block
