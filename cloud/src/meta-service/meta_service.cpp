@@ -2814,8 +2814,8 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
 std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, int64_t bc_cnt,
                                                             int64_t req_cc_cnt, int64_t cc_cnt,
                                                             int64_t req_cp, int64_t cp,
-                                                            int64_t req_start, int64_t req_end,
-                                                            bool fc_cnt_changed) {
+                                                            int64_t req_fc_cnt, int64_t fc_cnt,
+                                                            int64_t req_start, int64_t req_end) {
     using Version = std::pair<int64_t, int64_t>;
     // combine `v1` `v2`  to `v1`, return true if success
     static auto combine_if_overlapping = [](Version& v1, Version& v2) -> bool {
@@ -2840,7 +2840,7 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
 
     if (req_cc_cnt < cc_cnt) {
         Version cc_version;
-        if (req_cp < cp && req_cc_cnt + 1 == cc_cnt && !fc_cnt_changed) {
+        if (req_cp < cp && req_cc_cnt + 1 == cc_cnt && req_fc_cnt == fc_cnt) {
             // * only one CC happened and CP changed, and no full compaction happened
             // BE  [=][=][=][=][=====][=][=]
             //                  ^~~~~ req_cp
@@ -2962,6 +2962,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     }
     int64_t req_bc_cnt = request->base_compaction_cnt();
     int64_t req_cc_cnt = request->cumulative_compaction_cnt();
+    int64_t req_fc_cnt = request->has_full_compaction_cnt() ? request->full_compaction_cnt() : 0;
     int64_t req_cp = request->cumulative_point();
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
@@ -3064,6 +3065,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
 
         int64_t bc_cnt = tablet_stat.base_compaction_cnt();
         int64_t cc_cnt = tablet_stat.cumulative_compaction_cnt();
+        int64_t fc_cnt =
+                tablet_stat.has_full_compaction_cnt() ? tablet_stat.full_compaction_cnt() : 0;
         int64_t cp = tablet_stat.cumulative_point();
 
         response->mutable_stats()->CopyFrom(tablet_stat);
@@ -3075,20 +3078,18 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         //==========================================================================
         //      Find version ranges to be synchronized due to compaction
         //==========================================================================
-        if (req_bc_cnt > bc_cnt || req_cc_cnt > cc_cnt || req_cp > cp) {
+        if (req_bc_cnt > bc_cnt || req_cc_cnt > cc_cnt || req_cp > cp || req_fc_cnt > fc_cnt) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             ss << "no valid compaction_cnt or cumulative_point given. req_bc_cnt=" << req_bc_cnt
                << ", bc_cnt=" << bc_cnt << ", req_cc_cnt=" << req_cc_cnt << ", cc_cnt=" << cc_cnt
-               << ", req_cp=" << req_cp << ", cp=" << cp << " tablet_id=" << tablet_id;
+               << " req_fc_cnt=" << req_fc_cnt << ", fc_cnt=" << fc_cnt << ", req_cp=" << req_cp
+               << ", cp=" << cp << " tablet_id=" << tablet_id;
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
         }
-        bool full_compaction_cnt_changed =
-                (request->has_full_compaction_cnt() && tablet_stat.has_full_compaction_cnt() &&
-                 request->full_compaction_cnt() < tablet_stat.full_compaction_cnt());
         auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
-                                           req_start, req_end, full_compaction_cnt_changed);
+                                           req_fc_cnt, fc_cnt, req_start, req_end);
         if (!is_versioned_read) {
             for (auto [start, end] : versions) {
                 internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg,
