@@ -11667,56 +11667,56 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
     }
 
-    // Test case 11: Valid "snapshot_intervals" property (minimum value)
+    // Test case 11: Valid "snapshot_interval_seconds" property (minimum value)
     {
         brpc::Controller cntl;
         AlterInstanceRequest req;
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_intervals"] = "3600";
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "3600";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 
-    // Test case 12: Valid "snapshot_intervals" property (large value)
+    // Test case 12: Valid "snapshot_interval_seconds" property (large value)
     {
         brpc::Controller cntl;
         AlterInstanceRequest req;
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_intervals"] = "14400";
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "14400";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 
-    // Test case 13: Invalid "snapshot_intervals" property (too small value)
+    // Test case 13: Invalid "snapshot_interval_seconds" property (too small value)
     {
         brpc::Controller cntl;
         AlterInstanceRequest req;
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_intervals"] = "3599";
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "3599";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
     }
 
-    // Test case 14: Invalid "snapshot_intervals" property (non-numeric value)
+    // Test case 14: Invalid "snapshot_interval_seconds" property (non-numeric value)
     {
         brpc::Controller cntl;
         AlterInstanceRequest req;
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_intervals"] = "invalid";
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "invalid";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11760,7 +11760,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         req.set_instance_id("test_snapshot_instance");
         (*req.mutable_properties())["enabled"] = "true";
         (*req.mutable_properties())["max_reserved_snapshots"] = "20";
-        (*req.mutable_properties())["snapshot_intervals"] = "12000";
+        (*req.mutable_properties())["snapshot_interval_seconds"] = "12000";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
