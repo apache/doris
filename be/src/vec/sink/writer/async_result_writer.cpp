@@ -124,7 +124,11 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
         _opened = true;
         auto st = open(state, operator_profile);
         if (!st.ok()) {
-            force_close(st);
+            {
+                std::lock_guard l(_m);
+                _writer_status.update(s);
+                _dependency->set_ready();
+            }
             _set_ready_to_finish();
         }
     }
