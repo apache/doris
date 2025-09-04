@@ -1335,7 +1335,7 @@ DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
 
 // The secure path with user files, used in the `local` table function.
-DECLARE_mString(user_files_secure_path);
+DECLARE_String(user_files_secure_path);
 
 // If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
 // as an abnormal fe, this will cause be to cancel this fe's related query.
