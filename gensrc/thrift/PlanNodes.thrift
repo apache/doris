@@ -643,11 +643,6 @@ struct TScanRange {
   8: optional TExternalScanRange ext_scan_range
   9: optional TDataGenScanRange data_gen_scan_range
   10: optional TMetaScanRange meta_scan_range
-  11: optional TSchemaScanRange schema_scan_range
-}
-
-struct TSchemaScanRange {
-  1: optional list<string> fe_ips
 }
 
 struct TMySQLScanNode {
