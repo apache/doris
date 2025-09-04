@@ -213,6 +213,81 @@ steps:
 
 Each cluster has logs in Docker in '/tmp/doris/{cluster-name}/{node-xxx}/log/'. For each node, doris compose will also print log in '/tmp/doris/{cluster-name}/{node-xxx}/log/health.out'
 
+### Core Dump
+
+Doris Compose supports core dump generation for debugging purposes. When a process crashes, it will generate a core dump file that can be analyzed with tools like gdb.
+
+#### Core Dump Location
+
+Core dump files are generated in the following locations:
+
+- **Host System**: `/tmp/doris/{cluster-name}/{node-xxx}/core_dump/`
+- **Container**: `/opt/apache-doris/core_dump/`
+
+The core dump files follow the pattern: `core.{executable}.{pid}.{timestamp}`
+
+For example:
+```
+/tmp/doris/my-cluster/be-1/core_dump/core.doris_be.12345.1755418335
+```
+
+#### Core Pattern Configuration
+
+The system uses the core pattern from `/proc/sys/kernel/core_pattern` on the host system. The default pattern is:
+```
+/opt/apache-doris/core_dump/core.%e.%p.%t
+```
+
+Where:
+- `%e`: executable name
+- `%p`: process ID
+- `%t`: timestamp
+
+#### Core Dump Settings
+
+Doris Compose automatically configures the following settings for core dump generation:
+
+1. **Container Settings**:
+   - `ulimits.core = -1` (unlimited core file size)
+   - `cap_add: ["SYS_ADMIN"]` (required capabilities)
+   - `privileged: true` (privileged mode)
+
+2. **Directory Permissions**:
+   - Core dump directory is created with 777 permissions
+   - Ownership is set to the host user for non-root containers
+
+3. **Non-Root User Support**:
+   - Core dump directory permissions are automatically configured
+   - Works with both root and non-root user containers
+
+#### Troubleshooting
+
+If core dumps are not being generated:
+
+1. **Check ulimit settings**:
+   ```bash
+   ulimit -c
+   # Should return "unlimited" or a positive number
+   ```
+
+2. **Check directory permissions**:
+   ```bash
+   ls -la /tmp/doris/{cluster-name}/{node-xxx}/core_dump/
+   # Should show 777 permissions
+   ```
+
+3. **Check core pattern**:
+   ```bash
+   cat /proc/sys/kernel/core_pattern
+   # Should show the expected pattern
+   ```
+
+4. **Check container logs**:
+   ```bash
+   docker logs {container-name}
+   # Look for core dump related messages
+   ```
+
 ### Up cluster using non-detach mode
 
 ```shell
