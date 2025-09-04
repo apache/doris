@@ -19,6 +19,7 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include "runtime/raw_value.h"
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -34,16 +35,15 @@
 // for example DataTypeIPv4 should test this function:
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
-//         get_family_name, get_is_parametric, should_align_right_in_pretty_formats
-//         text_can_contain_only_valid_utf8
+//         get_family_name, get_is_parametric,
 //         have_maximum_size_of_value, get_maximum_size_of_value_in_memory, get_size_of_value_in_memory
 //         get_precision, get_scale
-//         is_null_literal, is_value_represented_by_number, is_value_unambiguously_represented_in_contiguous_memory_region
+//         is_null_literal
 // 2. datatype creation with column : create_column, create_column_const (size_t size, const Field &field), create_column_const_with_default_value (size_t size), get_uncompressed_serialized_bytes (const IColumn &column, int be_exec_version)
 // 3. serde related: get_serde (int nesting_level=1)
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to), from_string (ReadBuffer &rb, IColumn *column)
 //          serialize (const IColumn &column, char *buf, int be_exec_version), deserialize (const char *buf, MutableColumnPtr *column, int be_exec_version)
-// 4. compare: equals (const IDataType &rhs), is_comparable
+// 4. compare: equals (const IDataType &rhs)
 // 5. others: update_avg_value_size_hint (const IColumn &column, double &avg_value_size_hint)
 
 namespace doris::vectorized {
@@ -80,39 +80,30 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .family_name = "IPv4",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_IPV4,
-            .should_align_right_in_pretty_formats = true,
-            .text_can_contain_only_valid_utf8 = true,
             .have_maximum_size_of_value = true,
             .size_of_value_in_memory = sizeof(IPv4),
             .precision = size_t(-1),
             .scale = size_t(-1),
             .is_null_literal = false,
-            .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_IPV4>(IPv4(0)),
     };
     auto ipv6_type_descriptor =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_IPV6, false);
     auto col_meta6 = std::make_shared<PColumnMeta>();
     col_meta6->set_type(PGenericType_TypeId_IPV6);
-    DataTypeMetaInfo ipv6_meta_info = {
-            .type_id = PrimitiveType::TYPE_IPV6,
-            .type_as_type_descriptor = ipv6_type_descriptor,
-            .family_name = "IPv6",
-            .has_subtypes = false,
-            .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_IPV6,
-            .should_align_right_in_pretty_formats = true,
-            .text_can_contain_only_valid_utf8 = true,
-            .have_maximum_size_of_value = true,
-            .size_of_value_in_memory = sizeof(IPv6),
-            .precision = size_t(-1),
-            .scale = size_t(-1),
-            .is_null_literal = false,
-            .is_value_represented_by_number = true,
-            .pColumnMeta = col_meta6.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = Field::create_field<TYPE_IPV6>(IPv6(0))};
+    DataTypeMetaInfo ipv6_meta_info = {.type_id = PrimitiveType::TYPE_IPV6,
+                                       .type_as_type_descriptor = ipv6_type_descriptor,
+                                       .family_name = "IPv6",
+                                       .has_subtypes = false,
+                                       .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_IPV6,
+                                       .have_maximum_size_of_value = true,
+                                       .size_of_value_in_memory = sizeof(IPv6),
+                                       .precision = size_t(-1),
+                                       .scale = size_t(-1),
+                                       .is_null_literal = false,
+                                       .pColumnMeta = col_meta6.get(),
+                                       .default_field = Field::create_field<TYPE_IPV6>(IPv6(0))};
     meta_info_assert(dt_ipv4, ipv4_meta_info_to_assert);
     meta_info_assert(dt_ipv6, ipv6_meta_info);
 }
@@ -376,4 +367,49 @@ TEST_F(DataTypeIPTest, GetFieldWithDataTypeTest) {
     ASSERT_EQ(dt_ipv6->get_field_with_data_type(*column_ipv6, 0).field, field_ipv6);
 }
 
+TEST_F(DataTypeIPTest, Crc32Test) {
+    auto column_ipv4 = dt_ipv4->create_column();
+    auto column_ipv6 = dt_ipv6->create_column();
+    std::vector<std::string> ipv4_data = {"190.0.0.1", "127.0.0.1", "10.0.0.1"};
+    std::vector<std::string> ipv6_data = {"2001:db8::1234", "2001:db8::1234:5678", "::"};
+    for (size_t i = 0; i < ipv4_data.size(); ++i) {
+        IPv4 ipv4_val = 0;
+        IPv6 ipv6_val = 0;
+        IPv4Value::from_string(ipv4_val, ipv4_data[i]);
+        column_ipv4->insert(Field::create_field<TYPE_IPV4>(ipv4_val));
+        IPv6Value::from_string(ipv6_val, ipv6_data[i]);
+        column_ipv6->insert(Field::create_field<TYPE_IPV6>(ipv6_val));
+    }
+    auto column_value_ipv4 = column_ipv4->get_data_at(0);
+    uint32_t hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv4.data, column_value_ipv4.size,
+                                    PrimitiveType::TYPE_IPV4, hash_val);
+    EXPECT_EQ(hash_val, 3038848754);
+    // ipv6
+    auto column_value_ipv6 = column_ipv6->get_data_at(0);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv6.data, column_value_ipv6.size,
+                                    PrimitiveType::TYPE_IPV6, hash_val);
+    EXPECT_EQ(hash_val, 3609036864);
+    column_value_ipv4 = column_ipv4->get_data_at(1);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv4.data, column_value_ipv4.size,
+                                    PrimitiveType::TYPE_IPV4, hash_val);
+    EXPECT_EQ(hash_val, 1497552084);
+    column_value_ipv6 = column_ipv6->get_data_at(1);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv6.data, column_value_ipv6.size,
+                                    PrimitiveType::TYPE_IPV6, hash_val);
+    EXPECT_EQ(hash_val, 2028432210);
+    column_value_ipv4 = column_ipv4->get_data_at(2);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv4.data, column_value_ipv4.size,
+                                    PrimitiveType::TYPE_IPV4, hash_val);
+    EXPECT_EQ(hash_val, 2033013095);
+    column_value_ipv6 = column_ipv6->get_data_at(2);
+    hash_val = 0;
+    hash_val = RawValue::zlib_crc32(column_value_ipv6.data, column_value_ipv6.size,
+                                    PrimitiveType::TYPE_IPV6, hash_val);
+    EXPECT_EQ(hash_val, 3971697493);
+}
 } // namespace doris::vectorized

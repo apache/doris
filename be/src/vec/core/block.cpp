@@ -787,12 +787,13 @@ void Block::swap(Block&& other) noexcept {
 }
 
 void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
+    index_by_name.clear();
     Container tmp_data;
     tmp_data.reserve(result_column_ids.size());
     for (const int result_column_id : result_column_ids) {
         tmp_data.push_back(data[result_column_id]);
     }
-    swap(Block {tmp_data});
+    data = std::move(tmp_data);
 }
 
 void Block::update_hash(SipHash& hash) const {

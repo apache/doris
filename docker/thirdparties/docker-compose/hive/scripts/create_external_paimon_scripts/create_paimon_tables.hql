@@ -39,5 +39,9 @@ STORED BY 'org.apache.paimon.hive.PaimonStorageHandler'
 LOCATION 'cosn://sdb-qa-datalake-test-1308700295/paimon_warehouse/tx_db.db/hive_test_table';
 
 
-
-
+SET hive.metastore.warehouse.dir=gs://selectdb-qa-datalake-test/paimon_warehouse;
+CREATE DATABASE gcs_db;
+USE gcs_db;
+CREATE EXTERNAL TABLE external_test_table
+STORED BY 'org.apache.paimon.hive.PaimonStorageHandler'
+LOCATION 'gs://selectdb-qa-datalake-test/paimon_warehouse/gcs_db.db/hive_test_table';

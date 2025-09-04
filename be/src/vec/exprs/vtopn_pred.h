@@ -57,6 +57,7 @@ public:
         node.__set_is_nullable(target_ctx->root()->is_nullable());
         expr = vectorized::VTopNPred::create_shared(node, source_node_id, target_ctx);
 
+        DCHECK(target_ctx->root() != nullptr);
         expr->add_child(target_ctx->root());
 
         return Status::OK();

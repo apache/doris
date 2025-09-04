@@ -3724,7 +3724,8 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
  * @return TxnErrorCode
  */
 TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::string_view instance_id,
-                                  int64_t db_id, const std::string_view label_key, KVStats& stats) {
+                                  int64_t db_id, const std::string_view label_key, KVStats& stats,
+                                  bool is_versioned_write) {
     std::string label_val;
     TxnLabelPB label_pb;
 
@@ -3813,7 +3814,10 @@ TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::stri
             continue;
         }
 
-        DCHECK_EQ(txn->get(recycle_key, &recycle_val), TxnErrorCode::TXN_OK);
+        // In versioned write, the recycle key will be write only when the txn operation log is recycled.
+        if (!is_versioned_write) {
+            DCHECK_EQ(txn->get(recycle_key, &recycle_val), TxnErrorCode::TXN_OK);
+        }
         DCHECK((txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) ||
                (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE));
 
@@ -3885,6 +3889,8 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
     RPC_RATE_LIMIT(clean_txn_label)
     const int64_t db_id = request->db_id();
 
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+
     // clean label only by db_id
     if (request->labels().empty()) {
         std::string begin_label_key = txn_label_key({instance_id, db_id, ""});
@@ -3930,7 +3936,8 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                     begin_label_key = k;
                     LOG(INFO) << "iterator has no more kvs. key=" << hex(k);
                 }
-                err = internal_clean_label(txn_kv_, instance_id, db_id, k, stats);
+                err = internal_clean_label(txn_kv_, instance_id, db_id, k, stats,
+                                           is_versioned_write);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
                     msg = fmt::format("failed to clean txn label. err={}", err);
@@ -3943,7 +3950,8 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
     } else {
         const std::string& label = request->labels(0);
         const std::string label_key = txn_label_key({instance_id, db_id, label});
-        TxnErrorCode err = internal_clean_label(txn_kv_, instance_id, db_id, label_key, stats);
+        TxnErrorCode err = internal_clean_label(txn_kv_, instance_id, db_id, label_key, stats,
+                                                is_versioned_write);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to clean txn label. err={}", err);

@@ -226,12 +226,21 @@ public:
         _variant_enable_typed_paths_to_sparse = enable;
     }
 
+    void set_variant_max_sparse_column_statistics_size(
+            int32_t variant_max_sparse_column_statistics_size) {
+        _variant_max_sparse_column_statistics_size = variant_max_sparse_column_statistics_size;
+    }
+
     int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
     PatternTypePB pattern_type() const { return _pattern_type; }
 
     bool variant_enable_typed_paths_to_sparse() const {
         return _variant_enable_typed_paths_to_sparse;
+    }
+
+    int32_t variant_max_sparse_column_statistics_size() const {
+        return _variant_max_sparse_column_statistics_size;
     }
 
     bool is_decimal() const { return _is_decimal; }
@@ -280,6 +289,9 @@ private:
     int32_t _variant_max_subcolumns_count = 0;
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
     bool _variant_enable_typed_paths_to_sparse = false;
+    // set variant_max_sparse_column_statistics_size
+    int32_t _variant_max_sparse_column_statistics_size =
+            BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -507,9 +519,6 @@ public:
     }
 
     bool has_inverted_index_with_index_id(int64_t index_id) const;
-
-    void update_index(const TabletColumn& column, const IndexType& index_type,
-                      std::vector<TabletIndex>&& indexes);
 
     std::vector<const TabletIndex*> inverted_indexs(const TabletColumn& col) const;
 

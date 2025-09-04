@@ -802,7 +802,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public void resetVersionForRestore() {
         for (Partition partition : idToPartition.values()) {
-            partition.setNextVersion(partition.getVisibleVersion() + 1);
+            partition.setNextVersion(partition.getCachedVisibleVersion() + 1);
         }
     }
 
@@ -940,7 +940,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     if (Config.isCloudMode()) {
                         long newReplicaId = Env.getCurrentEnv().getNextId();
                         Replica replica = new CloudReplica(newReplicaId, null, ReplicaState.NORMAL,
-                                visibleVersion, schemaHash, db.getId(), id, partition.getId(), idx.getId(), i);
+                                visibleVersion, schemaHash, db.getId(), id, entry.getKey(), idx.getId(), i);
                         newTablet.addReplica(replica, true /* is restore */);
                         continue;
                     }
@@ -1097,11 +1097,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public List<Column> getSchemaByIndexId(Long indexId, boolean full) {
+        List<Column> fullSchema = indexIdToMeta.get(indexId).getSchema();
         if (full) {
-            return indexIdToMeta.get(indexId).getSchema();
+            return fullSchema;
         } else {
-            return indexIdToMeta.get(indexId).getSchema().stream().filter(Column::isVisible)
-                    .collect(Collectors.toList());
+            List<Column> visibleSchema = new ArrayList<>(fullSchema.size());
+            for (Column column : fullSchema) {
+                if (column.isVisible()) {
+                    visibleSchema.add(column);
+                }
+            }
+            return visibleSchema;
         }
     }
 

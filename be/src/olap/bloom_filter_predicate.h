@@ -50,10 +50,6 @@ public:
         return Status::OK();
     }
 
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == T || (is_string_type(input_type) && is_string_type(T));
-    }
-
     double get_ignore_threshold() const override { return get_bloom_filter_ignore_thredhold(); }
 
 private:

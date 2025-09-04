@@ -1736,7 +1736,7 @@ Status PipelineFragmentContext::submit() {
     auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
     for (auto& task : _tasks) {
         for (auto& t : task) {
-            st = scheduler->schedule_task(t);
+            st = scheduler->submit(t);
             DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
                             { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
@@ -1912,10 +1912,9 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
     // here to traverse the vector.
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
-            if (task->is_running() || task->is_revoking()) {
+            if (task->is_running()) {
                 LOG_EVERY_N(INFO, 50) << "Query: " << print_id(_query_id)
                                       << " is running, task: " << (void*)task.get()
-                                      << ", is_revoking: " << task->is_revoking()
                                       << ", is_running: " << task->is_running();
                 *has_running_task = true;
                 return 0;

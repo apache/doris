@@ -41,13 +41,13 @@
 -- !desc_direct_query_ctl_db_table --
 snapshot_id	bigint	No	true	\N	NONE
 schema_id	bigint	No	false	\N	NONE
-commit_user	varchar(2147483647)	No	false	\N	NONE
+commit_user	text	No	false	\N	NONE
 commit_identifier	bigint	No	false	\N	NONE
-commit_kind	varchar(2147483647)	No	false	\N	NONE
+commit_kind	text	No	false	\N	NONE
 commit_time	datetime(3)	No	false	\N	NONE
-base_manifest_list	varchar(2147483647)	No	false	\N	NONE
-delta_manifest_list	varchar(2147483647)	No	false	\N	NONE
-changelog_manifest_list	varchar(2147483647)	Yes	false	\N	NONE
+base_manifest_list	text	No	false	\N	NONE
+delta_manifest_list	text	No	false	\N	NONE
+changelog_manifest_list	text	Yes	false	\N	NONE
 total_record_count	bigint	Yes	false	\N	NONE
 delta_record_count	bigint	Yes	false	\N	NONE
 changelog_record_count	bigint	Yes	false	\N	NONE
@@ -56,13 +56,13 @@ watermark	bigint	Yes	false	\N	NONE
 -- !desc_direct_query_db_table --
 snapshot_id	bigint	No	true	\N	NONE
 schema_id	bigint	No	false	\N	NONE
-commit_user	varchar(2147483647)	No	false	\N	NONE
+commit_user	text	No	false	\N	NONE
 commit_identifier	bigint	No	false	\N	NONE
-commit_kind	varchar(2147483647)	No	false	\N	NONE
+commit_kind	text	No	false	\N	NONE
 commit_time	datetime(3)	No	false	\N	NONE
-base_manifest_list	varchar(2147483647)	No	false	\N	NONE
-delta_manifest_list	varchar(2147483647)	No	false	\N	NONE
-changelog_manifest_list	varchar(2147483647)	Yes	false	\N	NONE
+base_manifest_list	text	No	false	\N	NONE
+delta_manifest_list	text	No	false	\N	NONE
+changelog_manifest_list	text	Yes	false	\N	NONE
 total_record_count	bigint	Yes	false	\N	NONE
 delta_record_count	bigint	Yes	false	\N	NONE
 changelog_record_count	bigint	Yes	false	\N	NONE
@@ -71,13 +71,13 @@ watermark	bigint	Yes	false	\N	NONE
 -- !desc_direct_query_table --
 snapshot_id	bigint	No	true	\N	NONE
 schema_id	bigint	No	false	\N	NONE
-commit_user	varchar(2147483647)	No	false	\N	NONE
+commit_user	text	No	false	\N	NONE
 commit_identifier	bigint	No	false	\N	NONE
-commit_kind	varchar(2147483647)	No	false	\N	NONE
+commit_kind	text	No	false	\N	NONE
 commit_time	datetime(3)	No	false	\N	NONE
-base_manifest_list	varchar(2147483647)	No	false	\N	NONE
-delta_manifest_list	varchar(2147483647)	No	false	\N	NONE
-changelog_manifest_list	varchar(2147483647)	Yes	false	\N	NONE
+base_manifest_list	text	No	false	\N	NONE
+delta_manifest_list	text	No	false	\N	NONE
+changelog_manifest_list	text	Yes	false	\N	NONE
 total_record_count	bigint	Yes	false	\N	NONE
 delta_record_count	bigint	Yes	false	\N	NONE
 changelog_record_count	bigint	Yes	false	\N	NONE

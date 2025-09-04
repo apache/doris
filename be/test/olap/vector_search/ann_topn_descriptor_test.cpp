@@ -125,11 +125,11 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
             assert_cast<const ColumnArray*>(const_column->get_data_column_ptr().get());
     const ColumnNullable* column_nullable =
             assert_cast<const ColumnNullable*>(column_array->get_data_ptr().get());
-    const ColumnFloat64* cf64 =
-            assert_cast<const ColumnFloat64*>(column_nullable->get_nested_column_ptr().get());
+    const ColumnFloat32* cf32 =
+            assert_cast<const ColumnFloat32*>(column_nullable->get_nested_column_ptr().get());
 
-    const double* query_value = cf64->get_data().data();
-    const size_t query_value_size = cf64->get_data().size();
+    const float* query_value = cf32->get_data().data();
+    const size_t query_value_size = cf32->get_data().size();
     ASSERT_EQ(query_value_size, 8);
     std::vector<float> query_value_f32;
     for (size_t i = 0; i < query_value_size; ++i) {
@@ -142,7 +142,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     ASSERT_FLOAT_EQ(query_value_f32[4], 5.0f) << "query_value_f32[4] = " << query_value_f32[4];
     ASSERT_FLOAT_EQ(query_value_f32[5], 6.0f) << "query_value_f32[5] = " << query_value_f32[5];
     ASSERT_FLOAT_EQ(query_value_f32[6], 7.0f) << "query_value_f32[6] = " << query_value_f32[6];
-    ASSERT_FLOAT_EQ(query_value_f32[7], 20.0f) << "query_value_f32[7] = " << query_value_f32[7];
+    ASSERT_FLOAT_EQ(query_value_f32[7], 8.0f) << "query_value_f32[7] = " << query_value_f32[7];
 
     std::shared_ptr<std::vector<float>> query_vector =
             std::make_shared<std::vector<float>>(10, 0.0);
@@ -166,7 +166,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
                 return Status::OK();
             }));
 
-    _result_column = ColumnNullable::create(ColumnFloat64::create(0, 0), ColumnUInt8::create(0, 0));
+    _result_column = ColumnFloat32::create(0, 0);
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     roaring::Roaring roaring;
@@ -175,12 +175,11 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     size_t rows_of_segment = 10;
     st = predicate->evaluate_vector_ann_search(_ann_index_iterator.get(), &roaring, rows_of_segment,
                                                _result_column, row_ids, ann_index_stats);
-    ColumnNullable* result_column_null = assert_cast<ColumnNullable*>(_result_column.get());
-    ColumnFloat64* result_column_float =
-            assert_cast<ColumnFloat64*>(result_column_null->get_nested_column_ptr().get());
+    ColumnFloat32* result_column_float = assert_cast<ColumnFloat32*>(_result_column.get());
     for (size_t i = 0; i < query_vector->size(); ++i) {
         EXPECT_EQ(result_column_float->get_data()[i], (*query_vector)[i]);
     }
+
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(row_ids->size(), 10);
 }

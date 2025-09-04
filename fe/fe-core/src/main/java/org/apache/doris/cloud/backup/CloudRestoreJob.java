@@ -46,6 +46,7 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -85,7 +86,7 @@ public class CloudRestoreJob extends RestoreJob {
 
     private String cloudClusterId = null;
 
-    private Map<OlapTable, Cloud.CreateTabletsRequest.Builder> tabletsPerTable = new HashMap<>();
+    private Map<Pair<OlapTable, Partition>, List<Cloud.CreateTabletsRequest.Builder>> tabletRequests = new HashMap<>();
 
     public enum MetaSeriviceOperation {
         PREPARE,
@@ -190,14 +191,18 @@ public class CloudRestoreJob extends RestoreJob {
             handleMetaObject(MetaSeriviceOperation.PREPARE);
             // send create tablets requests
             boolean needSetStorageVault = ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault();
-            for (Map.Entry<OlapTable, Cloud.CreateTabletsRequest.Builder> entry : tabletsPerTable.entrySet()) {
-                OlapTable table = entry.getKey();
-                Cloud.CreateTabletsRequest.Builder requestBuilder = entry.getValue();
-                Cloud.CreateTabletsResponse resp = sendCreateTabletsRequests(requestBuilder, table,
-                        needSetStorageVault);
-                if (resp.hasStorageVaultId()) {
-                    storageVaultId = resp.getStorageVaultId();
-                    needSetStorageVault = false;
+            for (Map.Entry<Pair<OlapTable, Partition>, List<Cloud.CreateTabletsRequest.Builder>> entry
+                    : tabletRequests.entrySet()) {
+                Pair<OlapTable, Partition> tableToPartition = entry.getKey();
+                OlapTable table = tableToPartition.first;
+                List<Cloud.CreateTabletsRequest.Builder> requestBuilders = entry.getValue();
+                for (Cloud.CreateTabletsRequest.Builder requestBuilder : requestBuilders) {
+                    Cloud.CreateTabletsResponse resp = sendCreateTabletsRequests(requestBuilder, table,
+                            needSetStorageVault);
+                    if (resp.hasStorageVaultId()) {
+                        storageVaultId = resp.getStorageVaultId();
+                        needSetStorageVault = false;
+                    }
                 }
             }
             // set storage vault for new restoring table
@@ -214,7 +219,7 @@ public class CloudRestoreJob extends RestoreJob {
         } catch (Exception e) {
             status = new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         } finally {
-            tabletsPerTable.clear();
+            tabletRequests.clear();
         }
     }
 
@@ -352,8 +357,8 @@ public class CloudRestoreJob extends RestoreJob {
     public void createReplicas(Database db, OlapTable localTbl, Partition restorePart,
                                Map<Long, TabletRef> tabletBases) {
         List<String> rowStoreColumns = localTbl.getTableProperty().getCopiedRowStoreColumns();
-        Cloud.CreateTabletsRequest.Builder requestBuilder = tabletsPerTable.computeIfAbsent(localTbl,
-                r -> Cloud.CreateTabletsRequest.newBuilder());
+        List<Cloud.CreateTabletsRequest.Builder> requestBuilders = tabletRequests.computeIfAbsent(
+                Pair.of(localTbl, restorePart), r -> Lists.newArrayList());
 
         for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(MaterializedIndex.IndexExtState
                 .VISIBLE)) {
@@ -365,42 +370,52 @@ public class CloudRestoreJob extends RestoreJob {
                 // only base and shadow index need cluster key unique column ids
                 clusterKeyUids = OlapTable.getClusterKeyUids(indexMeta.getSchema());
             }
-            for (Tablet restoreTablet : restoredIdx.getTablets()) {
-                try {
-                    requestBuilder.addTabletMetas(((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                            .createTabletMetaBuilder(localTbl.getId(), restoredIdx.getId(),
-                                restorePart.getId(), restoreTablet,
-                                localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
-                                indexMeta.getSchemaHash(), indexMeta.getKeysType(),
-                                indexMeta.getShortKeyColumnCount(), localTbl.getCopiedBfColumns(),
-                                localTbl.getBfFpp(), indexes, indexMeta.getSchema(), localTbl.getDataSortInfo(),
-                                localTbl.getCompressionType(), localTbl.getStoragePolicy(),
-                                localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
-                                localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.storeRowColumn(),
-                                localTbl.getBaseSchemaVersion(), localTbl.getCompactionPolicy(),
-                                localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
-                                localTbl.getTimeSeriesCompactionFileCountThreshold(),
-                                localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
-                                localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                                localTbl.getTimeSeriesCompactionLevelThreshold(), localTbl.disableAutoCompaction(),
-                                localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                localTbl.getInvertedIndexFileStorageFormat(),
-                                localTbl.rowStorePageSize(),
-                                localTbl.variantEnableFlattenNested(), clusterKeyUids,
-                                localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
-                                localTbl.storageDictPageSize(), false));
-                    // In cloud mode all storage medium will be saved to HDD.
-                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                            restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
-                    Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
-                    Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(),
-                            restoreTablet.getReplicaByBackendId(-1));
-                } catch (Exception e) {
-                    String errMsg = String.format("create tablet meta builder failed, errMsg:%s, local table:%d, "
-                            + "restore partition=%d, restore index=%d, restore tablet=%d", e.getMessage(),
-                            localTbl.getId(), restorePart.getId(), restoredIdx.getId(), restoreTablet.getId());
-                    status = new Status(Status.ErrCode.COMMON_ERROR, errMsg);
+
+            int maxCreateTabletBatchSize = Config.cloud_restore_create_tablet_batch_size;
+            List<Tablet> restoreTablets = restoredIdx.getTablets();
+            for (int i = 0; i < restoreTablets.size(); i += maxCreateTabletBatchSize) {
+                int end = Math.min(i + maxCreateTabletBatchSize, restoreTablets.size());
+                List<Tablet> subRestoreTablets = restoreTablets.subList(i, end);
+                Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
+                for (Tablet restoreTablet : subRestoreTablets) {
+                    try {
+                        requestBuilder.addTabletMetas(((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                                .createTabletMetaBuilder(localTbl.getId(), restoredIdx.getId(),
+                                    restorePart.getId(), restoreTablet,
+                                    localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
+                                    indexMeta.getSchemaHash(), indexMeta.getKeysType(),
+                                    indexMeta.getShortKeyColumnCount(), localTbl.getCopiedBfColumns(),
+                                    localTbl.getBfFpp(), indexes, indexMeta.getSchema(), localTbl.getDataSortInfo(),
+                                    localTbl.getCompressionType(), localTbl.getStoragePolicy(),
+                                    localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
+                                    localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.storeRowColumn(),
+                                    localTbl.getBaseSchemaVersion(), localTbl.getCompactionPolicy(),
+                                    localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                                    localTbl.getTimeSeriesCompactionFileCountThreshold(),
+                                    localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                    localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                    localTbl.getTimeSeriesCompactionLevelThreshold(), localTbl.disableAutoCompaction(),
+                                    localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                                    localTbl.getInvertedIndexFileStorageFormat(),
+                                    localTbl.rowStorePageSize(),
+                                    localTbl.variantEnableFlattenNested(), clusterKeyUids,
+                                    localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
+                                    localTbl.storageDictPageSize(), false));
+                        // In cloud mode all storage medium will be saved to HDD.
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                                restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
+                        Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
+                        Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(),
+                                restoreTablet.getReplicaByBackendId(-1));
+                    } catch (Exception e) {
+                        String errMsg = String.format("create tablet meta builder failed, errMsg:%s, local table:%d, "
+                                + "restore partition=%d, restore index=%d, restore tablet=%d", e.getMessage(),
+                                localTbl.getId(), restorePart.getId(), restoredIdx.getId(), restoreTablet.getId());
+                        status = new Status(Status.ErrCode.COMMON_ERROR, errMsg);
+                        return;
+                    }
                 }
+                requestBuilders.add(requestBuilder);
             }
         }
     }
@@ -519,8 +534,11 @@ public class CloudRestoreJob extends RestoreJob {
                     + "vault name=%s, errMsg=%s", dbId, olapTable.getName(), storageVaultName, e.getMessage());
             throw new DdlException(errMsg);
         }
-        LOG.info("cloud restore job restore tablets, dbId: {}, tableName: {}, vault name: {}", dbId,
-                olapTable.getName(), storageVaultName);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("cloud restore job restore tablets, dbId: {}, tableName: {}, vault name: {},"
+                    + "tablet created: {}", dbId, olapTable.getName(), storageVaultName,
+                    requestBuilder.getTabletMetasCount());
+        }
         return resp;
     }
 

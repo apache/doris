@@ -1377,10 +1377,10 @@ TEST(TxnMemKvTest, BatchScan) {
             {false, {"prefix1_", "prefix2_"}, {"prefix1_sub1", "prefix2_sub1"}},
             {false, {"prefix5_"}, {std::nullopt}},
             {true, {"a"}, {std::nullopt}},
-            {true, {"prefix1_", "prefix2_"}, {"prefix1", "prefix2"}},
+            {true, {"prefix1_", "prefix2_"}, {"prefix1_sub2", "prefix2_sub1"}},
             {true,
              {"prefix1", "prefix2", "prefix3", "different_key"},
-             {"prefix1", "prefix2", "prefix3", "different_key"}},
+             {"prefix1_sub2", "prefix2_sub1", "prefix3", "different_key"}},
     };
 
     size_t count = 0;

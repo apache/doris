@@ -403,7 +403,7 @@ void SpillSortSharedState::close() {
 
 MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id)
         : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
-                  this, pool, cast_sender_count, node_id)) {}
+                  pool, cast_sender_count, node_id)) {}
 
 void MultiCastSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {}
 

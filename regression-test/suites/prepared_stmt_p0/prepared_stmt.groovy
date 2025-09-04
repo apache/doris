@@ -24,6 +24,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
     sql """
         admin set frontend config("enable_decimal_conversion" = "true");
     """
+    sql """ ADMIN SET FRONTEND CONFIG ("prepared_stmt_start_id" = "-1"); """
 
     def tableName = "tbl_prepared_stmt"
     def user = context.config.jdbcUser
@@ -77,7 +78,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
             sb.append(", ?");
         }
         String sqlWithTooManyPlaceholder = sb.toString();
-        def stmt_read = prepareStatement "select * from ${tableName} where k1 in ${sqlWithTooManyPlaceholder}"
+        def stmt_read = prepareStatement "select * from ${tableName} where k1 in (${sqlWithTooManyPlaceholder})"
         assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
 
         stmt_read = prepareStatement "select * from ${tableName} where k1 = ? order by k1"
@@ -331,7 +332,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
     // test stmtId overflow
     def result2 = connect(user, password, url) {
         // def stmt_read1 = prepareStatement "select 1"
-        // assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read1.class)
+        // assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read1.class)
         // qe_overflow_1 stmt_read1
         // stmt_read1.close()
         // int max
@@ -349,7 +350,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qe_overflow_3 stmt_read3
         qe_overflow_3 stmt_read3
         stmt_read3.close()
-        // int min 
+        // int min
         sql """admin set frontend config("prepared_stmt_start_id" = "2147483646");"""
         def stmt_read4 = prepareStatement "select 4"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read4.class)

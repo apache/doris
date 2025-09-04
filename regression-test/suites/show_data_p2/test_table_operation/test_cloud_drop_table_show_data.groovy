@@ -91,11 +91,13 @@ suite("test_cloud_drop_and_show_data","p2, nonConcurrent") {
 
         if(op == 1){
 
+            sql """admin set frontend config ("catalog_trash_expire_second" = "30")"""
             sql """drop table ${tableName}"""
 
             sleep(10 * 1000)
 
             sql """recover table ${tableName}"""
+            sql """admin set frontend config ("catalog_trash_expire_second" = "1")"""
             // 加一下触发compaction的机制
             trigger_compaction(tablets)
 

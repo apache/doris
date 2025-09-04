@@ -20,8 +20,8 @@ suite("test_float_special_values", "datatype_p0") {
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql "CREATE  TABLE if NOT EXISTS ${tableName} (k int, value float) DUPLICATE KEY(k) DISTRIBUTED BY HASH (k) BUCKETS 1 PROPERTIES ('replication_num' = '1');"
     sql """insert into ${tableName} select 1, sqrt(-1.0);"""
-
     qt_select "select * from ${tableName} order by 1;"
+
     qt_select "select sqrt(-1.0);"
 
     sql "DROP TABLE IF EXISTS ${tableName}"

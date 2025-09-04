@@ -451,7 +451,8 @@ public abstract class DataType {
                         .collect(ImmutableList.toImmutableList());
                 return new VariantType(variantFields,
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
-                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse());
+                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize());
             }
             return VariantType.INSTANCE;
         } else {
@@ -700,6 +701,14 @@ public abstract class DataType {
         } else {
             return this;
         }
+    }
+
+    /**
+     * whether the element type in array can be calculated in array function
+     * @return true if the element type can be calculated
+     */
+    public boolean canBeCalculatedInArray() {
+        return isNumericType() || isBooleanType() || isStringLikeType() || isNullType();
     }
 
     /**

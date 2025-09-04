@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PreparePlaceholder;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -57,7 +58,8 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                         && (removeCast(expression.child(0)).isKeyColumnFromTable()
                         || (expression.child(0) instanceof SlotReference
                         && ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN)))
-                        && expression.child(1).isLiteral());
+                        && (expression.child(1).isLiteral()
+                        || removeCast(expression.child(1)) instanceof PreparePlaceholder));
     }
 
     private boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {

@@ -1972,6 +1972,7 @@ public:
             uint8_t count = *src;
             ++src;
             CHECK(count <= SET_TYPE_THRESHOLD) << "bitmap value with incorrect set count";
+            _set.reserve(count);
             for (uint8_t i = 0; i != count; ++i, src += sizeof(uint64_t)) {
                 _set.insert(decode_fixed64_le(reinterpret_cast<const uint8_t*>(src)));
             }

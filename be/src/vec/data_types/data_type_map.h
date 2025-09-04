@@ -76,14 +76,6 @@ public:
     }
 
     bool equals(const IDataType& rhs) const override;
-    bool have_subtypes() const override { return true; }
-    bool is_comparable() const override {
-        return key_type->is_comparable() && value_type->is_comparable();
-    }
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
-
     const DataTypePtr& get_key_type() const { return key_type; }
     const DataTypePtr& get_value_type() const { return value_type; }
 

@@ -827,7 +827,7 @@ DEFINE_Int32(txn_map_shard_size, "1024");
 DEFINE_Int32(txn_shard_size, "1024");
 
 // Whether to continue to start be when load tablet from header failed.
-DEFINE_Bool(ignore_load_tablet_failure, "false");
+DEFINE_Bool(ignore_load_tablet_failure, "true");
 
 // Whether to continue to start be when load tablet from header failed.
 DEFINE_mBool(ignore_rowset_stale_unconsistent_delete, "false");
@@ -863,7 +863,7 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-DEFINE_Int32(aws_log_level, "3");
+DEFINE_Int32(aws_log_level, "2");
 DEFINE_Validator(aws_log_level,
                  [](const int config) -> bool { return config >= 0 && config <= 6; });
 
@@ -872,7 +872,7 @@ DEFINE_Validator(aws_log_level,
 //    Informational = 2,
 //    Warning = 3,
 //    Error = 4
-DEFINE_Int32(azure_log_level, "3");
+DEFINE_Int32(azure_log_level, "4");
 DEFINE_Validator(azure_log_level,
                  [](const int config) -> bool { return config >= 1 && config <= 4; });
 
@@ -1080,6 +1080,8 @@ DEFINE_Bool(enable_java_support, "true");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
+
+DEFINE_Bool(enable_graceful_exit_check, "false");
 
 DEFINE_Bool(enable_debug_points, "false");
 
@@ -1291,7 +1293,7 @@ DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
 
 // The secure path with user files, used in the `local` table function.
-DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
+DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
@@ -1350,8 +1352,6 @@ DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
-DEFINE_mInt32(variant_max_sparse_column_statistics_size, "10000");
-
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
@@ -1378,15 +1378,6 @@ DEFINE_String(spill_storage_root_path, "");
 DEFINE_String(spill_storage_limit, "20%");    // 20%
 DEFINE_mInt32(spill_gc_interval_ms, "2000");  // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000"); // 2s
-DEFINE_Int32(spill_io_thread_pool_thread_num, "-1");
-DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        spill_io_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
-DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
@@ -1581,6 +1572,9 @@ DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
 
 DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 
+// The maximum csv line reader output buffer size
+DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
+
 // The maximum number of threads supported when executing LLMFunction
 DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
@@ -1589,6 +1583,8 @@ DEFINE_mInt32(llm_max_concurrent_requests, "1");
 // helping to prevent resource contention and ensure stable performance when multiple
 // Doris threads are executing OpenMP-accelerated operations simultaneously.
 DEFINE_mInt32(omp_threads_limit, "8");
+// The capacity of segment partial column cache, used to cache column readers for each segment.
+DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
 // clang-format off
 #ifdef BE_TEST
@@ -2041,6 +2037,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
     fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
+            ((distribution(*generator) % 2) == 0) ? "5" : "10";
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

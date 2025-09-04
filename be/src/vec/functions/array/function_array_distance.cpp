@@ -21,13 +21,30 @@
 
 namespace doris::vectorized {
 
+FAISS_PRAGMA_IMPRECISE_FUNCTION_BEGIN
+float CosineDistance::distance(const float* x, const float* y, size_t d) {
+    float dot_prod = 0;
+    float squared_x = 0;
+    float squared_y = 0;
+    for (size_t i = 0; i < d; ++i) {
+        dot_prod += x[i] * y[i];
+        squared_x += x[i] * x[i];
+        squared_y += y[i] * y[i];
+    }
+    if (squared_x == 0 or squared_y == 0) {
+        return 2.0f;
+    }
+    return 1 - dot_prod / sqrt(squared_x * squared_y);
+}
+FAISS_PRAGMA_IMPRECISE_FUNCTION_END
+
 void register_function_array_distance(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayDistance<L1Distance> >();
-    factory.register_function<FunctionArrayDistance<L2Distance> >();
-    factory.register_function<FunctionArrayDistance<CosineDistance> >();
-    factory.register_function<FunctionArrayDistance<InnerProduct> >();
-    factory.register_function<FunctionArrayDistance<L2DistanceApproximate> >();
-    factory.register_function<FunctionArrayDistance<InnerProductApproximate> >();
+    factory.register_function<FunctionArrayDistance<L1Distance>>();
+    factory.register_function<FunctionArrayDistance<L2Distance>>();
+    factory.register_function<FunctionArrayDistance<CosineDistance>>();
+    factory.register_function<FunctionArrayDistance<InnerProduct>>();
+    factory.register_function<FunctionArrayDistance<L2DistanceApproximate>>();
+    factory.register_function<FunctionArrayDistance<InnerProductApproximate>>();
 }
 
 } // namespace doris::vectorized

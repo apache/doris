@@ -134,6 +134,12 @@ public:
         return Status::OK();
     }
 
+    /**
+     * Pipeline task is blockable means it will be blocked in the next run. So we should put the
+     * pipeline task into the blocking task scheduler.
+     */
+    virtual bool is_blockable(RuntimeState* state) const = 0;
+
     virtual void set_low_memory_mode(RuntimeState* state) {}
 
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
@@ -209,12 +215,12 @@ public:
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
+    [[nodiscard]] virtual bool is_blockable() const;
 
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
-    virtual Dependency* spill_dependency() const { return nullptr; }
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> execution_dependencies() { return {}; }
 
@@ -307,7 +313,6 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
     virtual bool must_set_shared_state() const {
         return !std::is_same_v<SharedStateArg, FakeSharedState>;
@@ -315,7 +320,6 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateArg* _shared_state = nullptr;
 };
 
@@ -483,6 +487,7 @@ public:
     virtual Status terminate(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     [[nodiscard]] virtual bool is_finished() const { return false; }
+    [[nodiscard]] virtual bool is_blockable() const { return false; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
@@ -519,7 +524,6 @@ public:
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
-    virtual Dependency* spill_dependency() const { return nullptr; }
 
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
@@ -573,7 +577,6 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
     virtual bool must_set_shared_state() const {
         return !std::is_same_v<SharedStateArg, FakeSharedState>;
@@ -581,7 +584,6 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateType* _shared_state = nullptr;
 };
 
@@ -631,6 +633,9 @@ public:
 
     [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) {
         return state->minimum_operator_memory_required_bytes();
+    }
+    bool is_blockable(RuntimeState* state) const override {
+        return state->get_sink_local_state()->is_blockable();
     }
 
     [[nodiscard]] bool is_spillable() const { return _spillable; }
@@ -873,6 +878,9 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
+    bool is_blockable(RuntimeState* state) const override {
+        return state->get_sink_local_state()->is_blockable();
+    }
 
     Status prepare(RuntimeState* state) override;
 
@@ -1152,8 +1160,6 @@ public:
                                                        "DummyOperatorDependency", true);
         _filter_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
-        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                      "DummyOperatorDependency", true);
     }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     ~DummyOperatorLocalState() = default;
@@ -1162,7 +1168,6 @@ public:
     std::vector<Dependency*> execution_dependencies() override {
         return {_filter_dependency.get()};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 private:
     std::shared_ptr<Dependency> _tmp_dependency;
@@ -1210,13 +1215,10 @@ public:
                                                     "DummyOperatorDependency", true);
         _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
-        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                      "DummyOperatorDependency", true);
     }
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
     bool is_finished() const override { return _is_finished; }
 
 private:

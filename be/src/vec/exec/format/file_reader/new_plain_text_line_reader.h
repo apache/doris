@@ -254,7 +254,7 @@ private:
     bool done() { return _file_eof && output_buf_read_remaining() == 0; }
 
     void extend_input_buf();
-    void extend_output_buf();
+    Status extend_output_buf();
 
     RuntimeProfile* _profile = nullptr;
     io::FileReaderSPtr _file_reader;

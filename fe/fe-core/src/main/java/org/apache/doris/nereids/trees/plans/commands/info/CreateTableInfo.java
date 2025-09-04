@@ -346,9 +346,7 @@ public class CreateTableInfo {
         Preconditions.checkState(!Strings.isNullOrEmpty(ctlName), "catalog name is null or empty");
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName), "database name is null or empty");
 
-        //check datatype: datev1, decimalv2, variant
-        boolean allZero = false;
-        boolean allPositive = false;
+        //check datatype: datev1, decimalv2
         for (ColumnDefinition columnDef : columns) {
             String columnNameUpperCase = columnDef.getName().toUpperCase();
             if (columnNameUpperCase.startsWith("__DORIS_")) {
@@ -360,20 +358,6 @@ public class CreateTableInfo {
                     throw new AnalysisException(
                         "Disable to create table of `VARIANT` type column named with a `.` character: "
                                 + columnNameUpperCase);
-                }
-                VariantType variantType = (VariantType) columnDef.getType();
-                if (variantType.getVariantMaxSubcolumnsCount() == 0) {
-                    allZero = true;
-                    if (allPositive) {
-                        throw new AnalysisException("The variant_max_subcolumns_count must either be 0"
-                            + " in all columns, or greater than 0 in all columns");
-                    }
-                } else {
-                    allPositive = true;
-                    if (allZero) {
-                        throw new AnalysisException("The variant_max_subcolumns_count must either be 0"
-                            + " in all columns, or greater than 0 in all columns");
-                    }
                 }
             }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
@@ -714,6 +698,12 @@ public class CreateTableInfo {
                 if (!engineName.equalsIgnoreCase(ENGINE_OLAP)) {
                     throw new AnalysisException(
                             "index only support in olap engine at current version.");
+                }
+                if (indexDef.getIndexType() == IndexType.ANN) {
+                    if (invertedIndexFileStorageFormat != null
+                            && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
+                        throw new AnalysisException("ANN index is not supported in index format V1");
+                    }
                 }
                 for (String indexColName : indexDef.getColumnNames()) {
                     boolean found = false;

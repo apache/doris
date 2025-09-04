@@ -97,33 +97,41 @@ public class BrokerLoadPendingTask extends LoadTask {
                     for (String path : fileGroup.getFilePaths()) {
                         BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
                     }
-                    boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
-                    List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
-                    for (TBrokerFileStatus fstatus : fileStatuses) {
-                        if (fstatus.getSize() == 0 && isBinaryFileFormat) {
-                            // For parquet or orc file, if it is an empty file, ignore it.
-                            // Because we can not read an empty parquet or orc file.
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                        .add("empty file", fstatus).build());
-                            }
-                        } else {
-                            groupFileSize += fstatus.size;
-                            filteredFileStatuses.add(fstatus);
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                        .add("file_status", fstatus).build());
+                    if (!fileStatuses.isEmpty()) {
+                        fileGroup.initDeferredFileFormatPropertiesIfNecessary(fileStatuses);
+                        boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
+                        List<TBrokerFileStatus> filteredFileStatuses = Lists.newArrayList();
+                        for (TBrokerFileStatus fstatus : fileStatuses) {
+                            if (fstatus.getSize() == 0 && isBinaryFileFormat) {
+                                // For parquet or orc file, if it is an empty file, ignore it.
+                                // Because we can not read an empty parquet or orc file.
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                            .add("empty file", fstatus).build());
+                                }
+                            } else {
+                                groupFileSize += fstatus.size;
+                                filteredFileStatuses.add(fstatus);
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
+                                            .add("file_status", fstatus).build());
+                                }
                             }
                         }
+                        fileStatusList.add(filteredFileStatuses);
+                        tableTotalFileSize += groupFileSize;
+                        tableTotalFileNum += filteredFileStatuses.size();
+                        LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
+                                filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
+                                callback.getCallbackId(),
+                                brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
+                                        ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
+                    } else {
+                        LOG.info("no file found in file group {} for table {}, job: {}, broker: {}",
+                                groupNum, entry.getKey(), callback.getCallbackId(),
+                                brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
+                                        ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
                     }
-                    fileStatusList.add(filteredFileStatuses);
-                    tableTotalFileSize += groupFileSize;
-                    tableTotalFileNum += filteredFileStatuses.size();
-                    LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
-                            filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
-                            callback.getCallbackId(),
-                            brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER
-                                    ? BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
                     groupNum++;
                 }
             }

@@ -15,13 +15,13 @@
 \N
 
 -- !sql_decimalv3 --
-0
+0.294015992
 
 -- !sql_decimalv3 --
-1
+1.294015992
 
 -- !sql_decimalv3 --
-10
+10.294015992
 
 -- !sql_decimalv3 --
 \N

@@ -46,13 +46,14 @@ class TableFormatReader : public GenericReader {
 public:
     TableFormatReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeState* state,
                       RuntimeProfile* profile, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, io::IOContext* io_ctx)
+                      const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
             : _file_format_reader(std::move(file_format_reader)),
               _state(state),
               _profile(profile),
               _params(params),
               _range(range),
               _io_ctx(io_ctx) {
+        _meta_cache = meta_cache;
         if (range.table_format_params.__isset.table_level_row_count) {
             _table_level_row_count = range.table_format_params.table_level_row_count;
         } else {

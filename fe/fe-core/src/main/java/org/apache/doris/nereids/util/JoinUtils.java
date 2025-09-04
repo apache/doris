@@ -26,6 +26,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -53,6 +54,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -483,5 +485,24 @@ public class JoinUtils {
                 .collect(Collectors.toSet());
         markSlots.retainAll(bottom.getOutputSet());
         return markSlots.isEmpty();
+    }
+
+    /**
+     * Use the children nullable property of the join to adjust the slot used by the join conjuncts.
+     * Such as 'a left join b left join c where b.condition > 1'
+     * if the join change to '(b left join c) right a where b.condition > 1',
+     * the nullable property of b.condition should be false
+     */
+    public static LogicalJoin<? extends Plan, ? extends Plan> adjustJoinConjunctsNullable(
+            LogicalJoin<? extends Plan, ? extends Plan> join) {
+        Map<ExprId, Slot> equalConjunctsSlotMap = new HashMap<>();
+        for (Plan child : join.children()) {
+            for (Slot slot : child.getOutput()) {
+                equalConjunctsSlotMap.put(slot.getExprId(), slot);
+            }
+        }
+        // other conjuncts should use join output slot
+        return AdjustNullable.doVisitLogicalJoin(
+                join, equalConjunctsSlotMap, false, false);
     }
 }

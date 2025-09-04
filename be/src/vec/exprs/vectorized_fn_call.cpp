@@ -335,17 +335,17 @@ bool VectorizedFnCall::equals(const VExpr& other) {
     |----------------
     |               |
     |               |
-    VirtualSlotRef  Float64Literal 
+    CastToDouble    Float64Literal
+    |
+    |
+    VirtualSlotRef
     |
     |
     FuncationCall
     |----------------
     |               |
     |               |
-    CastToArray     ArrayLiteral
-    |
-    |
-    SlotRef
+    SlotRef         ArrayLiteral
 */
 
 void VectorizedFnCall::prepare_ann_range_search(
@@ -369,7 +369,7 @@ void VectorizedFnCall::prepare_ann_range_search(
     auto left_child = get_child(0);
     auto right_child = get_child(1);
 
-    // Return type of L2Distance is always double.
+    // right side
     auto right_literal = std::dynamic_pointer_cast<VLiteral>(right_child);
     if (right_literal == nullptr) {
         suitable_for_ann_index = false;
@@ -388,14 +388,24 @@ void VectorizedFnCall::prepare_ann_range_search(
     const ColumnFloat64* cf64_right = assert_cast<const ColumnFloat64*>(right_col.get());
     range_search_runtime.radius = cf64_right->get_data()[0];
 
+    // left side
+    auto cast_to_double_expr = std::dynamic_pointer_cast<VCastExpr>(left_child);
+    if (cast_to_double_expr == nullptr) {
+        suitable_for_ann_index = false;
+        return;
+    }
+
     std::shared_ptr<VectorizedFnCall> function_call;
-    auto vir_slot_ref = std::dynamic_pointer_cast<VirtualSlotRef>(left_child);
+    auto vir_slot_ref =
+            std::dynamic_pointer_cast<VirtualSlotRef>(cast_to_double_expr->children()[0]);
+    // Return type of L2Distance is always float.
     if (vir_slot_ref != nullptr) {
         DCHECK(vir_slot_ref->get_virtual_column_expr() != nullptr);
         function_call = std::dynamic_pointer_cast<VectorizedFnCall>(
                 vir_slot_ref->get_virtual_column_expr());
     } else {
-        function_call = std::dynamic_pointer_cast<VectorizedFnCall>(left_child);
+        function_call =
+                std::dynamic_pointer_cast<VectorizedFnCall>(cast_to_double_expr->children()[0]);
     }
 
     if (function_call == nullptr) {
@@ -415,34 +425,25 @@ void VectorizedFnCall::prepare_ann_range_search(
         range_search_runtime.metric_type = segment_v2::string_to_metric(metric_name);
     }
 
-    UInt16 idx_of_cast_to_array = 0;
+    UInt16 idx_of_slot_ref = 0;
     UInt16 idx_of_array_literal = 0;
     for (UInt16 i = 0; i < function_call->get_num_children(); ++i) {
         auto child = function_call->get_child(i);
-        if (std::dynamic_pointer_cast<VCastExpr>(child) != nullptr) {
-            idx_of_cast_to_array = i;
+        if (std::dynamic_pointer_cast<VSlotRef>(child) != nullptr) {
+            idx_of_slot_ref = i;
         } else if (std::dynamic_pointer_cast<VArrayLiteral>(child) != nullptr) {
             idx_of_array_literal = i;
         }
     }
 
-    std::shared_ptr<VCastExpr> cast_to_array_expr =
-            std::dynamic_pointer_cast<VCastExpr>(function_call->get_child(idx_of_cast_to_array));
+    std::shared_ptr<VSlotRef> slot_ref =
+            std::dynamic_pointer_cast<VSlotRef>(function_call->get_child(idx_of_slot_ref));
     std::shared_ptr<VArrayLiteral> array_literal = std::dynamic_pointer_cast<VArrayLiteral>(
             function_call->get_child(idx_of_array_literal));
 
-    if (cast_to_array_expr == nullptr || array_literal == nullptr) {
+    if (slot_ref == nullptr || array_literal == nullptr) {
         suitable_for_ann_index = false;
-        // Cast to array expr or array literal is null.
-        return;
-    }
-
-    // One of the children is a slot ref, and the other is an array literal, now begin to create search params.
-    std::shared_ptr<VSlotRef> slot_ref =
-            std::dynamic_pointer_cast<VSlotRef>(cast_to_array_expr->get_child(0));
-    if (slot_ref == nullptr) {
-        suitable_for_ann_index = false;
-        // Cast to array expr's child is not a slot ref.
+        // slot ref or array literal is null.
         return;
     }
 
@@ -457,10 +458,10 @@ void VectorizedFnCall::prepare_ann_range_search(
     range_search_runtime.query_value = std::make_unique<float[]>(dim);
 
     const ColumnNullable* cn = assert_cast<const ColumnNullable*>(array_col->get_data_ptr().get());
-    const ColumnFloat64* cf64 =
-            assert_cast<const ColumnFloat64*>(cn->get_nested_column_ptr().get());
+    const ColumnFloat32* cf32 =
+            assert_cast<const ColumnFloat32*>(cn->get_nested_column_ptr().get());
     for (size_t i = 0; i < dim; ++i) {
-        range_search_runtime.query_value[i] = static_cast<Float32>(cf64->get_data()[i]);
+        range_search_runtime.query_value[i] = cf32->get_data()[i];
     }
     range_search_runtime.is_ann_range_search = true;
     range_search_runtime.user_params = user_params;
@@ -523,18 +524,17 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                                                      &result, stats.get()));
 
 #ifndef NDEBUG
-    if (range_search_runtime.is_le_or_lt == false) {
+    if (range_search_runtime.is_le_or_lt == false &&
+        ann_index_reader->get_metric_type() == AnnIndexMetric::L2) {
         DCHECK(result.distance == nullptr) << "Should not have distance";
     }
+    if (range_search_runtime.is_le_or_lt == true &&
+        ann_index_reader->get_metric_type() == AnnIndexMetric::IP) {
+        DCHECK(result.distance == nullptr);
+    }
 #endif
-
     DCHECK(result.roaring != nullptr);
     row_bitmap = *result.roaring;
-
-    if (params.is_le_or_lt == false) {
-        DCHECK(result.distance == nullptr);
-        DCHECK(result.row_ids == nullptr);
-    }
 
     // Process virtual column
     if (range_search_runtime.dst_col_idx >= 0) {
@@ -552,17 +552,13 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             DCHECK(virtual_column_iterator != nullptr);
             // Now convert distance to column
             size_t size = result.roaring->cardinality();
-            auto distance_col = ColumnFloat64::create(size);
-            auto null_map = ColumnUInt8::create(size, 0);
-            // TODO: Return type of L2DistanceApproximate/InnerProductApproximate should be changed to float.
-            const float* src = reinterpret_cast<const float*>(result.distance.get());
-            double* dst = distance_col->get_data().data();
+            auto distance_col = ColumnFloat32::create(size);
+            const float* src = result.distance.get();
+            float* dst = distance_col->get_data().data();
             for (size_t i = 0; i < size; ++i) {
-                dst[i] = static_cast<double>(src[i]);
+                dst[i] = src[i];
             }
-            auto nullable_distance_col =
-                    ColumnNullable::create(std::move(distance_col), std::move(null_map));
-            virtual_column_iterator->prepare_materialization(std::move(nullable_distance_col),
+            virtual_column_iterator->prepare_materialization(std::move(distance_col),
                                                              std::move(result.row_ids));
         } else {
             DCHECK(this->op() != TExprOpcode::LE && this->op() != TExprOpcode::LT)

@@ -51,6 +51,7 @@ class Array;
 } // namespace arrow
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class FromBlockConverter {
 public:
@@ -84,14 +85,14 @@ private:
 };
 
 Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
-    size_t num_fields = _schema->num_fields();
+    int num_fields = _schema->num_fields();
     if (_block.columns() != num_fields) {
         return Status::InvalidArgument("number fields not match");
     }
 
     _arrays.resize(num_fields);
 
-    for (size_t idx = 0; idx < num_fields; ++idx) {
+    for (int idx = 0; idx < num_fields; ++idx) {
         _cur_field_idx = idx;
         _cur_start = 0;
         _cur_rows = _block.rows();
@@ -134,4 +135,5 @@ Status convert_to_arrow_batch(const vectorized::Block& block,
     return converter.convert(result);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris
