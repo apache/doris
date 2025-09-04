@@ -564,6 +564,9 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         if (!state->get_error_log_file_path().empty()) {
             ss << ", error_url=" << state->get_error_log_file_path();
         }
+        if (!state->get_first_error_msg().empty()) {
+            ss << ", first_error_msg=" << state->get_first_error_msg();
+        }
         ss << ", rows=" << state->num_rows_load_success();
     }
     LOG(INFO) << ss.str();

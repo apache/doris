@@ -191,6 +191,9 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
         // if any throwable being thrown during insert operation, first we should abort this txn
         LOG.warn("insert [{}] with query id {} failed, url={}", labelName, queryId, coordinator.getTrackingUrl(), t);
         StringBuilder sb = new StringBuilder(t.getMessage());
+        if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
+            sb.append(". first_error_msg: ").append(coordinator.getFirstErrorMsg());
+        }
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());
         }

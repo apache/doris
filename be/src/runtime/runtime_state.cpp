@@ -371,6 +371,9 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
             }
             return status;
         }
+        // record the first error message if the file is just created
+        _first_error_msg = error_msg() + ". Src line: " + line();
+        LOG(INFO) << "The first error message: " << _first_error_msg;
     }
 
     // if num of printed error row exceeds the limit, and this is not a summary message,
@@ -381,7 +384,8 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
             return Status::DataQualityError(
                     "Encountered unqualified data, stop processing. Please check if the source "
                     "data matches the schema, and consider disabling strict mode or increasing "
-                    "max_filter_ratio.");
+                    "max_filter_ratio. first_error_msg: {}",
+                    _first_error_msg);
         }
         return Status::OK();
     }
