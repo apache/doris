@@ -34,6 +34,7 @@
 #include "rapidjson/writer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class LLMAdapter {
 public:
     virtual ~LLMAdapter() = default;
@@ -937,4 +938,6 @@ public:
         return (it != adapters.end()) ? it->second() : nullptr;
     }
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
