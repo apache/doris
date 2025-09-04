@@ -126,7 +126,7 @@ private:
             if constexpr (then_null) {
                 auto* nullable = assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                         result_column_ptr.get());
-                if (is_nullable[row_idx]) {
+                if (is_nullable[then_idx[row_idx]]) {
                     nullable->insert_from(*raw_then_columns[then_idx[row_idx]], target);
                 } else {
                     auto* nested = assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(
