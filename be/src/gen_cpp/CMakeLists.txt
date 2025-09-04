@@ -31,15 +31,14 @@ add_compile_options(-Wno-return-type)
 add_library(DorisGen STATIC ${SRC_FILES})
 
 if(CMAKE_CXX_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(CloudGen PRIVATE -Wno-error)
-    
-    target_compile_options(CloudGen PRIVATE
+    target_compile_options(DorisGen PRIVATE
         -Wno-unused-variable
         -Wno-sign-compare
         -Wno-unused-function
         -Wno-deprecated-declarations
         -Wno-unused-parameter
         -Wno-missing-field-initializers
+        -Wno-shorten-64-to-32
     )
 endif()
 

@@ -23,6 +23,8 @@ if(CMAKE_CXX_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         -Wno-deprecated-declarations
         -Wno-unused-parameter
         -Wno-missing-field-initializers
+        -Wno-shorten-64-to-32
+        -Wno-implicit-int-conversion
     )
 endif()
 

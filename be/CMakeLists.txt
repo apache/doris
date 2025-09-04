@@ -280,6 +280,7 @@ add_compile_options(-g
                     -gdwarf-5
                     -Wall
                     -Wextra
+                    -Werror
                     -Wundef
                     -pthread
                     -fstrict-aliasing
