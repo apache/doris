@@ -647,11 +647,20 @@ public class MetadataGenerator {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
             return result;
         }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> nameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "NAME");
         List<SqlBlockRule> sqlBlockRules = Env.getCurrentEnv().getSqlBlockRuleMgr().getSqlBlockRule(null);
 
         for (SqlBlockRule sqlBlockRule : sqlBlockRules) {
             TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(sqlBlockRule.getName()));
+            String name = sqlBlockRule.getName();
+            if (FrontendConjunctsUtils.isFiltered(nameConjuncts, "NAME", name)) {
+                continue;
+            }
+            trow.addToColumnValue(new TCell().setStringVal(name));
             trow.addToColumnValue(new TCell().setStringVal(sqlBlockRule.getSql()));
             trow.addToColumnValue(new TCell().setStringVal(sqlBlockRule.getSqlHash()));
             trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getPartitionNum()));

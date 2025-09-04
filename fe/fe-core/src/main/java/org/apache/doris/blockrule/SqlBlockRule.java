@@ -76,8 +76,8 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
     private Boolean enable;
 
     private Pattern sqlPattern;
-    private Histogram tryBlockHistogram = new Histogram(new SlidingWindowReservoir(1000));
-    private LongCounterMetric blockCount = new LongCounterMetric("blocks", MetricUnit.ROWS, "");
+    private Histogram tryBlockHistogram;
+    private LongCounterMetric blockCount;
 
     /**
      * Create SqlBlockRule.
@@ -95,6 +95,14 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
         if (StringUtils.isNotEmpty(sql)) {
             this.sqlPattern = Pattern.compile(sql);
         }
+        this.tryBlockHistogram = new Histogram(new SlidingWindowReservoir(1000));
+        this.blockCount = new LongCounterMetric("blocks", MetricUnit.ROWS, "");
+    }
+
+    // for gson
+    public SqlBlockRule() {
+        this.tryBlockHistogram = new Histogram(new SlidingWindowReservoir(1000));
+        this.blockCount = new LongCounterMetric("blocks", MetricUnit.ROWS, "");
     }
 
     public String getName() {

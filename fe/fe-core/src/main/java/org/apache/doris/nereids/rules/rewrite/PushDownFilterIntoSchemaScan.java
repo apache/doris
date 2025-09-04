@@ -48,7 +48,7 @@ import java.util.Optional;
 public class PushDownFilterIntoSchemaScan extends OneRewriteRuleFactory {
 
     public static ImmutableSet<String> SUPPOPRT_FRONTEND_CONJUNCTS_TABLES =
-            ImmutableSet.of("view_dependency");
+            ImmutableSet.of("view_dependency","sql_block_rule_status");
 
     @Override
     public Rule build() {
