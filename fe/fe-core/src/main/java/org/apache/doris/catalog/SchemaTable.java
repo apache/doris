@@ -744,7 +744,7 @@ public class SchemaTable extends Table {
     }
 
     public boolean shouldFetchAllFe() {
-        return ConnectContext.get().getSessionVariable().showAllFeConnection && fetchAllFe;
+        return ConnectContext.get().getSessionVariable().isFetchAllFeForSystemTable() && fetchAllFe;
     }
 
     public boolean shouldAddAgg() {
