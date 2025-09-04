@@ -63,7 +63,7 @@ struct MinusImpl {
     static constexpr auto name = "subtract";
     static constexpr PrimitiveType PType = Type;
     using Arg = typename PrimitiveTypeTraits<Type>::ColumnItemType;
-    static inline Arg apply(Arg a, Arg b) { return a - b; }
+    NO_SANITIZE_UNDEFINED static inline Arg apply(Arg a, Arg b) { return a - b; }
 };
 
 void register_function_minus(SimpleFunctionFactory& factory) {
