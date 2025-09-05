@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "util/simd/vstring_function.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -236,10 +237,10 @@ private:
 };
 
 template <bool is_key>
-class FunctionMapEntries : public IFunction {
+class FunctionMapKeysOrValues : public IFunction {
 public:
     static constexpr auto name = is_key ? "map_keys" : "map_values";
-    static FunctionPtr create() { return std::make_shared<FunctionMapEntries>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMapKeysOrValues>(); }
 
     /// Get function name.
     String get_name() const override { return name; }
@@ -289,10 +290,10 @@ public:
     }
 };
 
-class FunctionMapToEntries : public IFunction {
+class FunctionMapEntries : public IFunction {
 public:
     static constexpr auto name = "map_entries";
-    static FunctionPtr create() { return std::make_shared<FunctionMapToEntries>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMapEntries>(); }
 
     /// Get function name.
     String get_name() const override { return name; }
@@ -302,13 +303,8 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr datatype = arguments[0];
-        if (datatype->is_nullable()) {
-            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
-        }
-        DCHECK(datatype->get_primitive_type() == PrimitiveType::TYPE_MAP)
-                << "first argument for function: " << name << " should be DataTypeMap";
-        const auto* const datatype_map = static_cast<const DataTypeMap*>(datatype.get());
+        const auto* const datatype_map =
+                assert_cast<const DataTypeMap*>(arguments[0].get());
 
         // Create struct type with named fields "key" and "value"
         // key and value are always nullable
@@ -324,24 +320,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto left_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const ColumnMap* map_column = nullptr;
-        ColumnPtr nullmap_column = nullptr;
-
-        if (left_column->is_nullable()) {
-            const auto* nullable_column =
-                    reinterpret_cast<const ColumnNullable*>(left_column.get());
-            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
-            nullmap_column = nullable_column->get_null_map_column_ptr();
-        } else {
-            map_column = check_and_get_column<ColumnMap>(*left_column.get());
-        }
-
-        if (!map_column) {
-            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
-                                        block.get_by_position(arguments[0]).type->get_name());
-        }
+        const auto* map_column =
+                assert_cast<const ColumnMap*>(block.get_by_position(arguments[0]).column.get());
 
         auto struct_column = ColumnStruct::create(
                 Columns {map_column->get_keys_ptr(), map_column->get_values_ptr()});
@@ -354,13 +334,7 @@ public:
         auto result_array_column = ColumnArray::create(std::move(nullable_struct_column),
                                                        map_column->get_offsets_ptr());
 
-        // Handle nullable case for the whole array
-        if (nullmap_column) {
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(result_array_column), nullmap_column));
-        } else {
-            block.replace_by_position(result, std::move(result_array_column));
-        }
+        block.replace_by_position(result, std::move(result_array_column));
 
         return Status::OK();
     }
@@ -674,12 +648,30 @@ private:
                     map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
                     map_row_nullmap, search_is_const, result_matches);
             break;
+        case TYPE_TIME:
+            _execute_column_comparison<ColumnTime>(
+                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
+                    map_row_nullmap, search_is_const, result_matches);
+            break;
         case TYPE_TIMEV2:
             _execute_column_comparison<ColumnTimeV2>(
                     map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
                     map_row_nullmap, search_is_const, result_matches);
             break;
+        case TYPE_IPV4:
+            _execute_column_comparison<ColumnIPv4>(
+                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
+                    map_row_nullmap, search_is_const, result_matches);
+            break;
+        case TYPE_IPV6:
+            _execute_column_comparison<ColumnIPv6>(
+                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
+                    map_row_nullmap, search_is_const, result_matches);
+            break;
         default:
+            // We have done type check before dispatching, so this should not happen
+            DCHECK(false) << "Dispatching unsupported primitive type in " << get_name() << ": "
+                          << static_cast<int>(type);
             break;
         }
     }
@@ -858,47 +850,38 @@ private:
             return false;
         }
 
-        // type-specialized handling
-        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
-            // string comparison
-            const auto& left_str = reinterpret_cast<const ColumnString&>(left_col);
-            const auto& right_str = reinterpret_cast<const ColumnString&>(right_col);
-
-            const auto& left_offs = left_str.get_offsets();
-            const auto& left_chars = left_str.get_chars();
-            const auto& right_offs = right_str.get_offsets();
-            const auto& right_chars = right_str.get_chars();
-
-            size_t left_pos = left_idx == 0 ? 0 : left_offs[left_idx - 1];
-            size_t left_len = left_offs[left_idx] - left_pos;
-            size_t right_pos = right_idx == 0 ? 0 : right_offs[right_idx - 1];
-            size_t right_len = right_offs[right_idx] - right_pos;
-
-            const char* left_raw = reinterpret_cast<const char*>(&left_chars[left_pos]);
-            const char* right_raw = reinterpret_cast<const char*>(&right_chars[right_pos]);
-
-            return StringRef(left_raw, left_len) == StringRef(right_raw, right_len);
-        } else {
-            // numeric type comparison
-            // boolean, integer, float, double, decimal and date/time all go through here
-            const auto& left_data = reinterpret_cast<const ColumnType&>(left_col).get_data();
-            const auto& right_data = reinterpret_cast<const ColumnType&>(right_col).get_data();
-            return left_data[left_idx] == right_data[right_idx];
-        }
+        // use compare_at from typed column
+        const auto& typed_left_col = assert_cast<const ColumnType&>(left_col);
+        const auto& typed_right_col = assert_cast<const ColumnType&>(right_col);
+        return typed_left_col.compare_at(left_idx, right_idx, typed_right_col,
+                                         /*nan_direction_hint=*/1) == 0;
     }
 
-    // type compatibility check (copy from array_contains)
+    // type compatibility check
     bool type_comparable(PrimitiveType left_type, PrimitiveType right_type) const {
+        // all string types use ColumnString, so they are comparable
         if (is_string_type(left_type) && is_string_type(right_type)) {
             return true;
-        } else if (is_number(left_type) && is_number(right_type)) {
-            return true;
-        } else if ((is_date_or_datetime(left_type) || is_date_v2_or_datetime_v2(left_type) ||
-                    left_type == TYPE_TIMEV2) &&
-                   (is_date_or_datetime(right_type) || is_date_v2_or_datetime_v2(right_type) ||
-                    right_type == TYPE_TIMEV2)) {
+        }
+
+        // other types must be the same, and in the supported list
+        if (left_type != right_type) {
+            return false;
+        }
+
+        if (is_number(left_type)) {
             return true;
         }
+        if (is_date_type(left_type)) {
+            return true;
+        }
+        if (is_time_type(left_type)) {
+            return true;
+        }
+        if (is_ip(left_type)) {
+            return true;
+        }
+
         return false;
     }
 };
@@ -907,9 +890,9 @@ void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMap>();
     factory.register_function<FunctionMapContains<true>>();
     factory.register_function<FunctionMapContains<false>>();
-    factory.register_function<FunctionMapEntries<true>>();
-    factory.register_function<FunctionMapEntries<false>>();
-    factory.register_function<FunctionMapToEntries>();
+    factory.register_function<FunctionMapKeysOrValues<true>>();
+    factory.register_function<FunctionMapKeysOrValues<false>>();
+    factory.register_function<FunctionMapEntries>();
     factory.register_function<FunctionStrToMap>();
     factory.register_function<FunctionMapContainsEntry>();
 }

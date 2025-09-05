@@ -38,6 +38,9 @@ import java.util.List;
 public class MapContainsEntry extends ScalarFunction
         implements TernaryExpression, ExplicitlyCastableSignature {
 
+    /**
+     * Basic signature, forcing search key/value type to convert to the same type as map's key/value type.
+     */
     public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(MapType.of(new AnyDataType(0), new AnyDataType(1)),
@@ -45,6 +48,10 @@ public class MapContainsEntry extends ScalarFunction
                             new FollowToAnyDataType(1))
     );
 
+    /**
+     * This signature is used to calculate the correct wider type.
+     * See {@link #getSignatures()}'s comment for details.
+     */
     public static final List<FunctionSignature> MIN_COMMON_TYPE_SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(MapType.of(new AnyDataType(0), new AnyDataType(1)),
@@ -83,6 +90,13 @@ public class MapContainsEntry extends ScalarFunction
         return visitor.visitMapContainsEntry(this, context);
     }
 
+    /**
+     * See https://github.com/apache/doris/pull/44923
+     * Uses AnyDataType instead of FollowToAnyDataType to allow Nereids to calculate the correct wider type,
+     * allowing both map's key type and search key's type to convert to the same comparable and potentially wider type,
+     * instead of forcing the search key's type to convert to the (potentially narrower) map key's type,
+     * which could cause overflow and produce incorrect results.
+     */
     @Override
     public List<FunctionSignature> getSignatures() {
         if (getArgument(0).getDataType().isMapType()) {

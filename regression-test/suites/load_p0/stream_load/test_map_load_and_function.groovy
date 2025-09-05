@@ -260,7 +260,9 @@ suite("test_map_load_and_function", "p0") {
         [type: "DATEV2", testKey: "datev2('2023-01-01')", testValue: "datev2('2023-12-31')"],
         [type: "DATETIMEV2(3)", testKey: "CAST('2023-01-01 10:30:00.123' AS DATETIMEV2(3))", testValue: "CAST('2023-12-31 23:59:59.999' AS DATETIMEV2(3))"],
         [type: "CHAR(5)", testKey: "CAST('abc' AS CHAR(5))", testValue: "CAST('xyz' AS CHAR(5))"],
-        [type: "VARCHAR(10)", testKey: "CAST('hello' AS VARCHAR(10))", testValue: "CAST('world' AS VARCHAR(10))"]
+        [type: "VARCHAR(10)", testKey: "CAST('hello' AS VARCHAR(10))", testValue: "CAST('world' AS VARCHAR(10))"],
+        [type: "IPV4", testKey: "CAST('192.168.1.1' AS IPV4)", testValue: "CAST('192.168.1.2' AS IPV4)"],
+        [type: "IPV6", testKey: "CAST('2001:db8::1' AS IPV6)", testValue: "CAST('2001:db8::2' AS IPV6)"],
     ]
 
     def testCounter = 1
