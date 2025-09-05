@@ -89,8 +89,8 @@ public class SchemaTableTest {
         Assertions.assertTrue(processlist.shouldFetchAllFe());
         Assertions.assertFalse(processlist.shouldAddAgg());
 
-        SchemaTable view_dependency = (SchemaTable) SchemaTable.TABLE_MAP.get("view_dependency");
-        Assertions.assertFalse(view_dependency.shouldFetchAllFe());
-        Assertions.assertFalse(view_dependency.shouldAddAgg());
+        SchemaTable viewDependency = (SchemaTable) SchemaTable.TABLE_MAP.get("view_dependency");
+        Assertions.assertFalse(viewDependency.shouldFetchAllFe());
+        Assertions.assertFalse(viewDependency.shouldAddAgg());
     }
 }
