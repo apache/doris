@@ -27,7 +27,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
-
+using namespace ut_type;
 template <typename T>
 struct AnyValue {
     T value {};
@@ -39,9 +39,24 @@ struct AnyValue {
 };
 
 using IntDataSet = std::vector<std::pair<std::vector<AnyValue<int>>, AnyValue<int>>>;
+using Ipv4DataSet = std::vector<std::pair<std::vector<AnyValue<IPv4>>, AnyValue<IPv4>>>;
+using Ipv6DataSet = std::vector<std::pair<std::vector<AnyValue<IPv6>>, AnyValue<IPv6>>>;
+
+IPv4 ip4_from_string(const std::string& str) {
+    IPv4 ret;
+    IPv4Value::from_string(ret, str.data(), str.size());
+    return ret;
+}
+
+IPv6 ip6_from_string(const std::string& str) {
+    IPv6 ret;
+    IPv6Value::from_string(ret, str.data(), str.size());
+    return ret;
+}
+
 //TODO: this interlayer could be removed totally
-template <typename DataType, typename ReturnType = DataType>
-void check_function_array_wrapper(const std::string& func_name, const IntDataSet data_set,
+template <typename DataType, typename ReturnType = DataType, typename DataSetType = IntDataSet>
+void check_function_array_wrapper(const std::string& func_name, const DataSetType data_set,
                                   PrimitiveType t_idx, PrimitiveType ret_t_idx,
                                   bool nullable = false) {
     InputTypeSet input_types;
@@ -93,6 +108,23 @@ TEST(VFunctionArrayAggregationTest, TestArrayMin) {
             func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE));
+    Ipv4DataSet ipv4_data_set = {
+            {{}, nullptr},
+            {{ip4_from_string("192.168.1.1"), ip4_from_string("192.168.1.2"),
+              ip4_from_string("192.168.1.3")},
+             ip4_from_string("192.168.1.1")},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv4>(
+            func_name, data_set, PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV4));
+    Ipv6DataSet ipv6_data_set = {
+            {{}, nullptr},
+            {{ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888"),
+              ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888"),
+              ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888")},
+             ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888")},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv6>(
+            func_name, data_set, PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_IPV6));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMinNullable) {
@@ -116,6 +148,23 @@ TEST(VFunctionArrayAggregationTest, TestArrayMinNullable) {
             func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE, true));
+    Ipv4DataSet ipv4_data_set = {
+            {{}, nullptr},
+            {{ip4_from_string("192.168.1.1"), ip4_from_string("192.168.1.2"),
+              ip4_from_string("192.168.1.3")},
+             ip4_from_string("192.168.1.1")},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv4>(
+            func_name, data_set, PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV4, true));
+    Ipv6DataSet ipv6_data_set = {
+            {{}, nullptr},
+            {{ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888"),
+              ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888"),
+              ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888")},
+             ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888")},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv6>(
+            func_name, data_set, PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_IPV6, true));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMax) {
@@ -138,6 +187,23 @@ TEST(VFunctionArrayAggregationTest, TestArrayMax) {
             func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE));
+    Ipv4DataSet ipv4_data_set = {
+            {{}, nullptr},
+            {{ip4_from_string("192.168.1.1"), ip4_from_string("192.168.1.2"),
+              ip4_from_string("192.168.1.3")},
+             ip4_from_string("192.168.1.1")},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv4>(
+            func_name, data_set, PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV4));
+    Ipv6DataSet ipv6_data_set = {
+            {{}, nullptr},
+            {{ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888"),
+              ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888"),
+              ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888")},
+             ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888")},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv6>(
+            func_name, data_set, PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_IPV6));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMaxNullable) {
@@ -161,6 +227,23 @@ TEST(VFunctionArrayAggregationTest, TestArrayMaxNullable) {
             func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE, true));
+    Ipv4DataSet ipv4_data_set = {
+            {{}, nullptr},
+            {{ip4_from_string("192.168.1.1"), ip4_from_string("192.168.1.2"),
+              ip4_from_string("192.168.1.3")},
+             ip4_from_string("192.168.1.1")},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv4>(
+            func_name, data_set, PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV4, true));
+    Ipv6DataSet ipv6_data_set = {
+            {{}, nullptr},
+            {{ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888"),
+              ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888"),
+              ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888")},
+             ip6_from_string("2001:db8:3333:4444:5555:6666:7777:8888")},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv6>(
+            func_name, data_set, PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_IPV6, true));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArraySum) {
@@ -259,18 +342,14 @@ TEST(VFunctionArrayAggregationTest, TestArrayProduct) {
             {{}, nullptr},
             {{1, 2, 3}, 6},
     };
-    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_DOUBLE));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_DOUBLE));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_DOUBLE));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_DOUBLE));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_DOUBLE));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_DOUBLE));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeInt32>(
+            func_name, data_set, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeInt64>(
+            func_name, data_set, PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_BIGINT));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeInt128>(
+            func_name, data_set, PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_LARGEINT));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat32>(
+            func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE));
 }
@@ -282,18 +361,14 @@ TEST(VFunctionArrayAggregationTest, TestArrayProductNullable) {
             {{nullptr}, nullptr},
             {{1, nullptr, 3}, 3},
     };
-    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_DOUBLE, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_DOUBLE, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_DOUBLE, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_DOUBLE, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_DOUBLE, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(
-            func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_DOUBLE, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeInt32>(
+            func_name, data_set, PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeInt64>(
+            func_name, data_set, PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_BIGINT, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeInt128>(
+            func_name, data_set, PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_LARGEINT, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat32>(
+            func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE, true));
 }

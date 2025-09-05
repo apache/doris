@@ -20,7 +20,11 @@
 #include <CLucene.h>
 #include <CLucene/store/IndexInput.h>
 #include <CLucene/store/IndexOutput.h>
+// clang-format off
+#include "common/compile_check_avoid_begin.h"
 #include <faiss/Index.h>
+#include "common/compile_check_avoid_end.h"
+// clang-format on
 #include <gen_cpp/olap_file.pb.h>
 
 #include <string>

@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.bouncycastle.util.Strings;
 
 import java.util.List;
@@ -25,9 +26,13 @@ import java.util.Map;
 
 public class TableScanParams {
     public static final String PARAMS_NAME = "name";
-    public static String INCREMENTAL_READ = "incr";
-    public static String BRANCH = "branch";
-    public static String TAG = "tag";
+    public static final String INCREMENTAL_READ = "incr";
+    public static final String BRANCH = "branch";
+    public static final String TAG = "tag";
+    private static final ImmutableSet<String> VALID_PARAM_TYPES = ImmutableSet.of(
+            INCREMENTAL_READ,
+            BRANCH,
+            TAG);
 
     private final String paramType;
     // There are two ways to pass parameters to a function.
@@ -38,10 +43,18 @@ public class TableScanParams {
     private final Map<String, String> mapParams;
     private final List<String> listParams;
 
+    private void validate() {
+        if (!VALID_PARAM_TYPES.contains(paramType)) {
+            throw new IllegalArgumentException("Invalid param type: " + paramType);
+        }
+        // TODO: validate mapParams and listParams for different param types
+    }
+
     public TableScanParams(String paramType, Map<String, String> mapParams, List<String> listParams) {
         this.paramType = Strings.toLowerCase(paramType);
         this.mapParams = mapParams == null ? ImmutableMap.of() : ImmutableMap.copyOf(mapParams);
         this.listParams = listParams;
+        validate();
     }
 
     public List<String> getListParams() {

@@ -350,7 +350,7 @@ Status VariantColumnWriterImpl::_process_sparse_column(
             it != sparse_data_paths_statistics.end()) {
             ++it->second;
         } else if (sparse_data_paths_statistics.size() <
-                   config::variant_max_sparse_column_statistics_size) {
+                   _tablet_column->variant_max_sparse_column_statistics_size()) {
             sparse_data_paths_statistics.emplace(path, 1);
         }
     }

@@ -116,7 +116,7 @@ public class ClusterAction extends RestBaseController {
                 // Key: cluster_name Value: be status
                 Map<String, List<BeClusterInfo>> result = Maps.newHashMap();
 
-                ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdToBackend()
+                ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdToBackend(false)
                         .forEach((clusterId, backends) -> {
                             List<BeClusterInfo> bis = backends.stream().map(backend -> {
                                 BeClusterInfo bi = new BeClusterInfo();

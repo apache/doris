@@ -165,7 +165,8 @@ suite("test_generated_column_stream_mysql_load") {
         "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "5000",
         "group_commit_data_bytes" = "134217728",
-        "enable_mow_light_delete" = "false"
+        "enable_mow_light_delete" = "false",
+        "replication_num" = "1"
     );
     """
     streamLoad {

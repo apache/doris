@@ -54,6 +54,7 @@
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
@@ -300,7 +301,8 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
-        if (!_segment->can_apply_predicate_safely(predicate->column_id(), predicate, *_schema,
+        if (!_segment->can_apply_predicate_safely(predicate->column_id(), *_schema,
+                                                  _opts.target_cast_type_for_variants,
                                                   _opts.io_ctx.reader_type)) {
             continue;
         }
@@ -714,9 +716,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
             RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
             for (auto cid : cids) {
-                if (!_segment->can_apply_predicate_safely(cid,
-                                                          _opts.col_id_to_predicates.at(cid).get(),
-                                                          *_schema, _opts.io_ctx.reader_type)) {
+                if (!_segment->can_apply_predicate_safely(cid, *_schema,
+                                                          _opts.target_cast_type_for_variants,
+                                                          _opts.io_ctx.reader_type)) {
                     continue;
                 }
                 DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
@@ -746,8 +748,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
         for (auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-            if (!_segment->can_apply_predicate_safely(cid, _opts.col_id_to_predicates.at(cid).get(),
-                                                      *_schema, _opts.io_ctx.reader_type)) {
+            if (!_segment->can_apply_predicate_safely(cid, *_schema,
+                                                      _opts.target_cast_type_for_variants,
+                                                      _opts.io_ctx.reader_type)) {
                 continue;
             }
             // get row ranges by bf index of this column,
@@ -775,8 +778,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         // second filter data by zone map
         for (const auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-            if (!_segment->can_apply_predicate_safely(cid, _opts.col_id_to_predicates.at(cid).get(),
-                                                      *_schema, _opts.io_ctx.reader_type)) {
+            if (!_segment->can_apply_predicate_safely(cid, *_schema,
+                                                      _opts.target_cast_type_for_variants,
+                                                      _opts.io_ctx.reader_type)) {
                 continue;
             }
             // do not check zonemap if predicate does not support zonemap
@@ -807,8 +811,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
                         query_ctx->get_runtime_predicate(id).get_predicate(
                                 _opts.topn_filter_target_node_id);
-                if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
-                                                         runtime_predicate.get(), *_schema,
+                if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(), *_schema,
+                                                         _opts.target_cast_type_for_variants,
                                                          _opts.io_ctx.reader_type)) {
                     AndBlockColumnPredicate and_predicate;
                     and_predicate.add_column_predicate(
@@ -1305,13 +1309,14 @@ Status SegmentIterator::_init_index_iterators() {
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
             // If the column is an extracted column, we need to find the sub-column in the parent column reader.
+            std::shared_ptr<ColumnReader> column_reader;
             if (column.is_extracted_column()) {
-                if (_segment->_column_readers.find(column.parent_unique_id()) ==
-                    _segment->_column_readers.end()) {
+                if (!_segment->_column_reader_cache->get_column_reader(
+                            column.parent_unique_id(), &column_reader, _opts.stats) ||
+                    column_reader == nullptr) {
                     continue;
                 }
-                auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
-                inverted_indexs = assert_cast<VariantColumnReader*>(column_reader)
+                inverted_indexs = assert_cast<VariantColumnReader*>(column_reader.get())
                                           ->find_subcolumn_tablet_indexes(column.suffix_path());
             }
             // If the column is not an extracted column, we can directly get the inverted index metadata from the tablet schema.
@@ -2150,7 +2155,9 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
             }
         } else {
             simd::iterate_through_bits_mask(
-                    [&](const uint16_t bit_pos) { sel_rowid_idx[new_size++] = sel_pos + bit_pos; },
+                    [&](const int bit_pos) {
+                        sel_rowid_idx[new_size++] = sel_pos + (uint16_t)bit_pos;
+                    },
                     mask);
         }
         sel_pos += SIMD_BYTES;

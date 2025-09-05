@@ -2853,7 +2853,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
             for (Replica replica : replicas) {
-                if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
+                // TODO(dx)
+                //if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
+                if (!replica.isNormal()) {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }

@@ -23,6 +23,7 @@
 #include "sort_sink_operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 class SpillSortSinkLocalState;
 class SpillSortSinkOperatorX;
 
@@ -38,6 +39,8 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
+
+    bool is_blockable() const override;
 
     Status setup_in_memory_sort_op(RuntimeState* state);
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
@@ -99,4 +102,6 @@ private:
     friend class SpillSortSinkLocalState;
     std::unique_ptr<SortSinkOperatorX> _sort_sink_operator;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

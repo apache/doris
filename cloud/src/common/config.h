@@ -120,6 +120,8 @@ CONF_Bool(force_immediate_recycle, "false");
 CONF_mBool(enable_mow_job_key_check, "false");
 CONF_mBool(enable_restore_job_check, "false");
 
+CONF_mBool(enable_tablet_stats_key_check, "false");
+
 CONF_mBool(enable_checker_for_meta_key_check, "false");
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
@@ -327,7 +329,7 @@ CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-CONF_Int32(aws_log_level, "3");
+CONF_Int32(aws_log_level, "2");
 CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 && config <= 6; });
 
 // azure sdk log level
@@ -335,7 +337,7 @@ CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 
 //    Informational = 2,
 //    Warning = 3,
 //    Error = 4
-CONF_Int32(azure_log_level, "3");
+CONF_Int32(azure_log_level, "4");
 CONF_Validator(azure_log_level,
                [](const int config) -> bool { return config >= 1 && config <= 4; });
 

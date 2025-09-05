@@ -249,6 +249,17 @@ void convert_tmp_rowsets(
                 LOG(INFO) << "txn_id=" << txn_id << " partition_id=" << tmp_rowset_pb.partition_id()
                           << " version_pb:" << version_pb.ShortDebugString();
             }
+
+            if (version_pb.pending_txn_ids_size() == 0 || version_pb.pending_txn_ids(0) != txn_id) {
+                LOG(INFO) << "txn_id=" << txn_id << " partition_id=" << tmp_rowset_pb.partition_id()
+                          << " tmp_rowset_key=" << hex(tmp_rowset_key)
+                          << " version has already been converted."
+                          << " version_pb:" << version_pb.ShortDebugString();
+                TEST_SYNC_POINT_CALLBACK("convert_tmp_rowsets::already_been_converted",
+                                         &version_pb);
+                return;
+            }
+
             partition_versions.emplace(tmp_rowset_pb.partition_id(), version_pb);
             DCHECK_EQ(partition_versions.size(), 1) << partition_versions.size();
         }
@@ -323,15 +334,18 @@ void convert_tmp_rowsets(
         if (is_versioned_write) {
             // If this is a versioned write, we need to put the rowset with versionstamp
             RowsetMetaCloudPB copied_rowset_meta(tmp_rowset_pb);
-            if (!versioned::document_put(txn.get(), rowset_key, versionstamp,
+            std::string rowset_load_key = versioned::meta_rowset_load_key(
+                    {instance_id, tmp_rowset_pb.tablet_id(), version});
+            if (!versioned::document_put(txn.get(), rowset_load_key, versionstamp,
                                          std::move(copied_rowset_meta))) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize rowset_meta, txn_id=" << txn_id
-                   << " key=" << hex(rowset_key);
+                   << " key=" << hex(rowset_load_key);
                 msg = ss.str();
                 return;
             }
-            LOG(INFO) << "put versioned rowset_key=" << hex(rowset_key) << " txn_id=" << txn_id;
+            LOG(INFO) << "put versioned rowset_key=" << hex(rowset_load_key)
+                      << " txn_id=" << txn_id;
         }
     }
 
@@ -460,7 +474,8 @@ void make_committed_txn_visible(const std::string& instance_id, int64_t db_id, i
             txn->put(recycle_key, recycle_val);
             LOG(INFO) << "put recycle_key=" << hex(recycle_key) << " txn_id=" << txn_id;
         }
-
+        TEST_SYNC_POINT_RETURN_WITH_VOID("TxnLazyCommitTask::make_committed_txn_visible::commit",
+                                         &code);
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::COMMIT>(err);
@@ -721,8 +736,10 @@ void TxnLazyCommitTask::commit() {
                               << " version_pb=" << version_pb.ShortDebugString();
                     if (is_versioned_write) {
                         // Update the partition version with the specified versionstamp.
-                        versioned_put(txn.get(), ver_key, versionstamp, ver_val);
-                        LOG(INFO) << "put versioned ver_key=" << hex(ver_key)
+                        std::string versioned_key =
+                                versioned::partition_version_key({instance_id_, partition_id});
+                        versioned_put(txn.get(), versioned_key, versionstamp, ver_val);
+                        LOG(INFO) << "put versioned ver_key=" << hex(versioned_key)
                                   << " txn_id=" << txn_id_
                                   << " version_pb=" << version_pb.ShortDebugString();
                     }
