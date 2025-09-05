@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.action.OptimizeAction;
+import org.apache.doris.nereids.trees.plans.commands.action.OptimizeActionFactory;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -97,7 +98,7 @@ public class OptimizeTableCommand extends Command implements ForwardWithSync {
 
         // Create and execute the appropriate action
         try {
-            OptimizeAction action = OptimizeAction.createAction(
+            OptimizeAction action = OptimizeActionFactory.createAction(
                     actionType, properties, partitionNamesInfo, whereClause, externalTable);
 
             if (!action.isSupported(externalTable)) {
