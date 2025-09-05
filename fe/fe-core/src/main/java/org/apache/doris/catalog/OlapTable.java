@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.IndexDef;
@@ -123,6 +122,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 /**
@@ -186,6 +186,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // handled in postgsonprocess
     @Getter
     private Map<String, Partition> nameToPartition = Maps.newTreeMap();
+
+    private final Map<Long, Partition> idToPartitionCreating = Maps.newConcurrentMap();
+    private ConcurrentMap<String, Partition> nameToPartitionCreating = Maps.newConcurrentMap();
 
     @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo defaultDistributionInfo;
@@ -592,11 +595,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public Long getIndexIdByName(String indexName) {
         return indexNameToId.get(indexName);
-    }
-
-    public Long getSegmentV2FormatIndexId() {
-        String v2RollupIndexName = MaterializedViewHandler.NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + getName();
-        return indexNameToId.get(v2RollupIndexName);
     }
 
     public String getIndexNameById(long indexId) {
@@ -1253,9 +1251,24 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
+    public void addPartitionCreating(Partition partition) {
+        idToPartitionCreating.put(partition.getId(), partition);
+        nameToPartitionCreating.put(partition.getName(), partition);
+    }
+
     public void addPartition(Partition partition) {
         idToPartition.put(partition.getId(), partition);
         nameToPartition.put(partition.getName(), partition);
+    }
+
+    public void movePartitionToFinalMap(Partition partition) {
+        idToPartition.put(partition.getId(), partition);
+        nameToPartition.put(partition.getName(), partition);
+        idToPartitionCreating.remove(partition.getId());
+        nameToPartitionCreating.remove(partition.getName());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("move partition {} to final map in table {}", partition.getName(), name);
+        }
     }
 
     // This is a private method.
@@ -2718,7 +2731,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // return true if partition with given name already exist, both in partitions and temp partitions.
     // return false otherwise
     public boolean checkPartitionNameExist(String partitionName) {
-        if (nameToPartition.containsKey(partitionName)) {
+        if (nameToPartition.containsKey(partitionName) || nameToPartitionCreating.containsKey(partitionName)) {
             return true;
         }
         return tempPartitions.hasPartition(partitionName);
@@ -2731,7 +2744,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (isTempPartition) {
             return tempPartitions.hasPartition(partitionName);
         } else {
-            return nameToPartition.containsKey(partitionName);
+            return nameToPartition.containsKey(partitionName) || nameToPartitionCreating.containsKey(partitionName);
         }
     }
 
