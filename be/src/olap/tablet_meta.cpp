@@ -1012,25 +1012,19 @@ void TabletMeta::_check_mow_rowset_cache_version_size(size_t rowset_cache_versio
         rowset_cache_version_size > _rs_metas.size() + _stale_rs_metas.size()) {
         std::stringstream ss;
         auto rowset_ids = _delete_bitmap->get_rowset_cache_version();
-        for (const auto& rowset_id : rowset_ids) {
-            bool found = false;
+        std::set<std::string> tablet_rowset_ids;
+        {
+            std::shared_lock rlock(_meta_lock);
             for (auto& rs_meta : _rs_metas) {
-                if (rs_meta->rowset_id() == rowset_id) {
-                    found = true;
-                    break;
-                }
-            }
-            if (found) {
-                continue;
+                tablet_rowset_ids.emplace(rs_meta->rowset_id().to_string());
             }
             for (auto& rs_meta : _stale_rs_metas) {
-                if (rs_meta->rowset_id() == rowset_id) {
-                    found = true;
-                    break;
-                }
+                tablet_rowset_ids.emplace(rs_meta->rowset_id().to_string());
             }
-            if (!found) {
-                ss << rowset_id.to_string() << ", ";
+        }
+        for (const auto& rowset_id : rowset_ids) {
+            if (tablet_rowset_ids.find(rowset_id) == tablet_rowset_ids.end()) {
+                ss << rowset_id << ", ";
             }
         }
         // size(rowset_cache_version) <= size(_rs_metas) + size(_stale_rs_metas) + size(_unused_rs)
@@ -1412,11 +1406,11 @@ void DeleteBitmap::clear_rowset_cache_version() {
     VLOG_DEBUG << "clear agg cache version for tablet=" << _tablet_id;
 }
 
-std::set<RowsetId> DeleteBitmap::get_rowset_cache_version() {
-    std::set<RowsetId> set;
+std::set<std::string> DeleteBitmap::get_rowset_cache_version() {
+    std::set<std::string> set;
     std::shared_lock l(_rowset_cache_version_lock);
     for (auto& [k, _] : _rowset_cache_version) {
-        set.insert(k);
+        set.insert(k.to_string());
     }
     return set;
 }

@@ -54,6 +54,45 @@ inline std::string md5(const std::string& str) {
     return ss.str();
 }
 
+std::string hide_access_key(const std::string& ak);
+
+// is_handle_sk: true for encrypting sk, false for hiding ak
+inline void process_ak_sk_pattern(std::string& str, const std::string& pattern, bool is_handle_sk) {
+    size_t pos = 0;
+    while ((pos = str.find(pattern, pos)) != std::string::npos) {
+        size_t colon_pos = str.find(':', pos);
+        if (colon_pos == std::string::npos) {
+            pos += pattern.length();
+            continue;
+        }
+
+        size_t quote_pos = str.find('\"', colon_pos);
+        if (quote_pos == std::string::npos) {
+            pos += pattern.length();
+            continue;
+        }
+
+        size_t value_start = quote_pos + 1;
+        size_t value_end = str.find('\"', value_start);
+        if (value_end == std::string::npos) {
+            pos = value_start;
+            continue;
+        }
+
+        std::string key_value = str.substr(value_start, value_end - value_start);
+
+        if (is_handle_sk) {
+            key_value = "md5: " + md5(key_value);
+        } else {
+            key_value = hide_access_key(key_value);
+        }
+
+        str.replace(value_start, value_end - value_start, key_value);
+
+        pos = value_end + (key_value.length() - key_value.length());
+    }
+};
+
 /**
  * Encrypts all "sk" values in the given debug string with MD5 hashes.
  * 
@@ -61,140 +100,136 @@ inline std::string md5(const std::string& str) {
  * - Input string contains one or more occurrences of "sk: " followed by a value in double quotes.
  * - An md5() function exists that takes a std::string and returns its MD5 hash as a string.
  * 
- * @param debug_string Input string containing "sk: " fields to be encrypted.
+ * @param debug_string Input string containing "sk: " or ""sk": " fields to be encrypted.
  * @return A new string with all "sk" values replaced by their MD5 hashes.
  * 
- * Behavior:
+ * Behavior for "sk: " format:
  * 1. Searches for all occurrences of "sk: " in the input string.
  * 2. For each occurrence, extracts the value between double quotes.
  * 3. Replaces the original value with "md5: " followed by its MD5 hash.
  * 4. Returns the modified string with all "sk" values encrypted.
  */
 inline std::string encryt_sk(std::string debug_string) {
-    // Start position for searching "sk" fields
-    size_t pos = 0;
-    // Iterate through the string and find all occurrences of "sk: "
-    while ((pos = debug_string.find("sk: ", pos)) != std::string::npos) {
-        // Find the start and end of the "sk" value (assumed to be within quotes)
-        // Start after the quote
-        size_t sk_value_start = debug_string.find('\"', pos) + 1;
-        // End at the next quote
-        size_t sk_value_end = debug_string.find('\"', sk_value_start);
+    process_ak_sk_pattern(debug_string, "sk: ", true);
+    process_ak_sk_pattern(debug_string, "\"sk\"", true);
 
-        // Extract the "sk" value
-        std::string sk_value = debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
-        // Encrypt the "sk" value with MD5
-        std::string encrypted_sk = "md5: " + md5(sk_value);
-
-        // Replace the original "sk" value with the encrypted MD5 value
-        debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
-        // Move the position to the end of the current "sk" field and continue searching
-        pos = sk_value_end;
-    }
     return debug_string;
 }
 
-template <class Request>
-void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req) {
+inline std::string hide_ak(std::string debug_string) {
+    process_ak_sk_pattern(debug_string, "ak: ", false);
+    process_ak_sk_pattern(debug_string, "\"ak\"", false);
+
+    return debug_string;
+}
+
+template <class Request, class Response>
+void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req,
+               Response* res) {
+    res->Clear(); // clear response in case of this is call is a local retry in MS
     if constexpr (std::is_same_v<Request, CreateRowsetRequest>) {
-        LOG(INFO) << "begin " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " original client ip: " << req->request_ip();
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip();
     } else if constexpr (std::is_same_v<Request, CreateTabletsRequest>) {
-        LOG(INFO) << "begin " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " original client ip: " << req->request_ip();
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip();
     } else if constexpr (std::is_same_v<Request, UpdateDeleteBitmapRequest>) {
-        LOG(INFO) << "begin " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " original client ip: " << req->request_ip() << " table_id=" << req->table_id()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " table_id=" << req->table_id()
                   << " tablet_id=" << req->tablet_id() << " lock_id=" << req->lock_id()
                   << " initiator=" << req->initiator()
                   << " delete_bitmap_size=" << req->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Request, GetDeleteBitmapRequest>) {
-        LOG(INFO) << "begin " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " original client ip: " << req->request_ip()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
     } else if constexpr (std::is_same_v<Request, GetTabletStatsRequest>) {
-        VLOG_DEBUG << "begin " << func_name << " remote caller: " << ctrl->remote_side()
-                   << " original client ip: " << req->request_ip()
-                   << " tablet size: " << req->tablet_idx().size();
+        VLOG_DEBUG << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                   << " original_client_ip=" << req->request_ip()
+                   << " num_tablets: " << req->tablet_idx().size();
     } else if constexpr (std::is_same_v<Request, GetVersionRequest> ||
                          std::is_same_v<Request, GetRowsetRequest> ||
                          std::is_same_v<Request, GetTabletRequest>) {
-        VLOG_DEBUG << "begin " << func_name << " remote caller: " << ctrl->remote_side()
-                   << " original client ip: " << req->request_ip()
+        VLOG_DEBUG << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                   << " original_client_ip=" << req->request_ip()
                    << " request=" << req->ShortDebugString();
     } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
-        LOG(INFO) << "begin " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " original client ip: " << req->request_ip()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
     } else if constexpr (std::is_same_v<Request, GetDeleteBitmapUpdateLockRequest>) {
-        LOG(INFO) << "begin " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " original client ip: " << req->request_ip() << " table_id=" << req->table_id()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " table_id=" << req->table_id()
                   << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
                   << " expiration=" << req->expiration()
                   << " require_compaction_stats=" << req->require_compaction_stats();
+    } else if constexpr (std::is_same_v<Request, CreateInstanceRequest> ||
+                         std::is_same_v<Request, CreateStageRequest>) {
+        std::string debug_string = encryt_sk(req->ShortDebugString());
+        debug_string = hide_ak(debug_string);
+        TEST_SYNC_POINT_CALLBACK("sk_begin_rpc", &debug_string);
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " request=" << debug_string;
     } else {
-        LOG(INFO) << "begin " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " original client ip: " << req->request_ip()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " request=" << req->ShortDebugString();
     }
 }
 
-template <class Response>
-void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* res) {
+template <class Request, class Response>
+void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req,
+                Response* res) {
     if constexpr (std::is_same_v<Response, CommitTxnResponse>) {
-        if (res->status().code() != MetaServiceCode::OK) {
-            res->clear_table_ids();
-            res->clear_partition_ids();
-            res->clear_versions();
-        }
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetRowsetResponse>) {
-        if (res->status().code() != MetaServiceCode::OK) {
-            res->clear_rowset_meta();
-        }
-        VLOG_DEBUG << "finish " << func_name << " remote caller: " << ctrl->remote_side()
-                   << " status=" << res->status().ShortDebugString();
+        LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
+                << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                << " original_client_ip=" << req->request_ip()
+                << " request=" << req->ShortDebugString()
+                << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetTabletStatsResponse>) {
-        VLOG_DEBUG << "finish " << func_name << " remote caller: " << ctrl->remote_side()
-                   << " status=" << res->status().ShortDebugString()
-                   << " tablet size: " << res->tablet_stats().size();
+        LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
+                << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                << " original_client_ip=" << req->request_ip()
+                << " request=" << req->ShortDebugString()
+                << " status=" << res->status().ShortDebugString()
+                << " num_tablets: " << res->tablet_stats().size();
     } else if constexpr (std::is_same_v<Response, GetVersionResponse> ||
                          std::is_same_v<Response, GetTabletResponse>) {
-        VLOG_DEBUG << "finish " << func_name << " remote caller: " << ctrl->remote_side()
-                   << " response=" << res->ShortDebugString();
+        LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
+                << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                << " request=" << req->ShortDebugString()
+                << " original_client_ip=" << req->request_ip()
+                << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapResponse>) {
-        if (res->status().code() != MetaServiceCode::OK) {
-            res->clear_rowset_ids();
-            res->clear_segment_ids();
-            res->clear_versions();
-            res->clear_segment_delete_bitmaps();
-        }
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " status=" << res->status().ShortDebugString()
                   << " tablet=" << res->tablet_id()
                   << " delete_bitmap_count=" << res->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapUpdateLockResponse>) {
-        if (res->status().code() != MetaServiceCode::OK) {
-            res->clear_base_compaction_cnts();
-            res->clear_cumulative_compaction_cnts();
-            res->clear_cumulative_points();
-        }
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
-                         std::is_same_v<Response, GetStageResponse>) {
+                         std::is_same_v<Response, GetStageResponse> ||
+                         std::is_same_v<Response, GetInstanceResponse>) {
         std::string debug_string = encryt_sk(res->DebugString());
+        debug_string = hide_ak(debug_string);
         TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
-                  << " response=" << debug_string;
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " response=" << debug_string;
     } else {
-        LOG(INFO) << "finish " << func_name << " remote caller: " << ctrl->remote_side()
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " response=" << res->ShortDebugString();
     }
 }
 
-enum ErrCategory { CREATE, READ, COMMIT };
+enum class ErrCategory { CREATE, READ, COMMIT };
 
 template <ErrCategory category>
 inline MetaServiceCode cast_as(TxnErrorCode code) {
@@ -262,7 +297,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
 #define RPC_PREPROCESS(func_name, ...)                                                        \
     StopWatch sw;                                                                             \
     auto ctrl = static_cast<brpc::Controller*>(controller);                                   \
-    begin_rpc(#func_name, ctrl, request);                                                     \
+    begin_rpc(#func_name, ctrl, request, response);                                           \
     brpc::ClosureGuard closure_guard(done);                                                   \
     [[maybe_unused]] std::stringstream ss;                                                    \
     [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                              \
@@ -274,7 +309,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     DORIS_CLOUD_DEFER {                                                                       \
         response->mutable_status()->set_code(code);                                           \
         response->mutable_status()->set_msg(msg);                                             \
-        finish_rpc(#func_name, ctrl, response);                                               \
+        finish_rpc(#func_name, ctrl, request, response);                                      \
         closure_guard.reset(nullptr);                                                         \
         if (txn != nullptr) {                                                                 \
             stats.get_bytes += txn->get_bytes();                                              \

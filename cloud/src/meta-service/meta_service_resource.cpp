@@ -74,7 +74,7 @@ static int encrypt_ak_sk_helper(const std::string plain_ak, const std::string pl
                                 MetaServiceCode& code, std::string& msg) {
     std::string key;
     int64_t key_id;
-    LOG_INFO("enter encrypt_ak_sk_helper, plain_ak {}", plain_ak);
+    LOG_INFO("enter encrypt_ak_sk_helper, plain_ak {}", hide_access_key(plain_ak));
     int ret = get_newest_encryption_key_for_ak_sk(&key_id, &key);
     TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &ret, &key, &key_id);
     if (ret != 0) {
@@ -1659,7 +1659,10 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
                                       const CreateInstanceRequest* request,
                                       CreateInstanceResponse* response,
                                       ::google::protobuf::Closure* done) {
+    TEST_SYNC_POINT_CALLBACK("create_instance_sk_request",
+                             const_cast<CreateInstanceRequest**>(&request));
     RPC_PREPROCESS(create_instance, get, put);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("create_instance_sk_request_return");
     if (request->has_ram_user()) {
         auto& ram_user = request->ram_user();
         std::string ram_user_id = ram_user.has_user_id() ? ram_user.user_id() : "";
@@ -1735,6 +1738,10 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         msg = "failed to serialize";
         LOG(ERROR) << msg;
         return;
+    }
+
+    for (auto& obj_info : *instance.mutable_obj_info()) {
+        obj_info.set_ak(hide_access_key(obj_info.ak()));
     }
 
     LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
@@ -1976,6 +1983,8 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
                                    const GetInstanceRequest* request, GetInstanceResponse* response,
                                    ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_instance, get);
+    TEST_SYNC_POINT_CALLBACK("get_instance_sk_response", &response);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("get_instance_sk_response_return");
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2761,7 +2770,9 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
 void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller,
                                    const CreateStageRequest* request, CreateStageResponse* response,
                                    ::google::protobuf::Closure* done) {
+    TEST_SYNC_POINT_CALLBACK("create_stage_sk_request", const_cast<CreateStageRequest**>(&request));
     RPC_PREPROCESS(create_stage, get, put);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("create_stage_sk_request_return");
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;

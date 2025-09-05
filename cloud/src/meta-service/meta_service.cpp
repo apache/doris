@@ -1542,7 +1542,8 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
 void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
                          const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
                          std::string& msg, GetRowsetResponse* response) {
-    LOG(INFO) << "get_rowset start=" << start << ", end=" << end;
+    LOG(INFO) << "get_rowset start=" << start << ", end="
+              << " tablet_id=" << tablet_id;
     MetaRowsetKeyInfo key_info0 {instance_id, tablet_id, start};
     MetaRowsetKeyInfo key_info1 {instance_id, tablet_id, end + 1};
     std::string key0;
@@ -1554,7 +1555,8 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
     int num_rowsets = 0;
     DORIS_CLOUD_DEFER_COPY(key0, key1) {
         LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=[" << hex(key0)
-                  << "," << hex(key1) << "]";
+                  << "," << hex(key1) << "]"
+                  << " tablet_id=" << tablet_id;
     };
 
     std::stringstream ss;
@@ -1562,7 +1564,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
         TxnErrorCode err = txn->get(key0, key1, &it);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
-            ss << "internal error, failed to get rowset, err=" << err;
+            ss << "internal error, failed to get rowset, err=" << err << " tablet_id=" << tablet_id;
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
@@ -1576,14 +1578,16 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
             if (byte_size + v.size() > std::numeric_limits<int32_t>::max()) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                 msg = fmt::format(
-                        "rowset meta exceeded 2G, unable to serialize, key={}. byte_size={}",
-                        hex(k), byte_size);
+                        "rowset meta exceeded 2G, unable to serialize, key={}. byte_size={} "
+                        "tablet_id={}",
+                        hex(k), byte_size, tablet_id);
                 LOG(WARNING) << msg;
                 return;
             }
             if (!rs->ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "malformed rowset meta, unable to serialize";
+                msg = "malformed rowset meta, unable to serialize, tablet_id=" +
+                      std::to_string(tablet_id);
                 LOG(WARNING) << msg << " key=" << hex(k);
                 return;
             }
@@ -1712,7 +1716,9 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     if (!request->has_base_compaction_cnt() || !request->has_cumulative_compaction_cnt() ||
         !request->has_cumulative_point()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "no valid compaction_cnt or cumulative_point given";
+        msg = "no valid compaction_cnt or cumulative_point given, tablet_id=" +
+              std::to_string(tablet_id);
+        LOG(WARNING) << msg;
         return;
     }
     int64_t req_bc_cnt = request->base_compaction_cnt();
@@ -3104,6 +3110,32 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
     }
 
     response->mutable_schema_dict()->Swap(&schema_dict);
+}
+
+std::string hide_access_key(const std::string& ak) {
+    std::string key = ak;
+    size_t key_len = key.length();
+    size_t reserved_count;
+    if (key_len > 6) {
+        reserved_count = 6;
+    } else if (key_len > 2) {
+        reserved_count = key_len - 2;
+    } else {
+        reserved_count = 0;
+    }
+
+    size_t x_count = key_len - reserved_count;
+    size_t left_x_count = x_count / 2;
+
+    if (left_x_count > 0) {
+        key.replace(0, left_x_count, left_x_count, 'x');
+    }
+
+    if (x_count - left_x_count > 0) {
+        key.replace(key_len - (x_count - left_x_count), x_count - left_x_count,
+                    x_count - left_x_count, 'x');
+    }
+    return key;
 }
 
 } // namespace doris::cloud
