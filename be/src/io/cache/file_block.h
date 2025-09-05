@@ -112,6 +112,8 @@ public:
 
     FileCacheType cache_type() const { return _key.meta.type; }
 
+    void set_cache_type(FileCacheType new_type) { _key.meta.type = new_type; }
+
     static uint64_t get_caller_id();
 
     std::string get_info_for_log() const;

@@ -436,13 +436,16 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
                 ctx.cache_type = FileCacheType::NORMAL;
             } else if (queue_name == "disposable") {
                 ctx.cache_type = FileCacheType::DISPOSABLE;
+            } else if (queue_name == "cold_normal") {
+                ctx.cache_type = FileCacheType::COLD_NORMAL;
             } else {
                 LOG_WARNING("unknown queue type for lru restore, skip");
                 DCHECK(false);
                 return;
             }
             // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
-            _mgr->add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
+            _mgr->add_cell_directly(hash, ctx, offset, size, FileBlock::State::DOWNLOADED,
+                                    cache_lock);
         }
         in.close();
     } else {
@@ -452,7 +455,7 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
 };
 
 void CacheLRUDumper::remove_lru_dump_files() {
-    std::vector<std::string> queue_names = {"disposable", "index", "normal", "ttl"};
+    std::vector<std::string> queue_names = {"disposable", "index", "normal", "ttl", "cold_normal"};
     for (const auto& queue_name : queue_names) {
         std::string filename =
                 fmt::format("{}/lru_dump_{}.tail", _mgr->_cache_base_path, queue_name);

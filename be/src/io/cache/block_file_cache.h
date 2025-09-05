@@ -337,9 +337,13 @@ private:
                                     size_t offset, size_t size, FileBlock::State state,
                                     std::lock_guard<std::mutex>& cache_lock);
 
+    virtual FileBlockCell* add_cell_directly(const UInt128Wrapper& hash, const CacheContext& context,
+                                    size_t offset, size_t size, FileBlock::State state,
+                                    std::lock_guard<std::mutex>& cache_lock);
+
     Status initialize_unlocked(std::lock_guard<std::mutex>& cache_lock);
 
-    void use_cell(const FileBlockCell& cell, FileBlocks* result, bool not_need_move,
+    void use_cell(FileBlockCell& cell, FileBlocks* result, bool not_need_move,
                   std::lock_guard<std::mutex>& cache_lock);
 
     bool try_reserve_for_lru(const UInt128Wrapper& hash, QueryFileCacheContextPtr query_context,
@@ -474,6 +478,7 @@ private:
     LRUQueue _normal_queue;
     LRUQueue _disposable_queue;
     LRUQueue _ttl_queue;
+    LRUQueue _cold_normal_queue;
 
     // keys for async remove
     RecycleFileCacheKeys _recycle_keys;
@@ -489,17 +494,19 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_cache_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _cur_cold_normal_queue_element_count_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _cur_cold_normal_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
-    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, 5> _queue_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_bytes_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _gc_evict_count_metrics;
-    std::shared_ptr<bvar::Adder<size_t>> _evict_by_time_metrics_matrix[4][4];
-    std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
-    std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_time_metrics_matrix[5][5];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[5][5];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[5];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_try_release;
 
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;

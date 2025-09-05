@@ -258,7 +258,12 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
         if (total_size < 0 || (config::enable_file_cache_query_limit && query_limit_bytes < 0)) {
             return Status::InvalidArgument("total_size or query_limit should not less than zero");
         }
-
+        if (config::enable_normal_queue_cold_hot_separation) {
+            if (config::normal_queue_cold_percent <= 0)
+                return Status::InvalidArgument("The config normal_queue_cold_percent must be greater than 0.");
+            if (config::normal_queue_cold_percent >= 100)
+                return Status::InvalidArgument("The config normal_queue_cold_percent must be less than 0.");
+        }
         // percent
         auto get_percent_value = [&](const std::string& key, size_t& percent) {
             auto& value = map.FindMember(key.c_str())->value;
