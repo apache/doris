@@ -18,6 +18,7 @@
 #include "cloud/cloud_tablet.h"
 
 #include <bvar/bvar.h>
+#include <bvar/latency_recorder.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <rapidjson/document.h>
@@ -123,6 +124,8 @@ bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_triggered_by_job_num(
         "file_cache_warm_up_rowset_triggered_by_job_num");
 bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_triggered_by_sync_rowset_num(
         "file_cache_warm_up_rowset_triggered_by_sync_rowset_num");
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_all_segments_latency(
+        "file_cache_warm_up_rowset_all_segments_latency");
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
         : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
@@ -1598,19 +1601,21 @@ Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
 
 WarmUpState CloudTablet::get_rowset_warmup_state(RowsetId rowset_id) {
     std::shared_lock rlock(_meta_lock);
-    if (_rowset_warm_up_states.find(rowset_id) == _rowset_warm_up_states.end()) {
+    if (!_rowset_warm_up_states.contains(rowset_id)) {
         return WarmUpState::NONE;
     }
-    return _rowset_warm_up_states[rowset_id].first;
+    return _rowset_warm_up_states[rowset_id].state;
 }
 
-bool CloudTablet::add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state) {
+bool CloudTablet::add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state,
+                                          std::chrono::steady_clock::time_point start_tp) {
     std::lock_guard wlock(_meta_lock);
-    return add_rowset_warmup_state_unlocked(rowset, state);
+    return add_rowset_warmup_state_unlocked(rowset, state, start_tp);
 }
 
-bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state) {
-    if (_rowset_warm_up_states.find(rowset.rowset_id()) != _rowset_warm_up_states.end()) {
+bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state,
+                                                   std::chrono::steady_clock::time_point start_tp) {
+    if (_rowset_warm_up_states.contains(rowset.rowset_id())) {
         return false;
     }
     if (state == WarmUpState::TRIGGERED_BY_JOB) {
@@ -1618,13 +1623,14 @@ bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, War
     } else if (state == WarmUpState::TRIGGERED_BY_SYNC_ROWSET) {
         g_file_cache_warm_up_rowset_triggered_by_sync_rowset_num << 1;
     }
-    _rowset_warm_up_states[rowset.rowset_id()] = std::make_pair(state, rowset.num_segments());
+    _rowset_warm_up_states[rowset.rowset_id()] = {
+            .state = state, .num_segments = rowset.num_segments(), .start_tp = start_tp};
     return true;
 }
 
 WarmUpState CloudTablet::complete_rowset_segment_warmup(RowsetId rowset_id, Status status) {
     std::lock_guard wlock(_meta_lock);
-    if (_rowset_warm_up_states.find(rowset_id) == _rowset_warm_up_states.end()) {
+    if (!_rowset_warm_up_states.contains(rowset_id)) {
         return WarmUpState::NONE;
     }
     VLOG_DEBUG << "complete rowset segment warmup for rowset " << rowset_id << ", " << status;
@@ -1632,13 +1638,18 @@ WarmUpState CloudTablet::complete_rowset_segment_warmup(RowsetId rowset_id, Stat
     if (!status.ok()) {
         g_file_cache_warm_up_segment_failed_num << 1;
     }
-    _rowset_warm_up_states[rowset_id].second--;
-    if (_rowset_warm_up_states[rowset_id].second <= 0) {
+    _rowset_warm_up_states[rowset_id].num_segments--;
+    if (_rowset_warm_up_states[rowset_id].num_segments <= 0) {
         g_file_cache_warm_up_rowset_complete_num << 1;
         add_warmed_up_rowset(rowset_id);
-        _rowset_warm_up_states[rowset_id].first = WarmUpState::DONE;
+        auto cost = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() -
+                            _rowset_warm_up_states[rowset_id].start_tp)
+                            .count();
+        g_file_cache_warm_up_rowset_all_segments_latency << cost;
+        _rowset_warm_up_states[rowset_id].state = WarmUpState::DONE;
     }
-    return _rowset_warm_up_states[rowset_id].first;
+    return _rowset_warm_up_states[rowset_id].state;
 }
 
 #include "common/compile_check_end.h"
