@@ -493,7 +493,8 @@ TEST_F(BlockFileCacheTest, test_lru_duplicate_queue_entry_restore) {
     }
 }
 
-TEST_F(BlockFileCacheTest, cached_remote_file_reader_read_direclt_order_check) {
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
+    std::string cache_base_path = caches_dir / "cache_direct_read_order_check" / "";
     config::enable_read_cache_file_directly = true;
     config::file_cache_background_block_lru_update_interval_ms = 1000;
     if (fs::exists(cache_base_path)) {
@@ -515,7 +516,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_read_direclt_order_check) {
     settings.max_file_block_size = 1048576;
 
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
-    auto cache = FileCacheFactory::instance()->_caches[0].get();
+    auto cache = FileCacheFactory::instance()->_path_to_cache[cache_base_path];
 
     FileReaderSPtr local_reader;
     ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader));

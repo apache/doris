@@ -3674,6 +3674,7 @@ TEST_F(BlockFileCacheTest, query_file_cache_reserve) {
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader" / "";
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3782,6 +3783,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_tail) {
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_tail" / "";
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3844,6 +3846,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_tail) {
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_error_handle" / "";
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3925,6 +3928,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_init) {
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_init" / "";
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3986,6 +3990,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_init) {
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent) {
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_concurrent" / "";
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -4062,6 +4067,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent) {
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent_2) {
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_concurrent_2" / "";
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -4575,6 +4581,7 @@ TEST_F(BlockFileCacheTest, remove_if_cached_when_isnt_releasable) {
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_opt_lock" / "";
     config::enable_read_cache_file_directly = true;
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -7192,6 +7199,7 @@ TEST_F(BlockFileCacheTest, validate_get_or_set_crash) {
 extern bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes;
 
 TEST_F(BlockFileCacheTest, reader_dryrun_when_download_file_cache) {
+    std::string cache_base_path = caches_dir / "reader_dryrun_when_download_file_cache" / "";
     bool org = config::enable_reader_dryrun_when_download_file_cache;
     config::enable_reader_dryrun_when_download_file_cache = true;
     if (fs::exists(cache_base_path)) {
@@ -7669,6 +7677,7 @@ TEST_F(BlockFileCacheTest, test_upgrade_cache_dir_version) {
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_ttl_index) {
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_ttl_index" / "";
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -7745,6 +7754,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_ttl_index) {
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_normal_index) {
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_normal_index" / "";
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -7975,6 +7985,7 @@ extern bvar::Adder<uint64_t> g_read_cache_direct_partial_bytes;
 extern bvar::Adder<uint64_t> g_read_cache_indirect_bytes;
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
+    std::string cache_base_path = caches_dir / "cache_direct_read_bytes_check" / "";
     uint64_t org_g_read_cache_direct_whole_num = g_read_cache_direct_whole_num.get_value();
     uint64_t org_g_read_cache_direct_whole_bytes = g_read_cache_direct_whole_bytes.get_value();
     uint64_t org_g_read_cache_direct_partial_num = g_read_cache_direct_partial_num.get_value();
@@ -8023,7 +8034,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
             reader->read_at(100, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(std::string(64_kb, '0'), buffer);
 
-    auto cache = FileCacheFactory::instance()->_caches[0].get();
+    auto cache = FileCacheFactory::instance()->_path_to_cache[cache_base_path];
     std::this_thread::sleep_for(std::chrono::seconds(1));
     EXPECT_EQ(cache->_cur_cache_size, 1048576);
     EXPECT_EQ(g_read_cache_indirect_num.get_value() - org_g_read_cache_indirect_num, 1);
