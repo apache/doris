@@ -39,7 +39,6 @@ public class IcebergOptimizeActionFactory {
     public static final String FAST_FORWARD = "fast_forward";
     public static final String EXPIRE_SNAPSHOTS = "expire_snapshots";
     public static final String REWRITE_DATA_FILES = "rewrite_data_files";
-    public static final String REWRITE_MANIFESTS = "rewrite_manifests";
 
     /**
      * Create an Iceberg-specific OptimizeAction instance.
@@ -81,9 +80,6 @@ public class IcebergOptimizeActionFactory {
             case REWRITE_DATA_FILES:
                 return new IcebergRewriteDataFilesAction(properties, partitionNamesInfo,
                         whereCondition, table);
-            case REWRITE_MANIFESTS:
-                return new IcebergRewriteManifestsAction(properties, partitionNamesInfo,
-                        whereCondition, table);
             default:
                 throw new DdlException("Unsupported Iceberg procedure: " + actionType
                         + ". Supported procedures: " + String.join(", ", getSupportedActions()));
@@ -103,8 +99,7 @@ public class IcebergOptimizeActionFactory {
                 CHERRYPICK_SNAPSHOT,
                 FAST_FORWARD,
                 EXPIRE_SNAPSHOTS,
-                REWRITE_DATA_FILES,
-                REWRITE_MANIFESTS
+                REWRITE_DATA_FILES
         };
     }
 }
