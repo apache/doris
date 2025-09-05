@@ -303,8 +303,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        const auto* const datatype_map =
-                assert_cast<const DataTypeMap*>(arguments[0].get());
+        const auto* const datatype_map = assert_cast<const DataTypeMap*>(arguments[0].get());
 
         // Create struct type with named fields "key" and "value"
         // key and value are always nullable
