@@ -44,7 +44,7 @@ static RowsetSharedPtr create_rowset(Version version, int num_segments, bool ove
     rs_meta->set_rowset_type(BETA_ROWSET); // important
     rs_meta->_rowset_meta_pb.set_start_version(version.first);
     rs_meta->_rowset_meta_pb.set_end_version(version.second);
-    rs_meta->_rowset_meta_pb.set_rows_num(rows_num);
+    rs_meta->_rowset_meta_pb.set_num_rows(rows_num);
     rs_meta->set_num_segments(num_segments);
     rs_meta->set_segments_overlap(overlapping ? OVERLAPPING : NONOVERLAPPING);
     rs_meta->set_total_disk_size(data_size);
