@@ -191,8 +191,11 @@ PipelineTaskSPtr MultiCoreTaskQueue::_steal_take(int core_id) {
 }
 
 Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task) {
-    task->incr_thread_id(_core_size);
-    return push_back(task, task->get_thread_id());
+    int thread_id = task->get_thread_id();
+    if (thread_id < 0) {
+        thread_id = _next_core.fetch_add(1) % _core_size;
+    }
+    return push_back(task, thread_id);
 }
 
 Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task, int core_id) {

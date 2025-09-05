@@ -79,11 +79,11 @@ public:
         return _on_blocking_scheduler ? _tracking.blocking_thread_id : _tracking.simple_thread_id;
     }
 
-    PipelineTask& incr_thread_id(int num_threads) {
+    PipelineTask& set_thread_id(int thread_id) {
         if (_on_blocking_scheduler) {
-            _tracking.blocking_thread_id = (_tracking.blocking_thread_id + 1) % num_threads;
+            _tracking.blocking_thread_id = thread_id;
         } else {
-            _tracking.simple_thread_id = (_tracking.simple_thread_id + 1) % num_threads;
+            _tracking.simple_thread_id = thread_id;
         }
         COUNTER_UPDATE(_core_change_times, 1);
         return *this;

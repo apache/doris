@@ -116,8 +116,7 @@ void TaskScheduler::_do_work(int index) {
             // Fragment already finished
             continue;
         }
-        task->set_running(true);
-        DCHECK_EQ(task->get_thread_id(), index);
+        task->set_running(true).set_thread_id(index);
         bool done = false;
         auto status = Status::OK();
         int64_t exec_ns = 0;
