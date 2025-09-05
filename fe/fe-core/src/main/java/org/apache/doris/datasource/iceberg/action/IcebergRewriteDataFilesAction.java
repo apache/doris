@@ -35,8 +35,6 @@ import java.util.Optional;
 public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     public static final String TARGET_FILE_SIZE = "target_file_size";
     public static final String MIN_INPUT_FILES = "min_input_files";
-    public static final String MAX_CONCURRENT_FILE_GROUP_REWRITES = "max_concurrent_file_group_rewrites";
-    public static final String PARTIAL_PROGRESS_ENABLED = "partial_progress_enabled";
 
     public IcebergRewriteDataFilesAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -68,14 +66,6 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid min_input_files format: " + properties.get(MIN_INPUT_FILES));
-            }
-        }
-
-        // Validate partial_progress_enabled parameter
-        if (properties.containsKey(PARTIAL_PROGRESS_ENABLED)) {
-            String partialProgressEnabled = properties.get(PARTIAL_PROGRESS_ENABLED);
-            if (!"true".equalsIgnoreCase(partialProgressEnabled) && !"false".equalsIgnoreCase(partialProgressEnabled)) {
-                throw new DdlException("partial_progress_enabled must be 'true' or 'false'");
             }
         }
 

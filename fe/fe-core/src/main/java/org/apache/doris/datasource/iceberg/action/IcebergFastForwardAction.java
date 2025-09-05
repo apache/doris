@@ -48,7 +48,7 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
         String targetSnapshot = getProperty(TARGET_SNAPSHOT, "");
 
         // Either target_branch or target_snapshot must be specified, but not both
-        if ((targetBranch.isEmpty() && targetSnapshot.isEmpty()) 
+        if ((targetBranch.isEmpty() && targetSnapshot.isEmpty())
                 || (!targetBranch.isEmpty() && !targetSnapshot.isEmpty())) {
             throw new DdlException("Either 'target_branch' or 'target_snapshot' must be specified, but not both");
         }
