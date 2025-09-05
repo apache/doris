@@ -2185,7 +2185,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
-                LOG.warn("table {} is not found and skip set state to normal", tableName);
                 continue;
             }
 
