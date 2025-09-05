@@ -54,6 +54,8 @@ import java.io.DataOutput;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -760,6 +762,13 @@ public class BackupJobInfo implements Writable {
         return jobInfo;
     }
 
+    public static BackupJobInfo fromInputStream(InputStream inputStream) throws IOException {
+        try (InputStreamReader reader = new InputStreamReader(inputStream)) {
+            BackupJobInfo jobInfo = GsonUtils.GSON.fromJson(reader, BackupJobInfo.class);
+            jobInfo.initBackupJobInfoAfterDeserialize();
+            return jobInfo;
+        }
+    }
 
     public void writeToFile(File jobInfoFile) throws FileNotFoundException {
         PrintWriter printWriter = new PrintWriter(jobInfoFile);
