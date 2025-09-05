@@ -40,10 +40,13 @@ import java.util.List;
 public class YearsAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
         ComputeSignatureForDateArithmetic, PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
 
+    //ATTN: must place Datetime before Date, because for castring from string like literal, date and datetime has
+    // the same precedence, but we prefer datetime to avoid data loss. for string literal which could cast to Date
+    // without loss, we handle it by ComputeSignatureForDateArithmetic.
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
-                    IntegerType.INSTANCE));
+                    IntegerType.INSTANCE),
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE));
 
     public YearsAdd(Expression arg0, Expression arg1) {
         super("years_add", arg0, arg1);

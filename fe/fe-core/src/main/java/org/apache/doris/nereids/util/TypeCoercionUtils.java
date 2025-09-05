@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -111,7 +112,6 @@ import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -146,30 +146,6 @@ public class TypeCoercionUtils {
             SmallIntType.INSTANCE,
             TinyIntType.INSTANCE
     );
-
-    private static final Map<String, IntegralType> TIMESTAMP_ARITHMETIC_INTERVAL_TYPES =
-            ImmutableMap.<String, IntegralType>builder()
-                .put("years_add", IntegerType.INSTANCE)
-                .put("years_sub", IntegerType.INSTANCE)
-                .put("quarters_add", IntegerType.INSTANCE)
-                .put("quarters_sub", IntegerType.INSTANCE)
-                .put("months_add", IntegerType.INSTANCE)
-                .put("months_sub", IntegerType.INSTANCE)
-                .put("weeks_add", IntegerType.INSTANCE)
-                .put("weeks_sub", IntegerType.INSTANCE)
-                .put("days_add", IntegerType.INSTANCE)
-                .put("days_sub", IntegerType.INSTANCE)
-                .put("hours_add", IntegerType.INSTANCE)
-                .put("hours_sub", IntegerType.INSTANCE)
-                .put("minutes_add", BigIntType.INSTANCE)
-                .put("minutes_sub", BigIntType.INSTANCE)
-                .put("seconds_add", BigIntType.INSTANCE)
-                .put("seconds_sub", BigIntType.INSTANCE)
-                .put("milliseconds_add", BigIntType.INSTANCE)
-                .put("milliseconds_sub", BigIntType.INSTANCE)
-                .put("microseconds_add", BigIntType.INSTANCE)
-                .put("microseconds_sub", BigIntType.INSTANCE)
-                .build();
 
     private static final Logger LOG = LogManager.getLogger(TypeCoercionUtils.class);
 
@@ -942,49 +918,24 @@ public class TypeCoercionUtils {
      * process timestamp arithmetic type coercion.
      */
     public static Expression processTimestampArithmetic(TimestampArithmetic timestampArithmetic) {
-        // check
         timestampArithmetic.checkLegalityBeforeTypeCoercion();
 
         String name = timestampArithmetic.getFuncName().toLowerCase();
+        List<Expression> children = timestampArithmetic.children();
         Expression left = timestampArithmetic.left();
         Expression right = timestampArithmetic.right();
-        // left
-        DataType leftType = left.getDataType();
 
-        if (!leftType.isDateLikeType()) {
-            if (Config.enable_date_conversion && canCastTo(leftType, DateTimeV2Type.SYSTEM_DEFAULT)) {
-                leftType = DateTimeV2Type.SYSTEM_DEFAULT;
-            } else if (canCastTo(leftType, DateTimeType.INSTANCE)) {
-                leftType = DateTimeType.INSTANCE;
-            } else {
-                throw new AnalysisException("Operand '" + left.toSql()
-                        + "' of timestamp arithmetic expression '" + timestampArithmetic.toSql() + "' returns type '"
-                        + left.getDataType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
-            }
-        }
-        if (leftType.isDateType() && timestampArithmetic.getTimeUnit().isDateTimeUnit()) {
-            leftType = DateTimeType.INSTANCE;
-        }
-        if (leftType.isDateV2Type() && timestampArithmetic.getTimeUnit().isDateTimeUnit()) {
-            leftType = DateTimeV2Type.SYSTEM_DEFAULT;
-        }
-        if (!left.getDataType().isDateLikeType() && !left.getDataType().isNullType()) {
-            checkCanCastTo(left.getDataType(), leftType);
-            left = castIfNotSameType(left, leftType);
-        }
+        // get right signature by normal function resolution
+        FunctionBuilder functionBuilder = Env.getCurrentEnv().getFunctionRegistry().findFunctionBuilder(name,
+                children);
+        Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair = functionBuilder.build(name,
+                children);
+        FunctionSignature signature = targetExpressionPair.second.getSignature();
+        DataType leftType = signature.getArgType(0);
+        DataType rightType = signature.getArgType(1);
 
-        // right
-        if (!(right.getDataType() instanceof PrimitiveType)) {
-            throw new AnalysisException("the second argument must be a scalar type. but it is " + right.toSql());
-        }
-        if (!right.getDataType().isIntegerType()) {
-            if (!ScalarType.canCastTo((ScalarType) right.getDataType().toCatalogDataType(), Type.INT)) {
-                throw new AnalysisException("Operand '" + right.toSql()
-                        + "' of timestamp arithmetic expression '" + timestampArithmetic.toSql() + "' returns type '"
-                        + right.getDataType() + "' which is incompatible with expected type 'INT'.");
-            }
-            right = castIfNotSameType(right, TIMESTAMP_ARITHMETIC_INTERVAL_TYPES.get(name));
-        }
+        left = castIfNotSameType(left, leftType);
+        right = castIfNotSameType(right, rightType);
 
         return timestampArithmetic.withChildren(left, right);
     }
