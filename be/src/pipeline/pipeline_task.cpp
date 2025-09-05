@@ -703,9 +703,10 @@ std::string PipelineTask::debug_string() {
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[id = {}, open = {}, eos = {}, state = {}, dry run = "
                    "{}, _wake_up_early = {}, time elapsed since last state changing = {}s, spilling"
-                   " = {}, is running = {}]",
+                   " = {}, is running = {}, _on_blocking_scheduler = {}, thread_id = {}]",
                    _index, _opened, _eos, _to_string(_exec_state), _dry_run, _wake_up_early.load(),
-                   _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling, is_running());
+                   _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling, is_running(),
+                   _on_blocking_scheduler, get_thread_id());
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
