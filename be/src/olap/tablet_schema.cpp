@@ -682,6 +682,10 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_variant_enable_typed_paths_to_sparse()) {
         _variant_enable_typed_paths_to_sparse = column.variant_enable_typed_paths_to_sparse();
     }
+    if (column.has_variant_max_sparse_column_statistics_size()) {
+        _variant_max_sparse_column_statistics_size =
+                column.variant_max_sparse_column_statistics_size();
+    }
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
@@ -765,6 +769,8 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_max_subcolumns_count(_variant_max_subcolumns_count);
     column->set_pattern_type(_pattern_type);
     column->set_variant_enable_typed_paths_to_sparse(_variant_enable_typed_paths_to_sparse);
+    column->set_variant_max_sparse_column_statistics_size(
+            _variant_max_sparse_column_statistics_size);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
@@ -1027,26 +1033,6 @@ void TabletSchema::append_index(TabletIndex&& index) {
             _col_id_suffix_to_index[key].push_back(index_pos);
         }
     }
-}
-
-void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_type,
-                                std::vector<TabletIndex>&& indexes) {
-    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path = escape_for_path_name(col.suffix_path());
-    IndexKey key(index_type, col_unique_id, suffix_path);
-    auto iter = _col_id_suffix_to_index.find(key);
-    if (iter != _col_id_suffix_to_index.end()) {
-        if (iter->second.size() == indexes.size()) {
-            for (size_t i = 0; i < iter->second.size(); ++i) {
-                size_t pos = iter->second[i];
-                if (pos < _indexes.size()) {
-                    _indexes[pos] = std::make_shared<TabletIndex>(std::move(indexes[i]));
-                }
-            }
-        }
-    }
-    LOG(WARNING) << " failed to update_index: " << index_type << " " << col_unique_id << " "
-                 << suffix_path;
 }
 
 void TabletSchema::replace_column(size_t pos, TabletColumn new_col) {

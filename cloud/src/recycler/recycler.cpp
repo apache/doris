@@ -436,6 +436,11 @@ public:
             : instance_id_(std::move(instance_id)), txn_kv_(std::move(txn_kv)) {}
 
     // Return 0 if success, 1 if schema kv not found, negative for error
+    // For the same index_id, schema_version, res, since `get` is not completely atomic
+    // one thread has not finished inserting, and another thread has not get the index_id and schema_version,
+    // resulting in repeated addition and inaccuracy.
+    // however, this approach can reduce the lock range and sacrifice a bit of meta repeated get to improve concurrency performance.
+    // repeated addition does not affect correctness.
     int get(int64_t index_id, int32_t schema_version, InvertedIndexInfo& res) {
         {
             std::lock_guard lock(mtx_);
@@ -3475,7 +3480,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
     const std::string task_name = "recycle_tmp_rowsets";
     int64_t num_scanned = 0;
     int64_t num_expired = 0;
-    int64_t num_recycled = 0;
+    std::atomic_long num_recycled = 0;
     size_t expired_rowset_size = 0;
     size_t total_rowset_key_size = 0;
     size_t total_rowset_value_size = 0;
@@ -3509,11 +3514,16 @@ int InstanceRecycler::recycle_tmp_rowsets() {
     };
 
     // Elements in `tmp_rowset_keys` has the same lifetime as `it`
-    std::vector<std::string_view> tmp_rowset_keys;
+
+    std::vector<std::string> tmp_rowset_keys;
     std::vector<std::string> tmp_rowset_ref_count_keys;
+
     // rowset_id -> rowset_meta
     // store tmp_rowset id and meta for statistics rs size when delete
     std::map<std::string, doris::RowsetMetaCloudPB> tmp_rowsets;
+    auto worker_pool = std::make_unique<SimpleThreadPool>(
+            config::instance_recycler_worker_pool_size, "recycle_tmp_rowsets");
+    worker_pool->start();
 
     int64_t earlest_ts = std::numeric_limits<int64_t>::max();
 
@@ -3560,7 +3570,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                 return -1;
             }
             // might be a delete pred rowset
-            tmp_rowset_keys.push_back(k);
+            tmp_rowset_keys.emplace_back(k);
             return 0;
         }
         // TODO(plat1ko): check rowset not referenced
@@ -3571,7 +3581,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                   << " creation_time=" << rowset.creation_time() << " num_scanned=" << num_scanned
                   << " num_expired=" << num_expired;
 
-        tmp_rowset_keys.push_back(k);
+        tmp_rowset_keys.emplace_back(k.data(), k.size());
         // Remove the rowset ref count key directly since it has not been used.
         std::string rowset_ref_count_key = versioned::data_rowset_ref_count_key(
                 {instance_id_, rowset.tablet_id(), rowset.rowset_id_v2()});
@@ -3597,34 +3607,38 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         return ret;
     };
 
-    auto loop_done = [&tmp_rowset_keys, &tmp_rowsets, &num_recycled, &metrics_context,
-                      &tmp_rowset_ref_count_keys, &delete_versioned_delete_bitmap_kvs,
-                      this]() -> int {
+    auto loop_done = [&]() -> int {
         DORIS_CLOUD_DEFER {
             tmp_rowset_keys.clear();
             tmp_rowsets.clear();
             tmp_rowset_ref_count_keys.clear();
         };
-        if (delete_rowset_data(tmp_rowsets, RowsetRecyclingState::TMP_ROWSET, metrics_context) !=
-            0) {
-            LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
-            return -1;
-        }
-        for (const auto& [_, rs] : tmp_rowsets) {
-            if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
-                return -1;
+        worker_pool->submit([&, tmp_rowset_keys_to_delete = tmp_rowset_keys,
+                             tmp_rowsets_to_delete = tmp_rowsets,
+                             tmp_rowset_ref_count_keys_to_delete = tmp_rowset_ref_count_keys]() {
+            if (delete_rowset_data(tmp_rowsets_to_delete, RowsetRecyclingState::TMP_ROWSET,
+                                   metrics_context) != 0) {
+                LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
+                return;
             }
-        }
-        if (txn_remove(txn_kv_.get(), tmp_rowset_keys) != 0) {
-            LOG(WARNING) << "failed to delete tmp rowset kv, instance_id=" << instance_id_;
-            return -1;
-        }
-        if (txn_remove(txn_kv_.get(), tmp_rowset_ref_count_keys) != 0) {
-            LOG(WARNING) << "failed to delete tmp rowset ref count kv, instance_id="
-                         << instance_id_;
-            return -1;
-        }
-        num_recycled += tmp_rowset_keys.size();
+            for (const auto& [_, rs] : tmp_rowsets_to_delete) {
+                if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
+                    LOG(WARNING) << "failed to delete versioned delete bitmap kv, rs="
+                                 << rs.ShortDebugString();
+                    return;
+                }
+            }
+            if (txn_remove(txn_kv_.get(), tmp_rowset_keys_to_delete) != 0) {
+                LOG(WARNING) << "failed to tmp rowset kv, instance_id=" << instance_id_;
+                return;
+            }
+            if (txn_remove(txn_kv_.get(), tmp_rowset_ref_count_keys_to_delete) != 0) {
+                LOG(WARNING) << "failed to tmp rowset ref count kv, instance_id=" << instance_id_;
+                return;
+            }
+            num_recycled += tmp_rowset_keys.size();
+            return;
+        });
         return 0;
     };
 
@@ -3632,8 +3646,11 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         scan_and_statistics_tmp_rowsets();
     }
     // recycle_func and loop_done for scan and recycle
-    return scan_and_recycle(tmp_rs_key0, tmp_rs_key1, std::move(handle_rowset_kv),
-                            std::move(loop_done));
+    int ret = scan_and_recycle(tmp_rs_key0, tmp_rs_key1, std::move(handle_rowset_kv),
+                               std::move(loop_done));
+
+    worker_pool->stop();
+    return ret;
 }
 
 int InstanceRecycler::scan_and_recycle(

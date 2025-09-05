@@ -721,6 +721,12 @@ if (MAKE_TEST)
     if (ARCH_ARM)
         add_compile_options(-ffp-contract=off)
     endif()
+    if (COMPILER_CLANG)
+        add_compile_options(
+        -Wno-implicit-int-conversion
+        -Wno-shorten-64-to-32
+        )
+    endif()
 endif ()
 
 # use this to avoid some runtime tracker. reuse BE_TEST symbol, no need another.

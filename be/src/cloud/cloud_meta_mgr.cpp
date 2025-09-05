@@ -594,6 +594,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             }
             req.set_base_compaction_cnt(tablet->base_compaction_cnt());
             req.set_cumulative_compaction_cnt(tablet->cumulative_compaction_cnt());
+            req.set_full_compaction_cnt(tablet->full_compaction_cnt());
             req.set_cumulative_point(tablet->cumulative_layer_point());
         }
         req.set_end_version(-1);
@@ -766,6 +767,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
             tablet->set_base_compaction_cnt(stats.base_compaction_cnt());
             tablet->set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
+            tablet->set_full_compaction_cnt(stats.full_compaction_cnt());
             tablet->set_cumulative_layer_point(stats.cumulative_point());
             tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                             stats.num_rows(), stats.data_size());
@@ -1465,6 +1467,15 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
         auto* j = resp.mutable_storage_vault(i);
         if (!j->has_obj_info()) continue;
         j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
+    }
+
+    for (int i = 0; i < resp.obj_info_size(); ++i) {
+        resp.mutable_obj_info(i)->set_ak(hide_access_key(resp.obj_info(i).sk()));
+    }
+    for (int i = 0; i < resp.storage_vault_size(); ++i) {
+        auto* j = resp.mutable_storage_vault(i);
+        if (!j->has_obj_info()) continue;
+        j->mutable_obj_info()->set_sk(hide_access_key(j->obj_info().sk()));
     }
 
     LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode

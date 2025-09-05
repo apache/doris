@@ -17,10 +17,16 @@
 
 #pragma once
 
+#include <faiss/impl/platform_macros.h>
+#include <faiss/utils/distances.h>
 #include <gen_cpp/Types_types.h>
 
+#include "common/exception.h"
+#include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -36,53 +42,31 @@ namespace doris::vectorized {
 class L1Distance {
 public:
     static constexpr auto name = "l1_distance";
-    struct State {
-        float sum = 0;
-    };
-    static void accumulate(State& state, float x, float y) { state.sum += fabs(x - y); }
-    static float finalize(const State& state) { return state.sum; }
+    static float distance(const float* x, const float* y, size_t d) {
+        return faiss::fvec_L1(x, y, d);
+    }
 };
 
 class L2Distance {
 public:
     static constexpr auto name = "l2_distance";
-    struct State {
-        float sum = 0;
-    };
-    static void accumulate(State& state, float x, float y) { state.sum += (x - y) * (x - y); }
-    static float finalize(const State& state) { return sqrt(state.sum); }
+    static float distance(const float* x, const float* y, size_t d) {
+        return std::sqrt(faiss::fvec_L2sqr(x, y, d));
+    }
 };
 
 class InnerProduct {
 public:
     static constexpr auto name = "inner_product";
-    struct State {
-        float sum = 0;
-    };
-    static void accumulate(State& state, float x, float y) { state.sum += x * y; }
-    static float finalize(const State& state) { return state.sum; }
+    static float distance(const float* x, const float* y, size_t d) {
+        return faiss::fvec_inner_product(x, y, d);
+    }
 };
 
 class CosineDistance {
 public:
     static constexpr auto name = "cosine_distance";
-    struct State {
-        float dot_prod = 0;
-        float squared_x = 0;
-        float squared_y = 0;
-    };
-    static void accumulate(State& state, float x, float y) {
-        state.dot_prod += x * y;
-        state.squared_x += x * x;
-        state.squared_y += y * y;
-    }
-    static float finalize(const State& state) {
-        // division by zero check
-        if (state.squared_x == 0 || state.squared_y == 0) [[unlikely]] {
-            return 2.0F;
-        }
-        return 1 - state.dot_prod / sqrt(state.squared_x * state.squared_y);
-    }
+    static float distance(const float* x, const float* y, size_t d);
 };
 
 class L2DistanceApproximate : public L2Distance {
@@ -104,22 +88,31 @@ public:
     static constexpr auto name = DistanceImpl::name;
     String get_name() const override { return name; }
     static FunctionPtr create() { return std::make_shared<FunctionArrayDistance<DistanceImpl>>(); }
-    bool is_variadic() const override { return false; }
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataType>();
+        if (arguments.size() != 2) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid number of arguments");
+        }
+
+        // primitive_type of Nullable is its nested type.
+        if (arguments[0]->get_primitive_type() != TYPE_ARRAY ||
+            arguments[1]->get_primitive_type() != TYPE_ARRAY) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Arguments for function {} must be arrays", get_name());
+        }
+
+        return std::make_shared<DataTypeFloat32>();
     }
+
+    // All array distance functions has always not nullable return type.
+    // We want to make sure throw exception if input columns contain NULL.
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& arg1 = block.get_by_position(arguments[0]);
         const auto& arg2 = block.get_by_position(arguments[1]);
-        if (!_check_input_type(arg1.type) || !_check_input_type(arg2.type)) {
-            return Status::RuntimeError(fmt::format("unsupported types for function {}({}, {})",
-                                                    get_name(), arg1.type->get_name(),
-                                                    arg2.type->get_name()));
-        }
 
         auto col1 = arg1.column->convert_to_full_column_if_const();
         auto col2 = arg2.column->convert_to_full_column_if_const();
@@ -129,70 +122,88 @@ public:
                                 get_name(), col1->size(), col2->size()));
         }
 
-        ColumnArrayExecutionData arr1;
-        ColumnArrayExecutionData arr2;
-        if (!extract_column_array_info(*col1, arr1) || !extract_column_array_info(*col2, arr2)) {
-            return Status::RuntimeError(fmt::format("unsupported types for function {}({}, {})",
-                                                    get_name(), arg1.type->get_name(),
-                                                    arg2.type->get_name()));
+        const ColumnArray* arr1 = nullptr;
+        const ColumnArray* arr2 = nullptr;
+
+        if (col1->is_nullable()) {
+            if (col1->has_null()) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "First argument for function {} cannot be null", get_name());
+            }
+            auto nullable1 = assert_cast<const ColumnNullable*>(col1.get());
+            arr1 = assert_cast<const ColumnArray*>(nullable1->get_nested_column_ptr().get());
+        } else {
+            arr1 = assert_cast<const ColumnArray*>(col1.get());
         }
 
+        if (col2->is_nullable()) {
+            if (col2->has_null()) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Second argument for function {} cannot be null",
+                                       get_name());
+            }
+            auto nullable2 = assert_cast<const ColumnNullable*>(col2.get());
+            arr2 = assert_cast<const ColumnArray*>(nullable2->get_nested_column_ptr().get());
+        } else {
+            arr2 = assert_cast<const ColumnArray*>(col2.get());
+        }
+
+        const ColumnFloat32* float1 = nullptr;
+        const ColumnFloat32* float2 = nullptr;
+        if (arr1->get_data_ptr()->is_nullable()) {
+            if (arr1->get_data_ptr()->has_null()) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "First argument for function {} cannot have null",
+                                       get_name());
+            }
+            auto nullable1 = assert_cast<const ColumnNullable*>(arr1->get_data_ptr().get());
+            float1 = assert_cast<const ColumnFloat32*>(nullable1->get_nested_column_ptr().get());
+        } else {
+            float1 = assert_cast<const ColumnFloat32*>(arr1->get_data_ptr().get());
+        }
+
+        if (arr2->get_data_ptr()->is_nullable()) {
+            if (arr2->get_data_ptr()->has_null()) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Second argument for function {} cannot have null",
+                                       get_name());
+            }
+            auto nullable2 = assert_cast<const ColumnNullable*>(arr2->get_data_ptr().get());
+            float2 = assert_cast<const ColumnFloat32*>(nullable2->get_nested_column_ptr().get());
+        } else {
+            float2 = assert_cast<const ColumnFloat32*>(arr2->get_data_ptr().get());
+        }
+
+        const ColumnOffset64* offset1 =
+                assert_cast<const ColumnArray::ColumnOffsets*>(arr1->get_offsets_ptr().get());
+        const ColumnOffset64* offset2 =
+                assert_cast<const ColumnArray::ColumnOffsets*>(arr2->get_offsets_ptr().get());
         // prepare return data
         auto dst = ColumnType::create(input_rows_count);
         auto& dst_data = dst->get_data();
 
-        const auto& offsets1 = *arr1.offsets_ptr;
-        const auto& offsets2 = *arr2.offsets_ptr;
-        const auto& nested_col1 = assert_cast<const ColumnType*>(arr1.nested_col.get());
-        const auto& nested_col2 = assert_cast<const ColumnType*>(arr2.nested_col.get());
-        for (ssize_t row = 0; row < offsets1.size(); ++row) {
+        size_t elemt_cnt = offset1->size();
+        for (ssize_t row = 0; row < elemt_cnt; ++row) {
             // Calculate actual array sizes for current row.
             // For nullable arrays, we cannot compare absolute offset values directly because:
             // 1. When a row is null, its offset might equal the previous offset (no elements added)
             // 2. Or it might include the array size even if the row is null (implementation dependent)
             // Therefore, we must calculate the actual array size as: offsets[row] - offsets[row-1]
-            ssize_t size1 = offsets1[row] - offsets1[row - 1];
-            ssize_t size2 = offsets2[row] - offsets2[row - 1];
+            ssize_t size1 = offset1->get_data()[row] - offset1->get_data()[row - 1];
+            ssize_t size2 = offset2->get_data()[row] - offset2->get_data()[row - 1];
 
             if (size1 != size2) [[unlikely]] {
                 return Status::InvalidArgument(
                         "function {} have different input element sizes of array: {} and {}",
                         get_name(), size1, size2);
             }
-
-            typename DistanceImpl::State st;
-            for (ssize_t pos = offsets1[row - 1]; pos < offsets1[row]; ++pos) {
-                // Calculate corresponding position in the second array
-                ssize_t pos2 = offsets2[row - 1] + (pos - offsets1[row - 1]);
-
-                if ((arr1.nested_nullmap_data && arr1.nested_nullmap_data[pos]) ||
-                    (arr2.nested_nullmap_data && arr2.nested_nullmap_data[pos2])) [[unlikely]] {
-                    return Status::RuntimeError(
-                            "function {} does not support arrays containing null, null found at "
-                            "index {}",
-                            get_name(), pos);
-                }
-
-                DistanceImpl::accumulate(st, nested_col1->get_element(pos),
-                                         nested_col2->get_element(pos2));
-            }
-
-            dst_data[row] = DistanceImpl::finalize(st);
+            dst_data[row] = DistanceImpl::distance(
+                    float1->get_data().data() + offset1->get_data()[row - 1],
+                    float2->get_data().data() + offset2->get_data()[row - 1], size1);
         }
 
         block.replace_by_position(result, std::move(dst));
         return Status::OK();
-    }
-
-private:
-    bool _check_input_type(const DataTypePtr& type) const {
-        auto array_type = remove_nullable(type);
-        if (array_type->get_primitive_type() != TYPE_ARRAY) {
-            return false;
-        }
-        auto nested_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        return nested_type->get_primitive_type() == TYPE_FLOAT;
     }
 };
 
