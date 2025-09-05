@@ -308,48 +308,33 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
         RETURN_IF_ERROR(conjunct->execute(block, &result_column_id));
         auto [filter_column, is_const] =
                 unpack_if_const(block->get_by_position(result_column_id).column);
-        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
-            if (!is_const) {
-                const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
-                const IColumn::Filter& result =
-                        assert_cast<const ColumnUInt8&>(*nested_column).get_data();
-                const auto* __restrict filter_data = result.data();
-                const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
-                DCHECK_EQ(rows, nullable_column->size());
+        const auto* nullable_column = assert_cast<const ColumnNullable*>(filter_column.get());
+        if (!is_const) {
+            const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
+            const IColumn::Filter& result =
+                    assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+            const auto* __restrict filter_data = result.data();
+            const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+            DCHECK_EQ(rows, nullable_column->size());
 
-                for (size_t i = 0; i != rows; ++i) {
-                    // null and null    => null
-                    // null and true    => null
-                    // null and false   => false
-                    final_null_map[i] =
-                            (final_null_map[i] & (null_map_data[i] | filter_data[i])) |
-                            (null_map_data[i] & (final_null_map[i] | final_filter_ptr[i]));
-                    final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
-                }
-            } else {
-                bool filter_data = nullable_column->get_bool(0);
-                bool null_map_data = nullable_column->is_null_at(0);
-                for (size_t i = 0; i != rows; ++i) {
-                    // null and null    => null
-                    // null and true    => null
-                    // null and false   => false
-                    final_null_map[i] = (final_null_map[i] & (null_map_data | filter_data)) |
-                                        (null_map_data & (final_null_map[i] | final_filter_ptr[i]));
-                    final_filter_ptr[i] = final_filter_ptr[i] & filter_data;
-                }
+            for (size_t i = 0; i != rows; ++i) {
+                // null and null    => null
+                // null and true    => null
+                // null and false   => false
+                final_null_map[i] = (final_null_map[i] & (null_map_data[i] | filter_data[i])) |
+                                    (null_map_data[i] & (final_null_map[i] | final_filter_ptr[i]));
+                final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
             }
         } else {
-            if (!is_const) {
-                const auto* filter_data =
-                        assert_cast<const ColumnUInt8&>(*filter_column).get_data().data();
-                for (size_t i = 0; i != rows; ++i) {
-                    final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
-                }
-            } else {
-                bool filter_data = filter_column->get_bool(0);
-                for (size_t i = 0; i != rows; ++i) {
-                    final_filter_ptr[i] = final_filter_ptr[i] & filter_data;
-                }
+            bool filter_data = nullable_column->get_bool(0);
+            bool null_map_data = nullable_column->is_null_at(0);
+            for (size_t i = 0; i != rows; ++i) {
+                // null and null    => null
+                // null and true    => null
+                // null and false   => false
+                final_null_map[i] = (final_null_map[i] & (null_map_data | filter_data)) |
+                                    (null_map_data & (final_null_map[i] | final_filter_ptr[i]));
+                final_filter_ptr[i] = final_filter_ptr[i] & filter_data;
             }
         }
     }
