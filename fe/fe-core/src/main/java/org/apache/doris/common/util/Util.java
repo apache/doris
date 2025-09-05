@@ -705,7 +705,7 @@ public class Util {
             if (result == Long.MIN_VALUE) {
                 return str.hashCode();
             }
-            return buffer.getLong();
+            return result;
         } catch (NoSuchAlgorithmException e) {
             return str.hashCode();
         }
