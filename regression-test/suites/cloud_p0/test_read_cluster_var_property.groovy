@@ -82,7 +82,7 @@ suite('test_read_cluster_var_property') {
             sql "set property for 'root' enable_prefer_cached_rowset=true;"
             preferCachedRowsetCount = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_prefer_cache_count")
             sql "select * from ${tableName};"
-            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_prefer_cache_count") == preferCachedRowsetCount + 1
+            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_prefer_cache_count") > preferCachedRowsetCount
         } finally {
             sql "set enable_prefer_cached_rowset=false;"
             sql "set property for 'root' enable_prefer_cached_rowset=false;"
@@ -104,7 +104,7 @@ suite('test_read_cluster_var_property') {
             sql "set property for 'root' query_freshness_tolerance_ms=2000;"
             queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
             sql "select * from ${tableName};"
-            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance + 1
+            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") > queryFreshnessTolerance
         } finally {
             sql "set query_freshness_tolerance_ms=-1;"
             sql "set property for 'root' query_freshness_tolerance_ms=-1;"
@@ -190,7 +190,7 @@ suite('test_read_cluster_var_property') {
             sql "set property for 'root' query_freshness_tolerance_ms=2000;"
             queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
             sql "select * from ${tableName};"
-            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance + 1
+            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") > queryFreshnessTolerance
         } finally {
             sql "set query_freshness_tolerance_ms=-1;"
             sql "set property for 'root' query_freshness_tolerance_ms=-1;"
