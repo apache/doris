@@ -58,7 +58,9 @@ Status SchemaSqlBlockRuleStatusScanner::start(RuntimeState* state) {
 }
 
 Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    if (_param->common_param->fe_addr_list.empty()) {
+        return Status::InternalError("No FE address available");
+    }
 
     TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_sql_block_rule_status_columns.size(); i++) {
@@ -67,26 +69,12 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
     }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_frontend_conjuncts(*_param->common_param->frontend_conjuncts);
+
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::SQL_BLOCK_RULE_STATUS);
     request.__set_schema_table_params(schema_table_request_params);
 
-    TFetchSchemaTableDataResult result;
-
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->fetchSchemaTableData(result, request);
-            },
-            _rpc_timeout));
-
-    Status status(Status::create(result.status));
-    if (!status.ok()) {
-        LOG(WARNING) << "fetch transactions from FE failed, errmsg=" << status;
-        return status;
-    }
-    std::vector<TRow> result_data = result.data_batch;
-
+    // Create empty result block
     _sql_block_rule_status_block = vectorized::Block::create_unique();
     for (int i = 0; i < _s_sql_block_rule_status_columns.size(); ++i) {
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
@@ -97,21 +85,56 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
 
     _sql_block_rule_status_block->reserve(_block_rows_limit);
 
-    if (result_data.size() > 0) {
-        auto col_size = result_data[0].column_value.size();
-        if (col_size != _s_sql_block_rule_status_columns.size()) {
-            return Status::InternalError<false>("transactions schema is not match for FE and BE");
+    // Query all FE nodes and aggregate results
+    for (const auto& fe_addr : _param->common_param->fe_addr_list) {
+        TFetchSchemaTableDataResult result;
+        Status status = ThriftRpcHelper::rpc<FrontendServiceClient>(
+                fe_addr.hostname, fe_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->fetchSchemaTableData(result, request);
+                },
+                _rpc_timeout);
+
+        if (!status.ok()) {
+            LOG(WARNING) << "Failed to fetch SQL block rule status from FE "
+                         << fe_addr.hostname << ":" << fe_addr.port
+                         << ", errmsg=" << status;
+            return status; // Return immediately on any FE failure
+        }
+
+        Status result_status = Status::create(result.status);
+        if (!result_status.ok()) {
+            LOG(WARNING) << "FE " << fe_addr.hostname << ":" << fe_addr.port
+                         << " returned error: " << result_status;
+            return result_status; // Return immediately on any FE error
+        }
+
+        // Process data from this FE
+        std::vector<TRow> result_data = result.data_batch;
+
+        if (result_data.size() > 0) {
+            auto col_size = result_data[0].column_value.size();
+            if (col_size != _s_sql_block_rule_status_columns.size()) {
+                std::string error_msg = "SQL block rule status schema mismatch from FE " +
+                                        fe_addr.hostname + ":" + std::to_string(fe_addr.port) +
+                                        ", expected: " + std::to_string(_s_sql_block_rule_status_columns.size()) +
+                                        ", got: " + std::to_string(col_size);
+                LOG(WARNING) << error_msg;
+                return Status::InternalError(error_msg);
+            }
+        }
+
+        // Add rows from this FE to the result block
+        for (int i = 0; i < result_data.size(); i++) {
+            TRow row = result_data[i];
+            for (int j = 0; j < _s_sql_block_rule_status_columns.size(); j++) {
+                RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
+                                                    _sql_block_rule_status_block.get(),
+                                                    _s_sql_block_rule_status_columns[j].type));
+            }
         }
     }
 
-    for (int i = 0; i < result_data.size(); i++) {
-        TRow row = result_data[i];
-        for (int j = 0; j < _s_sql_block_rule_status_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
-                                                _sql_block_rule_status_block.get(),
-                                                _s_sql_block_rule_status_columns[j].type));
-        }
-    }
     return Status::OK();
 }
 
