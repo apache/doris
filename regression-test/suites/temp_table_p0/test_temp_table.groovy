@@ -676,6 +676,7 @@ suite('test_temp_table', 'p0') {
     // clean
     sql "use regression_test_temp_table_p0"
     sql "drop table t_test_temp_table1"
+    sql "drop temporary table t_test_temp_table6"
     sql "drop table t_test_table3_0"
     sql "drop table t_test_table_no_partition"
     sql "DROP USER IF EXISTS temp_table_test_user"

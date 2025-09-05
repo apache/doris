@@ -885,7 +885,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv,
-            boolean ifExists, boolean force) throws DdlException {
+            boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         Map<String, Long> costTimes = new TreeMap<String, Long>();
         StopWatch watch = StopWatch.createStarted();
         LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, force);
@@ -961,6 +961,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (table.isTemporary()) {
                 dropTableInternal(db, table, false, true, watch, costTimes);
             } else {
+                if (mustTemporary) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
+                }
                 dropTableInternal(db, table, isView, force, watch, costTimes);
             }
         } catch (UserException e) {

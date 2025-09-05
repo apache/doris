@@ -190,7 +190,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
 
     void handleFallbackFailedCtas(ConnectContext ctx) {
         try {
-            Env.getCurrentEnv().dropTable(new DropTableStmt(false,
+            Env.getCurrentEnv().dropTable(new DropTableStmt(false, false,
                     new TableName(createTableInfo.getCtlName(),
                             createTableInfo.getDbName(), createTableInfo.getTableName()), true));
         } catch (Exception e) {

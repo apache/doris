@@ -3316,9 +3316,9 @@ drop_stmt ::=
         RESULT = new DropFunctionStmt(type, ifExists, functionName, args);
     :}
     /* Table */
-    | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
+    | KW_DROP opt_tmp:tmp KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
     {:
-        RESULT = new DropTableStmt(ifExists, name, force);
+        RESULT = new DropTableStmt(ifExists, tmp, name, force);
     :}
     /* User */
     | KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
@@ -3328,7 +3328,7 @@ drop_stmt ::=
     /* View */
     | KW_DROP KW_VIEW opt_if_exists:ifExists table_name:name
     {:
-        RESULT = new DropTableStmt(ifExists, name, true, false);
+        RESULT = new DropTableStmt(ifExists, false, name, true, false);
     :}
     | KW_DROP KW_REPOSITORY ident:repoName
     {:
