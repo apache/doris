@@ -113,7 +113,7 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
                 .then(ComputeSignatureHelper::computePrecision)
                 .then(ComputeSignatureHelper::implementFollowToArgumentReturnType)
                 .then(ComputeSignatureHelper::normalizeDecimalV2)
-                .then(ComputeSignatureHelper::dynamicComputePropertiesOfArray)
+                .then(ComputeSignatureHelper::ensureNestedNullableOfArray)
                 .then(ComputeSignatureHelper::dynamicComputeVariantArgs)
                 .get();
     }
