@@ -832,6 +832,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     } else if (compaction.type() == TabletCompactionJobPB::FULL) {
         // clang-format off
         stats->set_base_compaction_cnt(stats->base_compaction_cnt() + 1);
+        stats->set_full_compaction_cnt(stats->has_full_compaction_cnt() ? stats->full_compaction_cnt() + 1 : 1);
         if (compaction.output_cumulative_point() > stats->cumulative_point()) {
             // After supporting parallel cumu compaction, compaction with older cumu point may be committed after
             // new cumu point has been set, MUST NOT set cumu point back to old value
