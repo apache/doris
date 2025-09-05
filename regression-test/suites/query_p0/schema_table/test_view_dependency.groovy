@@ -15,51 +15,125 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_block_rule_status") {
-    String dbName = context.config.getDbNameByFile(context.file)
-    String suiteName = "test_sql_block_rule_status"
-    String tableName = "${suiteName}_table"
-    String blockRuleName = "${suiteName}_rule"
+suite("test_view_dependency") {
+
+    sql "DROP DATABASE IF EXISTS test_view_dependency_db"
+    sql "CREATE DATABASE test_view_dependency_db"
+    sql "USE test_view_dependency_db"
+
     sql """
-        drop SQL_BLOCK_RULE if exists ${blockRuleName};
-    """
-     sql """
-        drop table if exists ${tableName};
-    """
-    sql """
-        CREATE TABLE ${tableName}
-        (
-            k1 INT,
-            k2 varchar(32)
-        )
-        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        CREATE TABLE `stu` (
+          `sid` int NULL,
+          `sname` varchar(32) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`sid`)
+        DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
-            "replication_num" = "1"
-        );
-        """
+        "replication_allocation" = "tag.location.default: 1"
+        ); 
+    """
 
     sql """
-        CREATE SQL_BLOCK_RULE ${blockRuleName}
-        PROPERTIES(
-        "sql"="select k1,k2 from ${dbName}.${tableName}",
-        "global"="true",
-        "enable"="true"
-        );
+        CREATE TABLE `grade` (
+          `sid` int NULL,
+          `cid` int NULL,
+          `score` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`sid`)
+        DISTRIBUTED BY HASH(`sid`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        ); 
     """
 
-    test {
-          sql """
-              select k1,k2 from ${dbName}.${tableName};
-          """
-          exception "sql match"
-      }
-    order_qt_count "SELECT count(*) FROM information_schema.sql_block_rule_status where name ='${blockRuleName}'"
-    order_qt_select "SELECT NAME,PATTERN,SQL_HASH,PARTITION_NUM,TABLET_NUM,CARDINALITY,GLOBAL,ENABLE,BLOCKS FROM information_schema.sql_block_rule_status where name ='${blockRuleName}'"
-     sql """
-        drop SQL_BLOCK_RULE if exists ${blockRuleName};
+    sql """
+        CREATE MATERIALIZED VIEW mv_a
+        (sid,sname)
+        BUILD IMMEDIATE REFRESH COMPLETE ON COMMIT
+        DUPLICATE KEY(`sid`, `sname`)
+        DISTRIBUTED BY HASH(`sid`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        )
+        AS select  `stu`.`sid`,  `stu`.`sname` from  `stu` limit 1 
     """
-     sql """
-        drop table if exists ${tableName};
+
+    sql """
+        CREATE MATERIALIZED VIEW mv_b
+        (sid,sname)
+        BUILD IMMEDIATE REFRESH COMPLETE ON COMMIT
+        DUPLICATE KEY(`sid`, `sname`)
+        DISTRIBUTED BY HASH(`sid`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        )
+        AS select  `mv_a`.`sid`,  `mv_a`.`sname` from  `mv_a` 
     """
+
+    sql """
+        CREATE MATERIALIZED VIEW mv_c
+        (sid,cid,score)
+        BUILD IMMEDIATE REFRESH COMPLETE ON COMMIT
+        DUPLICATE KEY(`sid`, `cid`, `score`)
+        DISTRIBUTED BY HASH(`sid`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        )
+        AS select  `stu`.`sid`, `grade`.`cid`, `grade`.`score` from  `stu` join  `grade` on  `stu`.`sid` =  `grade`.`sid`
+    """
+
+    sql "create view stu_view_cte as with a as (select sid from stu) select * from a"
+
+    sql "create view stu_view as select * from stu"
+
+    sql "create view stu_view_1 as select * from stu_view"
+
+    sql "create view stu_view_2 as select * from mv_a join grade using(sid)"
+
+    sql "create view stu_view_3 as select * from stu join grade using(sid);"
+
+    sql "create view stu_view_4 as select * from stu_view_cte"
+
+    sql "create view stu_view_5 as select * from (select sid from mv_b) a join grade using(sid);"
+
+    qt_sql "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' order by view_catalog,view_schema,view_name"
+
+    order_qt_filter_1 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_NAME = 'mv_c'"
+    order_qt_filter_2 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_NAME like 'mv_%'"
+    order_qt_filter_3 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_NAME in('mv_c','mv_a')"
+    order_qt_filter_4 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_TYPE = 'MATERIALIZED_VIEW'"
+    order_qt_filter_5 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_TYPE = 'MATERIALIZED_VIEW' and VIEW_NAME not in('mv_c','mv_a')"
+    order_qt_filter_6 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_TYPE = 'MATERIALIZED_VIEW' or VIEW_NAME = 'stu_view_1'"
+
+    // support eq
+    def explain = sql """explain select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support in
+    explain = sql """explain select * from information_schema.view_dependency where view_schema in ('test_view_dependency_db','test_view_dependency_db1')"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support not in
+    explain = sql """explain select * from information_schema.view_dependency where view_schema not in ('test_view_dependency_db','test_view_dependency_db1')"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support or
+    explain = sql """explain select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' or VIEW_NAME='stu_view_5'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support >
+    explain = sql """explain select * from information_schema.view_dependency where view_schema > 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support >=
+    explain = sql """explain select * from information_schema.view_dependency where view_schema >= 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support <
+    explain = sql """explain select * from information_schema.view_dependency where view_schema < 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // support <=
+    explain = sql """explain select * from information_schema.view_dependency where view_schema <= 'test_view_dependency_db'"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
+    // not support like
+    explain = sql """explain select * from information_schema.view_dependency where view_schema like '%test_view_dependency_db%'"""
+    assertFalse(explain.toString().contains("FRONTEND PREDICATES"))
+    // support catalog.db.table.column
+    explain = sql """explain select * from information_schema.view_dependency where internal.information_schema.view_dependency.view_schema = 'test_view_dependency_db';"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
 }
 
