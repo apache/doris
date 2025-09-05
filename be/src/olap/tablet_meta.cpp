@@ -17,6 +17,7 @@
 
 #include "olap/tablet_meta.h"
 
+#include <bvar/bvar.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
@@ -43,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/file_header.h"
+#include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
@@ -65,6 +67,22 @@ using std::vector;
 namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
+
+bvar::Adder<uint64_t> g_contains_agg_with_cache_if_eligible_total(
+        "g_contains_agg_with_cache_if_eligible_total");
+bvar::Adder<uint64_t> g_contains_agg_with_cache_if_eligible_partial_hit(
+        "g_contains_agg_with_cache_if_eligible_partial_hit");
+bvar::Adder<uint64_t> g_contains_agg_with_cache_if_eligible_full_hit(
+        "g_contains_agg_with_cache_if_eligible_full_hit");
+bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_total_minute(
+        "g_contains_agg_with_cache_if_eligible_total_1m",
+        &g_contains_agg_with_cache_if_eligible_total, 60);
+bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_partial_hit_minute(
+        "g_contains_agg_with_cache_if_eligible_partial_hit_1m",
+        &g_contains_agg_with_cache_if_eligible_partial_hit, 60);
+bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_full_hit_minute(
+        "g_contains_agg_with_cache_if_eligible_full_hit_1m",
+        &g_contains_agg_with_cache_if_eligible_full_hit, 60);
 
 TabletMetaSharedPtr TabletMeta::create(
         const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
@@ -1147,6 +1165,39 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b) {
     return !(a == b);
 }
 
+// We cannot just copy the underlying memory to construct a string
+// due to equivalent objects may have different padding bytes.
+// Reading padding bytes is undefined behavior, neither copy nor
+// placement new will help simplify the code.
+// Refer to C11 standards §6.2.6.1/6 and §6.7.9/21 for more info.
+static std::string agg_cache_key(int64_t tablet_id, const DeleteBitmap::BitmapKey& bmk) {
+    std::string ret(sizeof(tablet_id) + sizeof(bmk), '\0');
+    *reinterpret_cast<int64_t*>(ret.data()) = tablet_id;
+    auto t = reinterpret_cast<DeleteBitmap::BitmapKey*>(ret.data() + sizeof(tablet_id));
+    std::get<RowsetId>(*t).version = std::get<RowsetId>(bmk).version;
+    std::get<RowsetId>(*t).hi = std::get<RowsetId>(bmk).hi;
+    std::get<RowsetId>(*t).mi = std::get<RowsetId>(bmk).mi;
+    std::get<RowsetId>(*t).lo = std::get<RowsetId>(bmk).lo;
+    std::get<1>(*t) = std::get<1>(bmk);
+    std::get<2>(*t) = std::get<2>(bmk);
+    return ret;
+}
+
+// decode cache key info from a agg_cache_key
+static void decode_agg_cache_key(const std::string& key_str, int64_t& tablet_id,
+                                 DeleteBitmap::BitmapKey& bmk) {
+    const char* ptr = key_str.data();
+    tablet_id = *reinterpret_cast<const int64_t*>(ptr);
+    ptr += sizeof(tablet_id);
+    auto* t = reinterpret_cast<DeleteBitmap::BitmapKey*>(const_cast<char*>(ptr));
+    std::get<RowsetId>(bmk).version = std::get<RowsetId>(*t).version;
+    std::get<RowsetId>(bmk).hi = std::get<RowsetId>(*t).hi;
+    std::get<RowsetId>(bmk).mi = std::get<RowsetId>(*t).mi;
+    std::get<RowsetId>(bmk).lo = std::get<RowsetId>(*t).lo;
+    std::get<1>(bmk) = std::get<1>(*t);
+    std::get<2>(bmk) = std::get<2>(*t);
+}
+
 DeleteBitmapAggCache::DeleteBitmapAggCache(size_t capacity)
         : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
                          LRUCacheType::SIZE, config::delete_bitmap_agg_cache_stale_sweep_time_sec,
@@ -1158,6 +1209,22 @@ DeleteBitmapAggCache* DeleteBitmapAggCache::instance() {
 
 DeleteBitmapAggCache* DeleteBitmapAggCache::create_instance(size_t capacity) {
     return new DeleteBitmapAggCache(capacity);
+}
+
+DeleteBitmap DeleteBitmapAggCache::snapshot(int64_t tablet_id) {
+    DeleteBitmap ret(tablet_id);
+    auto collector = [&](const LRUHandle* handle) {
+        auto key = handle->key().to_string();
+        int64_t key_tablet_id;
+        DeleteBitmap::BitmapKey bmk;
+        decode_agg_cache_key(key, key_tablet_id, bmk);
+        if (key_tablet_id == tablet_id) {
+            const auto& dbm = reinterpret_cast<DeleteBitmapAggCache::Value*>(handle->value)->bitmap;
+            ret.set(bmk, dbm);
+        }
+    };
+    DeleteBitmapAggCache::instance()->for_each_entry(collector);
+    return ret;
 }
 
 DeleteBitmap::DeleteBitmap(int64_t tablet_id) : _tablet_id(tablet_id) {}
@@ -1318,9 +1385,53 @@ uint64_t DeleteBitmap::get_size() const {
     return charge;
 }
 
-bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const {
+bool DeleteBitmap::contains_agg_with_cache_if_eligible(const BitmapKey& bmk,
+                                                       uint32_t row_id) const {
+    g_contains_agg_with_cache_if_eligible_total << 1;
+    int64_t start_version {0};
+    if (config::enable_mow_get_agg_by_cache) {
+        auto deleter = [&](Cache::Handle* handle) {
+            DeleteBitmapAggCache::instance()->release(handle);
+        };
+        std::unique_ptr<Cache::Handle, decltype(deleter)> dbm_handle(nullptr, deleter);
+        int64_t cached_version = 0;
+        // 1. try to lookup the desired key directly
+        dbm_handle.reset(DeleteBitmapAggCache::instance()->lookup(agg_cache_key(_tablet_id, bmk)));
+        if (dbm_handle != nullptr) {
+            cached_version = std::get<2>(bmk);
+        } else {
+            // 2. if not found, try to lookup with cached version
+            cached_version = _get_rowset_cache_version(bmk);
+            if (cached_version > 0) {
+                if (cached_version > std::get<2>(bmk)) {
+                    cached_version = 0;
+                } else {
+                    dbm_handle.reset(DeleteBitmapAggCache::instance()->lookup(agg_cache_key(
+                            _tablet_id, {std::get<0>(bmk), std::get<1>(bmk), cached_version})));
+                }
+            }
+        }
+        if (dbm_handle != nullptr) {
+            const auto& cached_dbm =
+                    reinterpret_cast<DeleteBitmapAggCache::Value*>(
+                            DeleteBitmapAggCache::instance()->value(dbm_handle.get()))
+                            ->bitmap;
+            if (cached_version == std::get<2>(bmk)) {
+                g_contains_agg_with_cache_if_eligible_full_hit << 1;
+            } else {
+                g_contains_agg_with_cache_if_eligible_partial_hit << 1;
+            }
+            if (cached_dbm.contains(row_id)) {
+                return true;
+            }
+            if (cached_version == std::get<2>(bmk)) {
+                return false;
+            }
+            start_version = cached_version + 1;
+        }
+    }
+    DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), start_version};
     std::shared_lock l(lock);
-    DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
     for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
         auto& [k, bm] = *it;
         if (std::get<0>(k) != std::get<0>(bmk) || std::get<1>(k) != std::get<1>(bmk) ||
@@ -1479,22 +1590,8 @@ DeleteBitmap::Version DeleteBitmap::_get_rowset_cache_version(const BitmapKey& b
     return 0;
 }
 
-// We cannot just copy the underlying memory to construct a string
-// due to equivalent objects may have different padding bytes.
-// Reading padding bytes is undefined behavior, neither copy nor
-// placement new will help simplify the code.
-// Refer to C11 standards §6.2.6.1/6 and §6.7.9/21 for more info.
-static std::string agg_cache_key(int64_t tablet_id, const DeleteBitmap::BitmapKey& bmk) {
-    std::string ret(sizeof(tablet_id) + sizeof(bmk), '\0');
-    *reinterpret_cast<int64_t*>(ret.data()) = tablet_id;
-    auto t = reinterpret_cast<DeleteBitmap::BitmapKey*>(ret.data() + sizeof(tablet_id));
-    std::get<RowsetId>(*t).version = std::get<RowsetId>(bmk).version;
-    std::get<RowsetId>(*t).hi = std::get<RowsetId>(bmk).hi;
-    std::get<RowsetId>(*t).mi = std::get<RowsetId>(bmk).mi;
-    std::get<RowsetId>(*t).lo = std::get<RowsetId>(bmk).lo;
-    std::get<1>(*t) = std::get<1>(bmk);
-    std::get<2>(*t) = std::get<2>(bmk);
-    return ret;
+DeleteBitmap DeleteBitmap::agg_cache_snapshot() {
+    return DeleteBitmapAggCache::instance()->snapshot(_tablet_id);
 }
 
 std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) const {

@@ -380,6 +380,8 @@ public:
 
     static DeleteBitmapAggCache* create_instance(size_t capacity);
 
+    DeleteBitmap snapshot(int64_t tablet_id);
+
     class Value : public LRUCacheValueBase {
     public:
         roaring::Roaring bitmap;
@@ -564,7 +566,7 @@ public:
      */
     bool contains_agg(const BitmapKey& bitmap, uint32_t row_id) const;
 
-    bool contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const;
+    bool contains_agg_with_cache_if_eligible(const BitmapKey& bmk, uint32_t row_id) const;
     /**
      * Gets aggregated delete_bitmap on rowset_id and version, the same effect:
      * `select sum(roaring::Roaring) where RowsetId=rowset_id and SegmentId=seg_id and Version <= version`
@@ -598,6 +600,8 @@ public:
      * @return Deletebitmap containning all entries in diffset
     */
     DeleteBitmap diffset(const std::set<BitmapKey>& key_set) const;
+
+    DeleteBitmap agg_cache_snapshot();
 
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
