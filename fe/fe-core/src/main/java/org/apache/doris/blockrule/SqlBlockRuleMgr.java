@@ -245,6 +245,7 @@ public class SqlBlockRuleMgr implements Writable {
                 if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
                         && rule.getSqlHash().equals(sqlHash)) {
                     MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                    rule.getBlockCount().increase(1L);
                     throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
                 } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
                         && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
