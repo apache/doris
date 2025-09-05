@@ -56,6 +56,7 @@ import java.util.List;
 public class UdfTest extends TestWithFeService implements PlanPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
+        Config.enable_java_udf = true;
         createDatabase("test");
         createDatabase("test_1");
     }
