@@ -39,11 +39,12 @@ namespace doris {
 class TestBaseCompaction : public testing::Test {};
 
 static RowsetSharedPtr create_rowset(Version version, int num_segments, bool overlapping,
-                                     int data_size) {
+                                     int data_size, int rows_num) {
     auto rs_meta = std::make_shared<RowsetMeta>();
     rs_meta->set_rowset_type(BETA_ROWSET); // important
     rs_meta->_rowset_meta_pb.set_start_version(version.first);
     rs_meta->_rowset_meta_pb.set_end_version(version.second);
+    rs_meta->_rowset_meta_pb.set_rows_num(rows_num);
     rs_meta->set_num_segments(num_segments);
     rs_meta->set_segments_overlap(overlapping ? OVERLAPPING : NONOVERLAPPING);
     rs_meta->set_total_disk_size(data_size);
@@ -66,10 +67,10 @@ TEST_F(TestBaseCompaction, filter_input_rowset) {
     BaseCompaction compaction(engine, tablet);
     //std::vector<RowsetSharedPtr> rowsets;
 
-    RowsetSharedPtr init_rs = create_rowset({0, 1}, 1, false, 0);
+    RowsetSharedPtr init_rs = create_rowset({0, 1}, 1, false, 0, 100);
     tablet->_rs_version_map.emplace(init_rs->version(), init_rs);
     for (int i = 2; i < 30; ++i) {
-        RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
+        RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024, 100);
         tablet->_rs_version_map.emplace(rs->version(), rs);
     }
     Status st = compaction.pick_rowsets_to_compact();
@@ -79,6 +80,33 @@ TEST_F(TestBaseCompaction, filter_input_rowset) {
 
     EXPECT_EQ(compaction._input_rowsets.back()->start_version(), 21);
     EXPECT_EQ(compaction._input_rowsets.back()->end_version(), 21);
+}
+
+TEST_F(TestBaseCompaction, zero_input_rows) {
+    StorageEngine engine({});
+    TabletMetaSharedPtr tablet_meta;
+    tablet_meta.reset(new TabletMeta(2, 3, 15674, 15675, 6, 7, TTabletSchema(), 6, {{7, 8}},
+                                     UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                     TCompressionType::LZ4F));
+    TabletSharedPtr tablet(new Tablet(engine, tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    tablet->_cumulative_point = 25;
+    BaseCompaction compaction(engine, tablet);
+    //std::vector<RowsetSharedPtr> rowsets;
+
+    RowsetSharedPtr init_rs = create_rowset({0, 1}, 1, false, 0, 0);
+    tablet->_rs_version_map.emplace(init_rs->version(), init_rs);
+    for (int i = 2; i < 30; ++i) {
+        RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024, 0);
+        tablet->_rs_version_map.emplace(rs->version(), rs);
+    }
+    Status st = compaction.pick_rowsets_to_compact();
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(compaction._input_rowsets.front()->start_version(), 0);
+    EXPECT_EQ(compaction._input_rowsets.front()->end_version(), 1);
+
+    EXPECT_EQ(compaction._input_rowsets.back()->start_version(), 21);
+    EXPECT_EQ(compaction._input_rowsets.back()->end_version(), 21);
+    std::cout << "input rowsets: " << compaction.get_avg_segment_rows() << std::endl;
 }
 
 } // namespace doris
