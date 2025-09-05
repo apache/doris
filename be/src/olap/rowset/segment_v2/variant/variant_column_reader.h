@@ -59,7 +59,7 @@ public:
                         StorageReadOptions* opt) override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                        const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache);
+                         StorageReadOptions* opt, ColumnReaderCache* column_reader_cache);
 
     virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
             const vectorized::PathInData& relative_path) const;

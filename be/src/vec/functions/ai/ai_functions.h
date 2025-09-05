@@ -217,13 +217,8 @@ public:
 private:
     // The ai resource must be literal
     Status _init_from_resource(FunctionContext* context, const Block& block,
-<<<<<<< HEAD:be/src/vec/functions/llm/functions_llm.h
-                               const ColumnNumbers& arguments, TLLMResource& config,
-                               std::shared_ptr<LLMAdapter>& adapter) const {
-=======
                                const ColumnNumbers& arguments, TAIResource& config,
                                std::shared_ptr<AIAdapter>& adapter) {
->>>>>>> ec31ac2e6749645a0d9906dfa69c39868ff81cb3:be/src/vec/functions/ai/ai_functions.h
         // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         StringRef resource_name_ref = resource_column.column->get_data_at(0);
