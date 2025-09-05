@@ -123,6 +123,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
+import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -4057,9 +4058,23 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         try {
             TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
+            if (tdeAlgorithm != TEncryptionAlgorithm.PLAINTEXT) {
+                List<EncryptionKey> masterKeys = Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
+                if (masterKeys == null || masterKeys.isEmpty()) {
+                    throw new DdlException("The TDE master key does not exist, so encrypted table cannot be created. "
+                        + "Please check whether the root key is correctly set");
+                }
+
+                for (EncryptionKey masterKey : masterKeys) {
+                    if (masterKey.algorithm.toThrift() == tdeAlgorithm && !masterKey.isDecrypted()) {
+                        throw new DdlException("The master key has not been decrypted. Please check whether"
+                            + " the root key is functioning properly or configured correctly.");
+                    }
+                }
+            }
             olapTable.setEncryptionAlgorithm(tdeAlgorithm);
         } catch (Exception e) {
-            throw new DdlException(e.getMessage());
+            throw new DdlException("Failed to set TDE algorithm: " + e.getMessage(), e);
         }
 
         olapTable.initSchemaColumnUniqueId();

@@ -99,20 +99,22 @@ bool RowsetMeta::json_rowset_meta(std::string* json_rowset_meta) {
     return ret;
 }
 
-io::FileSystemSPtr RowsetMeta::fs() {
-    auto fs = [this]() -> io::FileSystemSPtr {
-        if (is_local()) {
-            return io::global_local_filesystem();
-        }
+io::FileSystemSPtr RowsetMeta::physical_fs() {
+    if (is_local()) {
+        return io::global_local_filesystem();
+    }
 
-        auto storage_resource = remote_storage_resource();
-        if (storage_resource) {
-            return storage_resource.value()->fs;
-        } else {
-            LOG(WARNING) << storage_resource.error();
-            return nullptr;
-        }
-    }();
+    auto storage_resource = remote_storage_resource();
+    if (storage_resource) {
+        return storage_resource.value()->fs;
+    } else {
+        LOG(WARNING) << storage_resource.error();
+        return nullptr;
+    }
+}
+
+io::FileSystemSPtr RowsetMeta::fs() {
+    auto fs = physical_fs();
 
 #ifndef BE_TEST
     auto algorithm = _determine_encryption_once.call([this]() -> Result<EncryptionAlgorithmPB> {

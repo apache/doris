@@ -19,6 +19,7 @@
 
 #include "common/config.h"
 #include "cpp/sync_point.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
