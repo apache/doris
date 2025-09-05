@@ -22,7 +22,6 @@ suite("push_down_count_through_join_one_side") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set be_number_for_test=1"
-    sql "set DISABLE_NEREIDS_RULES='ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT, ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI'"
     sql "set topn_opt_limit_threshold=1024"
     sql """
         DROP TABLE IF EXISTS count_t_one_side;
