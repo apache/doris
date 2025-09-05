@@ -881,6 +881,9 @@ Status CloudMetaMgr::_get_delete_bitmap_from_ms_by_batch(GetDeleteBitmapRequest&
         cur_req.set_cumulative_point(req.cumulative_point());
         *(cur_req.mutable_idx()) = req.idx();
         cur_req.set_store_version(req.store_version());
+        if (bytes_threadhold > 0) {
+            cur_req.set_dbm_bytes_threshold(bytes_threadhold);
+        }
         for (int i = 0; i < req.rowset_ids_size(); i++) {
             if (!finished_rowset_ids.contains(req.rowset_ids(i))) {
                 cur_req.add_rowset_ids(req.rowset_ids(i));
