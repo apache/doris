@@ -101,7 +101,7 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
         if (removedExpression.isEmpty()) {
             return aggregate;
         }
-        /* select 1 c1 from test group by c; -> select 1 c1 from test limit 1 */
+        /* select 1 c1 from test group by c1; -> select 1 c1 from test limit 1 */
         if (newGroupBy.isEmpty() && aggregate.getAggregateFunctions().isEmpty()) {
             LogicalProject<Plan> newProject = new LogicalProject<>(
                     Utils.fastToImmutableList(aggregate.getOutput()), aggregate.child());
