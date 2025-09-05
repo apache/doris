@@ -32,9 +32,6 @@ import java.util.Optional;
  * This provides a generic framework for implementing different optimization
  * strategies across various table engines (internal tables, external tables,
  * etc.).
- * 
- * Each table engine (Iceberg, Hive, internal tables) can implement their own
- * specific actions that conform to this interface.
  */
 public interface OptimizeAction {
     /**

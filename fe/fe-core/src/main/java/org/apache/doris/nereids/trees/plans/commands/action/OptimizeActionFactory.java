@@ -25,9 +25,6 @@ import org.apache.doris.datasource.iceberg.action.IcebergOptimizeActionFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.Map;
 import java.util.Optional;
 
@@ -38,7 +35,6 @@ import java.util.Optional;
  * the general OptimizeAction framework and specific table implementations.
  */
 public class OptimizeActionFactory {
-    private static final Logger LOG = LogManager.getLogger(OptimizeActionFactory.class);
 
     /**
      * Create an OptimizeAction instance based on the table type and action type.

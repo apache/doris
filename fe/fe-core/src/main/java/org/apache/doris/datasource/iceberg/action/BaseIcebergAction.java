@@ -17,66 +17,31 @@
 
 package org.apache.doris.datasource.iceberg.action;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.commands.action.OptimizeAction;
+import org.apache.doris.nereids.trees.plans.commands.action.BaseOptimizeAction;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Optional;
 
 /**
  * Abstract base class for Iceberg-specific OPTIMIZE TABLE actions.
- * This class implements the OptimizeAction interface and provides common
- * functionality for all Iceberg procedures.
+ * This class extends BaseOptimizeAction and provides Iceberg-specific
+ * functionality while inheriting common optimization action behavior.
  */
-public abstract class BaseIcebergAction implements OptimizeAction {
-    private static final Logger LOG = LogManager.getLogger(BaseIcebergAction.class);
+public abstract class BaseIcebergAction extends BaseOptimizeAction {
 
-    protected final String actionType;
-    protected final Map<String, String> properties;
-    protected final Optional<PartitionNamesInfo> partitionNamesInfo;
-    protected final Optional<Expression> whereCondition;
     protected final IcebergExternalTable icebergTable;
 
     protected BaseIcebergAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
             Optional<Expression> whereCondition,
             IcebergExternalTable icebergTable) {
-        this.actionType = actionType;
-        this.properties = properties != null ? properties : Maps.newHashMap();
-        this.partitionNamesInfo = partitionNamesInfo;
-        this.whereCondition = whereCondition;
+        super(actionType, properties, partitionNamesInfo, whereCondition);
         this.icebergTable = icebergTable;
-    }
-
-    @Override
-    public final void validate(TableNameInfo tableNameInfo, UserIdentity currentUser) throws UserException {
-        // Check table access permissions
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
-                        tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER",
-                    currentUser.getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    tableNameInfo.getTbl());
-        }
-
-        // Delegate to specific Iceberg action validation
-        validateIcebergAction();
     }
 
     @Override
@@ -85,23 +50,8 @@ public abstract class BaseIcebergAction implements OptimizeAction {
     }
 
     @Override
-    public String getActionType() {
-        return actionType;
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    @Override
-    public Optional<PartitionNamesInfo> getPartitionNamesInfo() {
-        return partitionNamesInfo;
-    }
-
-    @Override
-    public Optional<Expression> getWhereCondition() {
-        return whereCondition;
+    protected final void validateAction() throws UserException {
+        validateIcebergAction();
     }
 
     /**
@@ -110,44 +60,6 @@ public abstract class BaseIcebergAction implements OptimizeAction {
      * validation.
      */
     protected abstract void validateIcebergAction() throws UserException;
-
-    /**
-     * Get property value with default.
-     */
-    protected String getProperty(String key, String defaultValue) {
-        return properties.getOrDefault(key, defaultValue);
-    }
-
-    /**
-     * Get required property, throw exception if missing.
-     */
-    protected String getRequiredProperty(String key) throws DdlException {
-        String value = properties.get(key);
-        if (value == null || value.trim().isEmpty()) {
-            throw new DdlException("Missing required property: " + key);
-        }
-        return value;
-    }
-
-    /**
-     * Check if partitions are specified when they shouldn't be.
-     */
-    protected void validateNoPartitions() throws DdlException {
-        if (partitionNamesInfo.isPresent()) {
-            throw new DdlException(String.format("Iceberg procedure '%s' does not support partition specification",
-                    actionType));
-        }
-    }
-
-    /**
-     * Check if WHERE condition is specified when it shouldn't be.
-     */
-    protected void validateNoWhereCondition() throws DdlException {
-        if (whereCondition.isPresent()) {
-            throw new DdlException(String.format("Iceberg procedure '%s' does not support WHERE condition",
-                    actionType));
-        }
-    }
 
     /**
      * Get the underlying Iceberg table instance for procedure execution.
