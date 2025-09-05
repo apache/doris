@@ -201,6 +201,9 @@ public class StmtExecutor {
     private Boolean isForwardedToMaster = null;
     // Flag for execute prepare statement, need to use binary protocol resultset
     private boolean isComStmtExecute = false;
+    // Set to true if there are more stmt need to execute.
+    // Mainly for forward to master, so that master can set the mysql server status correctly.
+    private boolean moreStmtExists = false;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -352,6 +355,14 @@ public class StmtExecutor {
             isForwardedToMaster = shouldForwardToMaster();
         }
         return isForwardedToMaster;
+    }
+
+    public boolean isMoreStmtExists() {
+        return moreStmtExists;
+    }
+
+    public void setMoreStmtExists(boolean moreStmtExists) {
+        this.moreStmtExists = moreStmtExists;
     }
 
     private boolean shouldForwardToMaster() {
@@ -945,6 +956,7 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
+        masterOpExecutor.setMoreStmtExists(moreStmtExists);
         masterOpExecutor.execute();
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // for nereids command
