@@ -845,7 +845,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
     @Test
     void testOnceUniqueFunction() {
         LogicalOlapScan olapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
-                PlanConstructor.newOlapTable(12345L, "t1",  0));
+                PlanConstructor.newOlapTable(12345L, "t1", 0));
         SlotReference id = (SlotReference) olapScan.getOutput().get(0);
         Random random1 = new Random(new IntegerLiteral(1), new IntegerLiteral(10));
         Random random2 = new Random(new IntegerLiteral(1), new IntegerLiteral(10));
@@ -879,7 +879,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
     @Test
     void testMultipleTimesUniqueFunctions() {
         LogicalOlapScan olapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
-                PlanConstructor.newOlapTable(12345L, "t1",  0));
+                PlanConstructor.newOlapTable(12345L, "t1", 0));
         SlotReference id = (SlotReference) olapScan.getOutput().get(0);
         Random random = new Random(new IntegerLiteral(1), new IntegerLiteral(10));
         // don't extract virtual column if it contains an unique function which exists multiple times
