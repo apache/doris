@@ -572,6 +572,7 @@ struct TMasterOpRequest {
     29: optional TTxnLoadInfo txnLoadInfo
     30: optional TGroupCommitInfo groupCommitInfo
     31: optional binary prepareExecuteBuffer
+    32: optional bool moreResultExists // Server has more result to send
 }
 
 struct TColumnDefinition {
