@@ -343,7 +343,9 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         // CONTINUE case: Examples like x + y, func(a, b), (x + y) * z
         // Only count expressions that meet minimum complexity requirements
         if (!(skipResult.shouldSkipCounting() || skipResult.isNotBeneficial())) {
-            if (expr.getDepth() >= MIN_EXPRESSION_DEPTH && expr.children().size() > 0) {
+            if (expr.getDepth() >= MIN_EXPRESSION_DEPTH
+                    && expr.children().size() > 0
+                    && !ExpressionUtils.containUniqueFunctionExistMultiple(ImmutableList.of(expr))) {
                 expressionCounts.put(expr, expressionCounts.getOrDefault(expr, 0) + 1);
             }
         }
