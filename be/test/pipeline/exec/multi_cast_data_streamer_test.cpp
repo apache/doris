@@ -74,8 +74,8 @@ public:
         profile->add_child(custom_profile.get(), true);
         profile->add_child(common_profile.get(), true);
         shared_state = std::make_shared<MultiCastSharedState>(&pool, cast_sender_count, 0);
-        multi_cast_data_streamer = std::make_unique<MultiCastDataStreamer>(
-                shared_state.get(), &pool, cast_sender_count, 0);
+        multi_cast_data_streamer =
+                std::make_unique<MultiCastDataStreamer>(&pool, cast_sender_count, 0);
         shared_state->setup_shared_profile(profile.get());
         multi_cast_data_streamer->set_sink_profile(profile.get());
 
@@ -145,7 +145,6 @@ public:
         ExecEnv::GetInstance()->_fragment_mgr->stop();
         SAFE_DELETE(ExecEnv::GetInstance()->_fragment_mgr);
         ExecEnv::GetInstance()->_fragment_mgr = fragment_mgr;
-        doris::ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->wait();
         doris::ExecEnv::GetInstance()->spill_stream_mgr()->stop();
         SAFE_DELETE(ExecEnv::GetInstance()->_spill_stream_mgr);
     }
@@ -285,8 +284,7 @@ TEST_F(MultiCastDataStreamerTest, SpillTest) {
     auto output_func = [&](int id) {
         SCOPED_INIT_THREAD_CONTEXT();
         while (true) {
-            if (!deps[id]->ready() ||
-                !multi_cast_data_streamer->get_spill_read_dependency(id)->ready()) {
+            if (!deps[id]->ready()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }
@@ -307,8 +305,7 @@ TEST_F(MultiCastDataStreamerTest, SpillTest) {
 
     std::thread input([&] {
         for (int i = 0; i < input_count;) {
-            if (!write_dependency->ready() ||
-                !multi_cast_data_streamer->get_spill_dependency()->ready()) {
+            if (!write_dependency->ready()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 continue;
             }

@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <cstdint>
+#include <limits>
 
 #include "common/status.h"
 #include "pipeline/exec/spill_utils.h"
@@ -30,6 +31,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 SpillSortLocalState::SpillSortLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
 
@@ -39,8 +41,6 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
 
-    _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                  "SortSourceSpillDependency", true);
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "SpillMergeSortTime", 1);
     return Status::OK();
@@ -63,15 +63,19 @@ Status SpillSortLocalState::close(RuntimeState* state) {
     }
     return Base::close(state);
 }
+
 int SpillSortLocalState::_calc_spill_blocks_to_merge(RuntimeState* state) const {
-    int count = state->spill_sort_mem_limit() / state->spill_sort_batch_bytes();
-    return std::max(2, count);
+    auto count = state->spill_sort_mem_limit() / state->spill_sort_batch_bytes();
+    if (count > std::numeric_limits<int>::max()) [[unlikely]] {
+        return std::numeric_limits<int>::max();
+    }
+    return std::max(2, static_cast<int32_t>(count));
 }
+
 Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* state) {
     auto& parent = Base::_parent->template cast<Parent>();
     VLOG_DEBUG << fmt::format("Query:{}, sort source:{}, task:{}, merge spill data",
                               print_id(state->query_id()), _parent->node_id(), state->task_id());
-    _spill_dependency->Dependency::block();
 
     auto query_id = state->query_id();
 
@@ -85,9 +89,8 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                             "Query:{}, sort source:{}, task:{}, merge spill data error:{}",
                             print_id(query_id), _parent->node_id(), state->task_id(), status);
                 }
-                _shared_state->close();
                 for (auto& stream : _current_merging_streams) {
-                    (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+                    ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
                 }
                 _current_merging_streams.clear();
             } else {
@@ -119,10 +122,14 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
             }
 
             {
+                int32_t batch_size =
+                        _shared_state->spill_block_batch_row_count >
+                                        std::numeric_limits<int32_t>::max()
+                                ? std::numeric_limits<int32_t>::max()
+                                : static_cast<int32_t>(_shared_state->spill_block_batch_row_count);
                 status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                         state, tmp_stream, print_id(state->query_id()), "sort", _parent->node_id(),
-                        _shared_state->spill_block_batch_row_count, state->spill_sort_batch_bytes(),
-                        operator_profile());
+                        batch_size, state->spill_sort_batch_bytes(), operator_profile());
                 RETURN_IF_ERROR(status);
 
                 _shared_state->sorted_streams.emplace_back(tmp_stream);
@@ -154,7 +161,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 }
             }
             for (auto& stream : _current_merging_streams) {
-                (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+                ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
             }
             _current_merging_streams.clear();
         }
@@ -172,10 +179,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 "merge_sort_spill_data submit_func failed");
     });
 
-    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, operator_profile(),
-                                                   _shared_state->shared_from_this(),
-                                                   exception_catch_func));
+    return SpillRecoverRunnable(state, operator_profile(), exception_catch_func).run();
 }
 
 Status SpillSortLocalState::_create_intermediate_merger(
@@ -197,15 +201,20 @@ Status SpillSortLocalState::_create_intermediate_merger(
         auto stream = _shared_state->sorted_streams.front();
         stream->set_read_counters(operator_profile());
         _current_merging_streams.emplace_back(stream);
-        child_block_suppliers.emplace_back(
-                std::bind(std::mem_fn(&vectorized::SpillStream::read_next_block_sync), stream.get(),
-                          std::placeholders::_1, std::placeholders::_2));
+        child_block_suppliers.emplace_back([stream](vectorized::Block* block, bool* eos) {
+            return stream->read_next_block_sync(block, eos);
+        });
 
         _shared_state->sorted_streams.pop_front();
     }
     RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
     return Status::OK();
 }
+
+bool SpillSortLocalState::is_blockable() const {
+    return _shared_state->is_spilled;
+}
+
 Status SpillSortLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     _runtime_state = RuntimeState::create_unique(
             state->fragment_instance_id(), state->query_id(), state->fragment_id(),
@@ -218,8 +227,11 @@ Status SpillSortLocalState::setup_in_memory_sort_op(RuntimeState* state) {
     _runtime_state->set_runtime_filter_mgr(state->local_runtime_filter_mgr());
 
     DCHECK(_shared_state->in_mem_shared_state);
-    LocalStateInfo state_info {
-            _internal_runtime_profile.get(), {}, _shared_state->in_mem_shared_state, {}, 0};
+    LocalStateInfo state_info {.parent_profile = _internal_runtime_profile.get(),
+                               .scan_ranges = {},
+                               .shared_state = _shared_state->in_mem_shared_state,
+                               .shared_state_map = {},
+                               .task_idx = 0};
 
     auto& parent = Base::_parent->template cast<Parent>();
     RETURN_IF_ERROR(
@@ -260,9 +272,10 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
         if (!status.ok() || *eos) {
             local_state._shared_state->close();
             for (auto& stream : local_state._current_merging_streams) {
-                (void)ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
+                ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(stream);
             }
             local_state._current_merging_streams.clear();
+            local_state._merger.reset();
         }
     }};
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -283,4 +296,6 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
     local_state.reached_limit(block, eos);
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

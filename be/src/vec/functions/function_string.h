@@ -4448,9 +4448,11 @@ private:
     }
 
     template <bool origin_const, bool pos_const, bool len_const, bool insert_const>
-    static void vector_utf8(const ColumnString* col_origin, int const* col_pos, int const* col_len,
-                            const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
-                            size_t input_rows_count) {
+    NO_SANITIZE_UNDEFINED static void vector_utf8(const ColumnString* col_origin,
+                                                  int const* col_pos, int const* col_len,
+                                                  const ColumnString* col_insert,
+                                                  ColumnString::MutablePtr& col_res,
+                                                  size_t input_rows_count) {
         auto& col_res_chars = col_res->get_chars();
         auto& col_res_offsets = col_res->get_offsets();
         StringRef origin_str, insert_str;

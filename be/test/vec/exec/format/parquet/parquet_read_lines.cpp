@@ -215,10 +215,9 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     auto vf = FileScanner::create_unique(&runtime_state, runtime_profile.get(), &scan_params,
                                          &colname_to_slot_id, tuple_desc);
     EXPECT_TRUE(vf->prepare_for_read_lines(scan_range).ok());
-    ExternalFileMappingInfo external_info(0, scan_range, false);
+    ExternalFileMappingInfo external_info(0, scan_range, true);
     int64_t init_reader_ms = 0;
     int64_t get_block_ms = 0;
-
     auto read_lines_tmp2 = read_lines;
     while (!read_lines_tmp2.empty()) {
         auto st = vf->read_lines_from_range(scan_range, {read_lines_tmp2.front()}, block.get(),

@@ -23,6 +23,7 @@
 #include <cmath>
 #include <limits>
 
+#include "common/compare.h"
 #include "runtime/primitive_type.h"
 #include "util/binary_cast.hpp"
 #include "vec/common/nan_utils.h"
@@ -218,42 +219,6 @@ template <typename A, typename B>
 bool notEqualsOp(A a, B b) {
     return !equalsOp(a, b);
 }
-
-/// Converts numeric to an equal numeric of other type.
-/// When `strict` is `true` check that result exactly same as input, otherwise just check overflow
-template <typename From, typename To, bool strict = true>
-inline bool convertNumeric(From value, To& result) {
-    /// If the type is actually the same it's not necessary to do any checks.
-    if constexpr (std::is_same_v<From, To>) {
-        result = value;
-        return true;
-    }
-    if constexpr (std::is_floating_point_v<From> && std::is_floating_point_v<To>) {
-        /// Note that NaNs doesn't compare equal to anything, but they are still in range of any Float type.
-        if (is_nan(value)) {
-            result = value;
-            return true;
-        }
-        if (value == std::numeric_limits<From>::infinity()) {
-            result = std::numeric_limits<To>::infinity();
-            return true;
-        }
-        if (value == -std::numeric_limits<From>::infinity()) {
-            result = -std::numeric_limits<To>::infinity();
-            return true;
-        }
-    }
-    if (greaterOp(value, std::numeric_limits<To>::max()) ||
-        lessOp(value, std::numeric_limits<To>::lowest())) {
-        return false;
-    }
-    result = static_cast<To>(value);
-    if constexpr (strict) {
-        return equalsOp(value, result);
-    }
-    return true;
-}
-
 } // namespace accurate
 
 namespace doris::vectorized {
@@ -268,7 +233,7 @@ struct EqualsOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::equalsOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::equal(a, b); }
 };
 
 template <>
@@ -290,7 +255,7 @@ struct NotEqualsOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::notEqualsOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::not_equal(a, b); }
 };
 
 template <>
@@ -310,7 +275,7 @@ struct LessOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::lessOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::less(a, b); }
 };
 
 template <>
@@ -332,7 +297,7 @@ struct GreaterOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::greaterOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::greater(a, b); }
 };
 
 template <>
@@ -357,7 +322,7 @@ struct LessOrEqualsOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::lessOrEqualsOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::less_equal(a, b); }
 };
 
 template <>
@@ -374,7 +339,7 @@ struct GreaterOrEqualsOp {
     using NativeTypeB =
             std::conditional_t<B == TYPE_BOOLEAN, typename PrimitiveTypeTraits<B>::ColumnItemType,
                                typename PrimitiveTypeTraits<B>::CppNativeType>;
-    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return accurate::greaterOrEqualsOp(a, b); }
+    static UInt8 apply(NativeTypeA a, NativeTypeB b) { return Compare::greater_equal(a, b); }
 };
 
 template <>

@@ -47,6 +47,7 @@
 #include "geo/wkt_parse.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 
 constexpr double TOLERANCE = 1e-6;
 
@@ -1629,4 +1630,5 @@ std::string GeoShape::as_binary(GeoShape* rhs) {
     return res;
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

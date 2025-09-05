@@ -41,6 +41,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -109,16 +110,16 @@ public:
 
         int length() {
             // name_length(4) + column_name + operator(4) + scale(4) + num_values(4)
-            int len = 4 + column_name.size() + 4 + 4 + 4;
+            int len = 4 + static_cast<int>(column_name.size()) + 4 + 4 + 4;
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 for (const StringRef* s : values) {
                     // string_length(4) + string
-                    len += 4 + s->size;
+                    len += static_cast<int>(4 + s->size);
                 }
             } else {
                 int type_len = sizeof(CppType);
                 // value_length(4) + value
-                len += (4 + type_len) * values.size();
+                len += static_cast<int>((4 + type_len) * values.size());
             }
             return len;
         }
@@ -144,22 +145,22 @@ public:
             *reinterpret_cast<int*>(new_bytes) = num_filters;
 
             char* char_ptr = new_bytes + origin_length;
-            *reinterpret_cast<int*>(char_ptr) = column_name.size();
+            *reinterpret_cast<int*>(char_ptr) = static_cast<int>(column_name.size());
             char_ptr += 4;
             memcpy(char_ptr, column_name.data(), column_name.size());
-            char_ptr += column_name.size();
+            char_ptr += static_cast<int>(column_name.size());
             *reinterpret_cast<int*>(char_ptr) = op;
             char_ptr += 4;
             *reinterpret_cast<int*>(char_ptr) = scale;
             char_ptr += 4;
-            *reinterpret_cast<int*>(char_ptr) = values.size();
+            *reinterpret_cast<int*>(char_ptr) = static_cast<int>(values.size());
             char_ptr += 4;
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 for (const StringRef* s : values) {
-                    *reinterpret_cast<int*>(char_ptr) = s->size;
+                    *reinterpret_cast<int*>(char_ptr) = static_cast<int>(s->size);
                     char_ptr += 4;
                     memcpy(char_ptr, s->data, s->size);
-                    char_ptr += s->size;
+                    char_ptr += static_cast<int>(s->size);
                 }
             } else {
                 // FIXME: it can not handle decimal type correctly.
@@ -191,7 +192,7 @@ public:
             : _connector_class(std::move(connector_class)),
               _scanner_params(std::move(scanner_params)),
               _column_names(std::move(column_names)),
-              _self_split_weight(self_split_weight) {
+              _self_split_weight(static_cast<int32_t>(self_split_weight)) {
         // Use java class name as connector name
         _connector_name = split(_connector_class, "/").back();
     }
@@ -414,5 +415,5 @@ private:
         }
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

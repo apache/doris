@@ -77,6 +77,7 @@
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
+#include "olap/task/engine_cloud_index_change_task.h"
 #include "olap/task/engine_index_change_task.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/engine_storage_migration_task.h"
@@ -778,6 +779,40 @@ void ReportWorker::stop() {
     if (_thread) {
         _thread->join();
     }
+}
+
+void alter_cloud_index_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    const auto& alter_inverted_index_rq = req.alter_inverted_index_req;
+    LOG(INFO) << "[index_change]get alter index task. signature=" << req.signature
+              << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+              << ", job_id=" << alter_inverted_index_rq.job_id;
+
+    Status status = Status::OK();
+    auto tablet_ptr = engine.tablet_mgr().get_tablet(alter_inverted_index_rq.tablet_id);
+    if (tablet_ptr != nullptr) {
+        EngineCloudIndexChangeTask engine_task(engine, req.alter_inverted_index_req);
+        status = engine_task.execute();
+    } else {
+        status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
+    }
+
+    // Return result to fe
+    TFinishTaskRequest finish_task_request;
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    if (!status.ok()) {
+        LOG(WARNING) << "[index_change]failed to alter inverted index task, signature="
+                     << req.signature << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                     << ", job_id=" << alter_inverted_index_rq.job_id << ", error=" << status;
+    } else {
+        LOG(INFO) << "[index_change]successfully alter inverted index task, signature="
+                  << req.signature << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                  << ", job_id=" << alter_inverted_index_rq.job_id;
+    }
+    finish_task_request.__set_task_status(status.to_thrift());
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
 }
 
 void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskRequest& req) {

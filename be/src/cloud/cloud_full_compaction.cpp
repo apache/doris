@@ -148,6 +148,16 @@ Status CloudFullCompaction::pick_rowsets_to_compact() {
 }
 
 Status CloudFullCompaction::execute_compact() {
+    DBUG_EXECUTE_IF("CloudFullCompaction::execute_compact.block", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        LOG_INFO(
+                "[verbose] CloudFullCompaction::execute_compact.block, target_tablet_id={}, "
+                "tablet_id={}",
+                target_tablet_id, cloud_tablet()->tablet_id());
+        if (target_tablet_id == cloud_tablet()->tablet_id()) {
+            DBUG_BLOCK;
+        }
+    });
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudFullCompaction::execute_compact_impl", Status::OK(),
                                       this);
 #ifndef __APPLE__
@@ -270,6 +280,7 @@ Status CloudFullCompaction::modify_rowsets() {
         cloud_tablet()->delete_rowsets(_input_rowsets, wrlock);
         cloud_tablet()->add_rowsets({_output_rowset}, false, wrlock);
         cloud_tablet()->set_base_compaction_cnt(stats.base_compaction_cnt());
+        cloud_tablet()->set_full_compaction_cnt(stats.full_compaction_cnt());
         cloud_tablet()->set_cumulative_layer_point(stats.cumulative_point());
         if (stats.cumulative_compaction_cnt() >= cloud_tablet()->cumulative_compaction_cnt()) {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
@@ -329,6 +340,7 @@ void CloudFullCompaction::do_lease() {
 }
 
 Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t initiator) {
+    DCHECK(_output_rowset->start_version() <= 2) << _output_rowset->start_version();
     std::vector<RowsetSharedPtr> tmp_rowsets {};
     DeleteBitmapPtr delete_bitmap =
             std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
@@ -356,8 +368,15 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
                                                                       delete_bitmap));
         }
     }
-    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*cloud_tablet(), -1, initiator,
-                                                            delete_bitmap.get()));
+    std::optional<StorageResource> storage_resource;
+    auto storage_resource_result = _output_rowset->rowset_meta()->remote_storage_resource();
+    if (storage_resource_result) {
+        storage_resource = *storage_resource_result.value();
+    }
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
+            *cloud_tablet(), -1, initiator, delete_bitmap.get(), delete_bitmap.get(),
+            _output_rowset->rowset_id().to_string(), storage_resource,
+            config::delete_bitmap_store_write_version));
     LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
              _tablet->tablet_id(), _input_rowsets.front()->start_version(),
              _input_rowsets.back()->end_version())

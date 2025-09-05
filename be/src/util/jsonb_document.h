@@ -427,12 +427,14 @@ public:
     leg_info* get_leg_from_leg_vector(size_t i) const { return leg_vector[i].get(); }
 
     bool is_wildcard() const { return _is_wildcard; }
+    bool is_supper_wildcard() const { return _is_supper_wildcard; }
 
     void clean() { leg_vector.clear(); }
 
 private:
     std::vector<std::unique_ptr<leg_info>> leg_vector;
-    bool _is_wildcard = false; // whether the path is a wildcard path
+    bool _is_wildcard = false;        // whether the path is a wildcard path
+    bool _is_supper_wildcard = false; // supper wildcard likes '$**.a' or '$**[1]'
 };
 
 /*
@@ -1389,6 +1391,10 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
 }
 
 inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
+    while (kp_len > 0 && std::isspace(key_path[kp_len - 1])) {
+        --kp_len;
+    }
+
     //path invalid
     if (!key_path || kp_len == 0) {
         return false;
@@ -1435,6 +1441,42 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
         else {
             return parse_member(stream, path);
         }
+    } else if (stream->peek() == WILDCARD) {
+        stream->skip(1);
+        if (stream->exhausted()) {
+            return false;
+        }
+
+        // $**
+        if (stream->peek() == WILDCARD) {
+            path->_is_supper_wildcard = true;
+        }
+
+        stream->skip(1);
+        if (stream->exhausted()) {
+            return false;
+        }
+
+        if (stream->peek() == BEGIN_ARRAY) {
+            return parse_array(stream, path);
+        } else if (stream->peek() == BEGIN_MEMBER) {
+            // advance past the .
+            stream->skip(1);
+
+            if (stream->exhausted()) {
+                return false;
+            }
+
+            // $.[0]
+            if (stream->peek() == BEGIN_ARRAY) {
+                return parse_array(stream, path);
+            }
+            // $.a
+            else {
+                return parse_member(stream, path);
+            }
+        }
+        return false;
     } else {
         return false; //invalid json path
     }

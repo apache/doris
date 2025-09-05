@@ -28,16 +28,7 @@ import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.util.concurrent.CopyOnWriteArrayList
 
-suite("test_point_query", "nonConcurrent") {
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
+suite("test_point_query") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_serving_p0"
@@ -56,9 +47,8 @@ suite("test_point_query", "nonConcurrent") {
     // set server side prepared statement url
     def prepare_url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
     try {
-        set_be_config.call("disable_storage_row_cache", "false")
-        sql "set global enable_fallback_to_original_planner = false"
-        sql """set global enable_nereids_planner=true"""
+        sql """set enable_fallback_to_original_planner = false"""
+        sql """set enable_nereids_planner=true"""
         def tableName = realDb + ".tbl_point_query"
         sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
 
@@ -322,8 +312,6 @@ suite("test_point_query", "nonConcurrent") {
             WHERE
              aaaid = '1111111'"""
     } finally {
-        set_be_config.call("disable_storage_row_cache", "true")
-        sql """set global enable_nereids_planner=true"""
     }
 
     // test partial update/delete

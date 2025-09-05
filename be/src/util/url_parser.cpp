@@ -27,7 +27,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 const StringRef UrlParser::_s_url_authority("AUTHORITY", 9);
 const StringRef UrlParser::_s_url_file("FILE", 4);
 const StringRef UrlParser::_s_url_host("HOST", 4);
@@ -402,7 +402,7 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
             // invalid url. like: k1&k2=bb
             continue;
         }
-        int32_t key_len = key_url.size;
+        auto key_len = key_url.size;
         auto key = key_url.substring(0, eq_pod);
         if (name == key) {
             return key_url.substring(eq_pod + 1, key_len - eq_pod - 1);
@@ -410,4 +410,5 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
     }
     return result;
 }
+#include "common/compile_check_end.h"
 } // namespace doris

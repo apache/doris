@@ -666,6 +666,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                     }
                     for (TableIf table : tables) {
+                        if (table.isTemporary()) {
+                            continue;
+                        }
                         if (!Env.getCurrentEnv().getAccessManager()
                                 .checkTblPriv(currentUser, catalogName, dbName,
                                         table.getName(), PrivPredicate.SHOW)) {
@@ -905,6 +908,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db != null) {
             for (String tableName : tables) {
                 TableIf table = db.getTableNullableIfException(tableName);
+                if (table.isTemporary()) {
+                    // because we return all table names to be,
+                    // so when we skip temporary table, we should add a offset here
+                    tablesOffset.add(columns.size());
+                    continue;
+                }
                 if (table != null) {
                     table.readLock();
                     try {
@@ -2844,7 +2853,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
             for (Replica replica : replicas) {
-                if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
+                // TODO(dx)
+                //if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
+                if (!replica.isNormal()) {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
