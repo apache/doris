@@ -254,6 +254,7 @@ suite("test_string_function") {
     qt_soundex """SELECT SOUNDEX('Huang');"""
     qt_soundex """SELECT SOUNDEX('Zhang');"""
     qt_soundex """SELECT SOUNDEX('Wang');"""
+    qt_soundex """SELECT SOUNDEX(NULL);"""
 
 
 
