@@ -582,7 +582,7 @@ public:
 
     void clear_rowset_cache_version();
 
-    std::set<RowsetId> get_rowset_cache_version();
+    std::set<std::string> get_rowset_cache_version();
 
     /**
      * Calculate diffset with given `key_set`. All entries with keys contained in this delete bitmap but not
