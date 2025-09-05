@@ -146,7 +146,7 @@ suite("test_cloud_mow_stream_load_with_commit_fail", "nonConcurrent") {
             file "test_stream_load0.csv"
 
             time 10000 // limit inflight 10s
-            directToBe backendIdToBackendIP.get(backendId), backendId_to_backendHttpPort.get(backendId)
+            directToBe backendIdToBackendIP.get(backendId), backendId_to_backendHttpPort.get(backendId).toInteger()
 
             check { result, exception, startTime, endTime ->
                 log.info("Stream load result: ${result}")

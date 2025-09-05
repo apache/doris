@@ -137,19 +137,7 @@ public class LocationPath {
                 tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
                 break;
             case FeConstants.FS_PREFIX_OSS:
-                String endpoint = "";
-                if (props.containsKey(OssProperties.ENDPOINT)) {
-                    endpoint = props.get(OssProperties.ENDPOINT);
-                    if (endpoint.startsWith(OssProperties.OSS_PREFIX)) {
-                        // may use oss.oss-cn-beijing.aliyuncs.com
-                        endpoint = endpoint.replace(OssProperties.OSS_PREFIX, "");
-                    }
-                } else if (props.containsKey(S3Properties.ENDPOINT)) {
-                    endpoint = props.get(S3Properties.ENDPOINT);
-                } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
-                    endpoint = props.get(S3Properties.Env.ENDPOINT);
-                }
-                if (isHdfsOnOssEndpoint(endpoint)) {
+                if (isHdfsOnOssEndpoint(originLocation)) {
                     this.scheme = Scheme.OSS_HDFS;
                 } else {
                     if (useS3EndPoint(props)) {
