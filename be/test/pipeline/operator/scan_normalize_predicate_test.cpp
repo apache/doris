@@ -1206,5 +1206,226 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
                 },
                 output_range);
     }
+    // test less
+    for (auto const_v : test_values) {
+        // std::cout << "test less const_v=" << const_v << std::endl;
+        auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+        ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
+        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
+        auto fn_eq = MockFnCall::create("lt");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeFloat64>({const_v}));
+
+        fn_eq->add_child(slot_ref);
+        fn_eq->add_child(const_val);
+        fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+        slot_ref->_slot_id = SlotId;
+        EXPECT_FALSE(fn_eq->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_eq);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                    conjunct_expr_root.get(), new_root);
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(new_root, nullptr);
+
+        EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        /*
+        _low_value = -inf,
+        _high_value = 90,
+        _low_op = doris::FILTER_LARGER_OR_EQUAL,
+        _high_op = doris::FILTER_LESS,
+        */
+        std::visit(
+                [&](auto&& arg) {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
+                        EXPECT_FALSE(arg.is_fixed_value_range());
+                        if (const_v == -std::numeric_limits<double>::infinity()) {
+                            EXPECT_TRUE(arg.is_empty_value_range());
+                        } else {
+                            EXPECT_TRUE(arg.is_scope_value_range());
+                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS);
+                            EXPECT_TRUE(arg.is_low_value_minimum());
+                            EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
+                        }
+                    } else {
+                        FAIL() << "unexpected type";
+                    }
+                },
+                output_range);
+    }
+    // test less or equal
+    for (auto const_v : test_values) {
+        // std::cout << "test less or equal const_v=" << const_v << std::endl;
+        auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+        ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
+        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
+        auto fn_eq = MockFnCall::create("le");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeFloat64>({const_v}));
+
+        fn_eq->add_child(slot_ref);
+        fn_eq->add_child(const_val);
+        fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+        slot_ref->_slot_id = SlotId;
+        EXPECT_FALSE(fn_eq->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_eq);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                    conjunct_expr_root.get(), new_root);
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(new_root, nullptr);
+
+        EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        std::visit(
+                [&](auto&& arg) {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
+                        if (const_v == -std::numeric_limits<double>::infinity()) {
+                            EXPECT_EQ(arg._fixed_values.size(), 1);
+                            auto it = arg._fixed_values.begin();
+                            EXPECT_TRUE(Compare::equal(*it, const_v));
+                        } else {
+                            EXPECT_FALSE(arg.is_fixed_value_range());
+                            EXPECT_TRUE(arg.is_scope_value_range());
+                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_TRUE(arg.is_low_value_minimum());
+                            EXPECT_TRUE(Compare::equal(arg.get_range_max_value(), const_v));
+                        }
+                    } else {
+                        FAIL() << "unexpected type";
+                    }
+                },
+                output_range);
+    }
+
+    // test greater
+    for (auto const_v : test_values) {
+        // std::cout << "test greater const_v=" << const_v << std::endl;
+        auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+        ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
+        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
+        auto fn_eq = MockFnCall::create("gt");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeFloat64>({const_v}));
+
+        fn_eq->add_child(slot_ref);
+        fn_eq->add_child(const_val);
+        fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+        slot_ref->_slot_id = SlotId;
+        EXPECT_FALSE(fn_eq->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_eq);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                    conjunct_expr_root.get(), new_root);
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(new_root, nullptr);
+
+        EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        /*
+        _low_value = 90,
+        _high_value = nan,
+        _low_op = doris::FILTER_LARGER,
+        _high_op = doris::FILTER_LESS_OR_EQUAL,
+        */
+        std::visit(
+                [&](auto&& arg) {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
+                        if (std::isnan(const_v)) {
+                            EXPECT_TRUE(arg.is_empty_value_range());
+                        } else {
+                            EXPECT_FALSE(arg.is_fixed_value_range());
+                            EXPECT_TRUE(arg.is_scope_value_range());
+                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER);
+                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_TRUE(arg.is_high_value_maximum());
+                            EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
+                        }
+                    } else {
+                        FAIL() << "unexpected type";
+                    }
+                },
+                output_range);
+    }
+    // test greater or equal
+    for (auto const_v : test_values) {
+        // std::cout << "test greater or equal const_v=" << const_v << std::endl;
+        auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+        ColumnValueRange<TYPE_DOUBLE> range("mock", false, 0, 0);
+        local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeFloat64>());
+        auto fn_eq = MockFnCall::create("ge");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeFloat64>({const_v}));
+
+        fn_eq->add_child(slot_ref);
+        fn_eq->add_child(const_val);
+        fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+        slot_ref->_slot_id = SlotId;
+        EXPECT_FALSE(fn_eq->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_eq);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                    conjunct_expr_root.get(), new_root);
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(new_root, nullptr);
+
+        EXPECT_TRUE(local_state->_slot_id_to_value_range.contains(SlotId));
+        const auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+        std::visit(
+                [&](auto&& arg) {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_DOUBLE>>) {
+                        if (std::isnan(const_v)) {
+                            EXPECT_EQ(arg._fixed_values.size(), 1);
+                            auto it = arg._fixed_values.begin();
+                            EXPECT_TRUE(Compare::equal(*it, const_v));
+                        } else {
+                            EXPECT_FALSE(arg.is_fixed_value_range());
+                            EXPECT_TRUE(arg.is_scope_value_range());
+                            EXPECT_EQ(arg.get_range_low_op(), doris::FILTER_LARGER_OR_EQUAL);
+                            EXPECT_EQ(arg.get_range_high_op(), doris::FILTER_LESS_OR_EQUAL);
+                            EXPECT_TRUE(arg.is_high_value_maximum());
+                            EXPECT_TRUE(Compare::equal(arg.get_range_min_value(), const_v));
+                        }
+                    } else {
+                        FAIL() << "unexpected type";
+                    }
+                },
+                output_range);
+    }
 }
 } // namespace doris::pipeline

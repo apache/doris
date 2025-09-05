@@ -170,13 +170,13 @@ public:
 
     SQLFilterOp get_range_low_op() const { return _low_op; }
 
-    bool is_low_value_mininum() const { return Compare::equal(_low_value, TYPE_MIN); }
+    bool is_low_value_minimum() const { return Compare::equal(_low_value, TYPE_MIN); }
 
     bool is_low_value_maximum() const { return Compare::equal(_low_value, TYPE_MAX); }
 
     bool is_high_value_maximum() const { return Compare::equal(_high_value, TYPE_MAX); }
 
-    bool is_high_value_mininum() const { return Compare::equal(_high_value, TYPE_MIN); }
+    bool is_high_value_minimum() const { return Compare::equal(_high_value, TYPE_MIN); }
 
     bool is_begin_include() const { return _low_op == FILTER_LARGER_OR_EQUAL; }
 
