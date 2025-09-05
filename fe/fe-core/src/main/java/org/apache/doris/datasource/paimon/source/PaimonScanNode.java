@@ -695,16 +695,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (theScanParams.isBranch()) {
                 return PaimonUtil.getTableByBranch(source, baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
             }
-            if (theScanParams.isTag()) {
-                return PaimonUtil.getTableByTag(baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
-            }
         }
-
-        TableSnapshot theTableSnapshot = getQueryTableSnapshot();
-        if (theTableSnapshot != null) {
-            return PaimonUtil.getTableBySnapshot(baseTable, theTableSnapshot);
-        }
-
         return baseTable;
     }
 }
