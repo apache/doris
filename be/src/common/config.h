@@ -1631,6 +1631,8 @@ DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
 
+DECLARE_mBool(enable_wal_tde);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
