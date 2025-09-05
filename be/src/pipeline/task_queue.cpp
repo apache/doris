@@ -191,11 +191,8 @@ PipelineTaskSPtr MultiCoreTaskQueue::_steal_take(int core_id) {
 }
 
 Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task) {
-    int core_id = task->get_core_id();
-    if (core_id < 0) {
-        core_id = _next_core.fetch_add(1) % _core_size;
-    }
-    return push_back(task, core_id);
+    task->incr_thread_id(_core_size);
+    return push_back(task, task->get_thread_id());
 }
 
 Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task, int core_id) {
@@ -205,12 +202,10 @@ Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task, int core_id) {
 }
 
 void MultiCoreTaskQueue::update_statistics(PipelineTask* task, int64_t time_spent) {
-    // if the task not execute but exception early close, core_id == -1
-    // should not do update_statistics
-    if (auto core_id = task->get_core_id(); core_id >= 0) {
-        task->inc_runtime_ns(time_spent);
-        _prio_task_queues[core_id].inc_sub_queue_runtime(task->get_queue_level(), time_spent);
-    }
+    auto core_id = task->get_thread_id();
+    DCHECK_GE(core_id, 0);
+    task->inc_runtime_ns(time_spent);
+    _prio_task_queues[core_id].inc_sub_queue_runtime(task->get_queue_level(), time_spent);
 }
 
 } // namespace doris::pipeline

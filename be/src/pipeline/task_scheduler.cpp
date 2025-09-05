@@ -56,15 +56,14 @@ TaskScheduler::~TaskScheduler() {
 }
 
 Status TaskScheduler::start() {
-    int cores = _task_queue.cores();
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
-                            .set_min_threads(cores)
-                            .set_max_threads(cores)
+                            .set_min_threads(_num_threads)
+                            .set_max_threads(_num_threads)
                             .set_max_queue_size(0)
                             .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                             .build(&_fix_thread_pool));
-    LOG_INFO("TaskScheduler set cores").tag("size", cores);
-    for (int32_t i = 0; i < cores; ++i) {
+    LOG_INFO("TaskScheduler set cores").tag("size", _num_threads);
+    for (int32_t i = 0; i < _num_threads; ++i) {
         RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
     }
     return Status::OK();
@@ -117,7 +116,8 @@ void TaskScheduler::_do_work(int index) {
             // Fragment already finished
             continue;
         }
-        task->set_running(true).set_core_id(index);
+        task->set_running(true);
+        DCHECK_EQ(task->get_thread_id(), index);
         bool done = false;
         auto status = Status::OK();
         int64_t exec_ns = 0;
@@ -184,8 +184,10 @@ void TaskScheduler::stop() {
 
 Status HybridTaskScheduler::submit(PipelineTaskSPtr task) {
     if (task->is_blockable()) {
+        task->set_on_blocking_scheduler(true);
         return _blocking_scheduler.submit(task);
     } else {
+        task->set_on_blocking_scheduler(false);
         return _simple_scheduler.submit(task);
     }
 }

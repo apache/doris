@@ -46,6 +46,12 @@ class PriorityTaskQueue;
 class Dependency;
 
 class PipelineTask : public std::enable_shared_from_this<PipelineTask> {
+private:
+    struct TaskTracking {
+        int blocking_thread_id = -1;
+        int simple_thread_id = -1;
+    };
+
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                  std::shared_ptr<PipelineFragmentContext> fragment_context,
@@ -66,15 +72,20 @@ public:
 
     std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
-    int get_core_id() const { return _core_id; }
+    void set_on_blocking_scheduler(bool blocking_scheduler) {
+        _on_blocking_scheduler = blocking_scheduler;
+    }
+    int get_thread_id() const {
+        return _on_blocking_scheduler ? _tracking.blocking_thread_id : _tracking.simple_thread_id;
+    }
 
-    PipelineTask& set_core_id(int id) {
-        if (id != _core_id) {
-            if (_core_id != -1) {
-                COUNTER_UPDATE(_core_change_times, 1);
-            }
-            _core_id = id;
+    PipelineTask& incr_thread_id(int num_threads) {
+        if (_on_blocking_scheduler) {
+            _tracking.blocking_thread_id = (_tracking.blocking_thread_id + 1) % num_threads;
+        } else {
+            _tracking.simple_thread_id = (_tracking.simple_thread_id + 1) % num_threads;
         }
+        COUNTER_UPDATE(_core_change_times, 1);
         return *this;
     }
 
@@ -193,7 +204,8 @@ private:
     PipelinePtr _pipeline;
     bool _opened;
     RuntimeState* _state = nullptr;
-    int _core_id = -1;
+    TaskTracking _tracking;
+    bool _on_blocking_scheduler = false;
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
 
