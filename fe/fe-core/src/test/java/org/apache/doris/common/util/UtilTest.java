@@ -45,8 +45,8 @@ public class UtilTest {
         rootCause.addSuppressed(new Exception("Suppressed message2"));
         Assertions.assertEquals(
                 "java.lang.Exception: Root cause message"
-                            + " With suppressed[0]:Suppressed message"
-                            + " With suppressed[1]:Suppressed message2",
+                        + " With suppressed[0]:Suppressed message"
+                        + " With suppressed[1]:Suppressed message2",
                 Util.getRootCauseWithSuppressedMessage(rootCause));
     }
 
@@ -90,16 +90,16 @@ public class UtilTest {
         String str1 = "东方卫视";
         Assertions.assertNotEquals(Util.sha256long(str), Util.sha256long(str1));
     }
-    
+
     @Test
     public void sha256longHandlesLongMinValue() {
-	String testStr = "test_long_min_value_case";
-	long result = Util.sha256long(testStr);
+        String testStr = "test_long_min_value_case";
+        long result = Util.sha256long(testStr);
 
-	Assertions.assertNotEquals(Long.MIN_VALUE, result,
+        Assertions.assertNotEquals(Long.MIN_VALUE, result,
                 "sha256long should not return Long.MIN_VALUE");
 
-	Assertions.assertEquals(result, Util.sha256long(testStr),
+        Assertions.assertEquals(result, Util.sha256long(testStr),
                 "Same input should produce same output");
     }
 }
