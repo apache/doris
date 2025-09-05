@@ -17,13 +17,20 @@
 
 #pragma once
 
+#include <aws/core/external/cjson/cJSON.h>
+#include <bthread/bthread.h>
 #include <bthread/mutex.h>
+#include <bthread/unstable.h>
 #include <bvar/bvar.h>
 #include <bvar/latency_recorder.h>
 #include <bvar/multi_dimension.h>
+#include <bvar/passive_status.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
+#include <cpp/sync_point.h>
+#include <gmock/gmock-actions.h>
 
+#include <atomic>
 #include <cstdint>
 #include <initializer_list>
 #include <map>
@@ -32,6 +39,8 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+
+#include "common/logging.h"
 
 /**
  * Manage bvars that with similar names (identical prefix)
@@ -178,6 +187,351 @@ public:
 private:
     bvar::MultiDimension<BvarType> counter_;
 };
+/**
+ * @class BvarLatencyRecorderWithStatus
+ * @brief A latency recorder with auto-exposed max and average metrics
+ *
+ * This class wraps a bvar::LatencyRecorder and automatically creates two
+ * additional PassiveStatus metrics to expose the maximum and average latency.
+ * This makes it convenient to track these key metrics in monitoring systems.
+ * 
+ * @tparam N Window size in seconds for the latency recorder, defaults to 60 seconds
+ *
+ * @note Unlike mBvarLatencyRecorderWithStatus, this class doesn't support multi-dimensional
+ * metrics and doesn't use a timer to update status. It uses PassiveStatus to calculate
+ * statistics in real-time when queried.
+ *
+ * @example Basic usage:
+ *   // Create a latency recorder
+ *   BvarLatencyRecorderWithStatus<> my_latency("my_service_latency");
+ *   // Record a latency value (in microseconds)
+ *   my_latency << 1500;  // or my_latency.put(1500);
+ *   // This will create three metrics:
+ *   // - The original latency recorder (hidden)
+ *   // - my_service_latency_max (showing maximum latency)
+ *   // - my_service_latency_avg (showing average latency)
+ */
+template <int N = 60>
+class BvarLatencyRecorderWithStatus {
+public:
+    /**
+     * @brief Constructor
+     * @param metric_name Base name for the metrics, _max and _avg suffixes will be added
+     */
+    BvarLatencyRecorderWithStatus(const std::string& metric_name)
+            : recorder_(N),
+              max_status_(metric_name + "_max", get_max_latency, this),
+              avg_status_(metric_name + "_avg", get_avg_latency, this),
+              count_status_(metric_name + "_count", get_count_latency, this) {
+        recorder_.hide();
+    }
+
+    /**
+     * @brief Constructor with prefix
+     * @param prefix Prefix for the metric name
+     * @param metric_name Base name for the metrics
+     */
+    BvarLatencyRecorderWithStatus(const std::string& prefix, const std::string& metric_name)
+            : BvarLatencyRecorderWithStatus(prefix + "_" + metric_name) {}
+
+    /**
+     * @brief Record a latency value
+     * @param value Latency value to record (in microseconds)
+     */
+    void put(int64_t value) { recorder_ << value; }
+
+    /**
+     * @brief Stream operator for recording latency values
+     * @param value Latency value to record (in microseconds)
+     */
+    void operator<<(int64_t value) { recorder_ << value; }
+
+    int64_t max() const { return recorder_.max_latency(); }
+
+    int64_t avg() const { return recorder_.latency(); }
+
+    int64_t count() const { return recorder_.count(); }
+
+private:
+    bvar::LatencyRecorder recorder_;            // The underlying latency recorder
+    bvar::PassiveStatus<int64_t> max_status_;   // Passive status for maximum latency
+    bvar::PassiveStatus<int64_t> avg_status_;   // Passive status for average latency
+    bvar::PassiveStatus<int64_t> count_status_; // Passive status for count latency
+
+    /**
+     * @brief Callback function to get maximum latency
+     * @param arg Pointer to the BvarLatencyRecorderWithStatus instance
+     * @return Maximum latency value, or 0 if negative
+     */
+    static int64_t get_max_latency(void* arg) {
+        auto* self = static_cast<BvarLatencyRecorderWithStatus*>(arg);
+        int64_t value = self->recorder_.max_latency();
+        return value >= 0 ? value : 0;
+    }
+
+    /**
+     * @brief Callback function to get average latency
+     * @param arg Pointer to the BvarLatencyRecorderWithStatus instance
+     * @return Average latency value, or 0 if negative
+     */
+    static int64_t get_avg_latency(void* arg) {
+        auto* self = static_cast<BvarLatencyRecorderWithStatus*>(arg);
+        int64_t value = self->recorder_.latency();
+        return value >= 0 ? value : 0;
+    }
+
+    /**
+     * @brief Callback function to get count latency
+     * @param arg Pointer to the BvarLatencyRecorderWithStatus instance
+     * @return Count latency value, or 0 if negative
+     */
+    static int64_t get_count_latency(void* arg) {
+        auto* self = static_cast<BvarLatencyRecorderWithStatus*>(arg);
+        int64_t value = self->recorder_.count();
+        return value >= 0 ? value : 0;
+    }
+};
+
+/**
+ * @class MBvarLatencyRecorderWithStatus
+ * @brief A multi-dimensional latency recorder with status metrics
+ * 
+ * This class provides a way to record latency metrics across multiple dimensions and
+ * automatically update status metrics (max and average) at regular intervals.
+ * It leverages bvar's MultiDimension capability to track metrics per dimension combination.
+ * 
+ * @tparam N Window size in seconds for the latency recorder (default: 60)
+ */
+template <int N = 60>
+class MBvarLatencyRecorderWithStatus {
+private:
+    /**
+    * @class ScheduledLatencyUpdater
+    * @brief A helper class to schedule deferred execution of tasks using bthread timer.
+    * 
+    * This class provides a way to execute a callback function after a specified time interval.
+    * It takes care of safely managing the lifecycle of the timer and ensures the callback
+    * is only executed if the timer and its arguments are still valid.
+    * 
+    * @note This class requires bthread to be initialized before use. If bthread is not
+    * initialized, timer creation will fail.
+    */
+    class ScheduledLatencyUpdater : public bvar::LatencyRecorder {
+    public:
+        /**
+        * @brief Constructor for ScheduledLatencyUpdater
+        * 
+        * @param interval_s The time interval in seconds after which the callback should be executed
+        * @param arg Optional argument to pass to the callback function
+        */
+        ScheduledLatencyUpdater(size_t interval_s, void* arg = nullptr)
+                : bvar::LatencyRecorder(interval_s), _interval_s(interval_s), _arg(arg) {
+            hide();
+        }
+
+        /**
+        * @brief Destructor
+        * 
+        * Stops the timer if it's still running to prevent any callbacks after destruction
+        */
+        ~ScheduledLatencyUpdater() { stop(); }
+
+        /**
+        * @brief Start the timer
+        * 
+        * Schedules the callback function to be executed after the specified interval.
+        * Does nothing if the timer has already been started.
+        * 
+        * @return true if the timer was successfully started, false otherwise
+        */
+        bool start() {
+            if (!_started.load()) {
+                {
+                    std::lock_guard<bthread::Mutex> l(init_mutex_);
+                    if (!_started.load()) {
+                        if (!schedule()) {
+                            return false;
+                        }
+                        _started.store(true);
+                    }
+                    return true;
+                }
+            }
+            return true;
+        }
+
+        /*** @brief Reschedule the timer
+        * 
+        * Scheduling a one-time task.
+        * This is useful if you want to reset the timer interval.
+        */
+        bool schedule() {
+            if (bthread_timer_add(&_timer, butil::seconds_from_now(_interval_s), update, this) !=
+                0) {
+                LOG(WARNING) << "Failed to add bthread timer for ScheduledLatencyUpdater";
+                return false;
+            }
+            return true;
+        }
+
+        /**
+        * @brief Background update function
+        * 
+        * This function is called periodically by the timer to update the status metrics
+        * with the current values from the latency recorders.
+        * 
+        * @param arg Pointer to the mBvarLatencyRecorderWithStatus instance
+        */
+        static void update(void* arg) {
+            auto* latency_updater = static_cast<ScheduledLatencyUpdater*>(arg);
+            if (!latency_updater || !latency_updater->_started) {
+                LOG(WARNING) << "Invalid ScheduledLatencyUpdater in timer callback";
+                return;
+            }
+
+            VLOG_DEBUG << "Timer triggered for ScheduledLatencyUpdater, interval: "
+                       << latency_updater->_interval_s << "s";
+
+            auto* parent = static_cast<MBvarLatencyRecorderWithStatus*>(latency_updater->_arg);
+            if (!parent) {
+                LOG(WARNING) << "Invalid parent container in timer callback";
+                return;
+            }
+
+            std::list<std::string> current_dim_list;
+            {
+                std::lock_guard<bthread::Mutex> l(parent->recorder_mutex_);
+                for (const auto& it : parent->recorder_) {
+                    if (it.second.get() == latency_updater) {
+                        current_dim_list = it.first;
+                        break;
+                    }
+                }
+            }
+
+            if (current_dim_list.empty()) {
+                LOG(WARNING) << "Could not find dimension for ScheduledLatencyUpdater";
+                return;
+            }
+
+            {
+                std::lock_guard<bthread::Mutex> l(parent->timer_mutex_);
+
+                bvar::Status<int64_t>* max_status = parent->max_status_.get_stats(current_dim_list);
+                bvar::Status<int64_t>* avg_status = parent->avg_status_.get_stats(current_dim_list);
+                bvar::Status<int64_t>* count_status =
+                        parent->count_status_.get_stats(current_dim_list);
+
+                VLOG_DEBUG << "Updating latency recorder status for dimension, "
+                           << "max_latency: " << latency_updater->max_latency()
+                           << ", avg_latency: " << latency_updater->latency();
+                TEST_SYNC_POINT("mBvarLatencyRecorderWithStatus::update");
+
+                if (max_status) {
+                    max_status->set_value(latency_updater->max_latency());
+                }
+                if (avg_status) {
+                    avg_status->set_value(latency_updater->latency());
+                }
+                if (count_status) {
+                    count_status->set_value(latency_updater->count());
+                }
+            }
+
+            if (latency_updater->_started && !latency_updater->schedule()) {
+                LOG(WARNING) << "Failed to reschedule timer for ScheduledLatencyUpdater";
+                latency_updater->_started = false;
+            }
+        }
+
+        /**
+        * @brief Stop the timer
+        * 
+        * Cancels the timer if it's running and marks arguments as invalid to prevent
+        * any pending callbacks from accessing potentially freed resources.
+        */
+        void stop() {
+            if (_started.load()) {
+                bthread_timer_del(_timer);
+                _started = false;
+            }
+        }
+
+    private:
+        int _interval_s;                   // Timer interval in seconds
+        void* _arg;                        // Argument to pass to the callback
+        bthread_timer_t _timer;            // The bthread timer handle
+        std::atomic_bool _started {false}; // Whether the timer has been started
+        bthread::Mutex init_mutex_;        // Mutex for timer_map_
+    };
+
+public:
+    /**
+     * @brief Constructor
+     * 
+     * @param metric_name Base name for the metrics
+     * @param dim_names List of dimension names
+     */
+    MBvarLatencyRecorderWithStatus(const std::string& metric_name,
+                                   const std::initializer_list<std::string>& dim_names)
+            : _metric_name(metric_name),
+              max_status_(metric_name + "_max", std::list<std::string>(dim_names)),
+              avg_status_(metric_name + "_avg", std::list<std::string>(dim_names)),
+              count_status_(metric_name + "_count", std::list<std::string>(dim_names)) {}
+
+    MBvarLatencyRecorderWithStatus(const std::string& prefix, const std::string& metric_name,
+                                   const std::initializer_list<std::string>& dim_names)
+            : MBvarLatencyRecorderWithStatus(prefix + "_" + metric_name, dim_names) {}
+
+    /**
+     * @brief Record a latency value
+     * 
+     * @param dim_values List of dimension values (must match the number of dimensions)
+     * @param value The latency value to record
+     */
+    void put(const std::initializer_list<std::string>& dim_values, int64_t value) {
+        std::list<std::string> dim_list(dim_values);
+        std::shared_ptr<ScheduledLatencyUpdater> latency = nullptr;
+        {
+            std::lock_guard<bthread::Mutex> l(recorder_mutex_);
+            auto it = recorder_.find(dim_list);
+            if (it == recorder_.end()) {
+                int inteval_s = N;
+                TEST_SYNC_POINT_CALLBACK("mBvarLatencyRecorderWithStatus::put", &inteval_s);
+                latency = std::make_shared<ScheduledLatencyUpdater>(inteval_s, this);
+                recorder_[dim_list] = latency;
+            } else {
+                latency = it->second;
+            }
+        }
+
+        auto* latency_ptr = latency.get();
+        latency->start();
+        *latency_ptr << value;
+    }
+
+    int64_t get_max(const std::initializer_list<std::string>& dim_values) {
+        return max_status_.get_stats(std::list<std::string>(dim_values))->get_value();
+    }
+
+    int64_t get_avg(const std::initializer_list<std::string>& dim_values) {
+        return avg_status_.get_stats(std::list<std::string>(dim_values))->get_value();
+    }
+
+    int64_t get_count(const std::initializer_list<std::string>& dim_values) {
+        return count_status_.get_stats(std::list<std::string>(dim_values))->get_value();
+    }
+
+private:
+    std::string _metric_name;
+    // dim_names -> recorder
+    std::map<std::list<std::string>, std::shared_ptr<ScheduledLatencyUpdater>> recorder_;
+    bvar::MultiDimension<bvar::Status<int64_t>> max_status_;
+    bvar::MultiDimension<bvar::Status<int64_t>> avg_status_;
+    bvar::MultiDimension<bvar::Status<int64_t>> count_status_;
+    bthread::Mutex recorder_mutex_; // Mutex for recorder_
+    bthread::Mutex timer_mutex_;    // Mutex for timer_map_
+};
 
 using mBvarIntAdder = mBvarWrapper<bvar::Adder<int>>;
 using mBvarInt64Adder = mBvarWrapper<bvar::Adder<int64_t>>;
@@ -257,6 +611,10 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
+extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count;
+extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_partition_count;
+extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count;
+extern MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count;
 
 // recycler's bvars
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;
