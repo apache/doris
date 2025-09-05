@@ -415,6 +415,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
@@ -918,6 +919,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Sm3sum.class, "sm3sum"),
             scalar(Sm4Decrypt.class, "sm4_decrypt"),
             scalar(Sm4Encrypt.class, "sm4_encrypt"),
+            scalar(Soundex.class, "soundex"),
             scalar(Space.class, "space"),
             scalar(SplitByChar.class, "split_by_char"),
             scalar(SplitByRegexp.class, "split_by_regexp"),
