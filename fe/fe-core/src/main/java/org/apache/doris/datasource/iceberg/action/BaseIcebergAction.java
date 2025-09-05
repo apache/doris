@@ -42,8 +42,7 @@ import java.util.Optional;
 /**
  * Abstract base class for Iceberg-specific OPTIMIZE TABLE actions.
  * This class implements the OptimizeAction interface and provides common
- * functionality for all Iceberg procedures, while being completely decoupled
- * from the general OptimizeAction framework.
+ * functionality for all Iceberg procedures.
  */
 public abstract class BaseIcebergAction implements OptimizeAction {
     private static final Logger LOG = LogManager.getLogger(BaseIcebergAction.class);

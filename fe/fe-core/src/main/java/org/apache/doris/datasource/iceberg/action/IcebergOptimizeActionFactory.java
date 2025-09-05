@@ -33,9 +33,9 @@ public class IcebergOptimizeActionFactory {
 
     // Iceberg procedure names (mapped to action types)
     public static final String ROLLBACK_TO_SNAPSHOT = "rollback_to_snapshot";
-    public static final String CHERRYPICK_SNAPSHOT = "cherrypick_snapshot";
     public static final String ROLLBACK_TO_TIMESTAMP = "rollback_to_timestamp";
     public static final String SET_CURRENT_SNAPSHOT = "set_current_snapshot";
+    public static final String CHERRYPICK_SNAPSHOT = "cherrypick_snapshot";
     public static final String FAST_FORWARD = "fast_forward";
     public static final String EXPIRE_SNAPSHOTS = "expire_snapshots";
     public static final String REWRITE_DATA_FILES = "rewrite_data_files";
