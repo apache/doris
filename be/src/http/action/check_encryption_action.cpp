@@ -132,12 +132,12 @@ void CheckEncryptionAction::handle(HttpRequest* req) {
                                 "tablet id should be set in request params");
         return;
     }
-    int64_t tablet_id;
+    int64_t tablet_id = -1;
     try {
         tablet_id = std::stoll(tablet_id_str);
     } catch (const std::exception& e) {
         LOG(WARNING) << "convert tablet id to i64 failed:" << e.what();
-        auto msg = fmt::format("invalid argument: tablet_id={}", tablet_id);
+        auto msg = fmt::format("invalid argument: tablet_id={}", tablet_id_str);
 
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, msg);
         return;
