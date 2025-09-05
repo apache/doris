@@ -19,34 +19,38 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.datasource.NameMapping;
 
+import java.util.Objects;
 import java.util.StringJoiner;
 
 public class PaimonSnapshotCacheKey {
     private final NameMapping nameMapping;
+    private final long snapshotId;
 
-    public PaimonSnapshotCacheKey(NameMapping nameMapping) {
+    public PaimonSnapshotCacheKey(NameMapping nameMapping, long snapshotId) {
         this.nameMapping = nameMapping;
+        this.snapshotId = snapshotId;
     }
 
     public NameMapping getNameMapping() {
         return nameMapping;
     }
 
+    public long getSnapshotId() {
+        return snapshotId;
+    }
+
     @Override
     public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
         PaimonSnapshotCacheKey that = (PaimonSnapshotCacheKey) o;
-        return nameMapping.equals(that.nameMapping);
+        return snapshotId == that.snapshotId && Objects.equals(nameMapping, that.nameMapping);
     }
 
     @Override
     public int hashCode() {
-        return nameMapping.hashCode();
+        return Objects.hash(nameMapping, snapshotId);
     }
 
     @Override
@@ -55,6 +59,7 @@ public class PaimonSnapshotCacheKey {
                 .add("catalog=" + nameMapping.getCtlId())
                 .add("dbName='" + nameMapping.getLocalDbName() + "'")
                 .add("tableName='" + nameMapping.getLocalTblName() + "'")
+                .add("snapshotId='" + snapshotId + "'")
                 .toString();
     }
 }
