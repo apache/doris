@@ -47,6 +47,7 @@
 #include "util/cpu_info.h"
 
 namespace doris::config {
+#include "common/compile_check_avoid_begin.h"
 
 // Dir of custom config file
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
@@ -2125,4 +2126,5 @@ std::vector<std::vector<std::string>> get_config_info() {
     return configs;
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::config
