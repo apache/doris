@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_varbinary.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -586,6 +587,8 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
                << get_jni_type(map_type->get_value_type()) << ">";
         return buffer.str();
     }
+    case TYPE_VARBINARY:
+        return "varbinary";
     default:
         return "unsupported";
     }
@@ -644,7 +647,10 @@ std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& 
     case TYPE_STRING:
         return "string";
     case TYPE_VARBINARY:
-        return "varbinary";
+        buffer << "varbinary("
+               << assert_cast<const DataTypeVarbinary*>(remove_nullable(data_type).get())->len()
+               << ")";
+        return buffer.str();
     case TYPE_DECIMALV2: {
         buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
         return buffer.str();
@@ -773,6 +779,15 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
         meta_data.emplace_back((long)map.get_offsets().data());
         RETURN_IF_ERROR(_fill_column_meta(key_column, key_type, meta_data));
         RETURN_IF_ERROR(_fill_column_meta(value_column, value_type, meta_data));
+        break;
+    }
+    case PrimitiveType::TYPE_VARBINARY: {
+        // TODO, here is maybe not efficient, need optimize later
+        const auto& varbinary_col = assert_cast<const ColumnVarbinary&>(*data_column);
+        auto string_column = varbinary_col.convert_to_string_column();
+        const auto& string_col = assert_cast<const ColumnString&>(*string_column);
+        meta_data.emplace_back((long)string_col.get_offsets().data());
+        meta_data.emplace_back((long)string_col.get_chars().data());
         break;
     }
     default:

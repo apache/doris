@@ -352,6 +352,12 @@ public class ColumnType {
                         type = Type.VARCHAR;
                         length = Integer.parseInt(match.group(1).trim());
                     }
+                } else if (lowerCaseType.startsWith("varbinary")) {
+                    Matcher match = digitPattern.matcher(lowerCaseType);
+                    if (match.find()) {
+                        type = Type.VARBINARY;
+                        length = Integer.parseInt(match.group(1).trim());
+                    }
                 } else if (lowerCaseType.startsWith("decimal")) {
                     int s = lowerCaseType.indexOf('(');
                     int e = lowerCaseType.indexOf(')');
