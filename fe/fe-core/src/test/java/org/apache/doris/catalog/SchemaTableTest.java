@@ -17,7 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.SchemaTable.SchemaTableAggregateType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -31,12 +33,14 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
-public class SchemaTableTest {
+import java.io.IOException;
 
+public class SchemaTableTest {
     @Test
     public void testGenerateAggBySchemaAggType() {
         Slot a = new SlotReference("a", IntegerType.INSTANCE);
@@ -69,5 +73,24 @@ public class SchemaTableTest {
         a = new SlotReference("a", StringType.INSTANCE);
         expression = SchemaTable.generateAggBySchemaAggType(a, SchemaTableAggregateType.AVG);
         Assertions.assertEquals(StringType.INSTANCE, expression.getDataType());
+    }
+
+    @Test
+    public void testShouldFetchAllFe() throws AnalysisException, IOException {
+        UserIdentity user1 = new UserIdentity("user1", "%");
+        user1.analyze();
+        TestWithFeService.createCtx(user1, "127.0.0.1");
+
+        SchemaTable sqlBlockRuleStatus = (SchemaTable) SchemaTable.TABLE_MAP.get("sql_block_rule_status");
+        Assertions.assertTrue(sqlBlockRuleStatus.shouldFetchAllFe());
+        Assertions.assertTrue(sqlBlockRuleStatus.shouldAddAgg());
+
+        SchemaTable processlist = (SchemaTable) SchemaTable.TABLE_MAP.get("processlist");
+        Assertions.assertTrue(processlist.shouldFetchAllFe());
+        Assertions.assertFalse(processlist.shouldAddAgg());
+
+        SchemaTable view_dependency = (SchemaTable) SchemaTable.TABLE_MAP.get("view_dependency");
+        Assertions.assertFalse(view_dependency.shouldFetchAllFe());
+        Assertions.assertFalse(view_dependency.shouldAddAgg());
     }
 }
