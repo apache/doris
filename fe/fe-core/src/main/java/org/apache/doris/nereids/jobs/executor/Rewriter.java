@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewr
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForUniqueFunction;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
@@ -738,6 +739,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // these rules should be put after mv optimization to avoid mv matching fail
                     topDown(new SumLiteralRewrite(),
                             new MergePercentileToArray())
+                ),
+                topic("add projection for unique function",
+                        // separate AddProjectForUniqueFunction and MergeProjectable
+                        // to avoid dead loop if code has bug
+                        topDown(new AddProjectForUniqueFunction()),
+                        topDown(new MergeProjectable())
                 ),
                 topic("collect scan filter for hbo",
                     // this rule is to collect filter on basic table for hbo usage
