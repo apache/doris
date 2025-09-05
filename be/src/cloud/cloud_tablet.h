@@ -21,6 +21,7 @@
 
 #include "olap/base_tablet.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/rowset.h"
 
 namespace doris {
 
@@ -304,7 +305,9 @@ public:
 
     // Add warmup state management
     WarmUpState get_rowset_warmup_state(RowsetId rowset_id);
-    bool add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state);
+    bool add_rowset_warmup_state(
+            const RowsetMeta& rowset, WarmUpState state,
+            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
     WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status);
 
     bool is_rowset_warmed_up(const RowsetId& rowset_id) const {
@@ -330,7 +333,9 @@ private:
 
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
 
-    bool add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state);
+    bool add_rowset_warmup_state_unlocked(
+            const RowsetMeta& rowset, WarmUpState state,
+            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
 
     // used by capture_rs_reader_xxx functions
     bool rowset_is_warmed_up(int64_t start_version, int64_t end_version);
@@ -393,7 +398,12 @@ private:
     std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
 
     // for warm up states management
-    std::unordered_map<RowsetId, std::pair<WarmUpState, int32_t>> _rowset_warm_up_states;
+    struct RowsetWarmUpInfo {
+        WarmUpState state;
+        int64_t num_segments;
+        std::chrono::steady_clock::time_point start_tp;
+    };
+    std::unordered_map<RowsetId, RowsetWarmUpInfo> _rowset_warm_up_states;
 
     mutable std::shared_mutex _warmed_up_rowsets_mutex;
     std::unordered_set<RowsetId> _warmed_up_rowsets;
