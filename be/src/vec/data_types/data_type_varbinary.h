@@ -91,6 +91,8 @@ public:
         scalar_type->set_len(_len);
     }
 
+    int len() const { return _len; }
+
 private:
     const int _len;
     const PrimitiveType _primitive_type;

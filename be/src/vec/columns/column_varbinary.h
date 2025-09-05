@@ -165,6 +165,8 @@ public:
 
     size_t serialize_size_at(size_t row) const override { return _data[row].size(); }
 
+    MutableColumnPtr convert_to_string_column() const;
+
 protected:
     Container _data;
     PaddedPODArray<UInt8> _buffer;

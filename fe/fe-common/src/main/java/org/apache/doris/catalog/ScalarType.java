@@ -147,6 +147,8 @@ public class ScalarType extends Type {
                 return createDatetimeV2Type(scale);
             case TIMEV2:
                 return createTimeV2Type(scale);
+            case VARBINARY:
+                return createVarbinaryType(len);
             default:
                 return createType(type);
         }
@@ -736,6 +738,7 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
+            case VARBINARY:
             case JSONB: {
                 scalarType.setLen(getLength());
                 break;

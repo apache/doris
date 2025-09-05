@@ -23,6 +23,7 @@
 
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/assert_cast.h"
 
@@ -165,5 +166,20 @@ void ColumnVarbinary::replace_column_data(const IColumn& rhs, size_t row, size_t
     memcpy(dst, val.data(), val.size());
     _data[self_row] = doris::StringView(dst, val.size());
 }
+
+MutableColumnPtr ColumnVarbinary::convert_to_string_column() const {
+    auto res = ColumnString::create();
+    auto& res_data = assert_cast<ColumnString&>(*res).get_chars();
+    auto& res_offsets = assert_cast<ColumnString&>(*res).get_offsets();
+    size_t current_offset = 0;
+    for (size_t i = 0; i < _data.size(); ++i) {
+        auto value = _data[i];
+        res_data.insert(value.data(), value.data() + value.size());
+        current_offset += value.size();
+        res_offsets.push_back(current_offset);
+    }
+    return res;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
