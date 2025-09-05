@@ -106,7 +106,7 @@ TEST_F(TestBaseCompaction, zero_input_rows) {
 
     EXPECT_EQ(compaction._input_rowsets.back()->start_version(), 21);
     EXPECT_EQ(compaction._input_rowsets.back()->end_version(), 21);
-    std::cout << "input rowsets: " << compaction.get_avg_segment_rows() << std::endl;
+    EXPECT_EQ(compaction.get_avg_segment_rows(), 1);
 }
 
 } // namespace doris
