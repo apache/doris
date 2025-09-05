@@ -678,7 +678,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
-    public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
@@ -2548,11 +2547,6 @@ public class SessionVariable implements Serializable, Writable {
             description = {"when set true, FE will throw exceptions instead swallow them. This is used for test",
                     "when set true, FE will throw exceptions instead swallow them. This is used for test"})
     public boolean feDebug = false;
-
-    @VariableMgr.VarAttr(name = SHOW_ALL_FE_CONNECTION,
-            description = {"when it's true show processlist statement list all fe's connection",
-                    "当变量为true时，show processlist命令展示所有fe的连接"})
-    public boolean showAllFeConnection = false;
 
     @VariableMgr.VarAttr(name = FETCH_ALL_FE_FOR_SYSTEM_TABLE,
             description = {"When the variable is true, some system tables retrieve data from all fe",
@@ -5127,10 +5121,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {
         this.forceToLocalShuffle = forceToLocalShuffle;
-    }
-
-    public boolean getShowAllFeConnection() {
-        return this.showAllFeConnection;
     }
 
     public boolean isFetchAllFeForSystemTable() {

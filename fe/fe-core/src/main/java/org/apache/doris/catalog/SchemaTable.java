@@ -735,14 +735,6 @@ public class SchemaTable extends Table {
         return new Builder();
     }
 
-    public static boolean isShouldFetchAllFe(String schemaTableName) {
-        Table table = TABLE_MAP.get(schemaTableName);
-        if (table != null && table instanceof SchemaTable) {
-            return ((SchemaTable) table).fetchAllFe;
-        }
-        return false;
-    }
-
     public boolean shouldFetchAllFe() {
         return ConnectContext.get().getSessionVariable().isFetchAllFeForSystemTable() && fetchAllFe;
     }
