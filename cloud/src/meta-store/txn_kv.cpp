@@ -668,7 +668,7 @@ TxnErrorCode Transaction::report_conflicting_range() {
     // See https://github.com/apple/foundationdb/pull/2257/files for detail.
     if (key_values.size() % 2 != 0) {
         LOG(WARNING) << "the conflicting range is not well-formed, size=" << key_values.size();
-        return TxnErrorCode::TXN_INVALID_DATA;
+        return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
     }
 
     std::string out;
