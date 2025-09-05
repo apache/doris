@@ -72,20 +72,6 @@ public class OptimizeActionFactory {
     }
 
     /**
-     * Check if optimize actions are supported for the given table.
-     *
-     * @param table the table to check
-     * @return true if supported, false otherwise
-     */
-    public static boolean isSupported(TableIf table) {
-        if (table instanceof IcebergExternalTable) {
-            return IcebergOptimizeActionFactory.isSupported((IcebergExternalTable) table);
-        }
-        // Add support for other table types in the future
-        return false;
-    }
-
-    /**
      * Get available action types for the given table.
      *
      * @param table the table to check
