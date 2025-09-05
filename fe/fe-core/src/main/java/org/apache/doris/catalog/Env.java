@@ -287,6 +287,7 @@ import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalExternalTransactionInfoMgr;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -7205,13 +7206,39 @@ public class Env {
     }
 
     // sync table
-    public void syncTable(String dbName, String tableName) throws DdlException {
-        // wait for group commit data visible
+    public void syncTable(String dbName, String tableName) throws DdlException, AnalysisException {
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
         Table table = db.getTableOrDdlException(tableName);
-        GroupCommitManager groupCommitManager = getGroupCommitManager();
+        long dbId = db.getId();
         long tableId = table.getId();
-        groupCommitManager.waitWalFinished(tableId);
+        GlobalTransactionMgrIface txnMgr = Env.getCurrentGlobalTransactionMgr();
+        // get table transaction ids
+        Map<Long, List<Long>> txnIdToTableIds = txnMgr.getDbRunningTransInfo(dbId);
+        List<Long> tableTxnIds = new ArrayList<>();
+        for (Map.Entry<Long, List<Long>> entry : txnIdToTableIds.entrySet()) {
+            if (entry.getValue().contains(tableId)) {
+                tableTxnIds.add(entry.getKey());
+            }
+        }
+
+        for (Long txnId : tableTxnIds) {
+            TransactionState txnState = txnMgr.getTransactionState(dbId, txnId);
+            if (txnState == null) {
+                continue;
+            }
+            String label = txnState.getLabel();
+            if (label != null && label.startsWith("group_commit")) {
+                // wait group commit transaction
+                while (!txnState.getTransactionStatus().isFinalStatus()) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ie) {
+                        LOG.warn("failed to wait for table={} to finish transaction={} when schema change",
+                                tableId, txnId, ie);
+                    }
+                }
+            }
+        }
     }
 
     private static void addTableComment(TableIf table, StringBuilder sb) {
