@@ -25,7 +25,6 @@ import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -168,9 +167,6 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         }
         if (fragment.queryCacheParam != null) {
             // backend need use one instance for one tablet to look up tablet query cache
-            return maxParallel;
-        }
-        if (scanNodes.size() == 1 && scanNodes.get(0) instanceof SchemaScanNode) {
             return maxParallel;
         }
         if (scanNodes.size() == 1 && scanNodes.get(0) instanceof OlapScanNode) {
