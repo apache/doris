@@ -285,6 +285,10 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 msg = fmt::format("failed to get partition version, err={} table_id={}", err,
                                   table_id);
                 return;
+            } else if (!partition_version.has_version()) {
+                msg = "partition version not found";
+                code = MetaServiceCode::VERSION_NOT_FOUND;
+                return;
             }
             response->set_version(partition_version.version());
             response->add_version_update_time_ms(partition_version.update_time_ms());
@@ -828,7 +832,7 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
             return;
         }
         LOG(INFO) << "put versioned tablet load and compact stats, tablet_id=" << tablet_id
-                  << " load_stats_key=" << hex(stats_key)
+                  << " load_stats_key=" << hex(load_stats_key)
                   << " compact_stats_key=" << hex(compact_stats_key);
     }
 
@@ -1061,8 +1065,8 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                 return;
             }
         } else {
-            TxnErrorCode err =
-                    reader.get_tablet_meta(tablet_meta_info.tablet_id(), &tablet_meta, nullptr);
+            TxnErrorCode err = reader.get_tablet_meta(txn.get(), tablet_meta_info.tablet_id(),
+                                                      &tablet_meta, nullptr);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get versioned tablet meta, err={}", err);
@@ -3117,6 +3121,22 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                           google::protobuf::RepeatedPtrFieldBackInserter(
                                   response->mutable_rowset_meta()));
             }
+            int64_t next_version = request->start_version();
+            for (auto& rowset_meta : response->rowset_meta()) {
+                if (rowset_meta.start_version() > next_version) {
+                    LOG(ERROR) << "there is a hold in versioned rowsets, tablet_id=" << tablet_id
+                               << ", next_version=" << next_version << ", rowset_version=["
+                               << rowset_meta.start_version() << "-" << rowset_meta.end_version()
+                               << "], acquired range [" << request->start_version() << "-"
+                               << request->end_version() << "]";
+                }
+                next_version = rowset_meta.end_version() + 1;
+            }
+            if (next_version != request->end_version() && request->end_version() > 0) {
+                LOG(ERROR) << "there is a hold in versioned rowsets, tablet_id=" << tablet_id
+                           << ", next_version=" << next_version << ", acquired range ["
+                           << request->start_version() << "-" << request->end_version() << "]";
+            }
         }
 
         // get referenced schema
@@ -3219,8 +3239,8 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
                 break;
             }
         } else {
-            TxnErrorCode err =
-                    reader.get_tablet_merged_stats(idx.tablet_id(), tablet_stats, nullptr);
+            TxnErrorCode err = reader.get_tablet_merged_stats(txn.get(), idx.tablet_id(),
+                                                              tablet_stats, nullptr);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get versioned tablet stats, err={}, tablet_id={}", err,

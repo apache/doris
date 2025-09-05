@@ -64,6 +64,12 @@ public:
         return mem_kv_.size();
     }
 
+    void update_commit_version(int64_t version) {
+        std::lock_guard<std::mutex> l(lock_);
+        committed_version_ = std::max(committed_version_, version);
+        read_version_ = std::max(committed_version_, read_version_);
+    }
+
     int64_t get_bytes_ {};
     int64_t put_bytes_ {};
     int64_t del_bytes_ {};
