@@ -60,6 +60,7 @@ import java.util.Set;
  */
 public class Column implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
+    public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";

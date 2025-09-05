@@ -20,6 +20,7 @@ package org.apache.doris.common;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.RoleManager;
@@ -86,18 +87,29 @@ public class FeNameFormat {
     }
 
     public static void checkColumnName(String columnName) throws AnalysisException {
+        // if need check another column name prefix, add in `checkColumnNameBypassHiddenColumn`
+        checkColumnNameBypassHiddenColumn(columnName);
+        checkColumnNamePrefix(columnName, Column.HIDDEN_COLUMN_PREFIX);
+    }
+
+    public static void checkColumnNameBypassHiddenColumn(String columnName) throws AnalysisException {
         if (Strings.isNullOrEmpty(columnName) || !columnName.matches(getColumnNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, getColumnNameRegex());
         }
-        if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                    columnName, getColumnNameRegex());
+        checkColumnNamePrefix(columnName, SchemaChangeHandler.SHADOW_NAME_PREFIX);
+        checkColumnNamePrefix(columnName, CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX);
+        checkColumnNamePrefix(columnName, CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    private static void checkColumnNamePrefix(String columnName, String prefix) throws AnalysisException {
+        int prefixLength = prefix.length();
+        if (columnName.length() < prefixLength) {
+            return;
         }
-        if (columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
-                || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
+        if (columnName.substring(0, prefixLength).equalsIgnoreCase(prefix)) {
             throw new AnalysisException(
-                    "Incorrect column name " + columnName + ", column name can't start with 'mv_'/'mva_'");
+                "Incorrect column name " + columnName + ", column name can't start with '" + prefix + "'");
         }
     }
 
