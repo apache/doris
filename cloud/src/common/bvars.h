@@ -21,6 +21,7 @@
 #include <bvar/bvar.h>
 #include <bvar/latency_recorder.h>
 #include <bvar/multi_dimension.h>
+#include <bvar/passive_status.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
 
@@ -179,6 +180,108 @@ private:
     bvar::MultiDimension<BvarType> counter_;
 };
 
+template <int N = 60>
+class BvarLatencyRecorderWithStatus {
+private:
+    bvar::LatencyRecorder recorder_;
+    bvar::PassiveStatus<int64_t> max_status_;
+    bvar::PassiveStatus<int64_t> avg_status_;
+
+    static int64_t get_max_latency(void* arg) {
+        auto* self = static_cast<BvarLatencyRecorderWithStatus*>(arg);
+        int64_t value = self->recorder_.max_latency();
+        return value >= 0 ? value : 0;
+    }
+
+    static int64_t get_avg_latency(void* arg) {
+        auto* self = static_cast<BvarLatencyRecorderWithStatus*>(arg);
+        int64_t value = self->recorder_.latency();
+        return value >= 0 ? value : 0;
+    }
+
+public:
+    BvarLatencyRecorderWithStatus(const std::string& prefix, const std::string& metric_name)
+            : recorder_(N),
+              max_status_(metric_name + "_max", get_max_latency, this),
+              avg_status_(metric_name + "_min", get_avg_latency, this) {}
+
+    BvarLatencyRecorderWithStatus(const std::string& metric_name)
+            : recorder_(N),
+              max_status_(metric_name + "_max", get_max_latency, this),
+              avg_status_(metric_name + "_min", get_avg_latency, this) {}
+
+    void put(int64_t value) { recorder_ << value; }
+
+    void operator<<(int64_t value) { recorder_ << value; }
+};
+template <int N = 60>
+class mBvarLatencyRecorderWithStatus {
+private:
+    std::string _metric_name;
+    bvar::MultiDimension<bvar::LatencyRecorder> recorder_;
+    bvar::MultiDimension<bvar::PassiveStatus<int64_t>> max_status_;
+    bvar::MultiDimension<bvar::PassiveStatus<int64_t>> avg_status_;
+
+    static int64_t get_max_latency(void* arg) {
+        auto* pair =
+                static_cast<std::pair<mBvarLatencyRecorderWithStatus*, std::list<std::string>>*>(
+                        arg);
+        auto* self = pair->first;
+        const auto& dim_values = pair->second;
+
+        bvar::LatencyRecorder* recorder = self->recorder_.get_stats(dim_values);
+        if (recorder) {
+            int64_t value = recorder->max_latency();
+            return value >= 0 ? value : 0;
+        }
+        return 0;
+    }
+
+    static int64_t get_avg_latency(void* arg) {
+        auto* pair =
+                static_cast<std::pair<mBvarLatencyRecorderWithStatus*, std::list<std::string>>*>(
+                        arg);
+        auto* self = pair->first;
+        const auto& dim_values = pair->second;
+
+        bvar::LatencyRecorder* recorder = self->recorder_.get_stats(dim_values);
+        if (recorder) {
+            int64_t value = recorder->latency();
+            return value >= 0 ? value : 0;
+        }
+        return 0;
+    }
+
+    std::map<std::list<std::string>,
+             std::unique_ptr<std::pair<mBvarLatencyRecorderWithStatus*, std::list<std::string>>>>
+            _callback_args;
+    bthread::Mutex _mutex;
+
+public:
+    mBvarLatencyRecorderWithStatus(const std::string& metric_name,
+                                   const std::initializer_list<std::string>& dim_names)
+            : _metric_name(metric_name),
+              recorder_(metric_name, std::list<std::string>(dim_names)),
+              max_status_(metric_name + "_max", std::list<std::string>(dim_names)),
+              avg_status_(metric_name + "_avg", std::list<std::string>(dim_names)) {}
+
+    void put(const std::initializer_list<std::string>& dim_values, int64_t value) {
+        std::list<std::string> dim_list(dim_values);
+
+        bvar::LatencyRecorder* recorder = recorder_.get_stats(dim_list);
+        bvar::PassiveStatus<int64_t>* max_status = max_status_.get_stats(dim_list);
+        bvar::PassiveStatus<int64_t>* avg_status = avg_status_.get_stats(dim_list);
+        if (recorder) {
+            // todo
+            *recorder << value;
+        }
+    }
+
+    void operator()(const std::initializer_list<std::string>& dim_values, int64_t value) {
+        put(dim_values, value);
+    }
+};
+
 using mBvarIntAdder = mBvarWrapper<bvar::Adder<int>>;
 using mBvarInt64Adder = mBvarWrapper<bvar::Adder<int64_t>>;
 using mBvarDoubleAdder = mBvarWrapper<bvar::Adder<double>>;
@@ -257,6 +360,10 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
+extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count;
+extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_partition_count;
+extern mBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count;
+extern mBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count;
 
 // recycler's bvars
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;
@@ -607,3 +714,6 @@ extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_bytes;
 
 // meta ranges
 extern mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count;
+
+extern void record_txn_commit_stats(const std::string& instance_id, int64_t partition_count,
+                                    int64_t tablet_count);
