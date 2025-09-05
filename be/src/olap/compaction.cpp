@@ -298,11 +298,11 @@ int64_t Compaction::get_avg_segment_rows() {
     if (meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         int64_t compaction_goal_size_mbytes = meta->time_series_compaction_goal_size_mbytes();
         // The output segment rows should be less than total input rows
-        return std::max((compaction_goal_size_mbytes * 1024 * 1024 * 2) /
+        return std::min((compaction_goal_size_mbytes * 1024 * 1024 * 2) /
                                 (_input_rowsets_data_size / (_input_row_num + 1) + 1),
                         _input_row_num + 1);
     }
-    return std::max(config::vertical_compaction_max_segment_size /
+    return std::min(config::vertical_compaction_max_segment_size /
                             (_input_rowsets_data_size / (_input_row_num + 1) + 1),
                     _input_row_num + 1);
 }
