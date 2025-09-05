@@ -17,30 +17,31 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
+#include <vector>
 
-namespace doris::segment_v2::idx_query_v2 {
+#include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 
-class ConjunctionOp : public Operator {
+namespace doris::segment_v2::inverted_index::query_v2 {
+
+ScorerPtr intersection_scorer_build(std::vector<ScorerPtr>& scorers);
+
+template <typename PivotScorerPtr>
+class IntersectionScorer final : public Scorer {
 public:
-    ConjunctionOp() = default;
-    ~ConjunctionOp() override = default;
+    IntersectionScorer(PivotScorerPtr left, PivotScorerPtr right, std::vector<ScorerPtr> others);
+    ~IntersectionScorer() override = default;
 
-    Status init();
+    uint32_t advance() override;
+    uint32_t seek(uint32_t target) override;
+    uint32_t doc() const override;
+    uint32_t size_hint() const override;
 
-    int32_t doc_id() const;
-    int32_t next_doc() const;
-    int32_t advance(int32_t target) const;
-    int64_t cost() const;
+    float score() override;
 
 private:
-    int32_t do_next(int32_t doc) const;
-
-    const Node* _lead1 = nullptr;
-    const Node* _lead2 = nullptr;
-    std::vector<const Node*> _others;
+    PivotScorerPtr _left;
+    PivotScorerPtr _right;
+    std::vector<ScorerPtr> _others;
 };
 
-using ConjunctionOpPtr = std::shared_ptr<ConjunctionOp>;
-
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index::query_v2
