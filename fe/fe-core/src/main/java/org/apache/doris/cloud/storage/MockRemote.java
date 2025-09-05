@@ -24,6 +24,7 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -75,6 +76,16 @@ public class MockRemote extends RemoteBase {
     @Override
     public void deleteObjects(List<String> keys) throws DdlException {
         throw new DdlException("Delete objects for Mock is unsupported");
+    }
+
+    @Override
+    public void putObject(File file, String key) throws DdlException {
+        throw new DdlException("Put object for Mock is unsupported");
+    }
+
+    @Override
+    public void getObject(String key, String file) throws DdlException {
+        throw new DdlException("Get object for Mock is unsupported");
     }
 
     private ListObjectsResult listObjectsInner(String prefix, String continuationToken) throws DdlException {

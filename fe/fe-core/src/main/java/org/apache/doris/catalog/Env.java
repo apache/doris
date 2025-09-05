@@ -353,7 +353,7 @@ public class Env {
     public static final String CLIENT_NODE_HOST_KEY = "CLIENT_NODE_HOST";
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
-    private String metaDir;
+    protected String metaDir;
     private String bdbDir;
     protected String imageDir;
 
@@ -1134,11 +1134,15 @@ public class Env {
             File bdbDir = new File(this.bdbDir);
             if (!bdbDir.exists()) {
                 bdbDir.mkdirs();
+            } else {
+                checkLoadClusterSnapshot(bdbDir);
             }
         }
         File imageDir = new File(this.imageDir);
         if (!imageDir.exists()) {
             imageDir.mkdirs();
+        } else {
+            checkLoadClusterSnapshot(imageDir);
         }
 
         // init plugin manager
@@ -1155,6 +1159,8 @@ public class Env {
             nodeName = genFeNodeName(selfNode.getHost(),
                     selfNode.getPort(), false /* new style */);
         }
+
+        handleClusterSnapshot();
 
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
@@ -7400,5 +7406,13 @@ public class Env {
     public List<String> getAllAliveSessionIds() {
         return new ArrayList<>(aliveSessionSet);
     }
+
+    public void setClusterSnapshotFile(String clusterSnapshotFile) throws Exception {
+        throw new Exception("cluster snapshot only support cloud mode");
+    }
+
+    protected void checkLoadClusterSnapshot(File dir) {}
+
+    protected void handleClusterSnapshot() throws Exception {}
 }
 

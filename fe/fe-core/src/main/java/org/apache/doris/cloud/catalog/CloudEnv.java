@@ -28,6 +28,11 @@ import org.apache.doris.cloud.load.CleanCopyJobScheduler;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.NodeInfoPB;
+import org.apache.doris.cloud.snapshot.CloneSnapshotState;
+import org.apache.doris.cloud.snapshot.CloudSnapshotHandler;
+import org.apache.doris.cloud.storage.ListObjectsResult;
+import org.apache.doris.cloud.storage.ObjectFile;
+import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -37,20 +42,29 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.EditLogFileInputStream;
+import org.apache.doris.persist.OperationType;
+import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.BufferedInputStream;
 import java.io.DataInputStream;
+import java.io.EOFException;
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -71,19 +85,24 @@ public class CloudEnv extends Env {
     private boolean enableStorageVault;
 
     private CleanCopyJobScheduler cleanCopyJobScheduler;
+    private CloudSnapshotHandler cloudSnapshotHandler;
 
     private String cloudInstanceId;
+
+    private String clusterSnapshotFile;
+    private String cloneSnapshotDir;
 
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cleanCopyJobScheduler = new CleanCopyJobScheduler();
         this.loadManager = ((CloudEnvFactory) EnvFactory.getInstance())
-                                    .createLoadManager(loadJobScheduler, cleanCopyJobScheduler);
+                .createLoadManager(loadJobScheduler, cleanCopyJobScheduler);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
         this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
         this.cloudTabletRebalancer = new CloudTabletRebalancer((CloudSystemInfoService) systemInfo);
         this.cacheHotspotMgr = new CacheHotspotManager((CloudSystemInfoService) systemInfo);
         this.upgradeMgr = new CloudUpgradeMgr((CloudSystemInfoService) systemInfo);
+        this.cloudSnapshotHandler = new CloudSnapshotHandler();
     }
 
     public CloudTabletRebalancer getCloudTabletRebalancer() {
@@ -96,6 +115,10 @@ public class CloudEnv extends Env {
 
     public CloudClusterChecker getCloudClusterChecker() {
         return this.cloudClusterCheck;
+    }
+
+    public CloudSnapshotHandler getCloudSnapshotHandler() {
+        return this.cloudSnapshotHandler;
     }
 
     public String getCloudInstanceId() {
@@ -126,6 +149,7 @@ public class CloudEnv extends Env {
                 Config.cloud_unique_id, Config.cluster_id, cloudInstanceId);
 
         super.initialize(args);
+        this.cloudSnapshotHandler.initialize();
     }
 
     @Override
@@ -139,6 +163,7 @@ public class CloudEnv extends Env {
             cacheHotspotMgr.start();
         }
         upgradeMgr.start();
+        cloudSnapshotHandler.start();
     }
 
     @Override
@@ -438,5 +463,149 @@ public class CloudEnv extends Env {
     @Override
     public void modifyFrontendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
         throw new DdlException("Modifying frontend hostname is not supported in cloud mode");
+    }
+
+    @Override
+    public void setClusterSnapshotFile(String clusterSnapshotFile) {
+        this.clusterSnapshotFile = clusterSnapshotFile;
+    }
+
+    @Override
+    protected void checkLoadClusterSnapshot(File dir) {
+        if (this.cloneSnapshotDir != null) {
+            LOG.error("load from cluster snapshot, directory: {} should be empty", dir.getAbsolutePath());
+            System.exit(-1);
+        }
+    }
+
+    @Override
+    protected void handleClusterSnapshot() throws Exception {
+        if (clusterSnapshotFile == null) {
+            return;
+        }
+        CloneSnapshotState cloneSnapshotState = parseClusterSnapshotFile();
+        createCloneSnapshotDir();
+        downloadImage(cloneSnapshotState);
+        loadSnapshotImage();
+        deleteCloneSnapshotDir();
+    }
+
+    private CloneSnapshotState parseClusterSnapshotFile() {
+        LOG.info("load cluster snapshot from file: {}", clusterSnapshotFile);
+        File file = new File(clusterSnapshotFile);
+        if (!file.exists()) {
+            LOG.error("cluster snapshot file {} does not exist", clusterSnapshotFile);
+            System.exit(-1);
+        }
+
+        CloneSnapshotState cloneSnapshotState = null;
+        try {
+            cloneSnapshotState = new ObjectMapper().readValue(file, CloneSnapshotState.class);
+        } catch (Exception e) {
+            LOG.error("failed to parse cluster snapshot file {}", clusterSnapshotFile, e);
+            System.exit(-1);
+        }
+        return cloneSnapshotState;
+    }
+
+    private void createCloneSnapshotDir() {
+        this.cloneSnapshotDir = this.metaDir + "/clone-snapshot/";
+        File cloneSnapshotDirFile = new File(this.cloneSnapshotDir);
+        deleteCloneSnapshotDir();
+        cloneSnapshotDirFile.mkdir();
+    }
+
+    private void downloadImage(CloneSnapshotState cloneSnapshotState) throws Exception {
+        String fromSnapshotId = cloneSnapshotState.getFromSnapshotId();
+        RemoteBase.ObjectInfo objectInfo = cloneSnapshotState.getObjInfo();
+        LOG.info("start to download snapshot id: {}", fromSnapshotId);
+        RemoteBase remote = RemoteBase.newInstance(objectInfo);
+        // TODO fix
+        String key = "snapshot/" + fromSnapshotId + "/";
+        ListObjectsResult listObjectsResult = remote.listObjects(key, null);
+        for (ObjectFile objectFile : listObjectsResult.getObjectInfoList()) {
+            String lastPart = objectFile.getKey().substring(objectFile.getKey().lastIndexOf("/") + 1);
+            String localPath = cloneSnapshotDir + lastPart;
+            LOG.info("download objectFile: {}  to local path: {}", objectFile.toString(), localPath);
+            remote.getObject(objectFile.getKey(), localPath);
+        }
+    }
+
+    private void loadSnapshotImage() throws IOException, DdlException {
+        File dir = new File(this.cloneSnapshotDir);
+        File[] files = dir.listFiles();
+        if (files.length == 0 || files.length > 2) {
+            LOG.error("clone snapshot directory: {} contains {} files", dir.getAbsolutePath(), files.length);
+            System.exit(-1);
+        }
+        File imageFile = null;
+        File editLogFile = null;
+        for (File file : dir.listFiles()) {
+            if (file.getName().startsWith("image.")) {
+                imageFile = file;
+            } else {
+                editLogFile = file;
+            }
+        }
+
+        CloudSnapshotEnv cloudSnapshotEnv = new CloudSnapshotEnv(false);
+        // load image
+        long replayedJournalId = 0;
+        if (imageFile != null) {
+            String fileName = imageFile.getName();
+            replayedJournalId = Long.parseLong(fileName.substring(fileName.lastIndexOf(".") + 1));
+            MetaReader.read(imageFile, cloudSnapshotEnv);
+            LOG.info("finished load image from cluster snapshot: {}, replayedJournalId: {}",
+                    imageFile.getAbsolutePath(), replayedJournalId);
+        }
+
+        // replay edit log
+        if (editLogFile != null) {
+            long count = 0;
+            DataInputStream currentStream = new DataInputStream(
+                    new BufferedInputStream(new EditLogFileInputStream(editLogFile)));
+            try {
+                while (true) {
+                    JournalEntity entity = new JournalEntity();
+                    entity.readFields(currentStream);
+                    count++;
+                    if (entity.getOpCode() == OperationType.OP_LOCAL_EOF) {
+                        break;
+                    }
+                    EditLog.loadJournal(cloudSnapshotEnv, replayedJournalId + count, entity);
+                }
+            } catch (IOException e) {
+                try {
+                    currentStream.close();
+                } catch (IOException e1) {
+                    LOG.error("failed to close cluster snapshot edit log", e1);
+                }
+                if (!(e instanceof EOFException)) {
+                    LOG.error("failed to replay cluster snapshot edit log", e);
+                    System.exit(-1);
+                }
+            }
+            LOG.info("finished replay {} journal from cluster snapshot: {}, lastLogId: {}", count,
+                    editLogFile.getAbsolutePath(), replayedJournalId + count);
+        }
+
+        // generate new image
+        String latestImageFilePath = cloudSnapshotEnv.saveImage();
+        replayedJournalId = cloudSnapshotEnv.getReplayedJournalId();
+        LOG.info("save image to {}, replayedJournalId: {}", latestImageFilePath, replayedJournalId);
+    }
+
+    private void deleteCloneSnapshotDir() {
+        File cloneSnapshotDirFile = new File(this.cloneSnapshotDir);
+        if (cloneSnapshotDirFile.exists()) {
+            if (cloneSnapshotDirFile.isDirectory()) {
+                for (File f : cloneSnapshotDirFile.listFiles()) {
+                    LOG.info("delete file: {}", f.getAbsolutePath());
+                    f.delete();
+                }
+            }
+            cloneSnapshotDirFile.delete();
+            LOG.info("delete cloud snapshot directory: {}", cloneSnapshotDirFile.getAbsolutePath());
+        }
     }
 }
