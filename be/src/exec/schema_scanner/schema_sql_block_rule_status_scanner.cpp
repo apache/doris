@@ -32,22 +32,24 @@
 
 namespace doris {
 
-std::vector<SchemaScanner::ColumnDesc> SchemaSqlBlockRuleStatusScanner::_s_sql_block_rule_status_columns = {
-        {"NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"PATTERN", TYPE_STRING, sizeof(StringRef), true},
-        {"SQL_HASH", TYPE_STRING, sizeof(StringRef), true},
-        {"PARTITION_NUM", TYPE_BIGINT, sizeof(int64_t), true},
-        {"TABLET_NUM", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CARDINALITY", TYPE_BIGINT, sizeof(int64_t), true},
-        {"GLOBAL", TYPE_BOOLEAN, sizeof(bool), true},
-        {"ENABLE", TYPE_BOOLEAN, sizeof(bool), true},
-        {"BLOCKS", TYPE_BIGINT, sizeof(int64_t), true},
-        {"AVERAGE_DURATION", TYPE_BIGINT, sizeof(int64_t), true},
-        {"LONGEST_DURATION", TYPE_BIGINT, sizeof(int64_t), true},
-        {"P99_DURATION", TYPE_BIGINT, sizeof(int64_t), true}};
+std::vector<SchemaScanner::ColumnDesc>
+        SchemaSqlBlockRuleStatusScanner::_s_sql_block_rule_status_columns = {
+                {"NAME", TYPE_STRING, sizeof(StringRef), true},
+                {"PATTERN", TYPE_STRING, sizeof(StringRef), true},
+                {"SQL_HASH", TYPE_STRING, sizeof(StringRef), true},
+                {"PARTITION_NUM", TYPE_BIGINT, sizeof(int64_t), true},
+                {"TABLET_NUM", TYPE_BIGINT, sizeof(int64_t), true},
+                {"CARDINALITY", TYPE_BIGINT, sizeof(int64_t), true},
+                {"GLOBAL", TYPE_BOOLEAN, sizeof(bool), true},
+                {"ENABLE", TYPE_BOOLEAN, sizeof(bool), true},
+                {"BLOCKS", TYPE_BIGINT, sizeof(int64_t), true},
+                {"AVERAGE_DURATION", TYPE_BIGINT, sizeof(int64_t), true},
+                {"LONGEST_DURATION", TYPE_BIGINT, sizeof(int64_t), true},
+                {"P99_DURATION", TYPE_BIGINT, sizeof(int64_t), true}};
 
 SchemaSqlBlockRuleStatusScanner::SchemaSqlBlockRuleStatusScanner()
-        : SchemaScanner(_s_sql_block_rule_status_columns, TSchemaTableType::SCH_SQL_BLOCK_RULE_STATUS) {}
+        : SchemaScanner(_s_sql_block_rule_status_columns,
+                        TSchemaTableType::SCH_SQL_BLOCK_RULE_STATUS) {}
 
 SchemaSqlBlockRuleStatusScanner::~SchemaSqlBlockRuleStatusScanner() = default;
 
@@ -65,7 +67,8 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
     TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_sql_block_rule_status_columns.size(); i++) {
         schema_table_request_params.__isset.columns_name = true;
-        schema_table_request_params.columns_name.emplace_back(_s_sql_block_rule_status_columns[i].name);
+        schema_table_request_params.columns_name.emplace_back(
+                _s_sql_block_rule_status_columns[i].name);
     }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_frontend_conjuncts(*_param->common_param->frontend_conjuncts);
@@ -96,9 +99,8 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
                 _rpc_timeout);
 
         if (!status.ok()) {
-            LOG(WARNING) << "Failed to fetch SQL block rule status from FE "
-                         << fe_addr.hostname << ":" << fe_addr.port
-                         << ", errmsg=" << status;
+            LOG(WARNING) << "Failed to fetch SQL block rule status from FE " << fe_addr.hostname
+                         << ":" << fe_addr.port << ", errmsg=" << status;
             return status; // Return immediately on any FE failure
         }
 
@@ -115,10 +117,11 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
         if (result_data.size() > 0) {
             auto col_size = result_data[0].column_value.size();
             if (col_size != _s_sql_block_rule_status_columns.size()) {
-                std::string error_msg = "SQL block rule status schema mismatch from FE " +
-                                        fe_addr.hostname + ":" + std::to_string(fe_addr.port) +
-                                        ", expected: " + std::to_string(_s_sql_block_rule_status_columns.size()) +
-                                        ", got: " + std::to_string(col_size);
+                std::string error_msg =
+                        "SQL block rule status schema mismatch from FE " + fe_addr.hostname + ":" +
+                        std::to_string(fe_addr.port) +
+                        ", expected: " + std::to_string(_s_sql_block_rule_status_columns.size()) +
+                        ", got: " + std::to_string(col_size);
                 LOG(WARNING) << error_msg;
                 return Status::InternalError(error_msg);
             }
@@ -138,7 +141,8 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
     return Status::OK();
 }
 
-Status SchemaSqlBlockRuleStatusScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaSqlBlockRuleStatusScanner::get_next_block_internal(vectorized::Block* block,
+                                                                bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -159,7 +163,8 @@ Status SchemaSqlBlockRuleStatusScanner::get_next_block_internal(vectorized::Bloc
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
-    RETURN_IF_ERROR(mblock.add_rows(_sql_block_rule_status_block.get(), _row_idx, current_batch_rows));
+    RETURN_IF_ERROR(
+            mblock.add_rows(_sql_block_rule_status_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;
