@@ -2026,12 +2026,12 @@ public class FunctionSet<T> {
                     false, false, false, true));
         }
 
-        // LLM_AGG
-        addBuiltin(AggregateFunction.createBuiltin("llm_agg",
+        // AI_AGG
+        addBuiltin(AggregateFunction.createBuiltin("ai_agg",
                 Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR, Type.VARCHAR), Type.VARCHAR, Type.VARCHAR,
                 "", "", "", "", "", "", "",
                 false, false, false, true));
-        addBuiltin(AggregateFunction.createBuiltin("llm_agg",
+        addBuiltin(AggregateFunction.createBuiltin("ai_agg",
                 Lists.<Type>newArrayList(Type.STRING, Type.STRING, Type.STRING), Type.STRING, Type.STRING,
                 "", "", "", "", "", "", "",
                 false, false, false, true));

@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopSum;
@@ -47,7 +48,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
-import org.apache.doris.nereids.trees.expressions.functions.agg.LLMAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
@@ -105,6 +105,7 @@ import java.util.stream.Collectors;
  */
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final List<AggregateFunc> aggregateFunctions = ImmutableList.of(
+            agg(AIAgg.class, "ai_agg"),
             agg(AnyValue.class, "any", "any_value"),
             agg(ApproxTopK.class, "approx_top_k"),
             agg(ApproxTopSum.class, "approx_top_sum"),
@@ -136,7 +137,6 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(IntersectCount.class, "intersect_count"),
             agg(Kurt.class, "kurt", "kurt_pop", "kurtosis"),
             agg(LinearHistogram.class, "linear_histogram"),
-            agg(LLMAgg.class, "llm_agg"),
             agg(MapAgg.class, "map_agg_v1"),
             agg(MapAggV2.class, "map_agg_v2", "map_agg"),
             agg(Max.class, "max"),

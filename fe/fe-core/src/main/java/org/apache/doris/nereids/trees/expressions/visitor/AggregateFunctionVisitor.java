@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
@@ -48,7 +49,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
-import org.apache.doris.nereids.trees.expressions.functions.agg.LLMAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -233,8 +233,8 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(linearHistogram, context);
     }
 
-    default R visitLLMAgg(LLMAgg llmAgg, C context) {
-        return visitNullableAggregateFunction(llmAgg, context);
+    default R visitAIAgg(AIAgg aiAgg, C context) {
+        return visitNullableAggregateFunction(aiAgg, context);
     }
 
     default R visitMapAgg(MapAgg mapAgg, C context) {
