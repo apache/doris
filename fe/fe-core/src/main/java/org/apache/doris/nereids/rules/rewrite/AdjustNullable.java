@@ -113,7 +113,8 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         for (NamedExpression newVirtualColumn : newVirtualColumns.get()) {
             replaceMap.put(newVirtualColumn.getExprId(), newVirtualColumn.toSlot());
         }
-        return relation.withVirtualColumns(newVirtualColumns.get());
+        return relation.withVirtualColumns(newVirtualColumns.get())
+                .recomputeLogicalProperties();
     }
 
     @Override
