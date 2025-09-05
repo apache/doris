@@ -19,6 +19,14 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.SchemaTableType;
 import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TSchemaTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -799,6 +807,22 @@ public class SchemaTable extends Table {
         public List<Column> build() {
             return columns;
         }
+    }
+
+    public static Expression generateAggBySchemaAggType(Slot slot, SchemaTableAggregateType schemaTableAggregateType) {
+        Expression res;
+        if (schemaTableAggregateType == SchemaTableAggregateType.AVG) {
+            res = new Avg(slot);
+        } else if (schemaTableAggregateType == SchemaTableAggregateType.MAX) {
+            res = new Max(slot);
+        } else if (schemaTableAggregateType == SchemaTableAggregateType.MIN) {
+            res = new Min(slot);
+        } else if (schemaTableAggregateType == SchemaTableAggregateType.SUM) {
+            res = new Sum(slot);
+        } else {
+            res = new AnyValue(slot);
+        }
+        return TypeCoercionUtils.castIfNotSameType(res, slot.getDataType());
     }
 
     @Override

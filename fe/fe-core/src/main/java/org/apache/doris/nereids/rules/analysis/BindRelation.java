@@ -29,7 +29,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SchemaTable.SchemaColumn;
-import org.apache.doris.catalog.SchemaTable.SchemaTableAggregateType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -69,8 +68,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -493,7 +490,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 groupByExpressions.add(slot);
                                 outputExpressions.add(slot);
                             } else {
-                                Expression function = generateAggBySchemaAggType(slot,
+                                Expression function = SchemaTable.generateAggBySchemaAggType(slot,
                                         column.getSchemaTableAggregateType());
                                 Alias alias = new Alias(StatementScopeIdGenerator.newExprId(),
                                         ImmutableList.of(function),
@@ -530,19 +527,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 }
             }
         }
-    }
-
-    private Expression generateAggBySchemaAggType(Slot slot, SchemaTableAggregateType schemaTableAggregateType) {
-        if (schemaTableAggregateType == SchemaTableAggregateType.AVG) {
-            return new Avg(slot);
-        } else if (schemaTableAggregateType == SchemaTableAggregateType.MAX) {
-            return new Max(slot);
-        } else if (schemaTableAggregateType == SchemaTableAggregateType.MIN) {
-            return new Min(slot);
-        } else if (schemaTableAggregateType == SchemaTableAggregateType.SUM) {
-            return new Sum(slot);
-        }
-        return new AnyValue(slot);
     }
 
     private Plan parseAndAnalyzeExternalView(
