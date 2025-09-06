@@ -28,6 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -36,6 +37,11 @@ import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.service.ExecuteEnv;
@@ -97,11 +103,11 @@ public final class MetricRepo {
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_ALL;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_FAILED;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_SIZE;
-
-    public static LongCounterMetric COUNTER_CACHE_ADDED_SQL;
-    public static LongCounterMetric COUNTER_CACHE_ADDED_PARTITION;
-    public static LongCounterMetric COUNTER_CACHE_HIT_SQL;
-    public static LongCounterMetric COUNTER_CACHE_HIT_PARTITION;
+    // sql cache
+    public static GaugeMetric<Long> GAUGE_SQL_CACHE_NUM;
+    public static LongCounterMetric COUNTER_SQL_CACHE_ADDED;
+    public static LongCounterMetric COUNTER_SQL_CACHE_HIT;
+    public static LongCounterMetric COUNTER_SQL_CACHE_NOT_HIT;
 
     public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
 
@@ -173,6 +179,52 @@ public final class MetricRepo {
     public static GaugeMetric<Integer> GAUGE_CATALOG_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_DATABASE_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_TABLE_NUM;
+
+    // PLAN
+    public static GaugeMetric<Long> GAUGE_PLAN_NUM;
+    public static Histogram HISTO_PLAN_PARSE_DURATION;
+    public static Histogram HISTO_PLAN_ANALYZE_DURATION;
+    public static Histogram HISTO_PLAN_REWRITE_DURATION;
+    public static Histogram HISTO_PLAN_FOLD_CONST_BY_BE_DURATION;
+    public static Histogram HISTO_PLAN_OPTIMIZE_DURATION;
+    public static Histogram HISTO_PLAN_TRANSLATE_DURATION;
+    public static Histogram HISTO_PLAN_INIT_SCAN_NODE_DURATION;
+    public static Histogram HISTO_PLAN_FINALIZE_SCAN_NODE_DURATION;
+    public static Histogram HISTO_PLAN_CREATE_SCAN_RANGE_DURATION;
+    public static Histogram HISTO_PLAN_DISTRIBUTE_DURATION;
+    public static Histogram HISTO_PLAN_DURATION;
+    public static Histogram HISTO_PLAN_EXTERNAL_CATALOG_META_DURATION;
+    public static Histogram HISTO_PLAN_EXTERNAL_TVF_INIT_DURATION;
+    public static Histogram HISTO_PLAN_LOCK_TABLES_DURATION;
+    public static Histogram HISTO_PLAN_PARTITION_PRUNE_DURATION;
+    public static Histogram HISTO_PLAN_CLOUD_META_DURATION;
+    public static Histogram HISTO_PLAN_MATERIALIZED_VIEW_REWRITE_DURATION;
+
+    // MTMV
+    public static Histogram HISTO_ASYNC_MATERIALIZED_VIEW_TASK_DURATION;
+    public static LongCounterMetric COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM;
+    public static LongCounterMetric COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_FAILED_NUM;
+    public static LongCounterMetric COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SKIP_NUM;
+    public static GaugeMetric<Integer> GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_RUNNING_NUM;
+    public static GaugeMetric<Integer> GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_PENDING_NUM;
+
+    // Statistics
+    public static GaugeMetric<Double> GAUGE_STATISTICS_UNHEALTHY_TABLE_RATE;
+    public static GaugeMetric<Double> GAUGE_STATISTICS_UNHEALTHY_COLUMN_RATE;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_UNHEALTHY_TABLE_NUM;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_UNHEALTHY_COLUMN_NUM;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_HIGH_PRIORITY_QUEUE_LENGTH;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_MID_PRIORITY_QUEUE_LENGTH;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_LOW_PRIORITY_QUEUE_LENGTH;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_VERY_LOW_PRIORITY_QUEUE_LENGTH;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_NOT_ANALYZED_TABLE_NUM;
+    public static GaugeMetric<Integer> GAUGE_STATISTICS_EMPTY_TABLE_NUM;
+    public static LongCounterMetric COUNTER_STATISTICS_SUCCEED_ANALYZE_JOB;
+    public static LongCounterMetric COUNTER_STATISTICS_FAILED_ANALYZE_JOB;
+    public static LongCounterMetric COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK;
+    public static LongCounterMetric COUNTER_STATISTICS_FAILED_ANALYZE_TASK;
+    public static LongCounterMetric COUNTER_STATISTICS_INVALID_STATS;
+
     // Table/Partition/Tablet DataSize
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLE_SIZE_BYTES;
     public static GaugeMetricImpl<Long> GAUGE_MAX_PARTITION_SIZE_BYTES;
@@ -389,10 +441,10 @@ public final class MetricRepo {
         });
         USER_COUNTER_QUERY_INSTANCE_BEGIN = addLabeledMetrics("user", () ->
                 new LongCounterMetric("query_instance_begin", MetricUnit.NOUNIT,
-                "number of query instance begin"));
+                        "number of query instance begin"));
         USER_GAUGE_QUERY_INSTANCE_NUM = addLabeledMetrics("user", () ->
                 new GaugeMetricImpl<>("query_instance_num", MetricUnit.NOUNIT,
-                "number of running query instances of current user", 0L));
+                        "number of running query instances of current user", 0L));
         GaugeMetric<Long> queryInstanceNum = new GaugeMetric<Long>("query_instance_num",
                 MetricUnit.NOUNIT, "number of query instances of all current users") {
             @Override
@@ -409,29 +461,34 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(queryInstanceNum);
         BE_COUNTER_QUERY_RPC_ALL = addLabeledMetrics("be", () ->
-            new LongCounterMetric("query_rpc_total", MetricUnit.NOUNIT, ""));
+                new LongCounterMetric("query_rpc_total", MetricUnit.NOUNIT, ""));
         BE_COUNTER_QUERY_RPC_FAILED = addLabeledMetrics("be", () ->
-            new LongCounterMetric("query_rpc_failed", MetricUnit.NOUNIT, ""));
+                new LongCounterMetric("query_rpc_failed", MetricUnit.NOUNIT, ""));
         BE_COUNTER_QUERY_RPC_SIZE = addLabeledMetrics("be", () ->
-            new LongCounterMetric("query_rpc_size", MetricUnit.BYTES, ""));
+                new LongCounterMetric("query_rpc_size", MetricUnit.BYTES, ""));
 
-        // cache
-        COUNTER_CACHE_ADDED_SQL = new LongCounterMetric("cache_added", MetricUnit.REQUESTS,
-                "Number of SQL mode cache added");
-        COUNTER_CACHE_ADDED_SQL.addLabel(new MetricLabel("type", "sql"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CACHE_ADDED_SQL);
-        COUNTER_CACHE_ADDED_PARTITION = new LongCounterMetric("cache_added", MetricUnit.REQUESTS,
-                "Number of Partition mode cache added");
-        COUNTER_CACHE_ADDED_PARTITION.addLabel(new MetricLabel("type", "partition"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CACHE_ADDED_PARTITION);
-        COUNTER_CACHE_HIT_SQL = new LongCounterMetric("cache_hit", MetricUnit.REQUESTS,
-                "total hits query by sql model");
-        COUNTER_CACHE_HIT_SQL.addLabel(new MetricLabel("type", "sql"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CACHE_HIT_SQL);
-        COUNTER_CACHE_HIT_PARTITION = new LongCounterMetric("cache_hit", MetricUnit.REQUESTS,
-                "total hits query by partition model");
-        COUNTER_CACHE_HIT_PARTITION.addLabel(new MetricLabel("type", "partition"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_CACHE_HIT_PARTITION);
+        // sql cache
+        GAUGE_SQL_CACHE_NUM = new GaugeMetric<Long>(
+                "sql_cache_num",
+                MetricUnit.NOUNIT, "Number of SQL cache") {
+            @Override
+            public Long getValue() {
+                return Env.getCurrentEnv().getSqlCacheManager().getSqlCacheNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_SQL_CACHE_NUM);
+
+        COUNTER_SQL_CACHE_ADDED = new LongCounterMetric("sql_cache_added", MetricUnit.REQUESTS,
+                "Number of SQL cache added");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CACHE_ADDED);
+
+        COUNTER_SQL_CACHE_HIT = new LongCounterMetric("sql_cache_hit", MetricUnit.REQUESTS,
+                "total hits query by sql cache");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CACHE_HIT);
+
+        COUNTER_SQL_CACHE_NOT_HIT = new LongCounterMetric("sql_cache_not_hit", MetricUnit.REQUESTS,
+                "total not hits query by sql cache");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CACHE_NOT_HIT);
 
         // edit log
         COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log", MetricUnit.OPERATIONS,
@@ -471,11 +528,11 @@ public final class MetricRepo {
 
         // edit log clean
         COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
-            "counter of edit log succeed in cleaning");
+                "counter of edit log succeed in cleaning");
         COUNTER_EDIT_LOG_CLEAN_SUCCESS.addLabel(new MetricLabel("type", "success"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_CLEAN_SUCCESS);
         COUNTER_EDIT_LOG_CLEAN_FAILED = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
-            "counter of edit log failed to clean");
+                "counter of edit log failed to clean");
         COUNTER_EDIT_LOG_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_CLEAN_FAILED);
 
@@ -526,13 +583,13 @@ public final class MetricRepo {
         COUNTER_TXN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TXN_FAILED);
         COUNTER_UPDATE_TABLET_STAT_FAILED = new LongCounterMetric("update_tablet_stat_failed", MetricUnit.REQUESTS,
-            "counter of failed to update tablet stat");
+                "counter of failed to update tablet stat");
         COUNTER_UPDATE_TABLET_STAT_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_UPDATE_TABLET_STAT_FAILED);
         HISTO_TXN_EXEC_LATENCY = METRIC_REGISTER.histogram(
-            MetricRegistry.name("txn", "exec", "latency", "ms"));
+                MetricRegistry.name("txn", "exec", "latency", "ms"));
         HISTO_TXN_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
-            MetricRegistry.name("txn", "publish", "latency", "ms"));
+                MetricRegistry.name("txn", "publish", "latency", "ms"));
         GaugeMetric<Long> txnNum = new GaugeMetric<Long>("txn_num", MetricUnit.NOUNIT,
                 "number of running transactions") {
             @Override
@@ -553,7 +610,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(publishTxnNum);
         DB_GAUGE_PUBLISH_TXN_NUM = addLabeledMetrics("db",
                 () -> new GaugeMetricImpl<>("publish_txn_num", MetricUnit.NOUNIT,
-                "number of publish transactions", 0L));
+                        "number of publish transactions", 0L));
         COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows", MetricUnit.ROWS,
                 "total rows of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_ROWS);
@@ -602,9 +659,9 @@ public final class MetricRepo {
                 MetricUnit.REQUESTS, "http copy into err query request");
         DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_QUERY_ERR);
         HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY = METRIC_REGISTER.histogram(
-            MetricRegistry.name("http_copy_into_upload", "latency", "ms"));
+                MetricRegistry.name("http_copy_into_upload", "latency", "ms"));
         HISTO_HTTP_COPY_INTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
-            MetricRegistry.name("http_copy_into_query", "latency", "ms"));
+                MetricRegistry.name("http_copy_into_query", "latency", "ms"));
 
         HISTO_COMMIT_AND_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("txn_commit_and_publish", "latency", "ms"));
@@ -655,6 +712,225 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_INTERNAL_TABLE_NUM);
 
+        // statistics
+        // succeeed job num
+        COUNTER_STATISTICS_SUCCEED_ANALYZE_JOB = new LongCounterMetric("statistics_succeed_analyze_job",
+                MetricUnit.NOUNIT,
+                "succeed analyze job num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_SUCCEED_ANALYZE_JOB);
+        // failed job num
+        COUNTER_STATISTICS_FAILED_ANALYZE_JOB = new LongCounterMetric("statistics_failed_analyze_job",
+                MetricUnit.NOUNIT,
+                "failed analyze job num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_FAILED_ANALYZE_JOB);
+        // succeeed task num
+        COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK = new LongCounterMetric("statistics_succeed_analyze_task",
+                MetricUnit.NOUNIT,
+                "succeed analyze task num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK);
+        // failed task num
+        COUNTER_STATISTICS_FAILED_ANALYZE_TASK = new LongCounterMetric("statistics_failed_analyze_task",
+                MetricUnit.NOUNIT,
+                "failed analyze task num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_FAILED_ANALYZE_TASK);
+        // skip by ndv/count
+        COUNTER_STATISTICS_INVALID_STATS = new LongCounterMetric("statistics_invalid_stats", MetricUnit.NOUNIT,
+                "invalid stats");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_INVALID_STATS);
+        // unhealthy table rate
+        GAUGE_STATISTICS_UNHEALTHY_TABLE_RATE = new GaugeMetric<Double>("statistics_unhealthy_table_rate",
+                MetricUnit.NOUNIT, "unhealthy table rate") {
+            @Override
+            public Double getValue() {
+                return Env.getCurrentEnv().getStatisticsMetricCollector().getUnhealthyTableRate();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_UNHEALTHY_TABLE_RATE);
+        // unhealthy column rate
+        GAUGE_STATISTICS_UNHEALTHY_COLUMN_RATE = new GaugeMetric<Double>("statistics_unhealthy_column_rate",
+                MetricUnit.NOUNIT, "unhealthy column rate") {
+            @Override
+            public Double getValue() {
+                return Env.getCurrentEnv().getStatisticsMetricCollector().getUnhealthyColumnRate();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_UNHEALTHY_COLUMN_RATE);
+        // unhealthy table num
+        GAUGE_STATISTICS_UNHEALTHY_TABLE_NUM = new GaugeMetric<Integer>("statistics_unhealthy_table_num",
+                MetricUnit.NOUNIT, "unhealthy table num") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getStatisticsMetricCollector().getUnhealthyTableCount();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_UNHEALTHY_TABLE_NUM);
+        // unhealthy column num
+        GAUGE_STATISTICS_UNHEALTHY_COLUMN_NUM = new GaugeMetric<Integer>("statistics_unhealthy_column_num",
+                MetricUnit.NOUNIT, "unhealthy column num") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getStatisticsMetricCollector().getUnhealthyColumnCount();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_UNHEALTHY_COLUMN_NUM);
+        // not analyzed table num
+        GAUGE_STATISTICS_NOT_ANALYZED_TABLE_NUM = new GaugeMetric<Integer>("statistics_not_analyzed_table_num",
+                MetricUnit.NOUNIT, "not analyzed table num") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getStatisticsMetricCollector().getNotAnalyzedTableCount();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_NOT_ANALYZED_TABLE_NUM);
+        // empty table num
+        GAUGE_STATISTICS_EMPTY_TABLE_NUM = new GaugeMetric<Integer>("statistics_empty_table_num",
+                MetricUnit.NOUNIT, "empty table num") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getStatisticsMetricCollector().getEmptyTableCount();
+            }
+        };
+        // high priority queue length
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_EMPTY_TABLE_NUM);
+        GAUGE_STATISTICS_HIGH_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("statistics_high_priority_queue_length",
+                MetricUnit.NOUNIT, "high priority queue length") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getAnalysisManager().highPriorityJobs.size();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_HIGH_PRIORITY_QUEUE_LENGTH);
+        // mid priority queue length
+        GAUGE_STATISTICS_MID_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("statistics_mid_priority_queue_length",
+                MetricUnit.NOUNIT, "mid priority queue length") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getAnalysisManager().midPriorityJobs.size();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_MID_PRIORITY_QUEUE_LENGTH);
+        // low priority queue length
+        GAUGE_STATISTICS_LOW_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>("statistics_low_priority_queue_length",
+                MetricUnit.NOUNIT, "low priority queue length") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getAnalysisManager().lowPriorityJobs.size();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_LOW_PRIORITY_QUEUE_LENGTH);
+        // very low priority queue length
+        GAUGE_STATISTICS_VERY_LOW_PRIORITY_QUEUE_LENGTH = new GaugeMetric<Integer>(
+                "statistics_very_low_priority_queue_length",
+                MetricUnit.NOUNIT, "very low priority queue length") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getAnalysisManager().veryLowPriorityJobs.size();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_STATISTICS_VERY_LOW_PRIORITY_QUEUE_LENGTH);
+
+        // PLAN
+        GAUGE_PLAN_NUM = new GaugeMetric<Long>(
+                "plan_num",
+                MetricUnit.NOUNIT, "plan running num") {
+            @Override
+            public Long getValue() {
+                return NereidsPlanner.runningPlanNum.get();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_PLAN_NUM);
+        HISTO_PLAN_PARSE_DURATION = METRIC_REGISTER.histogram(MetricRegistry.name("plan_parse", "duration", "ms"));
+        HISTO_PLAN_ANALYZE_DURATION = METRIC_REGISTER.histogram(MetricRegistry.name("plan_analyze", "duration", "ms"));
+        HISTO_PLAN_REWRITE_DURATION = METRIC_REGISTER.histogram(MetricRegistry.name("plan_rewrite", "duration", "ms"));
+        HISTO_PLAN_FOLD_CONST_BY_BE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_fold_const_by_be", "duration", "ms"));
+        HISTO_PLAN_OPTIMIZE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_optimize", "duration", "ms"));
+        HISTO_PLAN_TRANSLATE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_translate", "duration", "ms"));
+        HISTO_PLAN_INIT_SCAN_NODE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_init_scan_node", "duration", "ms"));
+        HISTO_PLAN_FINALIZE_SCAN_NODE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_finalize_scan_node", "duration", "ms"));
+        HISTO_PLAN_CREATE_SCAN_RANGE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_create_scan_range", "duration", "ms"));
+        HISTO_PLAN_DISTRIBUTE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_distribute", "duration", "ms"));
+        HISTO_PLAN_DURATION = METRIC_REGISTER.histogram(MetricRegistry.name("plan", "duration", "ms"));
+        HISTO_PLAN_EXTERNAL_CATALOG_META_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_external_catalog_meta", "duration", "ms"));
+        HISTO_PLAN_EXTERNAL_TVF_INIT_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_external_tvf_init", "duration", "ms"));
+        HISTO_PLAN_LOCK_TABLES_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_lock_tables", "duration", "ms"));
+        HISTO_PLAN_PARTITION_PRUNE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_partition_prune", "duration", "ms"));
+        HISTO_PLAN_CLOUD_META_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_cloud_meta", "duration", "ms"));
+        HISTO_PLAN_MATERIALIZED_VIEW_REWRITE_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("plan_materialized_view_rewrite", "duration", "ms"));
+        // MTMV
+        // count
+        for (RefreshTrigger trigger : RefreshTrigger.values()) {
+            for (RefreshMethod method : RefreshMethod.values()) {
+                for (MTMVPartitionType partitionType : MTMVPartitionType.values()) {
+                    GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("async_materialized_view_num",
+                            MetricUnit.NOUNIT, "async materialized view num") {
+                        @Override
+                        public Integer getValue() {
+                            return Env.getCurrentEnv().getCatalogMgr().getInternalCatalog().getAllDbs().stream()
+                                    .map(d -> (Database) d).map(db -> db.getMTMVNum(trigger, method, partitionType))
+                                    .reduce(0, Integer::sum);
+                        }
+                    };
+                    gauge.addLabel(new MetricLabel("trigger", trigger.name()))
+                            .addLabel(new MetricLabel("method", method.name()))
+                            .addLabel(new MetricLabel("partitionType", partitionType.name()));
+                    DORIS_METRIC_REGISTER.addMetrics(gauge);
+                }
+            }
+        }
+
+        // task duration
+        HISTO_ASYNC_MATERIALIZED_VIEW_TASK_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("async_materialized_view_task", "duration", "ms"));
+
+        // task success num
+        COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM = new LongCounterMetric(
+                "async_materialized_view_task_success_num", MetricUnit.NOUNIT,
+                "async materialized view task success num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM);
+        // task failed num
+        COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_FAILED_NUM = new LongCounterMetric(
+                "async_materialized_view_task_failed_num", MetricUnit.NOUNIT,
+                "async materialized view task failed num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_FAILED_NUM);
+        // task skip num
+        COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SKIP_NUM = new LongCounterMetric("async_materialized_view_task_skip_num",
+                MetricUnit.NOUNIT,
+                "async materialized view task skip num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SKIP_NUM);
+        // task running num
+        GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_RUNNING_NUM = new GaugeMetric<Integer>(
+                "async_materialized_view_task_running_num",
+                MetricUnit.NOUNIT, "async materialized view task running num") {
+            @Override
+            public Integer getValue() {
+                return MTMVUtil.getTaskNum(TaskStatus.RUNNING);
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_RUNNING_NUM);
+
+        // task pending num
+        GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_PENDING_NUM = new GaugeMetric<Integer>(
+                "async_materialized_view_task_pending_num",
+                MetricUnit.NOUNIT, "async materialized view task pending num") {
+            @Override
+            public Integer getValue() {
+                return MTMVUtil.getTaskNum(TaskStatus.PENDING);
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_PENDING_NUM);
         GAUGE_MAX_TABLE_SIZE_BYTES = new GaugeMetricImpl<>("max_table_size_bytes", MetricUnit.BYTES, "", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_TABLE_SIZE_BYTES);
 
@@ -709,10 +985,10 @@ public final class MetricRepo {
             if (jobState == RoutineLoadJob.JobState.PAUSED) {
                 addRoutineLoadJobStateGaugeMetric(routineLoadManager, jobState, "USER_PAUSED",
                         job -> job.getPauseReason() != null
-                            && job.getPauseReason().getCode() == InternalErrorCode.MANUAL_PAUSE_ERR);
+                                && job.getPauseReason().getCode() == InternalErrorCode.MANUAL_PAUSE_ERR);
                 addRoutineLoadJobStateGaugeMetric(routineLoadManager, jobState, "ABNORMAL_PAUSED",
                         job -> job.getPauseReason() != null
-                            && job.getPauseReason().getCode() != InternalErrorCode.MANUAL_PAUSE_ERR);
+                                && job.getPauseReason().getCode() != InternalErrorCode.MANUAL_PAUSE_ERR);
             }
             addRoutineLoadJobStateGaugeMetric(routineLoadManager, jobState, jobState.name(), job -> true);
         }
@@ -761,8 +1037,8 @@ public final class MetricRepo {
     }
 
     private static void addRoutineLoadJobStateGaugeMetric(RoutineLoadManager routineLoadManager,
-                                            RoutineLoadJob.JobState jobState,
-                                            String stateLabel, Predicate<RoutineLoadJob> filter) {
+            RoutineLoadJob.JobState jobState,
+            String stateLabel, Predicate<RoutineLoadJob> filter) {
         GaugeMetric<Long> gauge = new GaugeMetric<Long>("job", MetricUnit.NOUNIT, "routine load job statistics") {
             @Override
             public Long getValue() {

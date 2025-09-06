@@ -44,6 +44,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -517,8 +518,14 @@ public class AnalysisManager implements Writable {
             if (allFinished) {
                 if (hasFailure) {
                     job.markFailed();
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_JOB.increase(1L);
+                    }
                 } else {
                     job.markFinished();
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_STATISTICS_SUCCEED_ANALYZE_JOB.increase(1L);
+                    }
                     try {
                         updateTableStats(job);
                     } catch (Throwable e) {
