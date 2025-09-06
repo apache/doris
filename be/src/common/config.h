@@ -1632,6 +1632,8 @@ DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 // p0, daily, rqg, external
 DECLARE_String(fuzzy_test_type);
 
+DECLARE_mBool(enable_csv_reader_fuzzy_test);
+
 // The maximum csv line reader output buffer size
 DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 
