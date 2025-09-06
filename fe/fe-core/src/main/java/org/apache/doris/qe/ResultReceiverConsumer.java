@@ -90,7 +90,8 @@ public class ResultReceiverConsumer {
         return finishedReceivers == contexts.size();
     }
 
-    public RowBatch getNext(Status status) throws TException, InterruptedException, ExecutionException, UserException {
+    public RowBatch getNext(Status status)
+            throws TException, InterruptedException, ExecutionException, UserException, QueryTimeoutException {
         if (!futureInitialized) {
             futureInitialized = true;
             for (ReceiverContext context : contexts) {
