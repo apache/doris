@@ -325,4 +325,6 @@ CONF_mString(ca_cert_file_paths,
              "/etc/ssl/ca-bundle.pem");
 
 CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
+CONF_mBool(enable_logging_conflict_keys, "false");
+
 } // namespace doris::cloud::config
