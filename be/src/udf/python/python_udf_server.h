@@ -17,12 +17,17 @@
 
 #pragma once
 
+#include <memory>
+
 #include "common/status.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
 
 namespace doris {
+
+class PythonUDAFClient;
+using PythonUDAFClientPtr = std::shared_ptr<PythonUDAFClient>;
 
 class PythonUDFServerManager {
 public:
@@ -37,8 +42,9 @@ public:
 
     Status init(const std::vector<PythonVersion>& versions);
 
+    template <typename T>
     Status get_client(const PythonUDFMeta& func_meta, const PythonVersion& version,
-                      PythonUDFClientPtr* client);
+                      std::shared_ptr<T>* client);
 
     Status fork(PythonUDFProcessPool* pool, ProcessPtr* process);
 
