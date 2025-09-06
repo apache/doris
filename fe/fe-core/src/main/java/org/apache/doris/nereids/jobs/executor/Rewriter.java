@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+import org.apache.doris.nereids.rules.analysis.FoldConstantForSqlCache;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
@@ -417,6 +418,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 topic("Plan Normalization",
+                        custom(RuleType.FOLD_CONSTANT_FOR_SQL_CACHE, FoldConstantForSqlCache::new),
                         // move MergeProjects rule from analyze phase
                         // because SubqueryToApply and BindSink rule may create extra project node
                         // we need merge them at the beginning of rewrite phase to let later rules happy

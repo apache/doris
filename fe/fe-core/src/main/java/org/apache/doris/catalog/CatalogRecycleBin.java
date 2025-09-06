@@ -873,6 +873,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToPartition.remove(partitionId);
         idToRecycleTime.remove(partitionId);
 
+        long version = table.getNextVersion();
+        table.updateVisibleVersionAndTime(version, System.currentTimeMillis());
+
         // log
         RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "",
                                                     table.getName(), "", partitionName, newPartitionName);
@@ -916,6 +919,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             iterator.remove();
             idToRecycleTime.remove(partitionId);
+
+            long version = table.getNextVersion();
+            table.updateVisibleVersionAndTime(version, System.currentTimeMillis());
 
             LOG.info("replay recover partition[{}]", partitionId);
             break;

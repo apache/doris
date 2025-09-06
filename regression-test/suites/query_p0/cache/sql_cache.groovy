@@ -259,4 +259,25 @@ suite("sql_cache") {
         sql "select 100"
         sql "explain plan select 100"
     }
+
+    sql "drop table if exists test_sql_cache_with_session_variable"
+    sql """create table test_sql_cache_with_session_variable(
+                id int,
+                name varchar,
+                dt datetime
+            ) distributed by hash(id)
+            properties('replication_num'='1')"""
+
+
+    sql "unset variable all"
+    sql "set enable_sql_cache=true"
+    sql "insert into test_sql_cache_with_session_variable values(1, 'hello', '2025-01-02 03:04:05')"
+    sleep(10000)
+
+    sql "set block_encryption_mode=\"AES_128_ECB\""
+    order_qt_block_encryption_mode1 "select TO_BASE64(AES_ENCRYPT(name,'F3229A0B371ED2D9441B830D21A390C3')) from test_sql_cache_with_session_variable"
+    order_qt_block_encryption_mode2 "select TO_BASE64(AES_ENCRYPT(name,'F3229A0B371ED2D9441B830D21A390C3')) from test_sql_cache_with_session_variable"
+
+    sql "set block_encryption_mode=\"AES_256_CBC\""
+    order_qt_block_encryption_mode3 "select TO_BASE64(AES_ENCRYPT(name,'F3229A0B371ED2D9441B830D21A390C3')) from test_sql_cache_with_session_variable"
 }

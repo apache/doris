@@ -493,9 +493,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
             if (!isView) {
                 Optional<SqlCacheContext> sqlCacheContext = cascadesContext.getStatementContext().getSqlCacheContext();
                 if (sqlCacheContext.isPresent()) {
-                    if (table instanceof OlapTable) {
-                        sqlCacheContext.get().addUsedTable(table);
-                    } else {
+                    try {
+                        if (table instanceof OlapTable) {
+                            sqlCacheContext.get().addUsedTable(table);
+                        } else if (table instanceof HMSExternalTable
+                                && cascadesContext.getConnectContext().getSessionVariable().enableHiveSqlCache) {
+                            sqlCacheContext.get().addUsedTable(table);
+                        } else {
+                            sqlCacheContext.get().setHasUnsupportedTables(true);
+                        }
+                    } catch (Throwable t) {
                         sqlCacheContext.get().setHasUnsupportedTables(true);
                     }
                 }
@@ -539,7 +546,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
         parentContext.getStatementContext().addViewDdlSql(ddlSql);
         Optional<SqlCacheContext> sqlCacheContext = parentContext.getStatementContext().getSqlCacheContext();
         if (sqlCacheContext.isPresent()) {
-            sqlCacheContext.get().addUsedView(view, ddlSql);
+            try {
+                sqlCacheContext.get().addUsedView(view, ddlSql);
+            } catch (Throwable t) {
+                sqlCacheContext.get().setHasUnsupportedTables(true);
+            }
         }
         LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(ddlSql);
         // TODO: use a good to do this, such as eliminate UnboundResultSink
