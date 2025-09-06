@@ -686,11 +686,13 @@ public class PlanChecker {
     }
 
     public PlanChecker checkExplain(String sql, Consumer<NereidsPlanner> consumer) {
-        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        // this is needed before parseSingle, because parseSingle may use exprId generator in statementContext
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
                 statementContext);
-        connectContext.setStatementContext(statementContext);
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
         nereidsPlanner.plan(adapter);
@@ -699,10 +701,12 @@ public class PlanChecker {
     }
 
     public PlanChecker checkPlannerResult(String sql, Consumer<NereidsPlanner> consumer) {
-        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        // this is needed before parseSingle, because parseSingle may use exprId generator in statementContext
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         connectContext.setStatementContext(statementContext);
+
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         consumer.accept(nereidsPlanner);
         return this;
