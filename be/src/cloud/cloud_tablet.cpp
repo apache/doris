@@ -18,6 +18,7 @@
 #include "cloud/cloud_tablet.h"
 
 #include <bvar/bvar.h>
+#include <bvar/latency_recorder.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <rapidjson/document.h>
@@ -27,7 +28,10 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <atomic>
+#include <chrono>
 #include <memory>
+#include <ranges>
+#include <ratio>
 #include <shared_mutex>
 #include <unordered_map>
 #include <vector>
@@ -69,6 +73,20 @@ bvar::LatencyRecorder g_base_compaction_get_delete_bitmap_lock_time_ms(
 bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
 bvar::Adder<int64_t> g_unused_rowsets_bytes("unused_rowsets_bytes");
 
+bvar::Adder<int64_t> g_capture_prefer_cache_count("capture_prefer_cache_count");
+bvar::Adder<int64_t> g_capture_with_freshness_tolerance_count(
+        "capture_with_freshness_tolerance_count");
+bvar::Adder<int64_t> g_capture_with_freshness_tolerance_fallback_count(
+        "capture_with_freshness_tolerance_fallback_count");
+bvar::Window<bvar::Adder<int64_t>> g_capture_prefer_cache_count_window(
+        "capture_prefer_cache_count_window", &g_capture_prefer_cache_count, 30);
+bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_count_window(
+        "capture_with_freshness_tolerance_count_window", &g_capture_with_freshness_tolerance_count,
+        30);
+bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_fallback_count_window(
+        "capture_with_freshness_tolerance_fallback_count_window",
+        &g_capture_with_freshness_tolerance_fallback_count, 30);
+
 static constexpr int LOAD_INITIATOR_ID = -1;
 
 bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_segment_size(
@@ -105,6 +123,8 @@ bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_triggered_by_job_num(
         "file_cache_warm_up_rowset_triggered_by_job_num");
 bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_triggered_by_sync_rowset_num(
         "file_cache_warm_up_rowset_triggered_by_sync_rowset_num");
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_all_segments_latency(
+        "file_cache_warm_up_rowset_all_segments_latency");
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
         : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
@@ -138,7 +158,18 @@ Status CloudTablet::capture_consistent_rowsets_unlocked(
 
 Status CloudTablet::capture_rs_readers(const Version& spec_version,
                                        std::vector<RowSetSplits>* rs_splits,
-                                       bool skip_missing_version) {
+                                       const CaptureRsReaderOptions& opts) {
+    if (opts.query_freshness_tolerance_ms > 0) {
+        return capture_rs_readers_with_freshness_tolerance(spec_version, rs_splits,
+                                                           opts.query_freshness_tolerance_ms);
+    } else if (opts.enable_prefer_cached_rowset && !enable_unique_key_merge_on_write()) {
+        return capture_rs_readers_prefer_cache(spec_version, rs_splits);
+    }
+    return capture_rs_readers_internal(spec_version, rs_splits);
+}
+
+Status CloudTablet::capture_rs_readers_internal(const Version& spec_version,
+                                                std::vector<RowSetSplits>* rs_splits) {
     DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
         LOG_WARNING("CloudTablet.capture_rs_readers.return e-230").tag("tablet_id", tablet_id());
         return Status::Error<false>(-230, "injected error");
@@ -161,6 +192,96 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
         return st;
     }
     VLOG_DEBUG << "capture consitent versions: " << version_path;
+    return capture_rs_readers_unlocked(version_path, rs_splits);
+}
+
+Status CloudTablet::capture_rs_readers_prefer_cache(const Version& spec_version,
+                                                    std::vector<RowSetSplits>* rs_splits) {
+    g_capture_prefer_cache_count << 1;
+    Versions version_path;
+    std::shared_lock rlock(_meta_lock);
+    RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_prefer_cache(
+            spec_version, version_path,
+            [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
+    int64_t path_max_version = version_path.back().second;
+    VLOG_DEBUG << fmt::format(
+            "[verbose] CloudTablet::capture_rs_readers_prefer_cache, capture path: {}, "
+            "tablet_id={}, spec_version={}, path_max_version={}",
+            fmt::join(version_path | std::views::transform([](const auto& version) {
+                          return fmt::format("{}", version.to_string());
+                      }),
+                      ", "),
+            tablet_id(), spec_version.to_string(), path_max_version);
+    return capture_rs_readers_unlocked(version_path, rs_splits);
+}
+
+bool CloudTablet::rowset_is_warmed_up(int64_t start_version, int64_t end_version) {
+    if (start_version > end_version) {
+        return false;
+    }
+    Version version {start_version, end_version};
+    auto it = _rs_version_map.find(version);
+    if (it == _rs_version_map.end()) {
+        it = _stale_rs_version_map.find(version);
+        if (it == _stale_rs_version_map.end()) {
+            LOG_WARNING(
+                    "fail to find Rowset in rs_version or stale_rs_version for version. "
+                    "tablet={}, version={}",
+                    tablet_id(), version.to_string());
+            return false;
+        }
+    }
+    const auto& rs = it->second;
+    if (rs->visible_timestamp() < _engine.startup_timepoint()) {
+        // We only care about rowsets that are created after startup time point. For other rowsets,
+        // we assume they are warmed up.
+        return true;
+    }
+    return is_rowset_warmed_up(rs->rowset_id());
+};
+
+Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
+        const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
+        int64_t query_freshness_tolerance_ms) {
+    g_capture_with_freshness_tolerance_count << 1;
+    using namespace std::chrono;
+    auto freshness_limit_tp = system_clock::now() - milliseconds(query_freshness_tolerance_ms);
+    // find a version path where every edge(rowset) has been warmuped
+    Versions version_path;
+    std::shared_lock rlock(_meta_lock);
+    if (enable_unique_key_merge_on_write()) {
+        // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
+        // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
+        RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator_mow(
+                spec_version, version_path,
+                [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
+    } else {
+        RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
+                spec_version, version_path,
+                [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
+    }
+    int64_t path_max_version = version_path.back().second;
+    auto should_be_visible_but_not_warmed_up = [&](const auto& rs_meta) -> bool {
+        if (rs_meta->version() == Version {0, 1}) {
+            // skip rowset[0-1]
+            return false;
+        }
+        return rs_meta->start_version() > path_max_version &&
+               rs_meta->visible_timestamp() < freshness_limit_tp;
+    };
+    // use std::views::concat after C++26
+    bool should_fallback = std::ranges::any_of(_tablet_meta->all_rs_metas(),
+                                               should_be_visible_but_not_warmed_up) ||
+                           std::ranges::any_of(_tablet_meta->all_stale_rs_metas(),
+                                               should_be_visible_but_not_warmed_up);
+    if (should_fallback) {
+        rlock.unlock();
+        g_capture_with_freshness_tolerance_fallback_count << 1;
+        // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
+        // but has not been warmuped up yet, fallback to capture rowsets as usual
+        return capture_rs_readers_internal(spec_version, rs_splits);
+    }
+
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }
 
@@ -307,6 +428,20 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                     },
                             .download_done {[=](Status st) {
+                                DBUG_EXECUTE_IF("CloudTablet::add_rowsets.download_data.callback.block_compaction_rowset", {
+                                            // clang-format on
+                                            if (rs->version().second > rs->version().first) {
+                                                auto sleep_time = dp->param<int>("sleep", 3);
+                                                LOG_INFO(
+                                                        "[verbose] block download for rowset={}, "
+                                                        "version={}, sleep={}",
+                                                        rs->rowset_id().to_string(),
+                                                        rs->version().to_string(), sleep_time);
+                                                std::this_thread::sleep_for(
+                                                        std::chrono::seconds(sleep_time));
+                                            }
+                                            // clang-format off
+                                });
                                 self->complete_rowset_segment_warmup(rowset_meta->rowset_id(), st);
                                 if (!st) {
                                     LOG_WARNING("add rowset warm up error ").error(st);
@@ -534,6 +669,10 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     if (!recycled_rowsets.empty()) {
         auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
         manager.recycle_cache(tablet_id(), recycled_rowsets);
+    }
+    // these rowsets will not be choosen for query any more, so don't need to maintain if they are warmed up
+    for (const auto& rs : expired_rowsets) {
+        remove_warmed_up_rowset(rs->rowset_id());
     }
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
@@ -1459,19 +1598,21 @@ Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
 
 WarmUpState CloudTablet::get_rowset_warmup_state(RowsetId rowset_id) {
     std::shared_lock rlock(_meta_lock);
-    if (_rowset_warm_up_states.find(rowset_id) == _rowset_warm_up_states.end()) {
+    if (!_rowset_warm_up_states.contains(rowset_id)) {
         return WarmUpState::NONE;
     }
-    return _rowset_warm_up_states[rowset_id].first;
+    return _rowset_warm_up_states[rowset_id].state;
 }
 
-bool CloudTablet::add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state) {
+bool CloudTablet::add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state,
+                                          std::chrono::steady_clock::time_point start_tp) {
     std::lock_guard wlock(_meta_lock);
-    return add_rowset_warmup_state_unlocked(rowset, state);
+    return add_rowset_warmup_state_unlocked(rowset, state, start_tp);
 }
 
-bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state) {
-    if (_rowset_warm_up_states.find(rowset.rowset_id()) != _rowset_warm_up_states.end()) {
+bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state,
+                                                   std::chrono::steady_clock::time_point start_tp) {
+    if (_rowset_warm_up_states.contains(rowset.rowset_id())) {
         return false;
     }
     if (state == WarmUpState::TRIGGERED_BY_JOB) {
@@ -1479,13 +1620,14 @@ bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, War
     } else if (state == WarmUpState::TRIGGERED_BY_SYNC_ROWSET) {
         g_file_cache_warm_up_rowset_triggered_by_sync_rowset_num << 1;
     }
-    _rowset_warm_up_states[rowset.rowset_id()] = std::make_pair(state, rowset.num_segments());
+    _rowset_warm_up_states[rowset.rowset_id()] = {
+            .state = state, .num_segments = rowset.num_segments(), .start_tp = start_tp};
     return true;
 }
 
 WarmUpState CloudTablet::complete_rowset_segment_warmup(RowsetId rowset_id, Status status) {
     std::lock_guard wlock(_meta_lock);
-    if (_rowset_warm_up_states.find(rowset_id) == _rowset_warm_up_states.end()) {
+    if (!_rowset_warm_up_states.contains(rowset_id)) {
         return WarmUpState::NONE;
     }
     VLOG_DEBUG << "complete rowset segment warmup for rowset " << rowset_id << ", " << status;
@@ -1493,12 +1635,18 @@ WarmUpState CloudTablet::complete_rowset_segment_warmup(RowsetId rowset_id, Stat
     if (!status.ok()) {
         g_file_cache_warm_up_segment_failed_num << 1;
     }
-    _rowset_warm_up_states[rowset_id].second--;
-    if (_rowset_warm_up_states[rowset_id].second <= 0) {
+    _rowset_warm_up_states[rowset_id].num_segments--;
+    if (_rowset_warm_up_states[rowset_id].num_segments <= 0) {
         g_file_cache_warm_up_rowset_complete_num << 1;
-        _rowset_warm_up_states[rowset_id].first = WarmUpState::DONE;
+        add_warmed_up_rowset(rowset_id);
+        auto cost = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() -
+                            _rowset_warm_up_states[rowset_id].start_tp)
+                            .count();
+        g_file_cache_warm_up_rowset_all_segments_latency << cost;
+        _rowset_warm_up_states[rowset_id].state = WarmUpState::DONE;
     }
-    return _rowset_warm_up_states[rowset_id].first;
+    return _rowset_warm_up_states[rowset_id].state;
 }
 
 #include "common/compile_check_end.h"

@@ -21,6 +21,7 @@
 
 #include "olap/base_tablet.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/rowset.h"
 
 namespace doris {
 
@@ -68,7 +69,14 @@ public:
                                                                bool vertical) override;
 
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) override;
+                              const CaptureRsReaderOptions& opts) override;
+    Status capture_rs_readers_internal(const Version& spec_version,
+                                       std::vector<RowSetSplits>* rs_splits);
+    Status capture_rs_readers_prefer_cache(const Version& spec_version,
+                                           std::vector<RowSetSplits>* rs_splits);
+    Status capture_rs_readers_with_freshness_tolerance(const Version& spec_version,
+                                                       std::vector<RowSetSplits>* rs_splits,
+                                                       int64_t query_freshness_tolerance_ms);
 
     Status capture_consistent_rowsets_unlocked(
             const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
@@ -297,8 +305,27 @@ public:
 
     // Add warmup state management
     WarmUpState get_rowset_warmup_state(RowsetId rowset_id);
-    bool add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state);
+    bool add_rowset_warmup_state(
+            const RowsetMeta& rowset, WarmUpState state,
+            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
     WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status);
+
+    bool is_rowset_warmed_up(const RowsetId& rowset_id) const {
+        std::shared_lock rlock(_warmed_up_rowsets_mutex);
+        return _warmed_up_rowsets.contains(rowset_id);
+    }
+
+    // mark a rowset that it has been warmed up
+    // must be called when file cache donwload task on this rowset is done
+    void add_warmed_up_rowset(const RowsetId& rowset_id) {
+        std::unique_lock wlock(_warmed_up_rowsets_mutex);
+        _warmed_up_rowsets.insert(rowset_id);
+    }
+
+    void remove_warmed_up_rowset(const RowsetId& rowset_id) {
+        std::unique_lock wlock(_warmed_up_rowsets_mutex);
+        _warmed_up_rowsets.erase(rowset_id);
+    }
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
@@ -306,7 +333,12 @@ private:
 
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
 
-    bool add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state);
+    bool add_rowset_warmup_state_unlocked(
+            const RowsetMeta& rowset, WarmUpState state,
+            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
+
+    // used by capture_rs_reader_xxx functions
+    bool rowset_is_warmed_up(int64_t start_version, int64_t end_version);
 
     CloudStorageEngine& _engine;
 
@@ -366,7 +398,15 @@ private:
     std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
 
     // for warm up states management
-    std::unordered_map<RowsetId, std::pair<WarmUpState, int32_t>> _rowset_warm_up_states;
+    struct RowsetWarmUpInfo {
+        WarmUpState state;
+        int64_t num_segments;
+        std::chrono::steady_clock::time_point start_tp;
+    };
+    std::unordered_map<RowsetId, RowsetWarmUpInfo> _rowset_warm_up_states;
+
+    mutable std::shared_mutex _warmed_up_rowsets_mutex;
+    std::unordered_set<RowsetId> _warmed_up_rowsets;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
