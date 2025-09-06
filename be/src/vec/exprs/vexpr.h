@@ -159,6 +159,8 @@ public:
 
     DataTypePtr& data_type() { return _data_type; }
 
+    const DataTypePtr& data_type() const { return _data_type; }
+
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
     bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
