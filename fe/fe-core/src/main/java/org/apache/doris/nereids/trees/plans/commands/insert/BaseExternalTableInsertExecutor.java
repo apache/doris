@@ -136,6 +136,9 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         StringBuilder sb = new StringBuilder(t.getMessage());
         if (txnId != INVALID_TXN_ID) {
             LOG.warn("insert [{}] with query id {} abort txn {} failed", labelName, queryId, txnId);
+            if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
+                sb.append(". first_error_msg: ").append(coordinator.getFirstErrorMsg());
+            }
             if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
                 sb.append(". url: ").append(coordinator.getTrackingUrl());
             }
