@@ -347,6 +347,7 @@ public abstract class ConnectProcessor {
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
+                executor.getProfile().getSummaryProfile().parsedByConnectionProcess = true;
                 ctx.setExecutor(executor);
 
                 if (cacheKeyType != null) {
