@@ -1308,6 +1308,8 @@ void MetaServiceImpl::commit_txn_immediately(
             continue;
         }
 
+        record_txn_commit_stats(instance_id, partition_indexes.size(), tablet_ids.size());
+
         CommitTxnLogPB commit_txn_log;
         commit_txn_log.set_txn_id(txn_id);
         commit_txn_log.set_db_id(db_id);
@@ -1865,6 +1867,8 @@ void MetaServiceImpl::commit_txn_eventually(
             // partition versionPB has no txn_id
             continue;
         }
+
+        record_txn_commit_stats(instance_id, partition_indexes.size(), tablet_ids.size());
 
         std::string info_val;
         const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
