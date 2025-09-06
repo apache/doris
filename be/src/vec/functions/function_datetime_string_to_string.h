@@ -178,8 +178,8 @@ public:
         auto* format_state = reinterpret_cast<FormatState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!format_state) {
-            return Status::RuntimeError("funciton context for function '{}' must have FormatState;",
-                                        get_name());
+            return Status::InternalError(
+                    "funciton context for function '{}' must have FormatState;", get_name());
         }
 
         StringRef format(format_state->format_str);
