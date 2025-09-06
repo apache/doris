@@ -183,12 +183,12 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
         if (catalogProps.get(S3Properties.Env.ENDPOINT) != null) {
             options.put(LakeSoulUtils.FS_S3A_ENDPOINT, catalogProps.get(S3Properties.Env.ENDPOINT));
-            if (options.containsKey(MinioProperties.ENDPOINT)) {
-                // Use path style access for minio
-                options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "true");
-            } else {
-                // use virtual hosted style access for all other s3 compatible storage services
+            if (!options.containsKey("oss.endpoint")) {
+                // Aliyun OSS requires virtual host style access
                 options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "false");
+            } else {
+                // use path style access for all other s3 compatible storage services
+                options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "true");
             }
             if (catalogProps.get(S3Properties.Env.ACCESS_KEY) != null) {
                 options.put(LakeSoulUtils.FS_S3A_ACCESS_KEY, catalogProps.get(S3Properties.Env.ACCESS_KEY));

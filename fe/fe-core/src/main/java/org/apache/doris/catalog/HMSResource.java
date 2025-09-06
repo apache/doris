@@ -19,7 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -63,10 +63,8 @@ public class HMSResource extends Resource {
 
     @Override
     protected void setProperties(ImmutableMap<String, String> properties) throws DdlException {
-        for (String field : HMSProperties.REQUIRED_FIELDS) {
-            if (!properties.containsKey(field)) {
-                throw new DdlException("Missing [" + field + "] in properties.");
-            }
+        if (!properties.containsKey(HMSBaseProperties.HIVE_METASTORE_URIS)) {
+            throw new DdlException("Missing [" + HMSBaseProperties.HIVE_METASTORE_URIS + "] in properties.");
         }
         this.properties.putAll(properties);
     }
