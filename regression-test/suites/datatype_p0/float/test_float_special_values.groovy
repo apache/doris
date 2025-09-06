@@ -194,4 +194,249 @@ suite("test_float_special_values", "datatype_p0") {
         stmt_read0.setInt(1, 0)
         qe_prepared_stmt_select_inf_nan stmt_read0
     }
+
+    sql """
+        drop table if exists test_float_exprs;
+    """
+    sql """
+        create table test_float_exprs(
+            k1 decimalv3(10, 6),
+            v1 float,
+            v2 float
+        ) properties("replication_num" = "1");
+    """
+    sql """
+        insert into test_float_exprs values
+            (1, "+0.0", "+0.0"),
+            (2, "+0.0", "-0.0"),
+            (3, "-0.0", "+0.0"),
+            (4, "-0.0", "-0.0"),
+            (1, "+0.0", 1),
+            (2, "-0.0", 1),
+            (1, 1, 1),
+            (2, 1, 1),
+            (3, 1, 1),
+            (1, 1.1, 1.1),
+            (2, 1.1, 1.1),
+            (3, 1.1, 1.1),
+            (1, 3.402823e+38, 3.402823e+38),
+            (2, 3.402823e+38, 3.402823e+38),
+            (3, 3.402823e+38, 3.402823e+38),
+            (1, -3.402823e+38, -3.402823e+38),
+            (2, -3.402823e+38, -3.402823e+38),
+            (3, -3.402823e+38, -3.402823e+38),
+            (1, 'NaN', 'NaN'),
+            (2, 'NaN', 'NaN'),
+            (3, 'NaN', 'NaN'),
+            (1, 'NaN', 1.2),
+            (2, 'NaN', 1.2),
+            (3, 'NaN', 1.2),
+            (1, 'NaN', -1.2),
+            (2, 'NaN', -1.2),
+            (3, 'NaN', -1.2),
+            (1, 'NaN', "Infinity"),
+            (2, 'NaN', "Infinity"),
+            (3, 'NaN', "Infinity"),
+            (1, 'NaN', "-Infinity"),
+            (2, 'NaN', "-Infinity"),
+            (3, 'NaN', "-Infinity"),
+            (1, 'Infinity', 'Infinity'),
+            (2, 'Infinity', 'Infinity'),
+            (3, 'Infinity', 'Infinity'),
+            (1, 'Infinity', 1.3),
+            (2, 'Infinity', 1.3),
+            (3, 'Infinity', 1.3),
+            (1, 'Infinity', -1.3),
+            (2, 'Infinity', -1.3),
+            (3, 'Infinity', -1.3),
+            (1, '-Infinity', '-Infinity'),
+            (2, '-Infinity', '-Infinity'),
+            (3, '-Infinity', '-Infinity'),
+            (1, '-Infinity', 1.4),
+            (2, '-Infinity', 1.4),
+            (3, '-Infinity', 1.4),
+            (1, '-Infinity', -1.4),
+            (2, '-Infinity', -1.4),
+            (3, '-Infinity', -1.4),
+            (1, null, null),
+            (2, null, null),
+            (3, null, null),
+            (1, null, 1.4),
+            (2, null, 1.4),
+            (3, null, 1.4),
+            (1, null, -1.4),
+            (2, null, -1.4),
+            (3, null, -1.4);
+    """
+
+    qt_select_float_all "select * from test_float_exprs order by v1, v2, k1;"
+
+    // filter by float columns
+    qt_select_float_eq0 "select * from test_float_exprs where v1 = 0 order by v1, v2, k1;"
+    qt_select_float_eq1 "select * from test_float_exprs where v1 = 1 order by v1, v2, k1;"
+    qt_select_float_eq2 "select * from test_float_exprs where v1 = 'Infinity' order by v1, v2, k1;"
+    qt_select_float_eq3 "select * from test_float_exprs where v1 = '-Infinity' order by v1, v2, k1;"
+    qt_select_float_eq4 "select * from test_float_exprs where v1 = 'NaN' order by v1, v2, k1;"
+
+    qt_select_float_neq0 "select * from test_float_exprs where v1 != 0 order by v1, v2, k1;"
+    qt_select_float_neq1 "select * from test_float_exprs where v1 != 1 order by v1, v2, k1;"
+    qt_select_float_neq2 "select * from test_float_exprs where v1 != 'Infinity' order by v1, v2, k1;"
+    qt_select_float_neq3 "select * from test_float_exprs where v1 != '-Infinity' order by v1, v2, k1;"
+    qt_select_float_neq4 "select * from test_float_exprs where v1 != 'NaN' order by v1, v2, k1;"
+
+    qt_select_float_less0 "select * from test_float_exprs where v1 < 0 order by v1, v2, k1;"
+    qt_select_float_less1 "select * from test_float_exprs where v1 < 1 order by v1, v2, k1;"
+    qt_select_float_less2 "select * from test_float_exprs where v1 < 'Infinity' order by v1, v2, k1;"
+    qt_select_float_less3 "select * from test_float_exprs where v1 < '-Infinity' order by v1, v2, k1;"
+    qt_select_float_less4 "select * from test_float_exprs where v1 < 'NaN' order by v1, v2, k1;"
+
+    qt_select_float_le0 "select * from test_float_exprs where v1 <= 0 order by v1, v2, k1;"
+    qt_select_float_le1 "select * from test_float_exprs where v1 <= 1 order by v1, v2, k1;"
+    qt_select_float_le2 "select * from test_float_exprs where v1 <= 'Infinity' order by v1, v2, k1;"
+    qt_select_float_le3 "select * from test_float_exprs where v1 <= '-Infinity' order by v1, v2, k1;"
+    qt_select_float_le4 "select * from test_float_exprs where v1 <= 'NaN' order by v1, v2, k1;"
+
+    qt_select_float_gt0 "select * from test_float_exprs where v1 > 0 order by v1, v2, k1;"
+    qt_select_float_gt1 "select * from test_float_exprs where v1 > 1 order by v1, v2, k1;"
+    qt_select_float_gt2 "select * from test_float_exprs where v1 > 'Infinity' order by v1, v2, k1;"
+    qt_select_float_gt3 "select * from test_float_exprs where v1 > '-Infinity' order by v1, v2, k1;"
+    qt_select_float_gt4 "select * from test_float_exprs where v1 > 'NaN' order by v1, v2, k1;"
+
+    qt_select_float_ge0 "select * from test_float_exprs where v1 >= 0 order by v1, v2, k1;"
+    qt_select_float_ge1 "select * from test_float_exprs where v1 >= 1 order by v1, v2, k1;"
+    qt_select_float_ge2 "select * from test_float_exprs where v1 >= 'Infinity' order by v1, v2, k1;"
+    qt_select_float_ge3 "select * from test_float_exprs where v1 >= '-Infinity' order by v1, v2, k1;"
+    qt_select_float_ge4 "select * from test_float_exprs where v1 >= 'NaN' order by v1, v2, k1;"
+
+    qt_select_float_is_null "select * from test_float_exprs where v1 is null order by v1, v2, k1;"
+    qt_select_float_is_notnull "select * from test_float_exprs where v1 is not null order by v1, v2, k1;"
+    // result error: NaN is not in result set
+    qt_select_float_in "select * from test_float_exprs where v1 in ('0', '-0', 1, 'Infinity', '-Infinity', 'NaN') order by v1, v2, k1;"
+    // result error: NaN is in result set
+    qt_select_float_not_in "select * from test_float_exprs where v1 not in ('0', '-0', 1, 'Infinity', '-Infinity', 'NaN') order by v1, v2, k1;"
+
+    // group by float columns
+    qt_select_float_group_by1 "select v1, min(k1), max(k1), sum(k1), count(k1), avg(k1) from test_float_exprs group by v1 order by v1;"
+    qt_select_float_group_by2 "select v1, v2, min(k1), max(k1), sum(k1), count(k1), avg(k1) from test_float_exprs group by v1, v2 order by v1, v2;"
+
+    sql """
+        drop table if exists test_double_exprs;
+    """
+    sql """
+        create table test_double_exprs(
+            k1 decimalv3(10, 6),
+            v1 double,
+            v2 double
+        ) properties("replication_num" = "1");
+    """
+    sql """
+        insert into test_double_exprs values
+            (1, "+0.0", "+0.0"),
+            (2, "+0.0", "-0.0"),
+            (3, "-0.0", "+0.0"),
+            (4, "-0.0", "-0.0"),
+            (1, "+0.0", 1),
+            (2, "-0.0", 1),
+            (1, 1, 1),
+            (2, 1, 1),
+            (3, 1, 1),
+            (1, 1.1, 1.1),
+            (2, 1.1, 1.1),
+            (3, 1.1, 1.1),
+            (1, 3.402823e+38, 3.402823e+38),
+            (2, 3.402823e+38, 3.402823e+38),
+            (3, 3.402823e+38, 3.402823e+38),
+            (1, -3.402823e+38, -3.402823e+38),
+            (2, -3.402823e+38, -3.402823e+38),
+            (3, -3.402823e+38, -3.402823e+38),
+            (1, 'NaN', 'NaN'),
+            (2, 'NaN', 'NaN'),
+            (3, 'NaN', 'NaN'),
+            (1, 'NaN', 1.2),
+            (2, 'NaN', 1.2),
+            (3, 'NaN', 1.2),
+            (1, 'NaN', -1.2),
+            (2, 'NaN', -1.2),
+            (3, 'NaN', -1.2),
+            (1, 'NaN', "Infinity"),
+            (2, 'NaN', "Infinity"),
+            (3, 'NaN', "Infinity"),
+            (1, 'NaN', "-Infinity"),
+            (2, 'NaN', "-Infinity"),
+            (3, 'NaN', "-Infinity"),
+            (1, 'Infinity', 'Infinity'),
+            (2, 'Infinity', 'Infinity'),
+            (3, 'Infinity', 'Infinity'),
+            (1, 'Infinity', 1.3),
+            (2, 'Infinity', 1.3),
+            (3, 'Infinity', 1.3),
+            (1, 'Infinity', -1.3),
+            (2, 'Infinity', -1.3),
+            (3, 'Infinity', -1.3),
+            (1, '-Infinity', '-Infinity'),
+            (2, '-Infinity', '-Infinity'),
+            (3, '-Infinity', '-Infinity'),
+            (1, '-Infinity', 1.4),
+            (2, '-Infinity', 1.4),
+            (3, '-Infinity', 1.4),
+            (1, '-Infinity', -1.4),
+            (2, '-Infinity', -1.4),
+            (3, '-Infinity', -1.4),
+            (1, null, null),
+            (2, null, null),
+            (3, null, null),
+            (1, null, 1.4),
+            (2, null, 1.4),
+            (3, null, 1.4),
+            (1, null, -1.4),
+            (2, null, -1.4),
+            (3, null, -1.4);
+    """
+    qt_select_double_all "select * from test_double_exprs order by v1, v2, k1;"
+
+    // filter by double columns
+    qt_select_double_eq0 "select * from test_double_exprs where v1 = 0 order by v1, v2, k1;"
+    qt_select_double_eq1 "select * from test_double_exprs where v1 = 1 order by v1, v2, k1;"
+    qt_select_double_eq2 "select * from test_double_exprs where v1 = 'Infinity' order by v1, v2, k1;"
+    qt_select_double_eq3 "select * from test_double_exprs where v1 = '-Infinity' order by v1, v2, k1;"
+    qt_select_double_eq4 "select * from test_double_exprs where v1 = 'NaN' order by v1, v2, k1;"
+
+    qt_select_double_neq0 "select * from test_double_exprs where v1 != 0 order by v1, v2, k1;"
+    qt_select_double_neq1 "select * from test_double_exprs where v1 != 1 order by v1, v2, k1;"
+    qt_select_double_neq2 "select * from test_double_exprs where v1 != 'Infinity' order by v1, v2, k1;"
+    qt_select_double_neq3 "select * from test_double_exprs where v1 != '-Infinity' order by v1, v2, k1;"
+    qt_select_double_neq4 "select * from test_double_exprs where v1 != 'NaN' order by v1, v2, k1;"
+
+    qt_select_double_less0 "select * from test_double_exprs where v1 < 0 order by v1, v2, k1;"
+    qt_select_double_less1 "select * from test_double_exprs where v1 < 1 order by v1, v2, k1;"
+    qt_select_double_less2 "select * from test_double_exprs where v1 < 'Infinity' order by v1, v2, k1;"
+    qt_select_double_less3 "select * from test_double_exprs where v1 < '-Infinity' order by v1, v2, k1;"
+    qt_select_double_less4 "select * from test_double_exprs where v1 < 'NaN' order by v1, v2, k1;"
+
+    qt_select_double_le0 "select * from test_double_exprs where v1 <= 0 order by v1, v2, k1;"
+    qt_select_double_le1 "select * from test_double_exprs where v1 <= 1 order by v1, v2, k1;"
+    qt_select_double_le2 "select * from test_double_exprs where v1 <= 'Infinity' order by v1, v2, k1;"
+    qt_select_double_le3 "select * from test_double_exprs where v1 <= '-Infinity' order by v1, v2, k1;"
+    qt_select_double_le4 "select * from test_double_exprs where v1 <= 'NaN' order by v1, v2, k1;"
+
+    qt_select_double_gt0 "select * from test_double_exprs where v1 > 0 order by v1, v2, k1;"
+    qt_select_double_gt1 "select * from test_double_exprs where v1 > 1 order by v1, v2, k1;"
+    qt_select_double_gt2 "select * from test_double_exprs where v1 > 'Infinity' order by v1, v2, k1;"
+    qt_select_double_gt3 "select * from test_double_exprs where v1 > '-Infinity' order by v1, v2, k1;"
+    qt_select_double_gt4 "select * from test_double_exprs where v1 > 'NaN' order by v1, v2, k1;"
+
+    qt_select_double_ge0 "select * from test_double_exprs where v1 >= 0 order by v1, v2, k1;"
+    qt_select_double_ge1 "select * from test_double_exprs where v1 >= 1 order by v1, v2, k1;"
+    qt_select_double_ge2 "select * from test_double_exprs where v1 >= 'Infinity' order by v1, v2, k1;"
+    qt_select_double_ge3 "select * from test_double_exprs where v1 >= '-Infinity' order by v1, v2, k1;"
+    qt_select_double_ge4 "select * from test_double_exprs where v1 >= 'NaN' order by v1, v2, k1;"
+
+    qt_select_double_is_null "select * from test_double_exprs where v1 is null order by v1, v2, k1;"
+    qt_select_double_is_notnull "select * from test_double_exprs where v1 is not null order by v1, v2, k1;"
+    qt_select_double_in "select * from test_double_exprs where v1 in ('0', '-0', 1, 'Infinity', '-Infinity', 'NaN') order by v1, v2, k1;"
+    qt_select_double_not_in "select * from test_double_exprs where v1 not in ('0', '-0', 1, 'Infinity', '-Infinity', 'NaN') order by v1, v2, k1;"
+
+    // group by double columns
+    qt_select_double_group_by1 "select v1, min(k1), max(k1), sum(k1), count(k1), avg(k1) from test_double_exprs group by v1 order by v1;"
+    qt_select_double_group_by2 "select v1, v2, min(k1), max(k1), sum(k1), count(k1), avg(k1) from test_double_exprs group by v1, v2 order by v1, v2;"
 }

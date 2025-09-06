@@ -463,5 +463,44 @@ TEST_F(DataTypeNumberTest, GetFieldWithDataTypeTest) {
     EXPECT_EQ(dt_int8.get_field_with_data_type(*column_int8, 0).field,
               Field::create_field<TYPE_TINYINT>(1));
 }
+/*
+TEST_F(DataTypeNumberTest, test_float_comparison) {
+    {
+        vectorized::FloatCompareHelper<float> helper;
+        float f_nan = std::numeric_limits<float>::quiet_NaN();
+
+        EXPECT_EQ(false, helper.greater(f_nan, f_nan));
+        EXPECT_EQ(true, helper.greater(f_nan, std::numeric_limits<float>::max()));
+        EXPECT_EQ(true, helper.greater(f_nan, std::numeric_limits<float>::infinity()));
+        EXPECT_EQ(true, helper.greater(f_nan, -std::numeric_limits<float>::infinity()));
+        EXPECT_EQ(true, helper.greater(f_nan, std::numeric_limits<float>::lowest()));
+        EXPECT_EQ(false, helper.greater(std::numeric_limits<float>::max(), f_nan));
+        EXPECT_EQ(false, helper.greater(std::numeric_limits<float>::infinity(), f_nan));
+        EXPECT_EQ(false, helper.greater(-std::numeric_limits<float>::infinity(), f_nan));
+        EXPECT_EQ(false, helper.greater(std::numeric_limits<float>::lowest(), f_nan));
+
+        EXPECT_EQ(false, helper.less(f_nan, f_nan));
+        EXPECT_EQ(false, helper.less(f_nan, std::numeric_limits<float>::max()));
+        EXPECT_EQ(false, helper.less(f_nan, std::numeric_limits<float>::infinity()));
+        EXPECT_EQ(false, helper.less(f_nan, -std::numeric_limits<float>::infinity()));
+        EXPECT_EQ(false, helper.less(f_nan, std::numeric_limits<float>::lowest()));
+        EXPECT_EQ(true, helper.less(std::numeric_limits<float>::max(), f_nan));
+        EXPECT_EQ(true, helper.less(std::numeric_limits<float>::infinity(), f_nan));
+        EXPECT_EQ(true, helper.less(-std::numeric_limits<float>::infinity(), f_nan));
+        EXPECT_EQ(true, helper.less(std::numeric_limits<float>::lowest(), f_nan));
+
+        EXPECT_EQ(0, helper.compare(f_nan, f_nan));
+        EXPECT_EQ(1, helper.compare(f_nan, std::numeric_limits<float>::max()));
+        EXPECT_EQ(1, helper.compare(f_nan, std::numeric_limits<float>::infinity()));
+        EXPECT_EQ(1, helper.compare(f_nan, -std::numeric_limits<float>::infinity()));
+        EXPECT_EQ(1, helper.compare(f_nan, std::numeric_limits<float>::lowest()));
+
+        EXPECT_EQ(-1, helper.compare(std::numeric_limits<float>::max(), f_nan));
+        EXPECT_EQ(-1, helper.compare(std::numeric_limits<float>::infinity(), f_nan));
+        EXPECT_EQ(-1, helper.compare(-std::numeric_limits<float>::infinity(), f_nan));
+        EXPECT_EQ(-1, helper.compare(std::numeric_limits<float>::lowest(), f_nan));
+    }
+}
+    */
 
 } // namespace doris::vectorized
