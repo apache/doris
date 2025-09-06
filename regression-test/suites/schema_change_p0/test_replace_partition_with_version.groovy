@@ -217,6 +217,12 @@ suite("test_replace_partition_with_version", "p0") {
     sql dropSql
     
     // Test 7: Concurrent transaction scenario - REPLACE PARTITION should fail when there's an active transaction
+    if (isCloudMode()) {
+        // Cloud mode does not support concurrent transaction
+        logger.info("Skip Test 7 in cloud mode")
+        return
+    }
+
     sql dropSql
     sql initTable
     
@@ -272,12 +278,8 @@ suite("test_replace_partition_with_version", "p0") {
         // Commit the transaction in connection 1
         sql "COMMIT"
     }
-    
     // Verify that REPLACE PARTITION failed
     assertTrue(replaceFailed, "REPLACE PARTITION should fail when there's a concurrent transaction")
-    
-
-    
     // Verify original data is unchanged (transaction data should be committed)
     result = sql "SELECT * FROM ${tbName} WHERE date_col = '2024-06-01' ORDER BY id"
     assertEquals(2, result.size()) // Original Alice + Transaction Data
