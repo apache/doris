@@ -118,6 +118,8 @@ public:
 
     void close_a_pipeline(PipelineId pipeline_id) override;
 
+    std::string get_load_error_url();
+
 private:
     void _close_fragment_instance() override;
     Status _build_pipeline_x_tasks(const doris::TPipelineFragmentParams& request,
