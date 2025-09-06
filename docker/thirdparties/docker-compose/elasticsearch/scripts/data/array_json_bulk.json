@@ -1,0 +1,10 @@
+{"user_id": 1, "name": "Alice", "metadata": {"role": "admin", "department": "IT"}}
+{"user_id": 2, "name": "Bob", "metadata": {"role": "user", "department": "Sales"}}
+{"user_id": 3, "name": "Charlie", "metadata": [{"role": "manager", "department": "HR"}, {"role": "analyst", "department": "Finance"}]}
+{"user_id": 4, "name": "Diana", "metadata": [{"role": "developer", "department": "IT", "skills": ["Java", "Python"]}, {"role": "mentor", "department": "IT", "experience": 5}]}
+{"user_id": 5, "name": "Eve", "metadata": [{"role": "designer", "department": "Marketing", "portfolio": {"websites": 10, "mobile_apps": 3}}, {"role": "consultant", "department": "External", "clients": ["ClientA", "ClientB"]}]}
+{"user_id": 6, "name": "Frank", "metadata": {"role": "intern", "department": "IT", "supervisor": "Alice"}}
+{"user_id": 7, "name": "Grace", "metadata": [{"role": "tester", "department": "QA"}, {"role": "trainer", "department": "HR"}, {"role": "reviewer", "department": "IT"}]}
+{"user_id": 8, "name": "Henry", "metadata": {"role": "architect", "department": "IT", "certifications": ["AWS", "Azure", "GCP"]}}
+{"user_id": 9, "name": "Iris", "metadata": [{"role": "coordinator", "department": "Operations", "regions": ["US", "EU", "APAC"]}]}
+{"user_id": 10, "name": "Jack", "metadata": {"role": "specialist", "department": "Security", "clearance_level": 3}}
