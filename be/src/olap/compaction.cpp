@@ -1586,9 +1586,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
     // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
-    ctx.write_file_cache = (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) ||
-                           (config::enable_file_cache_keep_base_compaction_output &&
-                            compaction_type() == ReaderType::READER_BASE_COMPACTION);
+
+    ctx.write_file_cache = output_rowset_write_file_cache();
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
 
