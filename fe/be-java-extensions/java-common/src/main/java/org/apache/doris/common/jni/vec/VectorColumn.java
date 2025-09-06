@@ -431,6 +431,8 @@ public class VectorColumn {
                 return appendMap(Collections.emptyList(), Collections.emptyList());
             case STRUCT:
                 return appendStruct(structFieldIndex, null);
+            case VARBINARY:
+                return appendBytesAndOffset(new byte[0]);
             default:
                 throw new RuntimeException("Unknown type value: " + typeValue);
         }
@@ -1238,6 +1240,16 @@ public class VectorColumn {
         return result;
     }
 
+    public byte[][] getBinaryColumn(int start, int end) {
+        byte[][] result = new byte[end - start][];
+        for (int i = start; i < end; ++i) {
+            if (!isNullAt(i)) {
+                result[i - start] = getBytesWithOffset(i);
+            }
+        }
+        return result;
+    }
+
     public int appendArray(List<ColumnValue> values) {
         int length = values.size();
         int startOffset = childColumns[0].appendIndex;
@@ -1525,6 +1537,8 @@ public class VectorColumn {
             case MAP:
             case STRUCT:
                 return new HashMap[size];
+            case VARBINARY:
+                return new byte[size][];
             default:
                 throw new RuntimeException("Unknown type value: " + type);
         }
@@ -1592,6 +1606,9 @@ public class VectorColumn {
             case STRUCT:
                 appendStruct((Map<String, Object>[]) batch, isNullable);
                 break;
+            case VARBINARY:
+                appendBinaryAndOffset((byte[][]) batch, isNullable);
+                break;
             default:
                 throw new RuntimeException("Unknown type value: " + columnType.getType());
         }
@@ -1644,6 +1661,8 @@ public class VectorColumn {
                 return getMapColumn(start, end);
             case STRUCT:
                 return getStructColumn(start, end);
+            case VARBINARY:
+                return getBinaryColumn(start, end);
             default:
                 throw new RuntimeException("Unknown type value: " + columnType.getType());
         }
@@ -1789,6 +1808,7 @@ public class VectorColumn {
             case VARCHAR:
             case STRING:
             case BINARY:
+            case VARBINARY:
                 sb.append(getStringWithOffset(i));
                 break;
             case ARRAY: {
