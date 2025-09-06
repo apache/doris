@@ -138,6 +138,100 @@
 8.5
 8.0
 
+-- !bool_and --
+false
+
+-- !bool_and --
+true
+
+-- !bool_and --
+\N
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !bool_and --
+\N
+true
+false
+true
+false
+false
+false
+false
+true
+false
+false
+true
+false
+true
+true
+true
+
+-- !bool_or --
+\N
+true
+true
+
+-- !bool_or --
+true
+
+-- !bool_or --
+\N
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+
+-- !bool_xor --
+false
+
+-- !bool_xor --
+\N
+false
+false
+
+-- !bool_xor --
+\N
+true
+false
+false
+false
+true
+true
+false
+false
+false
+false
+false
+true
+true
+false
+true
+
 -- !select_minmax1 --
 20200622	1	\N
 20200622	2	\N

@@ -80,6 +80,7 @@ void register_aggregate_function_approx_top_k(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_approx_top_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_reservoir(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -137,6 +138,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_approx_top_sum(instance);
         register_aggregate_function_percentile_reservoir(instance);
         register_aggregate_function_ai_agg(instance);
+        register_aggregate_function_bool_union(instance);
         // Register foreach and foreachv2 functions
         register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_combinator_foreachv2(instance);
