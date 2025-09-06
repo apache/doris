@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -191,7 +192,11 @@ public class FunctionUtil {
                     }
                 }
             } else if (function instanceof AggregateFunction) {
-                JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
+                if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+                    JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
+                } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                    PythonUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
+                }
             }
         } catch (Exception e) {
             LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
