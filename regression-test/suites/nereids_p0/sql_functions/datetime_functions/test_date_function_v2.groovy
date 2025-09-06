@@ -50,4 +50,27 @@ suite("test_date_function_v2") {
     testFoldConst("select microseconds_diff('2023-10-15 00:00:00', '2023-10-14 00:00:00.1');")
     qt_sql_diff14 "select microseconds_diff('2023-10-15 00:00:00', '2023-10-14 00:00:00');"
     testFoldConst("select microseconds_diff('2023-10-15 00:00:00', '2023-10-14 00:00:00');")
+
+    sql " drop table if exists my_doris_table;"
+    sql """
+    CREATE TABLE my_doris_table (
+        `id` INT COMMENT '唯一ID',
+        `event_date` DATETIME COMMENT '事件时间，精确到秒'
+    )
+    UNIQUE KEY(`id`)
+    DISTRIBUTED BY HASH(`id`) BUCKETS 10
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+    """
+
+    sql """
+    INSERT INTO my_doris_table  VALUES
+    (1, '2099-08-20 10:00:01');
+    """
+
+    def res = sql """ select hours_diff('2000-08-19 08:09:13', event_date) from my_doris_table; """
+    assertTrue(res[0][0] < 0)
+    res =  sql """ select hours_diff(now(), event_date) from my_doris_table;"""
+    assertTrue(res[0][0] < 0)
 }
