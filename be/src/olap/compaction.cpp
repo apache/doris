@@ -297,11 +297,14 @@ int64_t Compaction::get_avg_segment_rows() {
     const auto& meta = _tablet->tablet_meta();
     if (meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         int64_t compaction_goal_size_mbytes = meta->time_series_compaction_goal_size_mbytes();
-        return (compaction_goal_size_mbytes * 1024 * 1024 * 2) /
-               (_input_rowsets_data_size / (_input_row_num + 1) + 1);
+        // The output segment rows should be less than total input rows
+        return std::min((compaction_goal_size_mbytes * 1024 * 1024 * 2) /
+                                (_input_rowsets_data_size / (_input_row_num + 1) + 1),
+                        _input_row_num + 1);
     }
-    return config::vertical_compaction_max_segment_size /
-           (_input_rowsets_data_size / (_input_row_num + 1) + 1);
+    return std::min(config::vertical_compaction_max_segment_size /
+                            (_input_rowsets_data_size / (_input_row_num + 1) + 1),
+                    _input_row_num + 1);
 }
 
 CompactionMixin::CompactionMixin(StorageEngine& engine, TabletSharedPtr tablet,
