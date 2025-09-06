@@ -3616,6 +3616,7 @@ TEST(function_string_test, soundex_test) {
 
         DataSet data_set = {
                 {{std::string("Doris")}, std::string("D620")},
+                {{std::string("ApacheDoris中文测试")}, std::string("A123")},
                 {{std::string("Robert")}, std::string("R163")},
                 {{std::string("Rupert")}, std::string("R163")},
                 {{std::string("Smith")}, std::string("S530")},

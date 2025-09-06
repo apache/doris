@@ -256,6 +256,17 @@ suite("test_string_function") {
     qt_soundex """SELECT SOUNDEX('Wang');"""
     qt_soundex """SELECT SOUNDEX(NULL);"""
 
+    // non-ASCII test for soundex
+    qt_soundex """SELECT SOUNDEX('ApacheDoris非 ASCII 测试');"""
+    test{
+        sql """SELECT SOUNDEX('非 ASCII 测试');"""
+        exception "soundex only supports ASCII"
+    }
+    test{
+        sql """SELECT SOUNDEX('Doris中文测试');"""
+        exception "soundex only supports ASCII"
+    }
+
 
 
     sql """

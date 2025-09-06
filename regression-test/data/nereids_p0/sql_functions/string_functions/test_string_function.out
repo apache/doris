@@ -569,6 +569,9 @@ W520
 -- !soundex --
 \N
 
+-- !soundex --
+A123
+
 -- !sql --
 1	7
 2	7
