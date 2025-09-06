@@ -121,6 +121,16 @@ curl -X POST "http://${ES_6_HOST}:9200/_bulk" --data-binary "@$bulk_request_file
 # put _meta for composite_type_array
 curl "http://${ES_6_HOST}:9200/composite_type_array/doc/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta_composite_type_array.json"
 
+# create index array_json
+curl "http://${ES_6_HOST}:9200/array_json" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/es6_array_json.json"
+# put data with bulk for array_json
+array_json_data_file="/mnt/scripts/data/array_json_bulk.json"
+bulk_request_file="/mnt/scripts/data/bulk_request_array_json_es6.json"
+generate_bulk_request "array_json" "doc" "item_" "$array_json_data_file" "$bulk_request_file"
+curl -X POST "http://${ES_6_HOST}:9200/_bulk" --data-binary "@$bulk_request_file" -H "Content-Type: application/json"
+# put _meta for array_json
+curl "http://${ES_6_HOST}:9200/array_json/doc/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta_array_json.json"
+
 # es7
 # create index test1
 curl "http://${ES_7_HOST}:9200/test1" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/es7_test1.json"
@@ -166,6 +176,16 @@ curl -X POST "http://${ES_7_HOST}:9200/_bulk" --data-binary "@$bulk_request_file
 # put _meta for composite_type_array
 curl "http://${ES_7_HOST}:9200/composite_type_array/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta_composite_type_array.json"
 
+# create index array_json
+curl "http://${ES_7_HOST}:9200/array_json" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/es7_array_json.json"
+# put data with bulk for array_json
+array_json_data_file="/mnt/scripts/data/array_json_bulk.json"
+bulk_request_file="/mnt/scripts/data/bulk_request_array_json_es7.json"
+generate_bulk_request "array_json" "_doc" "item_" "$array_json_data_file" "$bulk_request_file"
+curl -X POST "http://${ES_7_HOST}:9200/_bulk" --data-binary "@$bulk_request_file" -H "Content-Type: application/json"
+# put _meta for array_json
+curl "http://${ES_7_HOST}:9200/array_json/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta_array_json.json"
+
 # es8
 # create index test1
 curl "http://${ES_8_HOST}:9200/test1" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/es7_test1.json"
@@ -208,5 +228,15 @@ generate_bulk_request "composite_type_array" "" "item_" "$array_data_file" "$bul
 curl -X POST "http://${ES_8_HOST}:9200/_bulk" --data-binary "@$bulk_request_file" -H "Content-Type: application/json"
 # put _meta for composite_type_array
 curl "http://${ES_8_HOST}:9200/composite_type_array/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta_composite_type_array.json"
+
+# create index array_json
+curl "http://${ES_8_HOST}:9200/array_json" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/es7_array_json.json"
+# put data with bulk for array_json
+array_json_data_file="/mnt/scripts/data/array_json_bulk.json"
+bulk_request_file="/mnt/scripts/data/bulk_request_array_json_es8.json"
+generate_bulk_request "array_json" "" "item_" "$array_json_data_file" "$bulk_request_file"
+curl -X POST "http://${ES_8_HOST}:9200/_bulk" --data-binary "@$bulk_request_file" -H "Content-Type: application/json"
+# put _meta for array_json
+curl "http://${ES_8_HOST}:9200/array_json/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta_array_json.json"
 
 touch /tmp/SUCCESS

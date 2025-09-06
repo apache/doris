@@ -1,0 +1,15 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "doc": {
+      "properties": {
+        "user_id": { "type": "integer" },
+        "name": { "type": "keyword" },
+        "metadata": { "type": "object", "doc_values": false }
+      }
+    }
+  }
+}
