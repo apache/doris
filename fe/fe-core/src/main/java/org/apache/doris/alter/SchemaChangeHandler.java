@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
@@ -113,7 +114,6 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -2922,7 +2922,7 @@ public class SchemaChangeHandler extends AlterHandler {
         //update base index schema
         Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true);
         try {
-            updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
+            updateBaseIndexSchema(db, olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
@@ -3107,8 +3107,8 @@ public class SchemaChangeHandler extends AlterHandler {
         return changedIndexIdToSchema;
     }
 
-    public void updateBaseIndexSchema(OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-                                      List<Index> indexes) throws IOException {
+    public void updateBaseIndexSchema(Database db, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
+                                      List<Index> indexes) throws Exception {
         long baseIndexId = olapTable.getBaseIndexId();
         List<Long> indexIds = new ArrayList<Long>();
         indexIds.add(baseIndexId);
@@ -3116,7 +3116,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (int i = 0; i < indexIds.size(); i++) {
             List<Column> indexSchema = indexSchemaMap.get(indexIds.get(i));
             MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
-            currentIndexMeta.setSchema(indexSchema);
+            currentIndexMeta.setSchema(indexSchema, createAnalyzer(db.getId()));
 
             int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
             int newSchemaVersion = currentSchemaVersion + 1;
@@ -3135,6 +3135,18 @@ public class SchemaChangeHandler extends AlterHandler {
         olapTable.setIndexes(indexes);
         olapTable.rebuildFullSchema();
         olapTable.rebuildDistributionInfo();
+    }
+
+    private Analyzer createAnalyzer(long dbId) throws AnalysisException {
+        ConnectContext connectContext = new ConnectContext();
+        Database db;
+        try {
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+        } catch (MetaNotFoundException e) {
+            throw new AnalysisException("error happens when create analyzer", e);
+        }
+        connectContext.setDatabase(db.getFullName());
+        return new Analyzer(Env.getCurrentEnv(), connectContext);
     }
 
     public void replayModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info)
