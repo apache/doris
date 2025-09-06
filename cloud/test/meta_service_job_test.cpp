@@ -1425,7 +1425,9 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
                        {tablet_id, new_tablet_id});
     }
 
-    // Create output rowsets for new tablet
+    // Now old table has rowsets [1, 2, 3, 4, 5], and new tablet has [4, 5]
+
+    // Create output rowsets for new tablet [1, 2, 3]
     std::vector<doris::RowsetMetaCloudPB> output_rowsets;
     for (int64_t i = 0; i < 3; ++i) {
         auto rowset = create_rowset(new_tablet_id, i + 2, i + 2, 100);
@@ -1471,6 +1473,8 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         schema_change->set_size_output_rowsets(300 * 110);
         schema_change->set_index_size_output_rowsets(300 * 10);
         schema_change->set_segment_size_output_rowsets(300 * 110);
+        schema_change->set_output_cumulative_point(
+                4); // cumulative point from the old table to the new one.
 
         brpc::Controller cntl;
         meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
@@ -1496,6 +1500,8 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         EXPECT_EQ(new_stats.segment_size(),
                   new_tablet_stats_pb.segment_size() +
                           req.job().schema_change().segment_size_output_rowsets());
+        EXPECT_EQ(new_stats.cumulative_point(),
+                  req.job().schema_change().output_cumulative_point());
     }
 
     {
@@ -1524,6 +1530,7 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         ASSERT_EQ(resp.rowset_meta(1).end_version(), 6);
     }
 
+    new_tablet_stats_pb = get_tablet_stats(new_tablet_id);
     {
         // Get the rowset metas of the new tablet
         GetRowsetRequest req;

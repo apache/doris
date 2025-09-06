@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
@@ -32,7 +31,7 @@ import java.util.List;
 /**
  * Between predicate expression.
  */
-public class Between extends Expression implements TernaryExpression, PropagateNullable {
+public class Between extends Expression implements TernaryExpression {
 
     private final Expression compareExpr;
     private final Expression lowerBound;
@@ -75,6 +74,20 @@ public class Between extends Expression implements TernaryExpression, PropagateN
     @Override
     public String toString() {
         return compareExpr + " BETWEEN " + lowerBound + " AND " + upperBound;
+    }
+
+    // nullable is true if any children is nullable,
+    // but between is not PropagateNullable,
+    // because FoldConstantRuleOnFE will fold a PropagateNullable expression to NULL if any children is NULL.
+    // but `4 BETWEEN NULL AND 3` should fold to FALSE, not NULL.
+    @Override
+    public boolean nullable() {
+        for (Expression child : children()) {
+            if (child.nullable()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

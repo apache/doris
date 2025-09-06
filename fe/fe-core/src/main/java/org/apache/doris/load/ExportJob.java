@@ -276,6 +276,7 @@ public class ExportJob implements Writable {
         List<List<Long>> tabletsListPerParallel = splitTablets();
 
         // Each Outfile clause responsible for MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT tablets
+        int index = 0;
         for (List<Long> tabletsList : tabletsListPerParallel) {
             // generate LogicalPlan
             LogicalPlan plan = generateOneLogicalPlan(qualifiedTableName, tabletsList,
@@ -283,6 +284,10 @@ public class ExportJob implements Writable {
             // generate  LogicalPlanAdapter
             StatementBase statementBase = generateLogicalPlanAdapter(plan);
             selectStmtPerParallel.add(Optional.of(statementBase));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Export Job [{}]: parallelism {} tablets: {}", id, index, tabletsList);
+            }
+            index++;
         }
     }
 

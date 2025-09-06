@@ -21,7 +21,10 @@ import org.apache.commons.io.IOUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -39,10 +42,28 @@ public class GZIPUtils {
         return bytesStream.toByteArray();
     }
 
+    public static byte[] compress(File file) throws IOException {
+        ByteArrayOutputStream bytesStream = new ByteArrayOutputStream();
+        try (FileInputStream fileInputStream = new FileInputStream(file);
+                GZIPOutputStream gzipStream = new GZIPOutputStream(bytesStream)) {
+
+            byte[] buffer = new byte[8192]; // 8KB buffer
+            int bytesRead;
+            while ((bytesRead = fileInputStream.read(buffer)) != -1) {
+                gzipStream.write(buffer, 0, bytesRead);
+            }
+        }
+        return bytesStream.toByteArray();
+    }
+
     public static byte[] decompress(byte[] data) throws IOException {
         ByteArrayInputStream bytesStream = new ByteArrayInputStream(data);
         try (GZIPInputStream gzipStream = new GZIPInputStream(bytesStream)) {
             return IOUtils.toByteArray(gzipStream);
         }
+    }
+
+    public static InputStream lazyDecompress(byte[] data) throws IOException {
+        return new GZIPInputStream(new ByteArrayInputStream(data));
     }
 }

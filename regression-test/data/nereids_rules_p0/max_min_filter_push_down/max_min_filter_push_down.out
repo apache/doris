@@ -3,8 +3,7 @@
 PhysicalResultSink
 --filter((min(value1) < 20))
 ----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalEmptyRelation
+------PhysicalEmptyRelation
 
 -- !min --
 PhysicalResultSink

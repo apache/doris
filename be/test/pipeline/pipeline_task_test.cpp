@@ -231,7 +231,6 @@ TEST_F(PipelineTaskTest, TEST_EXTRACT_DEPENDENCIES_ERROR) {
         EXPECT_TRUE(task->_read_dependencies.empty());
         EXPECT_TRUE(task->_write_dependencies.empty());
         EXPECT_TRUE(task->_finish_dependencies.empty());
-        EXPECT_TRUE(task->_spill_dependencies.empty());
     }
 }
 
@@ -273,7 +272,6 @@ TEST_F(PipelineTaskTest, TEST_OPEN) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
     }
 }
@@ -353,7 +351,6 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
         EXPECT_TRUE(task->_read_dependencies.empty());
         EXPECT_TRUE(task->_write_dependencies.empty());
         EXPECT_TRUE(task->_finish_dependencies.empty());
-        EXPECT_TRUE(task->_spill_dependencies.empty());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
     }
     {
@@ -369,7 +366,6 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
         EXPECT_FALSE(read_dep->ready());
         EXPECT_TRUE(write_dep->ready());
@@ -734,7 +730,6 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
         EXPECT_FALSE(read_dep->ready());
         EXPECT_TRUE(write_dep->ready());
@@ -870,7 +865,6 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
         EXPECT_FALSE(read_dep->ready());
         EXPECT_TRUE(write_dep->ready());
@@ -950,30 +944,6 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_FALSE(
                 ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
-    }
-    {
-        EXPECT_FALSE(task->is_revoking());
-        task->_spill_dependencies.front()->block();
-        EXPECT_TRUE(task->is_revoking());
-        EXPECT_FALSE(task->_spill_dependencies.front()->ready());
-        EXPECT_TRUE(task->_spill_dependencies.front()->_blocked_task.empty());
-        task->_spill_dependencies.front()->set_ready();
-    }
-    {
-        EXPECT_FALSE(task->_is_blocked());
-        task->_spill_dependencies.front()->block();
-        EXPECT_TRUE(task->_is_blocked());
-        EXPECT_FALSE(task->_spill_dependencies.front()->ready());
-        EXPECT_FALSE(task->_spill_dependencies.front()->_blocked_task.empty());
-        task->_spill_dependencies.front()->set_ready();
-    }
-    {
-        EXPECT_FALSE(task->_is_pending_finish());
-        task->_spill_dependencies.front()->block();
-        EXPECT_TRUE(task->_is_pending_finish());
-        EXPECT_FALSE(task->_spill_dependencies.front()->ready());
-        EXPECT_FALSE(task->_spill_dependencies.front()->_blocked_task.empty());
-        task->_spill_dependencies.front()->set_ready();
     }
     delete ExecEnv::GetInstance()->_workload_group_manager;
 }

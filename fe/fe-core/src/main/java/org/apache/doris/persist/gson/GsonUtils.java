@@ -61,6 +61,7 @@ import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
@@ -82,7 +83,6 @@ import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.catalog.LLMResource;
 import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
@@ -359,7 +359,7 @@ public class GsonUtils {
             .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
             .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())
             .registerSubtype(EsResource.class, EsResource.class.getSimpleName())
-            .registerSubtype(LLMResource.class, LLMResource.class.getSimpleName());
+            .registerSubtype(AIResource.class, AIResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory;

@@ -27,6 +27,8 @@ bvar::Adder<int64_t> g_segment_column_cache_evict_count("segment_column_cache_ev
 
 namespace doris::segment_v2 {
 
+#include "common/compile_check_begin.h"
+
 ColumnReaderCache::ColumnReaderCache(Segment* segment) : _segment(segment) {}
 
 ColumnReaderCache::~ColumnReaderCache() {
@@ -120,7 +122,7 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
         RETURN_IF_ERROR(_segment->_get_segment_footer(footer_pb_shared, stats));
     }
     // lazy create column reader from footer
-    const auto& col_footer_pb = footer_pb_shared->columns(it->second);
+    const auto& col_footer_pb = footer_pb_shared->columns(static_cast<int>(it->second));
     ColumnReaderOptions opts {
             .kept_in_memory = _segment->tablet_schema()->is_in_memory(),
             .be_exec_version = _be_exec_version,
@@ -129,8 +131,8 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     VLOG_DEBUG << "insert cache: " << col_uid << " "
                << ""
                << ", type: " << (int)col_footer_pb.type() << ", footer_ordinal: " << it->second;
-    return _insert({col_uid, {}}, opts, *footer_pb_shared, it->second, _segment->_file_reader,
-                   _segment->num_rows(), column_reader);
+    return _insert({col_uid, {}}, opts, *footer_pb_shared, static_cast<int>(it->second),
+                   _segment->_file_reader, _segment->num_rows(), column_reader);
 }
 
 Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
@@ -180,5 +182,7 @@ Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
     *column_reader = nullptr;
     return Status::NotFound("column not found in segment, col_uid={}", col_uid);
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

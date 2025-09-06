@@ -22,7 +22,7 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 
@@ -33,7 +33,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
     public IcebergDLFExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
         super(catalogId, name, comment);
-        props.put(HMSProperties.HIVE_METASTORE_TYPE, "dlf");
+        props.put(HMSBaseProperties.HIVE_METASTORE_TYPE, "dlf");
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -59,7 +59,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
 
     @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-                   boolean force) throws DdlException {
+            boolean mustTemporary, boolean force) throws DdlException {
         throw new NotSupportedException("iceberg catalog with dlf type not supports 'drop table'");
     }
 

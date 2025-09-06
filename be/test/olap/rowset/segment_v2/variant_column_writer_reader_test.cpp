@@ -45,6 +45,7 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
     column_pb->set_is_nullable(is_nullable);
     if (column_type == "VARIANT") {
         column_pb->set_variant_max_subcolumns_count(variant_max_subcolumns_count);
+        column_pb->set_variant_max_sparse_column_statistics_size(10000);
     }
 }
 
@@ -505,15 +506,15 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // 13. check statistics size == limit
     auto& variant_stats = variant_column_reader->_statistics;
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() <
-                config::variant_max_sparse_column_statistics_size);
-    auto limit = config::variant_max_sparse_column_statistics_size -
+                variant_column_reader->_variant_sparse_column_statistics_size);
+    auto limit = variant_column_reader->_variant_sparse_column_statistics_size -
                  variant_stats->sparse_column_non_null_size.size();
     for (int i = 0; i < limit; ++i) {
         std::string key = parent_column.name_lower_case() + ".key10" + std::to_string(i);
         variant_stats->sparse_column_non_null_size[key] = 10000;
     }
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() ==
-                config::variant_max_sparse_column_statistics_size);
+                variant_column_reader->_variant_sparse_column_statistics_size);
     EXPECT_TRUE(variant_column_reader->is_exceeded_sparse_column_limit());
 
     ColumnIteratorUPtr it2;

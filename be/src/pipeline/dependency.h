@@ -641,7 +641,7 @@ struct PartitionedHashJoinSharedState
     std::shared_ptr<HashJoinSharedState> inner_shared_state;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
     std::vector<vectorized::SpillStreamSPtr> spilled_streams;
-    bool need_to_spill = false;
+    bool is_spilled = false;
 };
 
 struct NestedLoopJoinSharedState : public JoinSharedState {

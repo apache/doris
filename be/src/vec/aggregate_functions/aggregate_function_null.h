@@ -127,6 +127,10 @@ public:
         }
     }
 
+    void set_query_context(QueryContext* ctx) override {
+        return nested_function->set_query_context(ctx);
+    }
+
     void set_version(const int version_) override {
         IAggregateFunctionHelper<Derived>::set_version(version_);
         nested_function->set_version(version_);

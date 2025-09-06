@@ -81,7 +81,7 @@ public:
     HttpRequest* original_req {nullptr};
 
     std::string target_host;
-    int target_port {0};
+    uint16_t target_port {0};
 
     // Buffer for collecting response data
     std::string response_data;
@@ -112,7 +112,8 @@ public:
     void on_chunk_data(HttpRequest* req) override;
 
 private:
-    Status init_forward_request(HttpRequest* req, const std::string& target_host, int target_port,
+    Status init_forward_request(HttpRequest* req, const std::string& target_host,
+                                uint16_t target_port,
                                 std::shared_ptr<StreamLoadForwardContext>& ctx);
 
     static void forward_request_done(struct evhttp_request* req, void* arg);
@@ -125,7 +126,7 @@ private:
     static void copy_response_headers(struct evkeyvalq* input_headers,
                                       struct evkeyvalq* output_headers);
 
-    Status parse_forward_target(const std::string& forward_to, std::string& host, int& port);
+    Status parse_forward_target(const std::string& forward_to, std::string& host, uint16_t& port);
 
     std::string build_forward_url(HttpRequest* req);
 

@@ -40,6 +40,8 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
+    bool is_blockable() const override;
+
     Status setup_in_memory_sort_op(RuntimeState* state);
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
     Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);

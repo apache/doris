@@ -878,6 +878,8 @@ TEST(MetaServiceVersionedReadTest, GetRowsetMetas) {
         auto resp = get_rowsets(1, 10);
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
         ASSERT_EQ(resp.rowset_meta_size(), 1);
+        EXPECT_TRUE(resp.has_partition_max_version());
+        EXPECT_EQ(resp.partition_max_version(), -1); // The first version is special
     }
 
     // Step 1: Insert loading rowsets with versions 2, 3, 4, 5, 6, 7, 8, 9, 10
@@ -892,6 +894,8 @@ TEST(MetaServiceVersionedReadTest, GetRowsetMetas) {
         auto resp = get_rowsets(1, 10);
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
         ASSERT_EQ(resp.rowset_meta_size(), 10);
+        EXPECT_TRUE(resp.has_partition_max_version());
+        EXPECT_EQ(resp.partition_max_version(), 10);
 
         // Verify rowsets are sorted by version
         for (int i = 0; i < resp.rowset_meta_size(); ++i) {

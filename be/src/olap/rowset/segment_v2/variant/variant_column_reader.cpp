@@ -76,9 +76,20 @@ bool VariantColumnReader::exist_in_sparse_column(
 }
 
 bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
-    return !_statistics->sparse_column_non_null_size.empty() &&
-           _statistics->sparse_column_non_null_size.size() >=
-                   config::variant_max_sparse_column_statistics_size;
+    bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
+                                        _statistics->sparse_column_non_null_size.size() >=
+                                                _variant_sparse_column_statistics_size;
+    DBUG_EXECUTE_IF("exceeded_sparse_column_limit_must_be_false", {
+        if (exceeded_sparse_column_limit) {
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "exceeded_sparse_column_limit_must_be_false, sparse_column_non_null_size: {} : "
+                    " _variant_sparse_column_statistics_size: {}",
+                    _statistics->sparse_column_non_null_size.size(),
+                    _variant_sparse_column_statistics_size);
+        }
+    })
+    return exceeded_sparse_column_limit;
 }
 
 int64_t VariantColumnReader::get_metadata_size() const {
@@ -318,9 +329,7 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
 
     // Otherwise the prefix is not exist and the sparse column size is reached limit
     // which means the path maybe exist in sparse_column
-    bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
-                                        _statistics->sparse_column_non_null_size.size() >=
-                                                config::variant_max_sparse_column_statistics_size;
+    bool exceeded_sparse_column_limit = is_exceeded_sparse_column_limit();
 
     // If the variant column has extracted columns and is a compaction reader, then read flat leaves
     // Otherwise read hierarchical data, since the variant subcolumns are flattened in schema_util::VariantCompactionUtil::get_extended_compaction_schema
@@ -402,6 +411,11 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     _statistics = std::make_unique<VariantStatistics>();
     const ColumnMetaPB& self_column_pb = footer.columns(column_id);
     const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());
+    // record variant_sparse_column_statistics_size from parent column
+    _variant_sparse_column_statistics_size =
+            opts.tablet_schema->column_by_uid(self_column_pb.unique_id())
+                    .variant_max_sparse_column_statistics_size();
+
     for (int32_t ordinal = 0; ordinal < footer.columns_size(); ++ordinal) {
         const ColumnMetaPB& column_pb = footer.columns(ordinal);
         // Find all columns belonging to the current variant column

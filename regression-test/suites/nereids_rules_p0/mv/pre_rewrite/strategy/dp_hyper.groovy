@@ -21,6 +21,7 @@ suite("rewrite_when_dp_hyper") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set disable_nereids_rules = 'DISTINCT_AGGREGATE_SPLIT'"
 
     sql """
     drop table if exists orders_hyper

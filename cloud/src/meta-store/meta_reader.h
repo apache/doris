@@ -186,9 +186,22 @@ public:
     //
     // The first pending txn id is stored in `first_txn_id`. Sets -1 if no pending transactions exist.
     TxnErrorCode get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
-                                              bool snapshot = false);
+                                              bool snapshot = false) {
+        int64_t partition_version;
+        return get_partition_pending_txn_id(partition_id, first_txn_id, &partition_version,
+                                            snapshot);
+    }
     TxnErrorCode get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
-                                              int64_t* first_txn_id, bool snapshot = false);
+                                              int64_t* first_txn_id, bool snapshot = false) {
+        int64_t partition_version;
+        return get_partition_pending_txn_id(txn, partition_id, first_txn_id, &partition_version,
+                                            snapshot);
+    }
+    TxnErrorCode get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
+                                              int64_t* partition_version, bool snapshot = false);
+    TxnErrorCode get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
+                                              int64_t* partition_version, int64_t* first_txn_id,
+                                              bool snapshot = false);
 
     // Get the index of the given index id.
     TxnErrorCode get_index_index(int64_t index_id, IndexIndexPB* index, bool snapshot = false);

@@ -47,12 +47,14 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"minio.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
             required = false,
+            sensitive = true,
             description = "The secret key of Minio.")
     protected String secretKey = "";
 
     @Getter
     @ConnectorProperty(names = {"minio.session_token", "s3.session_token", "session_token"},
             required = false,
+            sensitive = true,
             description = "The session token of Minio.")
     protected String sessionToken = "";
 

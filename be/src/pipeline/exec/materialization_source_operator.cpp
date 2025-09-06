@@ -23,6 +23,7 @@
 #include "vec/core/block.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_avoid_begin.h"
 
 Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                  bool* eos) {
@@ -67,4 +68,5 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
     return Status::OK();
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::pipeline

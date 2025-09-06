@@ -50,14 +50,6 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     return Status::OK();
 }
 
-std::vector<Dependency*> MultiCastDataStreamSourceLocalState::dependencies() const {
-    auto dependencies = Base::dependencies();
-    auto& p = _parent->cast<Parent>();
-    dependencies.emplace_back(
-            _shared_state->multi_cast_data_streamer->get_spill_read_dependency(p._consumer_id));
-    return dependencies;
-}
-
 Status MultiCastDataStreamSourceLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);

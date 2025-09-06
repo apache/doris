@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
@@ -230,6 +231,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitLinearHistogram(LinearHistogram linearHistogram, C context) {
         return visitAggregateFunction(linearHistogram, context);
+    }
+
+    default R visitAIAgg(AIAgg aiAgg, C context) {
+        return visitNullableAggregateFunction(aiAgg, context);
     }
 
     default R visitMapAgg(MapAgg mapAgg, C context) {
