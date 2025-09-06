@@ -151,5 +151,5 @@ public class IcebergUnityCatalogRestCatalogTest {
                 System.out.println(tbl.location());
             }
         }
-     }
+    }
 }
