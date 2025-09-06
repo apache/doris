@@ -62,5 +62,4 @@ HADOOP_HEAPSIZE=4096
 
 NEED_LOAD_DATA=${NEED_LOAD_DATA}
 LOAD_PARALLEL=${LOAD_PARALLEL}
-s3Endpoint=${s3Endpoint}
-s3BucketName=${s3BucketName}
+

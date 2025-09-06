@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eo pipefail
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -42,6 +43,77 @@ else
     echo "${CUR_DIR}/tvf_data exist, continue !"
 fi
 
+# download test_complex_types data
+if [[ ! -d "${CUR_DIR}/data/multi_catalog/test_complex_types/data" ]]; then
+    echo "${CUR_DIR}/data/multi_catalog/test_complex_types/data does not exist"
+    cd "${CUR_DIR}/data/multi_catalog/test_complex_types"
+    curl -O https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/multi_catalog/test_complex_types/data.tar.gz
+    tar xzf data.tar.gz
+    rm -rf data.tar.gz
+    cd -
+else
+    echo "${CUR_DIR}/data/multi_catalog/test_complex_types/data exist, continue !"
+fi
+
+# download test_compress_partitioned data
+if [[ ! -d "${CUR_DIR}/data/multi_catalog/test_compress_partitioned/data" ]]; then
+    echo "${CUR_DIR}/data/multi_catalog/test_compress_partitioned/data does not exist"
+    cd "${CUR_DIR}/data/multi_catalog/test_compress_partitioned"
+    curl -O https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/multi_catalog/test_compress_partitioned/data.tar.gz
+    tar xzf data.tar.gz
+    rm -rf data.tar.gz
+    cd -
+else
+    echo "${CUR_DIR}/data/multi_catalog/test_compress_partitioned/data exist, continue !"
+fi
+
+# download test_wide_table data
+if [[ ! -d "${CUR_DIR}/data/multi_catalog/test_wide_table/data" ]]; then
+    echo "${CUR_DIR}/data/multi_catalog/test_wide_table/data does not exist"
+    cd "${CUR_DIR}/data/multi_catalog/test_wide_table"
+    curl -O https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/multi_catalog/test_wide_table/data.tar.gz
+    tar xzf data.tar.gz
+    rm -rf data.tar.gz
+    cd -
+else
+    echo "${CUR_DIR}/data/multi_catalog/test_wide_table/data exist, continue !"
+fi
+
+# download test_hdfs_tvf_compression data
+if [[ ! -d "${CUR_DIR}/data/tvf/test_hdfs_tvf_compression/test_data" ]]; then
+    echo "${CUR_DIR}/data/tvf/test_hdfs_tvf_compression/test_data does not exist"
+    cd "${CUR_DIR}/data/tvf/test_hdfs_tvf_compression"
+    curl -O https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/test_hdfs_tvf_compression/test_data.tar.gz
+    tar xzf test_data.tar.gz
+    rm -rf test_data.tar.gz
+    cd -
+else
+    echo "${CUR_DIR}/data/tvf/test_hdfs_tvf_compression/test_data exist, continue !"
+fi
+
+# download test_tvf data
+if [[ ! -d "${CUR_DIR}/data/tvf/test_tvf/tvf" ]]; then
+    echo "${CUR_DIR}/data/tvf/test_tvf/tvf does not exist"
+    cd "${CUR_DIR}/data/tvf/test_tvf"
+    curl -O https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/test_tvf/data.tar.gz
+    tar xzf data.tar.gz
+    rm -rf data.tar.gz
+    cd -
+else
+    echo "${CUR_DIR}/data/tvf/test_tvf/tvf exist, continue !"
+fi
+
+# download logs1_parquet data
+if [[ ! -d "${CUR_DIR}/data/multi_catalog/logs1_parquet/data" ]]; then
+    echo "${CUR_DIR}/data/multi_catalog/logs1_parquet/data does not exist"
+    cd "${CUR_DIR}/data/multi_catalog/logs1_parquet"
+    curl -O https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/multi_catalog/logs1_parquet/data.tar.gz
+    tar xzf data.tar.gz
+    rm -rf data.tar.gz
+    cd -
+else
+    echo "${CUR_DIR}/data/multi_catalog/logs1_parquet/data exist, continue !"
+fi
 
 # download auxiliary jars
 jars=(
