@@ -57,6 +57,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
             "dlf.secret_key", "dlf.catalog.secret_key"},
+            sensitive = true,
             required = false,
             description = "The secret key of OSS.")
     protected String secretKey = "";
@@ -76,6 +77,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token"},
             required = false,
+            sensitive = true,
             description = "The session token of OSS.")
     protected String sessionToken = "";
 

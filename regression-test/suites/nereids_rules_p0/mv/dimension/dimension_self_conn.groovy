@@ -19,6 +19,7 @@
 This suite test self connection case
  */
 suite("partition_mv_rewrite_dimension_self_conn") {
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
 

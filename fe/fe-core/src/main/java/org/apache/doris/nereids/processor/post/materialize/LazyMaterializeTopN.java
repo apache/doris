@@ -67,7 +67,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         if (hasMaterialized) {
             return topN;
         }
-        if (SessionVariable.getTopNLazyMaterializationThreshold() < topN.getLimit() + topN.getOffset()) {
+        if (SessionVariable.getTopNLazyMaterializationThreshold() < topN.getLimit()) {
             return topN;
         }
         /*

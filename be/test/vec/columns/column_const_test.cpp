@@ -24,6 +24,7 @@
 
 #include <vector>
 
+#include "common/exception.h"
 #include "vec/columns/column.h"
 
 namespace doris::vectorized {
@@ -275,9 +276,10 @@ TEST(ColumnConstTest, replace_column_data) {
     auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
     auto column_const = ColumnConst::create(column_data, 3);
     auto column_data2 = ColumnHelper::create_column<DataTypeInt64>({8});
-    column_const->replace_column_data(*column_data2, 0, 0);
-    EXPECT_EQ(column_const->get_data_column().get_int(0), 8);
-    EXPECT_EQ(column_const->size(), 3);
-    column_const->finalize();
+    try {
+        column_const->replace_column_data(*column_data2, 0, 0);
+        EXPECT_FALSE(true);
+    } catch (Exception&) {
+    }
 }
 } // namespace doris::vectorized

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -45,7 +46,11 @@ public class MergeOneRowRelationIntoUnion extends OneRewriteRuleFactory {
                     ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
                     for (int i = 0; i < u.arity(); i++) {
                         Plan child = u.child(i);
-                        if (!(child instanceof LogicalOneRowRelation)) {
+                        // if one row relation contains unique function which exist multiple times,
+                        // don't merge it, later AddProjectForUniqueFunction will handle this one row relation.
+                        if (!(child instanceof LogicalOneRowRelation)
+                                || ExpressionUtils.containUniqueFunctionExistMultiple(
+                                        ((LogicalOneRowRelation) child).getProjects())) {
                             newChildren.add(child);
                             newChildrenOutputs.add(u.getRegularChildOutput(i));
                         } else {
@@ -63,6 +68,10 @@ public class MergeOneRowRelationIntoUnion extends OneRewriteRuleFactory {
                             }
                             constantExprsList.add(constantExprs.build());
                         }
+                    }
+                    // no change
+                    if (newChildren.size() == u.arity()) {
+                        return u;
                     }
                     return u.withChildrenAndConstExprsList(newChildren,
                             newChildrenOutputs.build(), constantExprsList.build());

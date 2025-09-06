@@ -46,9 +46,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.storage.S3PropertyUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -281,7 +281,7 @@ public class CopyIntoInfo {
         String path;
         for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
             path = dataDescription.getFilePaths().get(i);
-            dataDescription.getFilePaths().set(i, BosProperties.convertPathToS3(path));
+            dataDescription.getFilePaths().set(i, S3PropertyUtils.convertPathToS3(path));
             StorageBackend.checkPath(path, brokerDesc.getStorageType(), null);
             dataDescription.getFilePaths().set(i, path);
         }

@@ -20,18 +20,18 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIClassify;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIExtract;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFilter;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFixGrammar;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIGenerate;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIMask;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AISentiment;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AISimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AISummarize;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AITranslate;
+import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
-import org.apache.doris.nereids.trees.expressions.functions.llm.Embed;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSimilarity;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
@@ -2502,44 +2502,44 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(nonNullable, context);
     }
 
-    default R visitLLMTranslate(LLMTranslate llmTranslate, C context) {
-        return visitScalarFunction(llmTranslate, context);
+    default R visitAITranslate(AITranslate aiTranslate, C context) {
+        return visitScalarFunction(aiTranslate, context);
     }
 
-    default R visitLLMSentiment(LLMSentiment llmSentiment, C context) {
-        return visitScalarFunction(llmSentiment, context);
+    default R visitAISentiment(AISentiment aiSentiment, C context) {
+        return visitScalarFunction(aiSentiment, context);
     }
 
-    default R visitLLMFilter(LLMFilter llmFilter, C context) {
-        return visitScalarFunction(llmFilter, context);
+    default R visitAIFilter(AIFilter aiFilter, C context) {
+        return visitScalarFunction(aiFilter, context);
     }
 
-    default R visitLLMFixGrammar(LLMFixGrammar llmFixGrammar, C context) {
-        return visitScalarFunction(llmFixGrammar, context);
+    default R visitAIFixGrammar(AIFixGrammar aiFixGrammar, C context) {
+        return visitScalarFunction(aiFixGrammar, context);
     }
 
-    default R visitLLMExtract(LLMExtract llmExtract, C context) {
-        return visitScalarFunction(llmExtract, context);
+    default R visitAIExtract(AIExtract aiExtract, C context) {
+        return visitScalarFunction(aiExtract, context);
     }
 
-    default R visitLLMGenerate(LLMGenerate llmGenerate, C context) {
-        return visitScalarFunction(llmGenerate, context);
+    default R visitAIGenerate(AIGenerate aiGenerate, C context) {
+        return visitScalarFunction(aiGenerate, context);
     }
 
-    default R visitLLMClassify(LLMClassify llmClassify, C context) {
-        return visitScalarFunction(llmClassify, context);
+    default R visitAIClassify(AIClassify aiClassify, C context) {
+        return visitScalarFunction(aiClassify, context);
     }
 
-    default R visitLLMMask(LLMMask llmMask, C context) {
-        return visitScalarFunction(llmMask, context);
+    default R visitAIMask(AIMask aiMask, C context) {
+        return visitScalarFunction(aiMask, context);
     }
 
-    default R visitLLMSummarize(LLMSummarize llmSummarize, C context) {
-        return visitScalarFunction(llmSummarize, context);
+    default R visitAISummarize(AISummarize aiSummarize, C context) {
+        return visitScalarFunction(aiSummarize, context);
     }
 
-    default R visitLLMSimilarity(LLMSimilarity llmSimilarity, C context) {
-        return visitScalarFunction(llmSimilarity, context);
+    default R visitAISimilarity(AISimilarity aiSimilarity, C context) {
+        return visitScalarFunction(aiSimilarity, context);
     }
 
     default R visitEmbed(Embed embed, C context) {

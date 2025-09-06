@@ -1140,7 +1140,8 @@ public class ScalarType extends Type {
         if (result == null) {
             result = compatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
         }
-        Preconditions.checkNotNull(result);
+        Preconditions.checkNotNull(result,
+                "data type %s and %s is not compatible", t1, t2);
         if (result == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
         }

@@ -28,7 +28,7 @@ suite("agg_4_phase") {
         ) ENGINE=OLAP
         DUPLICATE KEY(id)
         COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(id) BUCKETS 2
+        DISTRIBUTED BY HASH(age) BUCKETS 2
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "in_memory" = "false",
@@ -44,7 +44,7 @@ suite("agg_4_phase") {
     """
     def test_sql = """
         select
-            count(distinct id)
+            count(distinct id), count(id)
         from agg_4_phase_tbl;
         """
     explain {
@@ -59,7 +59,7 @@ suite("agg_4_phase") {
 
     sql """select GROUP_CONCAT(distinct name, " ") from agg_4_phase_tbl;"""
 
-    sql """select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT,FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/ GROUP_CONCAT(distinct name, " ") from agg_4_phase_tbl group by gender;"""
+    sql """select GROUP_CONCAT(distinct name, " ") from agg_4_phase_tbl group by gender;"""
 
 
     sql "drop table if exists agg_4_phase_tbl2"
@@ -67,7 +67,7 @@ suite("agg_4_phase") {
     sql "insert into agg_4_phase_tbl2 values(1, -10, null), (1, -10, 'a'), (2, -4, null), (2, -4, 'b'), (3, -4, 'f');\n"
 
     qt_phase4_multi_distinct """
-        select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT,THREE_PHASE_AGGREGATE_WITH_DISTINCT,THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/
+        select
             id,
             group_concat(cast(field1 as varchar), ','),
             count(distinct field1),
@@ -78,21 +78,11 @@ suite("agg_4_phase") {
         order by id"""
 
     qt_phase4_single_distinct """
-        select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT,THREE_PHASE_AGGREGATE_WITH_DISTINCT,THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/
+        select
             id,
             group_concat(cast(field1 as varchar), ','),
             count(distinct field1)
         from agg_4_phase_tbl2
         group by id
         order by id"""
-
-    test {
-        sql """select
-        /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI')*/
-        id,group_concat(distinct field2 order by field1)
-        from agg_4_phase_tbl2
-        group by id
-        """
-        exception """lowestCostPlans with physicalProperties(GATHER) doesn't exist in root group"""
-    }
 }

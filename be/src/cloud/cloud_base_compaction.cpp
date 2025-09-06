@@ -435,6 +435,7 @@ Status CloudBaseCompaction::modify_rowsets() {
                                                     stats.num_rows(), stats.data_size());
         }
     }
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 

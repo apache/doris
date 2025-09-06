@@ -38,8 +38,8 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
@@ -238,7 +238,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
         // Skip those function to avoid incorrect binary data processing during constant folding
         if (expr instanceof FromBase64 || expr instanceof Ipv6StringToNumOrNull
-                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof LLMFunction) {
+                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof AIFunction) {
             return true;
         }
 
