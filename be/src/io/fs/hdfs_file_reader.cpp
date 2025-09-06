@@ -82,9 +82,18 @@ Status HdfsFileReader::close() {
     return Status::OK();
 }
 
-#ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
+    auto status = do_read_at_impl(offset, result, bytes_read, io_ctx);
+    if (!status.ok()) {
+        _accessor.destroy();
+    }
+    return status;
+}
+
+#ifdef USE_HADOOP_HDFS
+Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                       const IOContext* io_ctx) {
     DCHECK(!closed());
     if (offset > _handle->file_size()) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
@@ -130,8 +139,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 #else
 // The hedged read only support hdfsPread().
 // TODO: rethink here to see if there are some difference between hdfsPread() and hdfsRead()
-Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                    const IOContext* io_ctx) {
+Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                       const IOContext* io_ctx) {
     DCHECK(!closed());
     if (offset > _handle->file_size()) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
