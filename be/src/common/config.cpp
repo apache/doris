@@ -1085,7 +1085,7 @@ DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
 DEFINE_Bool(enable_java_support, "true");
 
 // enable python udf
-DEFINE_Bool(enable_python_udf_support, "false");
+DEFINE_Bool(enable_python_udf_support, "true");
 // python env mode, options: conda, venv
 DEFINE_String(python_env_mode, "");
 // root path of conda runtime, python_env_mode should be conda

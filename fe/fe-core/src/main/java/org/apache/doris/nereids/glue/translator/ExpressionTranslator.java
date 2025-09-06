@@ -102,6 +102,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -883,6 +884,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .collect(Collectors.toList()));
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(udf.getCatalogFunction(), exprs);
         functionCallExpr.setNullableFromNereids(udf.nullable());
+        return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitPythonUdaf(PythonUdaf udaf, PlanTranslatorContext context) {
+        FunctionParams exprs = new FunctionParams(udaf.isDistinct(), udaf.children().stream()
+                .map(expression -> expression.accept(this, context))
+                .collect(Collectors.toList()));
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(udaf.getCatalogFunction(), exprs);
+        functionCallExpr.setNullableFromNereids(udaf.nullable());
         return functionCallExpr;
     }
 
