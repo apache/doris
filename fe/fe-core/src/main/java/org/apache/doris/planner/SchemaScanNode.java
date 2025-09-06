@@ -109,18 +109,19 @@ public class SchemaScanNode extends ScanNode {
     }
 
     private void setFeAddrList(TPlanNode msg) {
-        if (SchemaTable.isShouldFetchAllFe(tableName)) {
-            List<TNetworkAddress> feAddrList = new ArrayList();
-            if (ConnectContext.get().getSessionVariable().showAllFeConnection) {
-                List<Frontend> feList = Env.getCurrentEnv().getFrontends(null);
-                for (Frontend fe : feList) {
+        SchemaTable table = (SchemaTable) desc.getTable();
+        List<TNetworkAddress> feAddrList = new ArrayList();
+        if (table.shouldFetchAllFe()) {
+            List<Frontend> feList = Env.getCurrentEnv().getFrontends(null);
+            for (Frontend fe : feList) {
+                if (fe.isAlive()) {
                     feAddrList.add(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
                 }
-            } else {
-                feAddrList.add(new TNetworkAddress(frontendIP, frontendPort));
             }
-            msg.schema_scan_node.setFeAddrList(feAddrList);
+        } else {
+            feAddrList.add(new TNetworkAddress(frontendIP, frontendPort));
         }
+        msg.schema_scan_node.setFeAddrList(feAddrList);
     }
 
     @Override
