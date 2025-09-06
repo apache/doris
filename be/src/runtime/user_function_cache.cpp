@@ -20,6 +20,7 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <glog/logging.h>
+#include <minizip/unzip.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -41,6 +42,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/plugin/cloud_plugin_downloader.h"
+#include "util/defer_op.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"
 #include "util/string_util.h"
@@ -87,6 +89,9 @@ struct UserFunctionCacheEntry {
     // added to cache map before library is downloaded.
     // And this is used to indicate whether library is downloaded.
     bool is_downloaded = false;
+
+    // Indicate if the zip file is unziped.
+    bool is_unziped = false;
 
     // used to lookup a symbol
     void* lib_handle = nullptr;
@@ -144,9 +149,12 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
         lib_type = LibType::SO;
     } else if (ends_with(file, ".jar")) {
         lib_type = LibType::JAR;
+    } else if (ends_with(file, ".zip") && _check_cache_is_python_udf(dir, file)) {
+        lib_type = LibType::PY_ZIP;
     } else {
         return Status::InternalError(
-                "unknown library file format. the file type is not end with xxx.jar or xxx.so : " +
+                "unknown library file format. the file type is not end with xxx.jar or xxx.so"
+                " or xxx.zip : " +
                 file);
     }
 
@@ -249,12 +257,117 @@ Status UserFunctionCache::_load_cache_entry(const std::string& url,
         RETURN_IF_ERROR(_download_lib(url, entry));
     }
 
+    if (!entry->is_unziped && entry->type == LibType::PY_ZIP) {
+        RETURN_IF_ERROR(_unzip_lib(entry->lib_file));
+        entry->lib_file = entry->lib_file.substr(0, entry->lib_file.size() - 4);
+        entry->is_unziped = true;
+    }
+
     if (entry->type == LibType::SO) {
         RETURN_IF_ERROR(_load_cache_entry_internal(entry));
-    } else if (entry->type != LibType::JAR) {
+    } else if (entry->type != LibType::JAR && entry->type != LibType::PY_ZIP) {
         return Status::InvalidArgument(
-                "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar'!");
+                "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar' and "
+                "python 'zip'!");
     }
+    return Status::OK();
+}
+
+Status UserFunctionCache::_check_cache_is_python_udf(const std::string& dir,
+                                                     const std::string& file) {
+    const std::string& full_path = dir + "/" + file;
+    RETURN_IF_ERROR(_unzip_lib(full_path));
+    std::string unzip_dir = full_path.substr(0, full_path.size() - 4);
+
+    bool has_python_file = false;
+
+    auto scan_cb = [&has_python_file](const io::FileInfo& file) {
+        if (file.is_file && ends_with(file.file_name, ".py")) {
+            has_python_file = true;
+            return false; // Stop iteration once we find a Python file
+        }
+        return true;
+    };
+    RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(unzip_dir, scan_cb));
+    if (!has_python_file) {
+        return Status::InternalError("No Python file found in the unzipped directory.");
+    }
+    return Status::OK();
+}
+
+Status UserFunctionCache::_unzip_lib(const std::string& zip_file) {
+    std::string unzip_dir = zip_file.substr(0, zip_file.size() - 4);
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(unzip_dir));
+
+    unzFile zip_file_handle = unzOpen(zip_file.c_str());
+    if (zip_file_handle == nullptr) {
+        return Status::InternalError("Failed to open zip file: " + zip_file);
+    }
+
+    Defer defer([&] { unzClose(zip_file_handle); });
+
+    unz_global_info global_info;
+    if (unzGetGlobalInfo(zip_file_handle, &global_info) != UNZ_OK) {
+        return Status::InternalError("Failed to get global info from zip file: " + zip_file);
+    }
+
+    for (uLong i = 0; i < global_info.number_entry; ++i) {
+        unz_file_info file_info;
+        char filename[256];
+        if (unzGetCurrentFileInfo(zip_file_handle, &file_info, filename, sizeof(filename), nullptr,
+                                  0, nullptr, 0) != UNZ_OK) {
+            return Status::InternalError("Failed to get file info from zip file: " + zip_file);
+        }
+
+        if (std::string(filename).find("__MACOSX") != std::string::npos) {
+            if ((i + 1) < global_info.number_entry) {
+                if (unzGoToNextFile(zip_file_handle) != UNZ_OK) {
+                    return Status::InternalError("Failed to go to next file in zip: " + zip_file);
+                }
+            }
+            continue;
+        }
+
+        std::string full_filename = unzip_dir + "/" + filename;
+        if (full_filename.length() > PATH_MAX) {
+            return Status::InternalError(
+                    fmt::format("File path {}... is too long, maximum path length is {}",
+                                full_filename.substr(0, 50), PATH_MAX));
+        }
+
+        if (filename[strlen(filename) - 1] == '/') {
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(full_filename));
+        } else {
+            if (unzOpenCurrentFile(zip_file_handle) != UNZ_OK) {
+                return Status::InternalError("Failed to open file in zip: " +
+                                             std::string(filename));
+            }
+
+            FILE* out = fopen(full_filename.c_str(), "wb");
+            if (out == nullptr) {
+                unzCloseCurrentFile(zip_file_handle);
+                return Status::InternalError("Failed to create file: " + full_filename);
+            }
+            char buffer[8192];
+            int bytes_read;
+            while ((bytes_read = unzReadCurrentFile(zip_file_handle, buffer, sizeof(buffer))) > 0) {
+                fwrite(buffer, bytes_read, 1, out);
+            }
+            fclose(out);
+            unzCloseCurrentFile(zip_file_handle);
+            if (bytes_read < 0) {
+                return Status::InternalError("Failed to read file in zip: " +
+                                             std::string(filename));
+            }
+        }
+
+        if ((i + 1) < global_info.number_entry) {
+            if (unzGoToNextFile(zip_file_handle) != UNZ_OK) {
+                return Status::InternalError("Failed to go to next file in zip: " + zip_file);
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -348,6 +461,8 @@ std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::st
     ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum;
     if (type == LibType::JAR) {
         ss << '.' << file_name;
+    } else if (type == LibType::PY_ZIP) {
+        ss << '.' << file_name;
     } else {
         ss << ".so";
     }
@@ -358,6 +473,14 @@ Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
                                       const std::string& checksum, std::string* libpath) {
     std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
     RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, entry, LibType::JAR));
+    *libpath = entry->lib_file;
+    return Status::OK();
+}
+
+Status UserFunctionCache::get_pypath(int64_t fid, const std::string& url,
+                                     const std::string& checksum, std::string* libpath) {
+    std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
+    RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, entry, LibType::PY_ZIP));
     *libpath = entry->lib_file;
     return Status::OK();
 }

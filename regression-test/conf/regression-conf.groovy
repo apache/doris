@@ -27,17 +27,17 @@ defaultDb = "regression_test"
 jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
-jdbcPassword = ""
+jdbcPassword = "Jasonsjyang2025"
 
 feSourceThriftAddress = "127.0.0.1:9020"
 feTargetThriftAddress = "127.0.0.1:9020"
 syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
-feSyncerPassword = ""
+feSyncerPassword = "Jasonsjyang2025"
 
 feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
-feHttpPassword = ""
+feHttpPassword = "Jasonsjyang2025"
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./

@@ -937,9 +937,11 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/storage"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/python_udf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
+    cp -r -p "${DORIS_HOME}/be/src/udf/python/python_udf_server.py" "${DORIS_OUTPUT}/be/plugins/python_udf/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then
