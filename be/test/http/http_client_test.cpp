@@ -335,10 +335,13 @@ TEST_F(HttpClientTest, escape_url) {
     client._curl = curl_easy_init();
     auto check_result = [&client](const auto& input_url, const auto& output_url) -> bool {
         std::string escaped_url;
-        if (!client._escape_url(input_url, &escaped_url).ok()) {
+        if (!HttpClient::escape_url(client._curl, input_url, &escaped_url).ok()) {
             return false;
         }
         if (escaped_url != output_url) {
+            std::cout << "input1: " << input_url << "\n";
+            std::cout << "output1: " << output_url << "\n";
+            std::cout << "escaped1: " << escaped_url << "\n";
             return false;
         }
         return true;
@@ -369,7 +372,7 @@ TEST_F(HttpClientTest, escape_url) {
 
     std::string input_G = hostname + "/download_file?key=0x2E&key=%2E#section";
     std::string output_G = hostname + "/download_file?key=0x2E&key=%252E#section";
-    ASSERT_TRUE(check_result(input_G, output_G));
+    ASSERT_TRUE(check_result(input_G, output_G)); // not skip percent encode
 }
 
 TEST_F(HttpClientTest, enable_http_auth) {
