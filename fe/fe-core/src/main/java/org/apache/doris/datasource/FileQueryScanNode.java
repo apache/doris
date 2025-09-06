@@ -66,7 +66,6 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -493,10 +492,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 
         rangeDesc.setFileType(fileSplit.getLocationType());
-        rangeDesc.setPath(fileSplit.getPath().toStorageLocation().toString());
+        rangeDesc.setPath(fileSplit.getPath().getNormalizedLocation());
         if (fileSplit.getLocationType() == TFileType.FILE_HDFS) {
-            URI fileUri = fileSplit.getPath().getPath().toUri();
-            rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
+            rangeDesc.setFsName(fileSplit.getPath().getFsIdentifier());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
         return rangeDesc;

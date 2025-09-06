@@ -588,25 +588,27 @@ public class Util {
 
     @NotNull
     public static TFileCompressType inferFileCompressTypeByPath(String path) {
-        String lowerCasePath = path.toLowerCase();
-        if (lowerCasePath.endsWith(".gz")) {
-            return TFileCompressType.GZ;
-        } else if (lowerCasePath.endsWith(".bz2")) {
-            return TFileCompressType.BZ2;
-        } else if (lowerCasePath.endsWith(".lz4")) {
-            return TFileCompressType.LZ4FRAME;
-        } else if (lowerCasePath.endsWith(".lzo")) {
-            return TFileCompressType.LZOP;
-        } else if (lowerCasePath.endsWith(".lzo_deflate")) {
-            return TFileCompressType.LZO;
-        } else if (lowerCasePath.endsWith(".deflate")) {
-            return TFileCompressType.DEFLATE;
-        } else if (lowerCasePath.endsWith(".snappy")) {
-            return TFileCompressType.SNAPPYBLOCK;
-        } else if (lowerCasePath.endsWith(".zst") || lowerCasePath.endsWith(".zstd")) {
-            return TFileCompressType.ZSTD;
-        } else {
-            return TFileCompressType.PLAIN;
+        String ext = path.substring(path.lastIndexOf('.')).toLowerCase();
+        switch (ext) {
+            case ".gz":
+                return TFileCompressType.GZ;
+            case ".bz2":
+                return TFileCompressType.BZ2;
+            case ".lz4":
+                return TFileCompressType.LZ4FRAME;
+            case ".lzo":
+                return TFileCompressType.LZOP;
+            case ".lzo_deflate":
+                return TFileCompressType.LZO;
+            case ".deflate":
+                return TFileCompressType.DEFLATE;
+            case ".snappy":
+                return TFileCompressType.SNAPPYBLOCK;
+            case ".zst":
+            case ".zstd":
+                return TFileCompressType.ZSTD;
+            default:
+                return TFileCompressType.PLAIN;
         }
     }
 
@@ -628,7 +630,7 @@ public class Util {
      */
     public static TFileCompressType getOrInferCompressType(TFileCompressType compressType, String path) {
         return compressType == TFileCompressType.UNKNOWN
-                ? inferFileCompressTypeByPath(path.toLowerCase()) : compressType;
+                ? inferFileCompressTypeByPath(path) : compressType;
     }
 
     public static boolean isCsvFormat(TFileFormatType fileFormatType) {

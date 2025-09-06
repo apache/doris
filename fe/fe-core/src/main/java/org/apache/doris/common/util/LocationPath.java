@@ -96,13 +96,15 @@ public class LocationPath {
 
     private static String parseScheme(String finalLocation) {
         String scheme = "";
-        String[] schemeSplit = finalLocation.split(SCHEME_DELIM);
-        if (schemeSplit.length > 1) {
-            scheme = schemeSplit[0];
+        // we use `indexOf` to avoid `split`, because split will treat `://` as a regex pattern, it is not efficient.
+        int index = finalLocation.indexOf(SCHEME_DELIM);
+        if (index > 0) {
+            // if index is 0, it means the location is like "://path/to"
+            scheme = finalLocation.substring(0, index);
         } else {
-            schemeSplit = finalLocation.split(NONSTANDARD_SCHEME_DELIM);
-            if (schemeSplit.length > 1) {
-                scheme = schemeSplit[0];
+            index = finalLocation.indexOf(NONSTANDARD_SCHEME_DELIM);
+            if (index > 0) {
+                scheme = finalLocation.substring(0, index);
             }
         }
 
@@ -142,6 +144,8 @@ public class LocationPath {
             if (storageProperties == null) {
                 throw new UserException("No storage properties found for schema: " + schema);
             }
+            // TODO llj: HdfsProperties and OSSHdfsProperties will use URI to validate and normalize path, this is not
+            //  an efficient method. We can do this in BE when split size is big.
             normalizedLocation = storageProperties.validateAndNormalizeUri(location);
             if (StringUtils.isBlank(normalizedLocation)) {
                 throw new IllegalArgumentException("Invalid location: " + location + ", normalized location is null");

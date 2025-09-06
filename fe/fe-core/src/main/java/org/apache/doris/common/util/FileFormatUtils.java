@@ -108,16 +108,21 @@ public class FileFormatUtils {
     }
 
     public static Optional<String> getFileFormatBySuffix(String filename) {
-        String fileString = filename.toLowerCase();
-        if (fileString.endsWith(".avro")) {
-            return Optional.of("avro");
-        } else if (fileString.endsWith(".orc")) {
-            return Optional.of("orc");
-        } else if (fileString.endsWith(".parquet")) {
-            return Optional.of("parquet");
-        } else {
-            // Unable to get file format from file path
+        int indexOfExt = filename.lastIndexOf('.');
+        if (indexOfExt == -1) {
             return Optional.empty();
+        }
+        String ext = filename.substring(indexOfExt).toLowerCase();
+        switch (ext) {
+            case ".avro":
+                return Optional.of("avro");
+            case ".orc":
+                return Optional.of("orc");
+            case ".parquet":
+                return Optional.of("parquet");
+            default:
+                // Unable to get file format from file path
+                return Optional.empty();
         }
     }
 }
