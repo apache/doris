@@ -18,6 +18,14 @@ set -eo pipefail
 # under the License.
 
 CUR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# Extract all tar.gz files under the repo
+find ${CUR_DIR}/data -type f -name "*.tar.gz" -print0 | \
+xargs -0 -n1 -P"${LOAD_PARALLEL}" bash -c '
+  f="$0"
+  echo "Extracting hive data $f"
+  dir=$(dirname "$f")
+  tar -xzf "$f" -C "$dir"
+'
 
 # download tpch1_data
 if [[ ! -d "${CUR_DIR}/tpch1.db" ]]; then

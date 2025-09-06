@@ -701,16 +701,16 @@ echo "starting dockers in parallel"
 reserve_ports
 
 # Ensure hive data is downloaded before starting hive2/hive3, but only once
-need_download_hive_data=0
+need_prepare_hive_data=0
 if [[ "$NEED_LOAD_DATA" -eq 1 ]]; then
     if [[ "${RUN_HIVE2}" -eq 1 ]] || [[ "${RUN_HIVE3}" -eq 1 ]]; then
-        need_download_hive_data=1
+        need_prepare_hive_data=1
     fi
 fi
 
-if [[ $need_download_hive_data -eq 1 ]]; then
-    echo "download hive2/hive3 data"
-    bash "${ROOT}/docker-compose/hive/scripts/download-hive-data.sh"
+if [[ $need_prepare_hive_data -eq 1 ]]; then
+    echo "prepare hive2/hive3 data"
+    bash "${ROOT}/docker-compose/hive/scripts/prepare-hive-data.sh"
 fi
 
 declare -A pids
