@@ -64,11 +64,12 @@ private:
         std::string result;
         result.reserve(4);
         char pre_code = '\0';
-        for (char c : ref.to_string()) {
+        for (size_t i = 0; i < ref.size; ++i) {
+            auto c = static_cast<unsigned char>(ref.data[i]);
+
             if (c > 0x7f) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "soundex only supports ASCII");
             }
-
             if (!std::isalpha(c)) {
                 continue;
             }
