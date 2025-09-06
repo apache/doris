@@ -161,7 +161,8 @@ private:
     size_t _src_column_idx = -1;                ///< Source vector column index
     size_t _dest_column_idx = -1;               ///< Destination distance column index
     segment_v2::AnnIndexMetric _metric_type;    ///< Distance metric type
-    vectorized::IColumn::Ptr _query_array;      ///< Query vector data
+    std::unique_ptr<float[]> _query_array;      ///< Query vector data (contiguous float buffer)
+    size_t _query_array_size = 0;               ///< Number of elements in query vector
     doris::VectorSearchUserParams _user_params; ///< User-defined search parameters
 };
 #include "common/compile_check_end.h"
