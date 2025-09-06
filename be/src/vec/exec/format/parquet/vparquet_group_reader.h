@@ -148,7 +148,7 @@ public:
 
     RowGroupReader(io::FileReaderSPtr file_reader, const std::vector<std::string>& read_columns,
                    const int32_t row_group_id, const tparquet::RowGroup& row_group,
-                   cctz::time_zone* ctz, io::IOContext* io_ctx,
+                   const cctz::time_zone* ctz, io::IOContext* io_ctx,
                    const PositionDeleteContext& position_delete_ctx,
                    const LazyReadContext& lazy_read_ctx, RuntimeState* state);
 
@@ -224,7 +224,7 @@ private:
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
     int64_t _remaining_rows;
-    cctz::time_zone* _ctz = nullptr;
+    const cctz::time_zone* _ctz = nullptr;
     io::IOContext* _io_ctx = nullptr;
     PositionDeleteContext _position_delete_ctx;
     // merge the row ranges generated from page index and position delete.

@@ -27,6 +27,8 @@ namespace doris {
 // https://stackoverflow.com/questions/13059091/creating-an-input-stream-from-constant-memory
 class StringViewStream : Aws::Utils::Stream::PreallocatedStreamBuf, public std::iostream {
 public:
+    // a class for std::string_view, PreallocatedStreamBuf use unsigned char*
+    // so use const_cast
     StringViewStream(const void* buf, int64_t nbytes)
             : Aws::Utils::Stream::PreallocatedStreamBuf(
                       reinterpret_cast<unsigned char*>(const_cast<void*>(buf)),

@@ -388,7 +388,7 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         Status st =
                 this->data(_exec_place).merge(this->data(rhs), reinterpret_cast<int64_t>(place));
@@ -397,8 +397,8 @@ public:
         }
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        Status st = this->data(const_cast<AggregateDataPtr&>(_exec_place))
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        Status st = this->data(_exec_place)
                             .write(buf, reinterpret_cast<int64_t>(place));
         if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
@@ -415,7 +415,7 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         Status st = this->data(_exec_place).get(to, _return_type, reinterpret_cast<int64_t>(place));
         if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());

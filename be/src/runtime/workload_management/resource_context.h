@@ -80,7 +80,11 @@ public:
     }
     void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
 
-    RuntimeProfile* profile() { return const_cast<RuntimeProfile*>(resource_profile_.get().get()); }
+    RuntimeProfile* profile() { 
+        // The `resource_profile_` is generated via `make_unique` and stored in `MultiVersion`. 
+        // Since it uses `const T` internally, using `const_cast` is valid.
+        return const_cast<RuntimeProfile*>(resource_profile_.get().get()); 
+    }
 
     void to_thrift_query_statistics(TQueryStatistics* statistics) const;
 

@@ -856,6 +856,8 @@ lucene::store::IndexOutput* DorisRAMFSDirectory::createOutput(const char* name) 
 
     // get the actual pointer to the output name
     char* n = nullptr;
+    // The `name` variable remains unmodified; 
+    // `const_cast` is used to adapt to third-party functions.
     auto itr = filesMap->find(const_cast<char*>(name));
     DBUG_EXECUTE_IF("DorisRAMFSDirectory::createOutput_itr_filesMap_end",
                     { itr = filesMap->end(); })

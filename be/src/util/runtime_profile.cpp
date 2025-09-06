@@ -87,7 +87,7 @@ bool RuntimeProfile::Counter::operator==(const Counter& other) const {
            _type == other._type && _level == other._level;
 }
 
-void RuntimeProfile::merge(RuntimeProfile* other) {
+void RuntimeProfile::merge(const RuntimeProfile* other) {
     DCHECK(other != nullptr);
 
     // Merge this level

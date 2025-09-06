@@ -666,7 +666,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     return Status::OK();
 }
 
-Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
+Status SegmentWriter::append_block(vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update() &&
@@ -697,7 +697,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
+        _serialize_block_to_row_column(*block);
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);

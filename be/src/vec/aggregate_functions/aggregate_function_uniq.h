@@ -179,7 +179,7 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         auto& rhs_set = this->data(rhs).set;
         if (rhs_set.size() == 0) return;
@@ -206,7 +206,7 @@ public:
         }
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& set = this->data(place).set;
         buf.write_var_uint(set.size());
         for (const auto& elem : set) {
@@ -244,7 +244,7 @@ public:
         }
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(this->data(place).set.size());
     }
 };

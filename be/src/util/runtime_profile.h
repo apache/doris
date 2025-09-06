@@ -504,7 +504,7 @@ public:
     // weren't for locking.
     // Calling this concurrently on two RuntimeProfiles in reverse order results in
     // undefined behavior.
-    void merge(RuntimeProfile* src);
+    void merge(const RuntimeProfile* src);
 
     // Updates this profile w/ the thrift profile: behaves like Merge(), except
     // that existing counters are updated rather than added up.

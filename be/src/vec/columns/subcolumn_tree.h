@@ -284,7 +284,7 @@ public:
     const Nodes& get_leaves() const { return leaves; }
     const Node* get_root() const { return root.get(); }
     const NodePtr& get_root_ptr() const { return root; }
-    Node* get_mutable_root() { return root.get(); }
+    Node* get_mutable_root() const { return root.get(); }
 
     static void get_leaves_of_node(const Node* node, std::vector<const Node*>& nodes,
                                    vectorized::PathsInData& paths) {

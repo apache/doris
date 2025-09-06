@@ -1034,7 +1034,7 @@ Status FileScanner::_get_next_reader() {
                                                : nullptr;
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, *_params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
+                    &_state->timezone_obj(), _io_ctx.get(), _state,
                     file_meta_cache_ptr, _state->query_options().enable_parquet_lazy_mat);
 
             if (_row_id_column_iterator_pair.second != -1) {
@@ -1455,7 +1455,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                     std::unique_ptr<vectorized::ParquetReader> parquet_reader =
                             vectorized::ParquetReader::create_unique(
                                     _profile, *_params, range, 1,
-                                    const_cast<cctz::time_zone*>(&_state->timezone_obj()),
+                                    &_state->timezone_obj(),
                                     _io_ctx.get(), _state, file_meta_cache_ptr, false);
 
                     RETURN_IF_ERROR(parquet_reader->set_read_lines_mode(row_ids));

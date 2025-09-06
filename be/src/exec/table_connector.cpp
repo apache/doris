@@ -73,6 +73,8 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
     std::unique_ptr<std::remove_pointer_t<iconv_t>, decltype(deleter)> convertor(
             iconv_open("UTF-16LE", "UTF-8"), deleter);
 
+    // The `first` variable remains unmodified; `const_cast` is 
+    // used to adapt to third-party functions.
     char* in = const_cast<char*>(first);
     size_t inbytesleft = last - first;
 

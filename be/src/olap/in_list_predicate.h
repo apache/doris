@@ -326,7 +326,7 @@ public:
                     const T* value = (const T*)(iter->get_value());
                     decimal12_t decimal12_t_val(value->int_value(), value->frac_value());
                     if (bf->test_bytes(
-                                const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
+                                reinterpret_cast<const char*>(&decimal12_t_val),
                                 sizeof(decimal12_t))) {
                         return true;
                     }
@@ -334,7 +334,7 @@ public:
                     const T* value = (const T*)(iter->get_value());
                     uint24_t date_value(uint32_t(value->to_olap_date()));
                     if (bf->test_bytes(
-                                const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
+                                reinterpret_cast<const char*>(&date_value),
                                 sizeof(uint24_t))) {
                         return true;
                     }
@@ -343,7 +343,7 @@ public:
                     const T* value = (const T*)(iter->get_value());
                     int64_t datetime_value(value->to_olap_datetime());
                     if (bf->test_bytes(
-                                const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
+                                reinterpret_cast<const char*>(&datetime_value),
                                 sizeof(int64_t))) {
                         return true;
                     }

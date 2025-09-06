@@ -116,7 +116,7 @@ public:
 
     DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
 
@@ -125,12 +125,12 @@ public:
         this->data(place).add(columns[0], row_num);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 

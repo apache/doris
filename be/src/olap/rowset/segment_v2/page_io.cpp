@@ -124,7 +124,7 @@ std::string file_cache_key_str(const std::string& seg_path) {
     return file_cache_key_from_path(seg_path).to_string();
 }
 
-Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle* handle,
+Status PageIO::read_and_decompress_page_(PageReadOptions& opts, PageHandle* handle,
                                          Slice* body, PageFooterPB* footer) {
     opts.sanity_check();
     opts.stats->total_pages_num++;
@@ -176,7 +176,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     if (opts.verify_checksum) {
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
-        InjectionContext ctx = {&actual, const_cast<PageReadOptions*>(&opts)};
+        InjectionContext ctx = {&actual, &opts};
         (void)ctx;
         TEST_INJECTION_POINT_CALLBACK("PageIO::read_and_decompress_page:crc_failure_inj", &ctx);
         if (expect != actual) {
@@ -250,7 +250,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     return Status::OK();
 }
 
-Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
+Status PageIO::read_and_decompress_page(PageReadOptions& opts, PageHandle* handle,
                                         Slice* body, PageFooterPB* footer) {
     // First try to read with file cache
     Status st = do_read_and_decompress_page(opts, handle, body, footer);

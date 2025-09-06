@@ -224,7 +224,7 @@ public:
         }
     }
 
-    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
 
@@ -241,10 +241,10 @@ public:
         throw doris::Exception(
                 Status::FatalError("ReaderFunctionData do not support add_range_single_place"));
     }
-    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr place, AggregateDataPtr rhs, Arena&) const override {
         throw doris::Exception(Status::FatalError("ReaderFunctionData do not support merge"));
     }
-    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr place, BufferWritable& buf) const override {
         throw doris::Exception(Status::FatalError("ReaderFunctionData do not support serialize"));
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {

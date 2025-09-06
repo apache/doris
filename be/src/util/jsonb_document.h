@@ -904,14 +904,22 @@ struct ObjectVal : public ContainerVal {
     using const_iterator = JsonbFwdIteratorT<const_pointer, ObjectVal>;
 
     const_iterator search(const char* key, hDictFind handler = nullptr) const {
+        // Calling a non-const method on a const variable and does not modify the
+        // variable; using const_cast is permissible
         return const_cast<ObjectVal*>(this)->search(key, handler);
     }
 
     const_iterator search(const char* key, unsigned int klen, hDictFind handler = nullptr) const {
+        // Calling a non-const method on a const variable and does not modify the
+        // variable; using const_cast is permissible
         return const_cast<ObjectVal*>(this)->search(key, klen, handler);
     }
 
-    const_iterator search(int key_id) const { return const_cast<ObjectVal*>(this)->search(key_id); }
+    const_iterator search(int key_id) const { 
+        // Calling a non-const method on a const variable and does not modify the
+        // variable; using const_cast is permissible
+        return const_cast<ObjectVal*>(this)->search(key_id); 
+    }
     iterator search(const char* key, hDictFind handler = nullptr) {
         if (!key) {
             return end();
@@ -988,13 +996,21 @@ struct ObjectVal : public ContainerVal {
     }
 
     JsonbValue* find(const char* key, hDictFind handler = nullptr) const {
+        // Calling a non-const method on a const variable and does not modify the
+        // variable; using const_cast is permissible
         return const_cast<ObjectVal*>(this)->find(key, handler);
     }
 
     JsonbValue* find(const char* key, unsigned int klen, hDictFind handler = nullptr) const {
+        // Calling a non-const method on a const variable and does not modify the
+        // variable; using const_cast is permissible
         return const_cast<ObjectVal*>(this)->find(key, klen, handler);
     }
-    JsonbValue* find(int key_id) const { return const_cast<ObjectVal*>(this)->find(key_id); }
+    JsonbValue* find(int key_id) const { 
+        // Calling a non-const method on a const variable and does not modify the
+        // variable; using const_cast is permissible
+        return const_cast<ObjectVal*>(this)->find(key_id); 
+    }
 
     // find the JSONB value by a key string (null terminated)
     JsonbValue* find(const char* key, hDictFind handler = nullptr) {
@@ -1474,6 +1490,8 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
     }
 
     if (stream->peek() == WILDCARD) {
+        // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+        // using const_cast is acceptable.
         stream->set_leg_ptr(const_cast<char*>(stream->position()));
         stream->add_leg_len();
         stream->skip(1);
@@ -1493,6 +1511,8 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         }
     }
 
+    // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+    // using const_cast is acceptable.
     stream->set_leg_ptr(const_cast<char*>(stream->position()));
 
     for (; !stream->exhausted() && stream->peek() != END_ARRAY; stream->advance()) {
@@ -1563,6 +1583,8 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
     }
 
     if (stream->peek() == WILDCARD) {
+        // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+        // using const_cast is acceptable.
         stream->set_leg_ptr(const_cast<char*>(stream->position()));
         stream->add_leg_len();
         stream->skip(1);
@@ -1573,6 +1595,8 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         return true;
     }
 
+    // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+    // using const_cast is acceptable.
     stream->set_leg_ptr(const_cast<char*>(stream->position()));
 
     const char* left_quotation_marks = nullptr;
@@ -1594,6 +1618,8 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         } else if (stream->peek() == DOUBLE_QUOTE) {
             if (left_quotation_marks == nullptr) {
                 left_quotation_marks = stream->position();
+                // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+                // using const_cast is acceptable.
                 stream->set_leg_ptr(const_cast<char*>(++left_quotation_marks));
                 continue;
             } else {

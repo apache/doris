@@ -107,6 +107,7 @@ Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
              bool ignore_trivial_slot) {
     std::vector<SlotDescriptor*> slot_ptrs(slots.size());
     for (size_t i = 0; i < slots.size(); ++i) {
+        // Slots remain unmodified and are used to read column information; const_cast can be employed.
         slot_ptrs[i] = const_cast<SlotDescriptor*>(&slots[i]);
     }
     *this = Block(slot_ptrs, block_size, ignore_trivial_slot);

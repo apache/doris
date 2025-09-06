@@ -79,7 +79,7 @@ static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limi
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const std::vector<std::string>& read_columns,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
-                               cctz::time_zone* ctz, io::IOContext* io_ctx,
+                               const cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
                                const LazyReadContext& lazy_read_ctx, RuntimeState* state)
         : _file_reader(file_reader),

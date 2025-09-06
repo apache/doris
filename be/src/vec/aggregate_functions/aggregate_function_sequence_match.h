@@ -625,14 +625,14 @@ public:
                 events);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena&) const override {
         const std::string pattern = this->data(rhs).get_pattern();
         this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -664,7 +664,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeUInt8>(); }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& output = assert_cast<ColumnUInt8&>(to).get_data();
         if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(false);
@@ -676,7 +676,7 @@ public:
             output.push_back(false);
             return;
         }
-        this->data(const_cast<AggregateDataPtr>(place)).sort();
+        this->data(place).sort();
 
         const auto& data_ref = this->data(place);
 
@@ -710,7 +710,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& output = assert_cast<ColumnInt64&>(to).get_data();
         if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(0);
@@ -722,7 +722,7 @@ public:
             output.push_back(0);
             return;
         }
-        this->data(const_cast<AggregateDataPtr>(place)).sort();
+        this->data(place).sort();
         output.push_back(count(place));
     }
 

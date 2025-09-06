@@ -108,6 +108,8 @@ struct AggregateFunctionDistinctSingleNumericData {
 
         if constexpr (stable) {
             argument_columns[0]->resize(data.size());
+            // argument_columns[0] is a mutable column created using create_column. 
+            // since get_raw_data returns a StringRef, const_cast is required here.
             auto ptr = (typename PrimitiveTypeTraits<T>::CppType*)const_cast<char*>(
                     argument_columns[0]->get_raw_data().data);
             for (auto it : data) {
@@ -295,12 +297,12 @@ public:
         this->data(place).add(columns, arguments_num, row_num, arena);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena& arena) const override {
         this->data(place).merge(this->data(rhs), arena);
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).serialize(buf);
     }
 
@@ -309,9 +311,8 @@ public:
         this->data(place).deserialize(buf, arena);
     }
 
-    void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
-        auto* place = const_cast<AggregateDataPtr>(targetplace);
-        auto arguments = this->data(place).get_arguments(this->argument_types);
+    void insert_result_into(AggregateDataPtr targetplace, IColumn& to) const override {
+        auto arguments = this->data(targetplace).get_arguments(this->argument_types);
         ColumnRawPtrs arguments_raw(arguments.size());
         for (size_t i = 0; i < arguments.size(); ++i) {
             arguments_raw[i] = arguments[i].get();
@@ -319,13 +320,13 @@ public:
 
         assert(!arguments.empty());
         Arena arena;
-        nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
+        nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(targetplace),
                                             arguments_raw.data(), arena);
-        nested_func->insert_result_into(get_nested_place(place), to);
+        nested_func->insert_result_into(get_nested_place(targetplace), to);
         // for distinct agg function, the real calculate is add_batch_single_place at last step of insert_result_into function.
         // but with distinct agg and over() window function together, the result will be inserted into many times with different rows
         // so we need to clear the data, thus not to affect the next insert_result_into
-        this->data(place).clear();
+        this->data(targetplace).clear();
     }
 
     void reset(AggregateDataPtr place) const override {

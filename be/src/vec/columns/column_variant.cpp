@@ -2074,7 +2074,7 @@ void ColumnVariant::finalize() {
     static_cast<void>(finalize(FinalizeMode::READ_MODE));
 }
 
-void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) {
+void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) const {
     auto& root = subcolumns.get_mutable_root()->data;
     if (!root.get_least_common_type()->equals(*expected_root_type)) {
         // make sure the root type is alawys as expected
