@@ -17,7 +17,6 @@
 
 package org.apache.doris.job.extensions.insert;
 
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Column;
@@ -45,6 +44,7 @@ import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -530,16 +530,16 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     private String getPriority() {
-        return properties.getOrDefault(LoadStmt.PRIORITY, Priority.NORMAL.name());
+        return properties.getOrDefault(LoadCommand.PRIORITY, Priority.NORMAL.name());
     }
 
     public double getMaxFilterRatio() {
-        return Double.parseDouble(properties.getOrDefault(LoadStmt.MAX_FILTER_RATIO_PROPERTY, "0.0"));
+        return Double.parseDouble(properties.getOrDefault(LoadCommand.MAX_FILTER_RATIO_PROPERTY, "0.0"));
     }
 
     public long getTimeout() {
-        if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-            return Long.parseLong(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+        if (properties.containsKey(LoadCommand.TIMEOUT_PROPERTY)) {
+            return Long.parseLong(properties.get(LoadCommand.TIMEOUT_PROPERTY));
         }
         return Config.broker_load_default_timeout_second;
     }
