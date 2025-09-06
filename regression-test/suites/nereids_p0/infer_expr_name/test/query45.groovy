@@ -15,37 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package infer_expr_name
-
 suite("nereids_test_create_blocked") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
     def queryResult = sql """
 explain analyzed plan
-select  count(*) from (
-    select distinct c_last_name, c_first_name, d_date
-    from store_sales, date_dim, customer
-          where store_sales.ss_sold_date_sk = date_dim.d_date_sk
-      and store_sales.ss_customer_sk = customer.c_customer_sk
-      and d_month_seq between 1183 and 1183 + 11
-  intersect
-    select distinct c_last_name, c_first_name, d_date
-    from catalog_sales, date_dim, customer
-          where catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
-      and catalog_sales.cs_bill_customer_sk = customer.c_customer_sk
-      and d_month_seq between 1183 and 1183 + 11
-  intersect
-    select distinct c_last_name, c_first_name, d_date
-    from web_sales, date_dim, customer
-          where web_sales.ws_sold_date_sk = date_dim.d_date_sk
-      and web_sales.ws_bill_customer_sk = customer.c_customer_sk
-      and d_month_seq between 1183 and 1183 + 11
-) hot_cust
-limit 100;
+select  ca_zip, ca_city, sum(ws_sales_price)
+ from web_sales, customer, customer_address, date_dim, item
+ where ws_bill_customer_sk = c_customer_sk
+ 	and c_current_addr_sk = ca_address_sk 
+ 	and ws_item_sk = i_item_sk 
+ 	and ( substr(ca_zip,1,5) in ('85669', '86197','88274','83405','86475', '85392', '85460', '80348', '81792')
+ 	      or 
+ 	      i_item_id in (select i_item_id
+                             from item
+                             where i_item_sk in (2, 3, 5, 7, 11, 13, 17, 19, 23, 29)
+                             )
+ 	    )
+ 	and ws_sold_date_sk = d_date_sk
+ 	and d_qoy = 2 and d_year = 2000
+ group by ca_zip, ca_city
+ order by ca_zip, ca_city
+ limit 100;
 """
 
     def topPlan = queryResult[0][0].toString()
     assertTrue(topPlan.contains("LogicalResultSink"))
-    assertTrue(topPlan.contains("__count_0"))
+    assertTrue(topPlan.contains("ca_zip"))
+    assertTrue(topPlan.contains("ca_city"))
+    assertTrue(topPlan.contains("__sum_2"))
 }

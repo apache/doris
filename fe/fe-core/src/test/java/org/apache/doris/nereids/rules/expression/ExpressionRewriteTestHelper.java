@@ -116,7 +116,8 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
             List<String> qualifier = slot.getQualifier();
             DataType dataType = getType(name.charAt(0));
             Column column = new Column(name, dataType.toCatalogDataType());
-            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column, null, null));
+            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column, null, null,
+                    true));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;
