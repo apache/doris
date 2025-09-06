@@ -1555,16 +1555,33 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
         construct_index_compaction_columns(ctx);
     }
 
-    // Use the storage resource of the previous rowset
-    // when multiple hole rowsets doing compaction, those rowsets may not have a storage resource.
-    // case:
-    // [0-1, 2-2, 3-3, 4-4, 5-5], 2-5 are hole rowsets.
-    //  0-1 current doesn't have a resource_id, so 2-5 also have no resource_id.
-    // Because there is no data to write, so we can skip setting the storage resource.
-    if (!_input_rowsets.back()->is_hole_rowset() ||
-        !_input_rowsets.back()->rowset_meta()->resource_id().empty()) {
-        ctx.storage_resource =
-                *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
+    // Use the storage resource of the previous rowset.
+    // There are two scenarios where rowsets may not have a storage resource:
+    // 1. When multiple hole rowsets doing compaction, those rowsets may not have a storage resource.
+    //    case: [0-1, 2-2, 3-3, 4-4, 5-5], 2-5 are hole rowsets.
+    //    0-1 currently doesn't have a resource_id, so 2-5 also have no resource_id.
+    // 2. During schema change, new tablet may have some later version empty rowsets without resource_id,
+    //    but middle rowsets get resource_id after historical rowsets are converted.
+    //    We need to iterate backwards to find a rowset with non-empty resource_id.
+    for (const auto& rowset : std::ranges::reverse_view(_input_rowsets)) {
+        if (!rowset->rowset_meta()->resource_id().empty()) {
+            ctx.storage_resource = *DORIS_TRY(rowset->rowset_meta()->remote_storage_resource());
+            break;
+        } else {
+            DCHECK(rowset->is_hole_rowset() || rowset->end_version() == 1)
+                    << "Non-hole rowset with version != [0-1] must have non-empty resource_id"
+                    << ", rowset_id=" << rowset->rowset_id() << ", version=["
+                    << rowset->start_version() << "-" << rowset->end_version() << "]"
+                    << ", is_hole_rowset=" << rowset->is_hole_rowset()
+                    << ", tablet_id=" << _tablet->tablet_id();
+            if (!rowset->is_hole_rowset() && rowset->end_version() != 1) {
+                return Status::InternalError<false>(
+                        "Non-hole rowset with version != [0-1] must have non-empty resource_id"
+                        ", rowset_id={}, version=[{}-{}], is_hole_rowset={}, tablet_id={}",
+                        rowset->rowset_id().to_string(), rowset->start_version(),
+                        rowset->end_version(), rowset->is_hole_rowset(), _tablet->tablet_id());
+            }
+        }
     }
 
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
