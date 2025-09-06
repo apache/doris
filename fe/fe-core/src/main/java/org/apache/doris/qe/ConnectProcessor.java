@@ -304,17 +304,23 @@ public abstract class ConnectProcessor {
             try {
                 stmts = new NereidsParser().parseSQL(convertedStmt, sessionVariable);
             } catch (NotSupportedException e) {
-                // Parse sql failed, audit it and return
-                handleQueryException(e, convertedStmt, null, null);
-                return;
+                stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
+                if (stmts == null) {
+                    // Parse sql failed, audit it and return
+                    handleQueryException(e, convertedStmt, null, null);
+                    return;
+                }
             } catch (Exception e) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
                             e.getMessage(), convertedStmt, e);
                 }
                 Throwable exception = new AnalysisException(e.getMessage(), e);
-                handleQueryException(exception, originStmt, null, null);
-                return;
+                stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
+                if (stmts == null) {
+                    handleQueryException(exception, originStmt, null, null);
+                    return;
+                }
             }
         }
 
@@ -459,6 +465,27 @@ public abstract class ConnectProcessor {
         return null;
     }
 
+    /**
+     * Try to retry SQL parsing with original SQL when conversion fails
+     */
+    private List<StatementBase> tryRetryOriginalSql(String originStmt, String convertedStmt,
+            SessionVariable sessionVariable) {
+        // Try to retry with original SQL if enabled and convertedStmt is different from originStmt
+        if (sessionVariable.isEnableSqlConverterRetryOriginal()
+                && !convertedStmt.equals(originStmt)) {
+            try {
+                List<StatementBase> stmts = new NereidsParser().parseSQL(originStmt, sessionVariable);
+                // Update sqlHash to use original statement hash when retry succeeds
+                String originalSqlHash = DigestUtils.md5Hex(originStmt);
+                ctx.setSqlHash(originalSqlHash);
+                return stmts;
+            } catch (Exception e) {
+                // Retry failed, return null
+                return null;
+            }
+        }
+        return null;
+    }
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     protected void handleQueryException(Throwable throwable, String origStmt,
