@@ -46,12 +46,6 @@ class PriorityTaskQueue;
 class Dependency;
 
 class PipelineTask : public std::enable_shared_from_this<PipelineTask> {
-private:
-    struct TaskTracking {
-        int blocking_thread_id = -1;
-        int simple_thread_id = -1;
-    };
-
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                  std::shared_ptr<PipelineFragmentContext> fragment_context,
@@ -72,19 +66,12 @@ public:
 
     std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
-    void set_on_blocking_scheduler(bool blocking_scheduler) {
-        _on_blocking_scheduler = blocking_scheduler;
-    }
-    int get_thread_id() const {
-        return _on_blocking_scheduler ? _tracking.blocking_thread_id : _tracking.simple_thread_id;
+    int get_thread_id(int num_threads) const {
+        return _thread_id == -1 ? _thread_id : _thread_id % num_threads;
     }
 
     PipelineTask& set_thread_id(int thread_id) {
-        if (_on_blocking_scheduler) {
-            _tracking.blocking_thread_id = thread_id;
-        } else {
-            _tracking.simple_thread_id = thread_id;
-        }
+        _thread_id = thread_id;
         COUNTER_UPDATE(_core_change_times, 1);
         return *this;
     }
@@ -204,8 +191,7 @@ private:
     PipelinePtr _pipeline;
     bool _opened;
     RuntimeState* _state = nullptr;
-    TaskTracking _tracking;
-    bool _on_blocking_scheduler = false;
+    int _thread_id = -1;
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
 
