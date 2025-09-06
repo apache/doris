@@ -20,7 +20,13 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/udf")
 
+set(UDF_SOURCES udf.cpp)
+
+file(GLOB PYTHON_UDF_SOURCES "python/*.cpp")
+
+list(APPEND UDF_SOURCES ${PYTHON_UDF_SOURCES})
+
 # Build this library twice. Once to be linked into the main Doris. This version
 # can have dependencies on our other libs. The second version is shipped as part
 # of the UDF sdk, which can't use other libs.
-add_library(Udf STATIC udf.cpp)
+add_library(Udf STATIC ${UDF_SOURCES})
