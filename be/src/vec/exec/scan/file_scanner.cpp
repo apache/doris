@@ -62,6 +62,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/table/arrow_result_jni_reader.h"
 #include "vec/exec/format/table/hive_reader.h"
 #include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/hudi_reader.h"
@@ -1024,6 +1025,12 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
                 init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))
+                                      ->init_reader(_colname_to_value_range);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "arrow_result") {
+                _cur_reader = ArrowResultJniReader::create_unique(_file_slot_descs, _state,
+                                                                  _profile, range);
+                init_status = ((ArrowResultJniReader*)(_cur_reader.get()))
                                       ->init_reader(_colname_to_value_range);
             }
             break;

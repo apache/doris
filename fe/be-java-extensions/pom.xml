@@ -32,6 +32,7 @@ under the License.
         <module>lakesoul-scanner</module>
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
+        <module>arrow-result-scanner</module>
     </modules>
 
     <parent>
