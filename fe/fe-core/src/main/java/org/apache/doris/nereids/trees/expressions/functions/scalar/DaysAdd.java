@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
@@ -26,9 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 
@@ -40,24 +37,16 @@ import java.util.List;
 /**
  * ScalarFunction 'days_add'.
  */
-public class DaysAdd extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature,
+public class DaysAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
         ComputeSignatureForDateArithmetic, PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
-    // When enable_date_conversion is true, we prefer to V2 signature.
-    // This preference follows original planner. refer to ScalarType.getDefaultDateType()
-    private static final List<FunctionSignature> SIGNATURES = Config.enable_date_conversion ? ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, IntegerType.INSTANCE)
-    ) : ImmutableList.of(
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE)
-    );
+
+    //ATTN: must place Datetime before Date, because for castring from string like literal, date and datetime has
+    // the same precedence, but we prefer datetime to avoid data loss. for string literal which could cast to Date
+    // without loss, we handle it by ComputeSignatureForDateArithmetic.
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
+                    IntegerType.INSTANCE),
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE));
 
     public DaysAdd(Expression arg0, Expression arg1) {
         super("days_add", arg0, arg1);
