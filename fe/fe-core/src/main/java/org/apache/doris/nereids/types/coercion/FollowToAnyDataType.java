@@ -24,6 +24,11 @@ import java.util.Locale;
 
 /**
  * FollowToAnyDataType is used to auto compute the return type by the AnyDataType in signature.
+ * FollowToAnyDataType(x) will coerce to the concrete type which the argument with AnyDataType(x) coerced to.
+ * for example:
+ *  function signature is (AnyDataType(0), AnyDataType(0)) -> FollowToAnyDataType(0). and the arguments are
+ *  (int, bigint). then the return type is bigint.
+ * FollowToAnyDataType could be argument or return type. see more in AnyDataType.java
  */
 public class FollowToAnyDataType extends DataType {
 
