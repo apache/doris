@@ -77,13 +77,17 @@ Status DataTypeSerDe::parse_column_from_jsonb_string(IColumn& column, const Json
     DCHECK(jsonb_value->isString());
     const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
 
-    Slice slice(blob->getBlob(), blob->getBlobLen());
+    StringRef str(blob->getBlob(), blob->getBlobLen());
 
     DataTypeSerDe::FormatOptions format_options;
     format_options.converted_from_string = true;
     format_options.escape_char = '\\';
 
-    return deserialize_one_cell_from_json(column, slice, format_options);
+    if (castParms.is_strict) {
+        return from_string_strict_mode(str, column, format_options);
+    } else {
+        return from_string(str, column, format_options);
+    }
 }
 
 const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";
