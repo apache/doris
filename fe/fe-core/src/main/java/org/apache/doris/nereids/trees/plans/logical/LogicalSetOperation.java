@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -35,13 +33,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.MapType;
-import org.apache.doris.nereids.types.StructField;
-import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 
@@ -233,57 +226,12 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
 
     /** getAssignmentCompatibleType */
     public static DataType getAssignmentCompatibleType(DataType left, DataType right) {
-        if (left.isNullType()) {
-            return right;
+        Optional<DataType> commonType = TypeCoercionUtils.findWiderTypeForTwo(left, right);
+        if (commonType.isPresent()) {
+            return commonType.get();
         }
-        if (right.isNullType()) {
-            return left;
-        }
-        if (left.equals(right)) {
-            return left;
-        }
-        if (left instanceof ArrayType && right instanceof ArrayType) {
-            return ArrayType.of(getAssignmentCompatibleType(
-                    ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType()));
-        }
-        if (left instanceof MapType && right instanceof MapType) {
-            return MapType.of(
-                    getAssignmentCompatibleType(((MapType) left).getKeyType(), ((MapType) right).getKeyType()),
-                    getAssignmentCompatibleType(((MapType) left).getValueType(), ((MapType) right).getValueType()));
-        }
-        if (left instanceof StructType && right instanceof StructType) {
-            List<StructField> leftFields = ((StructType) left).getFields();
-            List<StructField> rightFields = ((StructType) right).getFields();
-            if (leftFields.size() != rightFields.size()) {
-                throw new AnalysisException(
-                        "could not get common type for two different struct type " + left + ", " + right);
-            }
-            ImmutableList.Builder<StructField> commonFields = ImmutableList.builder();
-            for (int i = 0; i < leftFields.size(); i++) {
-                boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable();
-                DataType commonType = getAssignmentCompatibleType(
-                        leftFields.get(i).getDataType(), rightFields.get(i).getDataType());
-                StructField commonField = leftFields.get(i).withDataTypeAndNullable(commonType, nullable);
-                commonFields.add(commonField);
-            }
-            return new StructType(commonFields.build());
-        }
-        boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
-        Type resultType = Type.getAssignmentCompatibleType(left.toCatalogDataType(),
-                right.toCatalogDataType(), false, enableDecimal256);
-        if (resultType.isDecimalV3()) {
-            int oldPrecision = resultType.getPrecision();
-            int oldScale = resultType.getDecimalDigits();
-            int integerPart = oldPrecision - oldScale;
-            int maxPrecision = enableDecimal256 ? ScalarType.MAX_DECIMAL256_PRECISION
-                    : ScalarType.MAX_DECIMAL128_PRECISION;
-            if (oldPrecision > maxPrecision) {
-                int newScale = maxPrecision - integerPart;
-                resultType =
-                        ScalarType.createDecimalType(maxPrecision, newScale < 0 ? 0 : newScale);
-            }
-        }
-        return DataType.fromCatalogType(resultType);
+        throw new AnalysisException("Can not find assignment compatible type between "
+                + left + " and " + right + "in set operation");
     }
 
     @Override

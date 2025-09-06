@@ -24,6 +24,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -166,15 +167,15 @@ public class DecimalV3Type extends FractionalType {
         return new DecimalV3Type(precision, scale);
     }
 
-    public static DataType widerDecimalV3Type(DecimalV3Type left, DecimalV3Type right, boolean overflowToDouble) {
+    public static DataType widerDecimalV3Type(DecimalV3Type left, DecimalV3Type right, boolean overflowTrunc) {
         return widerDecimalV3Type(left.getPrecision(), right.getPrecision(),
-                left.getScale(), right.getScale(), overflowToDouble);
+                left.getScale(), right.getScale(), overflowTrunc);
     }
 
     private static DataType widerDecimalV3Type(
             int leftPrecision, int rightPrecision,
             int leftScale, int rightScale,
-            boolean overflowToDouble) {
+            boolean overflowTrunc) {
         int scale = Math.max(leftScale, rightScale);
         int range = Math.max(leftPrecision - leftScale, rightPrecision - rightScale);
         boolean enableDecimal256 = false;
@@ -182,9 +183,12 @@ public class DecimalV3Type extends FractionalType {
         if (connectContext != null) {
             enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
         }
-        if (range + scale > (enableDecimal256 ? MAX_DECIMAL256_PRECISION : MAX_DECIMAL128_PRECISION)
-                && overflowToDouble) {
-            return DoubleType.INSTANCE;
+        int maxPercision = enableDecimal256 ? MAX_DECIMAL256_PRECISION : MAX_DECIMAL128_PRECISION;
+        if (range + scale > maxPercision && overflowTrunc) {
+            int overFlowScale = SessionVariable.getDecimalOverFlowScale();
+            int maxScale = maxPercision - range;
+            scale = Math.max(Math.min(scale, overFlowScale), maxScale);
+            return DecimalV3Type.createDecimalV3Type(maxPercision, scale);
         }
         return DecimalV3Type.createDecimalV3Type(range + scale, scale);
     }

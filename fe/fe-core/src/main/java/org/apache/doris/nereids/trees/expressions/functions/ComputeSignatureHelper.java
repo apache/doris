@@ -302,7 +302,7 @@ public class ComputeSignatureHelper {
         // get all common type for any data type
         for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
             // TODO: should use the same common type method of implicitCast
-            Optional<DataType> dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            Optional<DataType> dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue());
             // TODO: should we use tinyint when all any data type's expression is null type?
             // if (dataType.isPresent() && dataType.get() instanceof NullType) {
             //     dataType = Optional.of(TinyIntType.INSTANCE);
