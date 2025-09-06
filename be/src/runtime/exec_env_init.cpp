@@ -721,6 +721,14 @@ void ExecEnv::clear_wal_mgr() {
 }
 #endif
 
+void ExecEnv::stop() {
+    SAFE_STOP(_fragment_mgr);
+    // stop pipline step 1, non-cgroup execution
+    SAFE_STOP(_without_group_task_scheduler);
+    // stop pipline step 2, cgroup execution
+    SAFE_STOP(_workload_group_manager);
+}
+
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
 // We need to stop all threads before releasing resource.
 void ExecEnv::destroy() {

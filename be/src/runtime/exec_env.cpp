@@ -176,6 +176,8 @@ void ExecEnv::wait_for_all_tasks_done() {
         sleep(1);
         ++wait_seconds_passed;
     }
+    // If wait timeout, stop all queries
+    stop();
 }
 
 bool ExecEnv::check_auth_token(const std::string& auth_token) {
