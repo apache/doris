@@ -183,10 +183,8 @@ void TaskScheduler::stop() {
 
 Status HybridTaskScheduler::submit(PipelineTaskSPtr task) {
     if (task->is_blockable()) {
-        task->set_on_blocking_scheduler(true);
         return _blocking_scheduler.submit(task);
     } else {
-        task->set_on_blocking_scheduler(false);
         return _simple_scheduler.submit(task);
     }
 }
