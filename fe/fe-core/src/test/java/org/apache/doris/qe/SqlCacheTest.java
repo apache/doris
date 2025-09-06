@@ -18,9 +18,12 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
@@ -28,7 +31,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
-public class SqlCacheTest {
+public class SqlCacheTest extends TestWithFeService {
     @Test
     public void testCacheKey() {
         TUniqueId queryId = new TUniqueId();
@@ -56,5 +59,19 @@ public class SqlCacheTest {
         );
         PUniqueId key3 = cacheContext3.doComputeCacheKeyMd5(ImmutableSet.of());
         Assertions.assertNotEquals(key1, key3);
+    }
+
+    @Test
+    public void testSqlCache() throws Exception {
+        connectContext.getSessionVariable().setEnableSqlCache(true);
+        executeNereidsSql("select 100");
+        executeNereidsSql("select 200");
+
+        Env currentEnv = Env.getCurrentEnv();
+        NereidsSqlCacheManager sqlCacheManager = currentEnv.getSqlCacheManager();
+        Assertions.assertEquals(2, sqlCacheManager.getSqlCaches().asMap().size());
+
+        executeNereidsSql("admin set frontend config ('sql_cache_manage_num'='1')");
+        Assertions.assertEquals(1, sqlCacheManager.getSqlCaches().asMap().size());
     }
 }

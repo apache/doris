@@ -22,7 +22,6 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.property.constants.TrinoConnectorProperties;
 import org.apache.doris.trinoconnector.TrinoConnectorServicesProvider;
 
 import com.google.common.collect.ImmutableList;
@@ -96,9 +95,10 @@ import java.util.stream.Collectors;
 public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorExternalCatalog.class);
     private static final String TRINO_CONNECTOR_PROPERTIES_PREFIX = "trino.";
+    public static final String TRINO_CONNECTOR_NAME = "trino.connector.name";
 
     private static final List<String> TRINO_CONNECTOR_REQUIRED_PROPERTIES = ImmutableList.of(
-            TrinoConnectorProperties.TRINO_CONNECTOR_NAME
+            TRINO_CONNECTOR_NAME
     );
 
     private CatalogHandle trinoCatalogHandle;

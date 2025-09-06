@@ -656,6 +656,7 @@ public class Column implements GsonPostProcessable {
         }
         tColumn.setClusterKeyId(this.clusterKeyId);
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
+        tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -883,6 +884,7 @@ public class Column implements GsonPostProcessable {
         } else if (this.type.isVariantType()) {
             builder.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
+            builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -958,6 +960,9 @@ public class Column implements GsonPostProcessable {
             }
             if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
                 throw new DdlException("Can not change variant enable typed paths to sparse");
+            }
+            if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
+                throw new DdlException("Can not change variant max sparse column statistics size");
             }
             if (!this.getChildren().isEmpty() || !other.getChildren().isEmpty()) {
                 throw new DdlException("Can not change variant schema templates");
@@ -1292,6 +1297,10 @@ public class Column implements GsonPostProcessable {
 
     public boolean getVariantEnableTypedPathsToSparse() {
         return type.isVariantType() ? ((ScalarType) type).getVariantEnableTypedPathsToSparse() : false;
+    }
+
+    public int getVariantMaxSparseColumnStatisticsSize() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantMaxSparseColumnStatisticsSize() : -1;
     }
 
     public void setFieldPatternType(TPatternType type) {

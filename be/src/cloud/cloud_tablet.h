@@ -134,12 +134,14 @@ public:
     int64_t max_version_unlocked() const override { return _max_version; }
     int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
     int64_t cumulative_compaction_cnt() const { return _cumulative_compaction_cnt; }
+    int64_t full_compaction_cnt() const { return _full_compaction_cnt; }
     int64_t cumulative_layer_point() const {
         return _cumulative_point.load(std::memory_order_relaxed);
     }
 
     void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
     void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
+    void set_full_compaction_cnt(int64_t cnt) { _full_compaction_cnt = cnt; }
     void set_cumulative_layer_point(int64_t new_point);
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
@@ -218,6 +220,9 @@ public:
     int64_t base_size() const { return _base_size; }
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
+    Result<RowsetSharedPtr> pick_a_rowset_for_index_change(int schema_version,
+                                                           bool& is_base_rowset);
+    Status check_rowset_schema_for_build_index(std::vector<TColumn>& columns, int schema_version);
 
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
@@ -235,7 +240,7 @@ public:
 
     Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                     DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                    int64_t next_visible_version);
+                                    int64_t next_visible_version, RowsetSharedPtr rowset);
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
@@ -343,6 +348,7 @@ private:
 
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;
+    int64_t _full_compaction_cnt = 0;
     int64_t _max_version = -1;
     int64_t _base_size = 0;
     int64_t _alter_version = -1;

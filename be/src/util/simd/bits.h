@@ -29,7 +29,7 @@
 #include "util/sse_util.hpp"
 
 namespace doris::simd {
-
+#include "common/compile_check_begin.h"
 consteval auto bits_mask_length() {
 #if defined(__ARM_NEON) && defined(__aarch64__)
     return 16;
@@ -223,6 +223,9 @@ static size_t find_byte(const T* data, size_t start, size_t end, T byte) {
 
 template <typename T>
 bool contain_byte(const T* __restrict data, const size_t length, const signed char byte) {
+    if (length == 0) {
+        return false;
+    }
     return nullptr != std::memchr(reinterpret_cast<const void*>(data), byte, length);
 }
 
@@ -239,3 +242,4 @@ inline size_t find_zero(const std::vector<uint8_t>& vec, size_t start) {
 }
 
 } // namespace doris::simd
+#include "common/compile_check_end.h"

@@ -246,9 +246,9 @@ suite("test_array_load", "load_p0") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName =getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
+        def brokerName =getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
         def hdfs_json_file_path = uploadToHdfs "load_p0/broker_load/simple_object_array.json"
         def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/simple_array.csv"
         def hdfs_orc_file_path = uploadToHdfs "load_p0/broker_load/simple_array.orc"

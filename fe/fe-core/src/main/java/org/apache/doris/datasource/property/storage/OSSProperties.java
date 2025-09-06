@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
@@ -58,6 +57,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
             "dlf.secret_key", "dlf.catalog.secret_key"},
+            sensitive = true,
             required = false,
             description = "The secret key of OSS.")
     protected String secretKey = "";
@@ -77,6 +77,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token"},
             required = false,
+            sensitive = true,
             description = "The session token of OSS.")
     protected String sessionToken = "";
 
@@ -203,7 +204,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         if (!value.contains("aliyuncs.com")) {
             return false;
         }
-        boolean isAliyunOss = (value.contains("oss-") || value.contains("dlf."));
+        boolean isAliyunOss = (value.contains("oss-"));
         boolean isAmazonS3 = value.contains("s3.");
         boolean isDls = value.contains("dls");
         return isAliyunOss || isAmazonS3 || isDls;
@@ -247,17 +248,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         if (endpoint.contains("dlf") || endpoint.contains("oss-dls")) {
             this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
         }
-        // Check if credentials are provided properly - either both or neither
-        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
-            return;
-        }
-        // Allow anonymous access if both access_key and secret_key are empty
-        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            return;
-        }
-        // If only one is provided, it's an error
-        throw new StoragePropertiesException(
-                "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {

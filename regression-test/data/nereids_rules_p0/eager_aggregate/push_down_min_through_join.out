@@ -68,9 +68,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[min_t]
 --------filter((min_t.score > 10))
 ----------PhysicalOlapScan[min_t]
+--------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_outer_join --
 PhysicalResultSink
@@ -85,9 +85,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[min_t]
 --------filter((min_t.score > 10))
 ----------PhysicalOlapScan[min_t]
+--------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_having --
 PhysicalResultSink
@@ -163,9 +163,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[min_t]
 --------filter((t1.score > 50))
 ----------PhysicalOlapScan[min_t]
+--------PhysicalOlapScan[min_t]
 
 -- !groupby_pushdown_varied_aggregates --
 PhysicalResultSink
@@ -214,9 +214,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------filter((min_t.id < 100))
-----------PhysicalOlapScan[min_t]
 --------filter((min_t.score > 20) and (t1.id < 100))
+----------PhysicalOlapScan[min_t]
+--------filter((min_t.id < 100))
 ----------PhysicalOlapScan[min_t]
 
 -- !with_hint_groupby_pushdown_basic --
@@ -225,8 +225,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -279,8 +278,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -307,8 +305,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.name < t2.name))
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -334,11 +331,10 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[min_t]
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------filter((min_t.score > 10))
---------------PhysicalOlapScan[min_t]
+----------filter((min_t.score > 10))
+------------PhysicalOlapScan[min_t]
+--------PhysicalOlapScan[min_t]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -363,11 +359,10 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[min_t]
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------filter((min_t.score > 10))
---------------PhysicalOlapScan[min_t]
+----------filter((min_t.score > 10))
+------------PhysicalOlapScan[min_t]
+--------PhysicalOlapScan[min_t]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -381,8 +376,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[min_t]
+------------PhysicalOlapScan[min_t]
 ----------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -396,8 +390,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -408,16 +401,14 @@ SyntaxError:
 -- !with_hint_groupby_pushdown_multi_table_join --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
---------PhysicalOlapScan[min_t]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalOlapScan[min_t]
+----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------hashAgg[GLOBAL]
 --------------PhysicalOlapScan[min_t]
+------------PhysicalOlapScan[min_t]
+------PhysicalOlapScan[min_t]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -432,8 +423,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[min_t]
+--------------PhysicalOlapScan[min_t]
 ------------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -447,8 +437,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -462,11 +451,9 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -479,8 +466,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -494,11 +480,9 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -510,11 +494,10 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[min_t]
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------filter((t1.score > 50))
---------------PhysicalOlapScan[min_t]
+----------filter((t1.score > 50))
+------------PhysicalOlapScan[min_t]
+--------PhysicalOlapScan[min_t]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side
@@ -542,8 +525,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[min_t]
+--------------PhysicalOlapScan[min_t]
 ------------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -557,8 +539,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1_alias.id = t2_alias.id) and (t1_alias.name = t2_alias.name)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -572,8 +553,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.score = t2.score)) otherCondition=(( not (name = name)))
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[min_t]
+----------PhysicalOlapScan[min_t]
 --------PhysicalOlapScan[min_t]
 
 Hint log:
@@ -599,12 +579,11 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------hashAgg[GLOBAL]
+----------filter((min_t.score > 20) and (t1.id < 100))
+------------PhysicalOlapScan[min_t]
 --------filter((min_t.id < 100))
 ----------PhysicalOlapScan[min_t]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------filter((min_t.score > 20) and (t1.id < 100))
---------------PhysicalOlapScan[min_t]
 
 Hint log:
 Used: use_push_down_agg_through_join_one_side

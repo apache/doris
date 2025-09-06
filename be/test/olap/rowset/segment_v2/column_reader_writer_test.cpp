@@ -130,7 +130,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
         // sequence read
         {
             ColumnReaderOptions reader_opts;
-            std::unique_ptr<ColumnReader> reader;
+            std::shared_ptr<ColumnReader> reader;
             auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
             EXPECT_TRUE(st.ok());
 
@@ -181,7 +181,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
 
         {
             ColumnReaderOptions reader_opts;
-            std::unique_ptr<ColumnReader> reader;
+            std::shared_ptr<ColumnReader> reader;
             auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
             EXPECT_TRUE(st.ok());
 
@@ -304,7 +304,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     // read and check
     {
         ColumnReaderOptions reader_opts;
-        std::unique_ptr<ColumnReader> reader;
+        std::shared_ptr<ColumnReader> reader;
         auto st = ColumnReader::create(reader_opts, meta, num_rows, file_reader, &reader);
         EXPECT_TRUE(st.ok());
 

@@ -19,9 +19,7 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
@@ -34,6 +32,7 @@ import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvide
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
@@ -45,6 +44,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
+    public static final String USE_PATH_STYLE = "use_path_style";
 
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
@@ -114,7 +114,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Setter
     @Getter
-    @ConnectorProperty(names = {"use_path_style", "s3.path-style-access"}, required = false,
+    @ConnectorProperty(names = {USE_PATH_STYLE, "s3.path-style-access"}, required = false,
             description = "Whether to use path style URL for the storage.")
     protected String usePathStyle = "false";
 
@@ -187,25 +187,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isBlank(s3IAMRole)) {
+            throw new IllegalArgumentException("s3.external_id must be used with s3.role_arn");
+        }
         convertGlueToS3EndpointIfNeeded();
-        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
-            return;
-        }
-        if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
-            return;
-        }
-        // When using vended credentials with a REST catalog, AK/SK are not provided directly.
-        // The credentials will be fetched from the REST service later.
-        // So we skip the credential check in this case.
-        if (Boolean.parseBoolean(origProps.getOrDefault("iceberg.rest.vended-credentials-enabled", "false"))) {
-            return;
-        }
-        // Allow anonymous access if both access_key and secret_key are empty
-        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            return;
-        }
-        throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
-                + "s3.external_id or omit all for anonymous access to public bucket.");
     }
 
     /**
@@ -226,7 +211,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
          * cause the type detection to fail, leading to missed recognition of valid S3 properties.
          * A more robust approach would allow further validation downstream rather than failing early here.
          */
-        if (!Strings.isNullOrEmpty(endpoint)) {
+        if (StringUtils.isNotBlank(endpoint)) {
             return endpoint.contains("amazonaws.com");
         }
 
@@ -245,7 +230,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
-        if (!Strings.isNullOrEmpty(region)) {
+        if (StringUtils.isNotBlank(region)) {
             return true;
         }
         return false;
@@ -260,9 +245,10 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public Map<String, String> getBackendConfigProperties() {
         Map<String, String> backendProperties = generateBackendS3Configuration();
 
-        if (StringUtils.isNotBlank(s3ExternalId)
-                && StringUtils.isNotBlank(s3IAMRole)) {
+        if (StringUtils.isNotBlank(s3IAMRole)) {
             backendProperties.put("AWS_ROLE_ARN", s3IAMRole);
+        }
+        if (StringUtils.isNotBlank(s3ExternalId)) {
             backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
         }
         return backendProperties;
@@ -282,6 +268,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         }
         if (StringUtils.isNotBlank(s3IAMRole)) {
             StsClient stsClient = StsClient.builder()
+                    .region(Region.of(region))
                     .credentialsProvider(InstanceProfileCredentialsProvider.create())
                     .build();
 
@@ -289,7 +276,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                     .stsClient(stsClient)
                     .refreshRequest(builder -> {
                         builder.roleArn(s3IAMRole).roleSessionName("aws-sdk-java-v2-fe");
-                        if (!Strings.isNullOrEmpty(s3ExternalId)) {
+                        if (StringUtils.isNotBlank(s3ExternalId)) {
                             builder.externalId(s3ExternalId);
                         }
                     }).build();
@@ -310,12 +297,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         super.initializeHadoopStorageConfig();
         //Set assumed_roles
         //@See https://hadoop.apache.org/docs/r3.4.1/hadoop-aws/tools/hadoop-aws/assumed_roles.html
-        if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
+        if (StringUtils.isNotBlank(s3IAMRole)) {
             //@See org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider
-            hadoopStorageConfig.set("fs.s3a.assumed.role.external.id", s3ExternalId);
             hadoopStorageConfig.set("fs.s3a.assumed.role.arn", s3IAMRole);
             hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
                     "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider");
+            if (StringUtils.isNotBlank(s3ExternalId)) {
+                hadoopStorageConfig.set("fs.s3a.assumed.role.external.id", s3ExternalId);
+            }
         }
     }
 

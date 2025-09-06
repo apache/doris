@@ -90,7 +90,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements MemoPatternMatch
                         ).when(project -> {
                             List<NamedExpression> projects = project.getProjects();
                             return projects.get(0).equals(id)
-                                && projects.get(1) instanceof Alias;
+                                && projects.get(1) instanceof SlotReference && projects.get(1).equals(windowAlias.toSlot());
                         })
                 );
     }
@@ -147,7 +147,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements MemoPatternMatch
                         ).when(project -> {
                             List<NamedExpression> projects = project.getProjects();
                             return projects.get(0) instanceof SlotReference
-                                && projects.get(1) instanceof Alias;
+                                && projects.get(1) instanceof SlotReference && projects.get(1).equals(windowAlias.toSlot());
                         })
                 );
     }
@@ -226,8 +226,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements MemoPatternMatch
                             List<NamedExpression> projects = project.getProjects();
                             return projects.get(0).equals(gender)
                                 && projects.get(1) instanceof SlotReference
-                                && projects.get(2) instanceof Alias
-                                && projects.get(2).child(0) instanceof SlotReference;
+                                && projects.get(2) instanceof SlotReference && projects.get(2).equals(windowAlias.toSlot());
                         })
                 );
     }

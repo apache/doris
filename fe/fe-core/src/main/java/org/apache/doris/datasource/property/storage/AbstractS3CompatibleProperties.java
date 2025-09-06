@@ -135,6 +135,11 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
             throw new IllegalArgumentException("Invalid endpoint: " + getEndpoint());
         }
         setRegionIfPossible();
+        //Allow anonymous access if both access_key and secret_key are empty
+        //But not recommended for production use.
+        if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
+            throw new IllegalArgumentException("Both the access key and the secret key must be set.");
+        }
     }
 
     /**
@@ -215,6 +220,9 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     private boolean isValidEndpoint(String endpoint) {
         if (StringUtils.isBlank(endpoint)) {
             // Endpoint is not required, so we consider it valid if empty.
+            return true;
+        }
+        if (endpointPatterns().isEmpty()) {
             return true;
         }
         for (Pattern pattern : endpointPatterns()) {

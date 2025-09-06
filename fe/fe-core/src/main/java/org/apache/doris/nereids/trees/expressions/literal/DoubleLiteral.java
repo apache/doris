@@ -91,14 +91,14 @@ public class DoubleLiteral extends FractionalLiteral {
             return new org.apache.doris.nereids.trees.expressions.literal.FloatLiteral(
                     Float.parseFloat(String.valueOf(value)));
         } else if (targetType.isStringType()) {
-            return new StringLiteral(getStringValue());
+            return new StringLiteral(castToString());
         } else if (targetType.isCharType()) {
-            String desc = getStringValue();
+            String desc = castToString();
             if (((CharType) targetType).getLen() >= desc.length()) {
                 return new CharLiteral(desc, ((CharType) targetType).getLen());
             }
         } else if (targetType.isVarcharType()) {
-            String desc = getStringValue();
+            String desc = castToString();
             return new VarcharLiteral(desc, ((VarcharType) targetType).getLen());
         } else if (targetType.isDecimalV2Type() || targetType.isDecimalV3Type()) {
             if (Double.isInfinite(value) || Double.isNaN(value)) {

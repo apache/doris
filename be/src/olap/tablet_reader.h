@@ -201,6 +201,7 @@ public:
 
         std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
         CollectionStatisticsPtr collection_statistics;
+        std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
     };
 
     TabletReader() = default;

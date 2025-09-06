@@ -422,7 +422,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 // [0-1] is a placeholder rowset, start from 2.
                 already_exist_any_version ? 2 : sc_job->alter_version() + 1;
         RETURN_IF_ERROR(_process_delete_bitmap(sc_job->alter_version(),
-                                               start_calc_delete_bitmap_version, _initiator));
+                                               start_calc_delete_bitmap_version, _initiator,
+                                               sc_params.vault_id));
         sc_job->set_delete_bitmap_lock_initiator(_initiator);
     }
 
@@ -473,7 +474,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
 
 Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
                                                     int64_t start_calc_delete_bitmap_version,
-                                                    int64_t initiator) {
+                                                    int64_t initiator,
+                                                    const std::string& vault_id) {
     LOG_INFO("process mow table")
             .tag("new_tablet_id", _new_tablet->tablet_id())
             .tag("out_rowset_size", _output_rowsets.size())
@@ -482,6 +484,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     RETURN_IF_ERROR(_cloud_storage_engine.register_compaction_stop_token(_new_tablet, initiator));
     TabletMetaSharedPtr tmp_meta = std::make_shared<TabletMeta>(*(_new_tablet->tablet_meta()));
     tmp_meta->delete_bitmap().delete_bitmap.clear();
+    tmp_meta->clear_rowsets();
     std::shared_ptr<CloudTablet> tmp_tablet =
             std::make_shared<CloudTablet>(_cloud_storage_engine, tmp_meta);
     {
@@ -547,10 +550,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     });
 
     auto& delete_bitmap = tmp_tablet->tablet_meta()->delete_bitmap();
-
+    auto storage_resource = _cloud_storage_engine.get_storage_resource(vault_id);
     // step4, store delete bitmap
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().update_delete_bitmap(
-            *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator, &delete_bitmap));
+            *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator, &delete_bitmap,
+            &delete_bitmap, "", storage_resource, config::delete_bitmap_store_write_version));
 
     _new_tablet->tablet_meta()->delete_bitmap() = delete_bitmap;
     return Status::OK();

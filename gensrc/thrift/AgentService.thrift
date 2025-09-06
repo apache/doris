@@ -62,6 +62,12 @@ enum TStorageFormat {
     V2 = 2
 }
 
+enum TEncryptionAlgorithm {
+    PLAINTEXT = 0,
+    AES256 = 1,
+    SM4 = 2
+}
+
 enum TTabletType {
     TABLET_TYPE_DISK = 0,
     TABLET_TYPE_MEMORY = 1
@@ -216,6 +222,7 @@ struct TCreateTabletReq {
     27: optional i64 time_series_compaction_level_threshold = 1
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
+    30: optional TEncryptionAlgorithm tde_algorithm
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -280,6 +287,7 @@ struct TAlterInvertedIndexReq {
     8: optional list<Descriptors.TColumn> columns
     9: optional i64 job_id
     10: optional i64 expiration
+    11: optional i32 schema_version
 }
 
 struct TTabletGcBinlogInfo {
@@ -327,6 +335,7 @@ struct TPushReq {
     16: optional list<Descriptors.TColumn> columns_desc
     17: optional string storage_vault_id
     18: optional i32 schema_version
+    19: optional list<Descriptors.TOlapTableIndex> index_list;
 }
 
 struct TCloneReq {

@@ -90,7 +90,8 @@ public class IcebergRestPropertiesTest {
         Assertions.assertEquals("client_credentials", catalogProps.get(OAuth2Properties.CREDENTIAL));
         Assertions.assertEquals("http://auth.example.com/token", catalogProps.get(OAuth2Properties.OAUTH2_SERVER_URI));
         Assertions.assertEquals("read write", catalogProps.get(OAuth2Properties.SCOPE));
-        Assertions.assertEquals("false", catalogProps.get(OAuth2Properties.TOKEN_REFRESH_ENABLED));
+        Assertions.assertEquals(String.valueOf(OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT),
+                catalogProps.get(OAuth2Properties.TOKEN_REFRESH_ENABLED));
     }
 
     @Test

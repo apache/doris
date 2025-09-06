@@ -531,8 +531,8 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
     // 1 create thread pool
     if (_task_sched == nullptr) {
         std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
-                std::make_unique<pipeline::TaskScheduler>(pipeline_exec_thread_num, "p_" + wg_name,
-                                                          cg_cpu_ctl_ptr);
+                std::make_unique<pipeline::HybridTaskScheduler>(pipeline_exec_thread_num,
+                                                                "p_" + wg_name, cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
@@ -650,9 +650,12 @@ void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sc
 std::string WorkloadGroup::thread_debug_info() {
     std::string str = "";
     if (_task_sched != nullptr) {
-        std::vector<int> exec_t_info = _task_sched->thread_debug_info();
-        str = fmt::format("[exec num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
-                          exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+        auto exec_t_info = _task_sched->thread_debug_info();
+        for (const auto& info : exec_t_info) {
+            str = fmt::format(
+                    "scheduler: {}, info: [exec num:{}, real_num:{}, min_num:{}, max_num:{}],",
+                    info.first, info.second[0], info.second[1], info.second[2], info.second[3]);
+        }
     }
 
     if (_scan_task_sched != nullptr) {

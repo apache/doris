@@ -137,6 +137,7 @@ suite("with_select_table_auth","p0,auth") {
 
     connect(user_name, "${pwd}", context.config.jdbcUrl) {
         sql "use ${db}"
+        sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
         mv_rewrite_success(
             """
             select t1.l_partkey, t1.l_suppkey, o_orderdate,

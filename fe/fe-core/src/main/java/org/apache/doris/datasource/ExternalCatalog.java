@@ -51,7 +51,6 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
@@ -169,13 +168,6 @@ public abstract class ExternalCatalog
     private boolean objectCreated = false;
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
-
-    private ExternalSchemaCache schemaCache;
-    // A cached and being converted properties for external catalog.
-    // generated from catalog properties.
-    private byte[] propLock = new byte[0];
-    private Map<String, String> convertedProperties = null;
-
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected ExecutionAuthenticator executionAuthenticator;
@@ -342,7 +334,9 @@ public abstract class ExternalCatalog
                 this.errorMsg = "";
             }
         } catch (Exception e) {
+            LOG.warn("failed to init catalog {}:{}", name, id, e);
             this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
+            throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
             isInitializing = false;
         }
@@ -579,10 +573,6 @@ public abstract class ExternalCatalog
     public synchronized void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
-        synchronized (this.propLock) {
-            this.convertedProperties = null;
-        }
-
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
@@ -752,17 +742,7 @@ public abstract class ExternalCatalog
 
     @Override
     public Map<String, String> getProperties() {
-        // convert properties may be a heavy operation, so we cache the result.
-        if (convertedProperties != null) {
-            return convertedProperties;
-        }
-        synchronized (propLock) {
-            if (convertedProperties != null) {
-                return convertedProperties;
-            }
-            convertedProperties = PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
-            return convertedProperties;
-        }
+        return catalogProperty.getProperties();
     }
 
     @Override
@@ -1039,7 +1019,6 @@ public abstract class ExternalCatalog
                 }
             }
         }
-        this.propLock = new byte[0];
         this.confLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
@@ -1189,7 +1168,7 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-                          boolean force) throws DdlException {
+            boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop table is not supported for catalog: " + getName());

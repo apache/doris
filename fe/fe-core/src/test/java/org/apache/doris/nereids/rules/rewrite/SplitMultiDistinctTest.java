@@ -151,14 +151,14 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                                             physicalNestedLoopJoin(
                                                     physicalProject(
                                                     physicalHashAggregate(
-                                                            physicalHashAggregate(
-                                                                    physicalDistribute(
+                                                            physicalDistribute(
+                                                                    physicalHashAggregate(
                                                                             physicalHashAggregate(any()))))),
                                                     physicalDistribute(
                                                             physicalProject(
                                                             physicalHashAggregate(
-                                                                    physicalHashAggregate(
-                                                                            physicalDistribute(
+                                                                    physicalDistribute(
+                                                                            physicalHashAggregate(
                                                                                     physicalHashAggregate(any()))))))
                                             )
 
@@ -184,13 +184,11 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                                                             physicalProject(
                                                             physicalHashAggregate(
                                                                     physicalHashAggregate(
-                                                                            physicalDistribute(
-                                                                                    physicalHashAggregate(any()))))),
+                                                                            physicalDistribute(any())))),
                                                             physicalProject(
                                                             physicalHashAggregate(
                                                                     physicalHashAggregate(
-                                                                            physicalDistribute(
-                                                                                    physicalHashAggregate(any())))))
+                                                                            physicalDistribute(any()))))
                                                     ).when(join ->
                                                         join.getJoinType() == JoinType.INNER_JOIN && join.getHashJoinConjuncts().get(0) instanceof NullSafeEqual
                                                     )

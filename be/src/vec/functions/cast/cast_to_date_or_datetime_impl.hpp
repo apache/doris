@@ -333,7 +333,7 @@ inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
                                                           CastParameters& params) {
     const char* ptr = str.data;
     const char* end = ptr + str.size;
-    AsanPoisonDefer defer(end, 1);
+    AsanPoisonGuard defer(end, 1);
 
     uint32_t part[4];
     bool has_second = false;
@@ -699,7 +699,7 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
     constexpr bool IsStrict = false;
     const char* ptr = str.data;
     const char* end = ptr + str.size;
-    AsanPoisonDefer defer(end, 1);
+    AsanPoisonGuard defer(end, 1);
 
     // skip leading whitespace
     static_cast<void>(skip_any_whitespace(ptr, end));

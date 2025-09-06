@@ -170,7 +170,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     DCHECK(segment_file_writer != nullptr);
 
     IndexFileWriterPtr index_file_writer;
-    if (context.tablet_schema->has_inverted_index()) {
+    if (context.tablet_schema->has_inverted_index() || context.tablet_schema->has_ann_index()) {
         RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(seg_id, &index_file_writer));
     }
 
@@ -185,7 +185,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
             context.data_dir, writer_options, index_file_writer.get());
 
     RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(segment_file_writer)));
-    if (context.tablet_schema->has_inverted_index()) {
+    if (context.tablet_schema->has_inverted_index() || context.tablet_schema->has_ann_index()) {
         RETURN_IF_ERROR(this->_idx_files.add(seg_id, std::move(index_file_writer)));
     }
 

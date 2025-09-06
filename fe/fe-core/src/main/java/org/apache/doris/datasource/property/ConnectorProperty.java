@@ -27,4 +27,6 @@ public @interface ConnectorProperty {
 
     boolean required() default true;
     boolean supported() default true;
+
+    boolean sensitive() default false;
 }

@@ -109,9 +109,9 @@ public class DropDbTest {
         List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover database test1";
-        RecoverDatabaseCommand recoverDbStmt
-                = (RecoverDatabaseCommand) UtFrameUtils.parseStmt(recoverDbSql, connectContext);
-        recoverDbStmt.run(connectContext, null);
+        NereidsParser nereidsParser = new NereidsParser();
+        RecoverDatabaseCommand command = (RecoverDatabaseCommand) nereidsParser.parseSingle(recoverDbSql);
+        command.run(connectContext, null);
         db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNotNull(db);
         Assert.assertEquals("test1", db.getFullName());
@@ -123,7 +123,7 @@ public class DropDbTest {
         dropDb(dropDbSql);
         db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNull(db);
-        recoverDbStmt.run(connectContext, null);
+        command.run(connectContext, null);
         db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNotNull(db);
 
@@ -149,12 +149,11 @@ public class DropDbTest {
         // List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         // Assert.assertTrue(replicaList.isEmpty());
         String recoverDbSql = "recover database test2";
-        RecoverDatabaseCommand recoverDbStmt
-                = (RecoverDatabaseCommand) UtFrameUtils.parseStmt(recoverDbSql, connectContext);
+        NereidsParser nereidsParser = new NereidsParser();
+        RecoverDatabaseCommand command = (RecoverDatabaseCommand) nereidsParser.parseSingle(recoverDbSql);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Unknown database 'test2' or database id '-1'",
-                () -> recoverDbStmt.run(connectContext, null));
-
+                () -> command.run(connectContext, null));
         dropDbSql = "drop schema test3 force";
         db = Env.getCurrentInternalCatalog().getDbOrMetaException("test3");
         Assert.assertNotNull(db);
@@ -162,11 +161,10 @@ public class DropDbTest {
         db = Env.getCurrentInternalCatalog().getDbNullable("test3");
         Assert.assertNull(db);
         recoverDbSql = "recover database test3";
-        RecoverDatabaseCommand recoverDbStmt2
-                = (RecoverDatabaseCommand) UtFrameUtils.parseStmt(recoverDbSql, connectContext);
+        RecoverDatabaseCommand command2 = (RecoverDatabaseCommand) nereidsParser.parseSingle(recoverDbSql);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Unknown database 'test3'",
-                () -> recoverDbStmt2.run(connectContext, null));
+                () -> command2.run(connectContext, null));
 
         dropDbSql = "drop schema if exists test3 force";
         dropDb(dropDbSql);

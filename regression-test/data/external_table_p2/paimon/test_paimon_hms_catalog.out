@@ -40,6 +40,13 @@
 11111111	tx_db_test
 11111111	tx_db_test
 
+-- !cos --
+11111111	tx_db_test
+11111111	tx_db_test
+11111111	tx_db_test
+11111111	tx_db_test
+11111111	tx_db_test
+
 -- !s3 --
 11111111	aws_db_test
 11111111	aws_db_test
@@ -87,6 +94,13 @@
 11111111	hw_db_test
 11111111	hw_db_test
 11111111	hw_db_test
+
+-- !support_cos --
+11111111	tx_db_test
+11111111	tx_db_test
+11111111	tx_db_test
+11111111	tx_db_test
+11111111	tx_db_test
 
 -- !support_cos --
 11111111	tx_db_test

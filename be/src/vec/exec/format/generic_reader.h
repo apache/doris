@@ -99,6 +99,10 @@ protected:
 
     bool _read_line_mode_mode = false;
     std::list<int64_t> _read_lines;
+
+    // Cache to save some common part such as file footer.
+    // Maybe null if not used
+    FileMetaCache* _meta_cache = nullptr;
 };
 
 #include "common/compile_check_end.h"

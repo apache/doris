@@ -32,7 +32,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.TreeMap;
 
 public class KeyManagerStore implements Writable {
     private static final Logger LOG = LogManager.getLogger(KeyManagerStore.class);
@@ -44,26 +43,11 @@ public class KeyManagerStore implements Writable {
 
     @Setter
     @Getter
-    @SerializedName(value = "masterKeyMap")
-    private TreeMap<Integer, EncryptionKey> masterKeyMap = new TreeMap<>();
+    @SerializedName(value = "masterKeys")
+    private List<EncryptionKey> masterKeys = new ArrayList<>();
 
-    public void writeRootKeyInfo(RootKeyInfo rootKeyInfo) {
-    }
-
-    public void setMasterKey(EncryptionKey masterKey) {
-        masterKeyMap.put(masterKey.version, masterKey);
-    }
-
-    public EncryptionKey getMaxVersionMasterKey() {
-        return masterKeyMap.lastEntry().getValue();
-    }
-
-    public List<EncryptionKey> getAllVersionMasterKey() {
-        return new ArrayList<>(masterKeyMap.values());
-    }
-
-    public EncryptionKey getMasterKey(int version) {
-        return masterKeyMap.get(version);
+    public void addMasterKey(EncryptionKey masterKey) {
+        masterKeys.add(masterKey);
     }
 
     @Override

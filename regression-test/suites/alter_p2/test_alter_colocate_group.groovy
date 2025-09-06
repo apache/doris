@@ -134,8 +134,8 @@ suite ("test_alter_colocate_group") {
     def checkTableReplicaAlloc = { tableName, hasDynamicPart, replicaNum ->
         def result = sql """ show create table ${tableName} """
         def createTbl = result[0][1].toString()
-        assertTrue(createTbl.indexOf("\"replication_allocation\" = \"tag.location.default: ${replicaNum}\"") > 0)
         log.info("createTbl: ${createTbl}")
+        assertTrue(createTbl.indexOf("\"replication_allocation\" = \"tag.location.default: ${replicaNum}\"") > 0)
         if (hasDynamicPart) {
             assertTrue(createTbl.indexOf(
                     "\"dynamic_partition.replication_allocation\" = \"tag.location.default: ${replicaNum}\"") > 0)
