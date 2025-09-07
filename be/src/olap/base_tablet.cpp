@@ -158,17 +158,7 @@ TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
                                           : a->tablet_schema()->schema_version() <
                                                     b->tablet_schema()->schema_version());
             });
-    TabletSchemaSPtr target_schema = max_schema_version_rs->tablet_schema();
-    if (target_schema->num_variant_columns() > 0) {
-        // For variant columns tablet schema need to be the merged wide tablet schema
-        std::vector<TabletSchemaSPtr> schemas;
-        std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
-                       [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
-        static_cast<void>(
-                vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
-        VLOG_DEBUG << "dump schema: " << target_schema->dump_full_schema();
-    }
-    return target_schema;
+    return max_schema_version_rs->tablet_schema();
 }
 
 Status BaseTablet::set_tablet_state(TabletState state) {
@@ -187,21 +177,6 @@ void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema
         tablet_schema->schema_version() > _max_version_schema->schema_version()) {
         _max_version_schema = tablet_schema;
     }
-}
-
-Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_schema) {
-    std::lock_guard wrlock(_meta_lock);
-    CHECK(_max_version_schema->schema_version() >= update_schema->schema_version());
-    TabletSchemaSPtr final_schema;
-    bool check_column_size = true;
-    VLOG_DEBUG << "dump _max_version_schema: " << _max_version_schema->dump_full_schema();
-    VLOG_DEBUG << "dump update_schema: " << update_schema->dump_full_schema();
-    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
-            {_max_version_schema, update_schema}, _max_version_schema, final_schema,
-            check_column_size));
-    _max_version_schema = final_schema;
-    VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_full_schema();
-    return Status::OK();
 }
 
 uint32_t BaseTablet::get_real_compaction_score() const {
@@ -521,7 +496,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
-            if (s.ok() && tablet_delete_bitmap->contains_agg_without_cache(
+            if (s.ok() && tablet_delete_bitmap->contains_agg_with_cache_if_eligible(
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
@@ -2173,6 +2148,31 @@ int32_t BaseTablet::max_version_config() {
                                              config::max_tablet_version_num)
                                   : config::max_tablet_version_num;
     return max_version;
+}
+
+void BaseTablet::prefill_dbm_agg_cache(const RowsetSharedPtr& rowset, int64_t version) {
+    for (std::size_t i = 0; i < rowset->num_segments(); i++) {
+        tablet_meta()->delete_bitmap().get_agg({rowset->rowset_id(), i, version});
+    }
+}
+
+void BaseTablet::prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& output_rowset) {
+    if (keys_type() == KeysType::UNIQUE_KEYS && enable_unique_key_merge_on_write() &&
+        (config::enable_prefill_output_dbm_agg_cache_after_compaction ||
+         config::enable_prefill_all_dbm_agg_cache_after_compaction)) {
+        int64_t cur_max_version {-1};
+        {
+            std::shared_lock rlock(get_header_lock());
+            cur_max_version = max_version_unlocked();
+        }
+        if (config::enable_prefill_all_dbm_agg_cache_after_compaction) {
+            traverse_rowsets(
+                    [&](const RowsetSharedPtr& rs) { prefill_dbm_agg_cache(rs, cur_max_version); },
+                    false);
+        } else if (config::enable_prefill_output_dbm_agg_cache_after_compaction) {
+            prefill_dbm_agg_cache(output_rowset, cur_max_version);
+        }
+    }
 }
 
 } // namespace doris

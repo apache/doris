@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(i1.i_product_name)] apply RFs: RF1
 --------------------PhysicalProject
-----------------------filter((rnk < 11))
+----------------------filter((V11.rnk < 11))
 ------------------------PhysicalWindow
 --------------------------PhysicalQuickSort[MERGE_SORT]
 ----------------------------PhysicalDistribute[DistributionSpecGather]
@@ -43,7 +43,7 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(i2.i_product_name)] apply RFs: RF0
 --------------------PhysicalProject
-----------------------filter((rnk < 11))
+----------------------filter((V21.rnk < 11))
 ------------------------PhysicalWindow
 --------------------------PhysicalQuickSort[MERGE_SORT]
 ----------------------------PhysicalDistribute[DistributionSpecGather]

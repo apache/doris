@@ -300,18 +300,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     ASSERT_TRUE(shared_state->is_spilled);
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-
-    while (sink_local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
 
@@ -345,9 +337,6 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
 
-        while (local_state->_spill_dependency->is_blocked_by()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
         rows += block.rows();
         block.clear_column_data();
     }
@@ -413,18 +402,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     ASSERT_TRUE(shared_state->is_spilled);
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-
-    while (sink_local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
 
@@ -455,16 +436,12 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
 
     block.clear();
     bool eos = false;
-    while (!eos && dp_helper.get_spill_status().ok()) {
-        st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
-        ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
 
-        while (local_state->_spill_dependency->is_blocked_by()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
+    while (!eos && st.ok()) {
+        st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         block.clear_column_data();
     }
 
-    ASSERT_FALSE(dp_helper.get_spill_status().ok());
+    ASSERT_FALSE(st.ok());
 }
 } // namespace doris::pipeline

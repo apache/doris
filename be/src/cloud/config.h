@@ -108,6 +108,20 @@ DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
 
+DECLARE_mBool(enable_sync_tablet_delete_bitmap_by_cache);
+// 1: write v1, 2: write v2, 3: double write v1 and v2
+DECLARE_Int32(delete_bitmap_store_write_version);
+// 1: read v1, 2: read v2, 3: double read v1 and v2
+DECLARE_Int32(delete_bitmap_store_read_version);
+// for store v2
+DECLARE_mBool(enable_agg_delta_delete_bitmap_for_store_v2);
+DECLARE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb);
+DECLARE_Int32(sync_delete_bitmap_task_max_thread);
+DECLARE_mBool(enable_delete_bitmap_store_v2_check_correctness);
+
+// Skip writing empty rowset metadata to meta service
+DECLARE_mBool(skip_writing_empty_rowset_metadata);
+
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
 
@@ -127,6 +141,8 @@ DECLARE_mInt32(meta_service_conflict_error_retry_times);
 
 DECLARE_Bool(enable_check_storage_vault);
 
+DECLARE_mInt64(cloud_index_change_task_timeout_second);
+
 DECLARE_mInt64(warmup_tablet_replica_info_cache_ttl_sec);
 
 DECLARE_mInt64(warm_up_rowset_slow_log_ms);
@@ -141,6 +157,8 @@ DECLARE_mBool(enable_compaction_delay_commit_for_warm_up);
 DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
 
 DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
+
+DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

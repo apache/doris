@@ -63,6 +63,10 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     List<String> getDbNames();
 
+    default String getErrorMsg() {
+        return "";
+    }
+
     default boolean isInternalCatalog() {
         return this instanceof InternalCatalog;
     }
@@ -201,7 +205,7 @@ public interface CatalogIf<T extends DatabaseIf> {
     boolean createTable(CreateTableStmt stmt) throws UserException;
 
     void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-                   boolean force) throws DdlException;
+            boolean mustTemporary, boolean force) throws DdlException;
 
     default void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
         throw new UnsupportedOperationException("Not support rename table operation");

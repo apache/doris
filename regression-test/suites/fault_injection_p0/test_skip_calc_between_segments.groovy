@@ -156,11 +156,12 @@ suite("test_skip_calc_between_segments", "nonConcurrent") {
             unblock_publish()
 
             t1.join()
-            // ensure that we really write multi segments
-            checkSegmentNum(4, 3)
 
+            sql "set disable_nereids_rules='ELIMINATE_GROUP_BY';"
             qt_sql "select count() from (select k1,count() as cnt from ${table1} group by k1 having cnt > 1) A;"
 
+            // ensure that we really write multi segments
+            checkSegmentNum(4, 3)
         } catch(Exception e) {
             logger.info(e.getMessage())
             throw e

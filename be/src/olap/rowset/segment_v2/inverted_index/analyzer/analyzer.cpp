@@ -24,7 +24,11 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
+// clang-format off
+#include "common/compile_check_avoid_begin.h"
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#include "common/compile_check_avoid_end.h"
+// clang-format on
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
@@ -34,6 +38,7 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "util/runtime_profile.h"
 
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"

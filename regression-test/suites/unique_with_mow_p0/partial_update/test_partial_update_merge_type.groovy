@@ -47,6 +47,7 @@ suite("test_partial_update_merge_type", "p0") {
                     UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
                     PROPERTIES(
                         "replication_num" = "1",
+                        "disable_auto_compaction" = "true",
                         "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """
             sql """insert into ${tableName} select number,number,number,number from numbers("number"="9");"""
@@ -118,6 +119,7 @@ suite("test_partial_update_merge_type", "p0") {
                     PROPERTIES(
                         "replication_num" = "1",
                         "enable_unique_key_merge_on_write" = "true",
+                        "disable_auto_compaction" = "true",
                         "function_column.sequence_type" = "BIGINT",
                         "store_row_column" = "${use_row_store}"); """
             sql """insert into ${tableName}(k,c1,c2,c3,__DORIS_SEQUENCE_COL__) select number,number,number,number,1 from numbers("number"="9");"""

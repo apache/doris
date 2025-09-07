@@ -21,6 +21,7 @@
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
+#include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "vec/common/schema_util.h"
@@ -392,6 +393,11 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
     ASSERT_TRUE(out_rowset);
 
+    // check no variant subcolumns in output rowset
+    for (const auto& column : out_rowset->tablet_schema()->columns()) {
+        EXPECT_FALSE(column->is_extracted_column());
+    }
+
     // 7. check output rowset
     EXPECT_TRUE(schema_util::VariantCompactionUtil::check_path_stats(rowsets, out_rowset, _tablet)
                         .ok());
@@ -628,6 +634,11 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
     ASSERT_TRUE(out_rowset);
+
+    // check no variant subcolumns in output rowset
+    for (const auto& column : out_rowset->tablet_schema()->columns()) {
+        EXPECT_FALSE(column->is_extracted_column());
+    }
 
     // 7. check output rowset
     EXPECT_TRUE(schema_util::VariantCompactionUtil::check_path_stats(rowsets, out_rowset, _tablet)

@@ -26,6 +26,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -50,6 +51,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 CloudSnapshotMgr::CloudSnapshotMgr(CloudStorageEngine& engine) : _engine(engine) {
@@ -79,7 +81,8 @@ Status CloudSnapshotMgr::make_snapshot(int64_t target_tablet_id, StorageResource
 
         tablet_meta_pb.clear_rs_metas(); // copy the rs meta
         if (tablet_meta.all_rs_metas().size() > 0) {
-            tablet_meta_pb.mutable_inc_rs_metas()->Reserve(tablet_meta.all_rs_metas().size());
+            tablet_meta_pb.mutable_inc_rs_metas()->Reserve(
+                    cast_set<int>(tablet_meta.all_rs_metas().size()));
             for (auto& rs : tablet_meta.all_rs_metas()) {
                 rs->to_rowset_pb(tablet_meta_pb.add_rs_metas());
             }
@@ -114,9 +117,9 @@ Status CloudSnapshotMgr::commit_snapshot(int64_t tablet_id) {
     return Status::OK();
 }
 
-Status CloudSnapshotMgr::release_snapshot(int64_t tablet_id) {
+Status CloudSnapshotMgr::release_snapshot(int64_t tablet_id, bool is_completed) {
     SCOPED_ATTACH_TASK(_mem_tracker);
-    RETURN_IF_ERROR(_engine.meta_mgr().finish_restore_job(tablet_id));
+    RETURN_IF_ERROR(_engine.meta_mgr().finish_restore_job(tablet_id, is_completed));
     LOG(INFO) << "success to release snapshot. [tablet_id=" << tablet_id << "]";
     return Status::OK();
 }
@@ -166,13 +169,13 @@ Status CloudSnapshotMgr::convert_rowsets(
         LOG(INFO) << "convert delete bitmap rowset_ids. [rowset_ids_size=" << rst_ids_size << "]";
         for (size_t i = 0; i < rst_ids_size; ++i) {
             RowsetId rst_id;
-            rst_id.init(old_del_bitmap_pb.rowset_ids(i));
+            rst_id.init(old_del_bitmap_pb.rowset_ids(cast_set<int>(i)));
             auto it = rowset_id_mapping.find(rst_id);
             // It should not happen, if we can't convert some rowid in delete bitmap, the
             // data might be inconsist.
             CHECK(it != rowset_id_mapping.end())
                     << "can't find rowset_id " << rst_id.to_string() << " in convert_rowset_ids";
-            new_del_bitmap_pb->set_rowset_ids(i, it->second.to_string());
+            new_del_bitmap_pb->set_rowset_ids(cast_set<int>(i), it->second.to_string());
         }
     }
     return Status::OK();
@@ -235,7 +238,8 @@ Status CloudSnapshotMgr::_create_rowset_meta(
                 file_mapping[src_index_file] = dst_index_file;
             }
         } else {
-            if (context.tablet_schema->has_inverted_index()) {
+            if (context.tablet_schema->has_inverted_index() ||
+                context.tablet_schema->has_ann_index()) {
                 std::string src_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(src_segment_file));
                 std::string dst_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
@@ -267,4 +271,5 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

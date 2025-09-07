@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
@@ -68,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
@@ -231,6 +233,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(linearHistogram, context);
     }
 
+    default R visitAIAgg(AIAgg aiAgg, C context) {
+        return visitNullableAggregateFunction(aiAgg, context);
+    }
+
     default R visitMapAgg(MapAgg mapAgg, C context) {
         return visitAggregateFunction(mapAgg, context);
     }
@@ -273,6 +279,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitPercentile(Percentile percentile, C context) {
         return visitNullableAggregateFunction(percentile, context);
+    }
+
+    default R visitPercentileReservoir(PercentileReservoir percentileReservoir, C context) {
+        return visitNullableAggregateFunction(percentileReservoir, context);
     }
 
     default R visitPercentileApprox(PercentileApprox percentileApprox, C context) {

@@ -44,6 +44,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/functions/cast/cast_to_basic_number_common.h"
+#include "vec/functions/cast/cast_to_boolean.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -143,11 +145,175 @@ void FieldVisitorToJsonb::operator()(const Array& x, JsonbWriter* writer) const 
     writer->writeEndArray();
 }
 
+struct ConvertNumeric {
+    template <class SRC, class DST>
+    static inline bool cast(const SRC& from, DST& to);
+
+private:
+    static CastParameters create_cast_params() {
+        CastParameters params;
+        params.is_strict = false;
+        return params;
+    }
+};
+
+// cast to boolean
+template <>
+bool ConvertNumeric::cast<Int64, UInt8>(const Int64& from, UInt8& to) {
+    auto params = create_cast_params();
+    return CastToBool::from_number(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, UInt8>(const Int128& from, UInt8& to) {
+    auto params = create_cast_params();
+    return CastToBool::from_number(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, UInt8>(const Float64& from, UInt8& to) {
+    auto params = create_cast_params();
+    return CastToBool::from_number(from, to, params);
+}
+
+// cast to tinyint
+template <>
+bool ConvertNumeric::cast<Int64, Int8>(const Int64& from, Int8& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int8>(const Int128& from, Int8& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int8>(const Float64& from, Int8& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to smallint
+template <>
+bool ConvertNumeric::cast<Int64, Int16>(const Int64& from, Int16& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int16>(const Int128& from, Int16& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int16>(const Float64& from, Int16& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to int
+template <>
+bool ConvertNumeric::cast<Int64, Int32>(const Int64& from, Int32& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int32>(const Int128& from, Int32& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int32>(const Float64& from, Int32& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to bigint
+template <>
+bool ConvertNumeric::cast<Int64, Int64>(const Int64& from, Int64& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int64>(const Int128& from, Int64& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int64>(const Float64& from, Int64& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to largeint
+template <>
+bool ConvertNumeric::cast<Int64, Int128>(const Int64& from, Int128& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Int128>(const Int128& from, Int128& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Int128>(const Float64& from, Int128& to) {
+    auto params = create_cast_params();
+    return CastToInt::from_float(from, to, params);
+}
+
+// cast to float
+template <>
+bool ConvertNumeric::cast<Int64, Float32>(const Int64& from, Float32& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Float32>(const Int128& from, Float32& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Float32>(const Float64& from, Float32& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_float(from, to, params);
+}
+
+// cast to double
+template <>
+bool ConvertNumeric::cast<Int64, Float64>(const Int64& from, Float64& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Int128, Float64>(const Int128& from, Float64& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_int(from, to, params);
+}
+
+template <>
+bool ConvertNumeric::cast<Float64, Float64>(const Float64& from, Float64& to) {
+    auto params = create_cast_params();
+    return CastToFloat::from_float(from, to, params);
+}
+
 namespace {
 template <typename From, PrimitiveType T>
 Field convert_numeric_type_impl(const Field& from) {
     typename PrimitiveTypeTraits<T>::ColumnItemType result;
-    if (!accurate::convertNumeric(from.get<From>(), result)) {
+    if (!ConvertNumeric::cast(from.get<From>(), result)) {
         return {};
     }
     return Field::create_field<T>(result);
@@ -175,37 +341,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         return;
     }
     // TODO add more types
-    if (type.is_value_represented_by_number() && !is_string_type(src.get_type())) {
-        switch (type.get_primitive_type()) {
-        case PrimitiveType::TYPE_BOOLEAN:
-            return convert_numric_type<TYPE_BOOLEAN>(src, type, to);
-        case PrimitiveType::TYPE_TINYINT:
-            return convert_numric_type<TYPE_TINYINT>(src, type, to);
-        case PrimitiveType::TYPE_SMALLINT:
-            return convert_numric_type<TYPE_SMALLINT>(src, type, to);
-        case PrimitiveType::TYPE_INT:
-            return convert_numric_type<TYPE_INT>(src, type, to);
-        case PrimitiveType::TYPE_BIGINT:
-            return convert_numric_type<TYPE_BIGINT>(src, type, to);
-        case PrimitiveType::TYPE_LARGEINT:
-            return convert_numric_type<TYPE_LARGEINT>(src, type, to);
-        case PrimitiveType::TYPE_FLOAT:
-            return convert_numric_type<TYPE_FLOAT>(src, type, to);
-        case PrimitiveType::TYPE_DOUBLE:
-            return convert_numric_type<TYPE_DOUBLE>(src, type, to);
-        case PrimitiveType::TYPE_DATE:
-        case PrimitiveType::TYPE_DATETIME: {
-            /// We don't need any conversion UInt64 is under type of Date and DateTime
-            if (is_date_type(src.get_type())) {
-                *to = src;
-                return;
-            }
-            break;
-        }
-        default:
-            break;
-        }
-    } else if (is_string_type(type.get_primitive_type())) {
+    if (is_string_type(type.get_primitive_type())) {
         if (is_string_type(src.get_type())) {
             *to = src;
             return;
@@ -235,9 +371,9 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
                                "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
                                type.get_name(), src.get_type());
         return;
-    } else if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(&type)) {
+    } else if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         if (src.get_type() == PrimitiveType::TYPE_ARRAY) {
-            const Array& src_arr = src.get<Array>();
+            const auto& src_arr = src.get<Array>();
             size_t src_arr_size = src_arr.size();
             const auto& element_type = *(type_array->get_nested_type());
             Array res(src_arr_size);
@@ -250,6 +386,52 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
             }
             *to = Field::create_field<TYPE_ARRAY>(res);
             return;
+        }
+    } else if (!is_string_type(src.get_type())) {
+        switch (type.get_primitive_type()) {
+        case PrimitiveType::TYPE_BOOLEAN: {
+            convert_numric_type<TYPE_BOOLEAN>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_TINYINT: {
+            convert_numric_type<TYPE_TINYINT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_SMALLINT: {
+            convert_numric_type<TYPE_SMALLINT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_INT: {
+            convert_numric_type<TYPE_INT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_BIGINT: {
+            convert_numric_type<TYPE_BIGINT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_LARGEINT: {
+            convert_numric_type<TYPE_LARGEINT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_FLOAT: {
+            convert_numric_type<TYPE_FLOAT>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_DOUBLE: {
+            convert_numric_type<TYPE_DOUBLE>(src, type, to);
+            return;
+        }
+        case PrimitiveType::TYPE_DATE:
+        case PrimitiveType::TYPE_DATETIME: {
+            /// We don't need any conversion UInt64 is under type of Date and DateTime
+            if (is_date_type(src.get_type())) {
+                *to = src;
+                return;
+            }
+            break;
+        }
+        default:
+            break;
         }
     }
     throw doris::Exception(ErrorCode::INVALID_ARGUMENT,

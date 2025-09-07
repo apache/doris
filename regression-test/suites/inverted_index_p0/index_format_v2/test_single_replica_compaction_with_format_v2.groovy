@@ -167,7 +167,7 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // trigger compactions for all tablets in ${tableName}
-        trigger_and_wait_compaction(tableName, "cumulative")
+        trigger_and_wait_compaction(tableName, "full")
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
             backend_id = tablet.BackendId

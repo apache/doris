@@ -54,7 +54,7 @@ struct ParquetInt96 {
     int64_t lo; // time of nanoseconds in a day
     int32_t hi; // days from julian epoch
 
-    inline int64_t to_timestamp_micros() const {
+    NO_SANITIZE_UNDEFINED inline int64_t to_timestamp_micros() const {
         return (hi - JULIAN_EPOCH_OFFSET_DAYS) * MICROS_IN_DAY + lo / NANOS_PER_MICROSECOND;
     }
     inline __int128 to_int128() const {

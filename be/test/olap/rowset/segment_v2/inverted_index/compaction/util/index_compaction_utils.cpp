@@ -437,7 +437,7 @@ class IndexCompactionUtils {
         // only base compaction can handle delete predicate
         BaseCompaction compaction(*engine_ref, tablet);
         compaction._input_rowsets = std::move(rowsets);
-        compaction.build_basic_info();
+        RETURN_IF_ERROR(compaction.build_basic_info());
 
         std::vector<RowsetReaderSharedPtr> input_rs_readers;
         create_input_rowsets_readers(compaction, input_rs_readers);
@@ -465,6 +465,7 @@ class IndexCompactionUtils {
         if (custom_check) {
             custom_check(compaction, ctx);
         }
+        std::cout << "finish compaction" << std::endl;
 
         rowset_ptr = std::move(compaction._output_rowset);
         return Status::OK();
@@ -481,7 +482,7 @@ class IndexCompactionUtils {
     }
 
     static void check_idx_file_writer_closed(BaseBetaRowsetWriter* writer, bool closed) {
-        for (const auto& [seg_id, idx_file_writer] : writer->inverted_index_file_writers()) {
+        for (const auto& [seg_id, idx_file_writer] : writer->index_file_writers()) {
             EXPECT_EQ(idx_file_writer->_closed, closed);
         }
     }

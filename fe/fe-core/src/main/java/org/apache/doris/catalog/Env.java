@@ -26,29 +26,18 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RecoverPartitionStmt;
-import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -188,9 +177,11 @@ import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
@@ -307,6 +298,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
+import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
@@ -752,7 +744,7 @@ public class Env {
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
         this.feSessionMgr = new FESessionMgr();
         this.temporaryTableMgr = new TemporaryTableMgr();
-        this.aliveSessionSet = new HashSet<>();
+        this.aliveSessionSet = Sets.newConcurrentHashSet();
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
@@ -3406,24 +3398,12 @@ public class Env {
         }
     }
 
-    public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverDatabase(recoverStmt);
-    }
-
     public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
         getInternalCatalog().recoverDatabase(dbName, dbId, newDbName);
     }
 
-    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverTable(recoverStmt);
-    }
-
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
         getInternalCatalog().recoverTable(dbName, tableName, newTableName, tableId);
-    }
-
-    public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverPartition(recoverStmt);
     }
 
     public void recoverPartition(String dbName, String tableName, String partitionName,
@@ -4347,7 +4327,7 @@ public class Env {
      *
      * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
      */
-    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
+    public static void getDdlStmt(Command command, String dbName, TableIf table, List<String> createTableStmt,
                                   List<String> addPartitionStmt, List<String> createRollupStmt,
                                   boolean separatePartition,
                                   boolean hidePassword, boolean getDdlForLike, long specificVersion,
@@ -4377,8 +4357,8 @@ public class Env {
         }
 
         // create table like a temporary table or create temporary table like a table
-        if (ddlStmt instanceof CreateTableLikeStmt) {
-            if (((CreateTableLikeStmt) ddlStmt).isTemp()) {
+        if (command instanceof CreateTableLikeCommand) {
+            if (((CreateTableLikeCommand) command).getInfo().isTemp()) {
                 sb.append("TEMPORARY ");
             }
         } else if (table.isTemporary()) {
@@ -4480,12 +4460,10 @@ public class Env {
             sb.append("\n").append(distributionInfo.toSql());
 
             // rollup index
-            if (ddlStmt instanceof CreateTableLikeStmt) {
-
-                CreateTableLikeStmt stmt = (CreateTableLikeStmt) ddlStmt;
-
-                ArrayList<String> rollupNames = stmt.getRollupNames();
-                boolean withAllRollup = stmt.isWithAllRollup();
+            if (command instanceof CreateTableLikeCommand) {
+                CreateTableLikeInfo info = ((CreateTableLikeCommand) command).getInfo();
+                ArrayList<String> rollupNames = info.getRollupNames();
+                boolean withAllRollup = info.isWithAllRollup();
                 List<Long> addIndexIdList = Lists.newArrayList();
 
                 if (!CollectionUtils.isEmpty(rollupNames)) {
@@ -4776,7 +4754,8 @@ public class Env {
         if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
                 .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             Table table = info.getTable();
-            getInternalCatalog().replayCreateTable(info.getDbName(), table);
+            long dbId = info.getDbId();
+            getInternalCatalog().replayCreateTable(info.getDbName(), dbId, table);
             if (table instanceof MTMV) {
                 ((MTMV) table).compatible(Env.getCurrentEnv().getCatalogMgr());
             }
@@ -4800,28 +4779,20 @@ public class Env {
         }
         DropMTMVInfo dropMTMVInfo = command.getDropMTMVInfo();
         dropTable(dropMTMVInfo.getCatalogName(), dropMTMVInfo.getDbName(), dropMTMVInfo.getTableName(), false,
-                true, dropMTMVInfo.isIfExists(), true);
-    }
-
-    public void dropTable(DropTableStmt stmt) throws DdlException {
-        if (stmt == null) {
-            throw new DdlException("DropTableStmt is null");
-        }
-        dropTable(stmt.getCatalogName(), stmt.getDbName(), stmt.getTableName(), stmt.isView(),
-                stmt.isMaterializedView(), stmt.isSetIfExists(), stmt.isForceDrop());
+                true, dropMTMVInfo.isIfExists(), false, true);
     }
 
     public void dropTable(String catalogName, String dbName, String tableName, boolean isView, boolean isMtmv,
-                          boolean ifExists, boolean force) throws DdlException {
+                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, force);
+        catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, mustTemporary, force);
     }
 
     public void dropView(String catalogName, String dbName, String tableName, boolean ifExists) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.dropTable(dbName, tableName, true, false, ifExists, false);
+        catalogIf.dropTable(dbName, tableName, true, false, ifExists,  false, false);
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -5391,14 +5362,6 @@ public class Env {
         return shortKeyColumnCount;
     }
 
-    /*
-     * used for handling AlterTableStmt (for client is the ALTER TABLE command).
-     * including SchemaChangeHandler and RollupHandler
-     */
-    public void alterTable(AlterTableStmt stmt) throws UserException {
-        this.alter.processAlterTable(stmt);
-    }
-
     public void alterTable(AlterTableCommand command) throws UserException {
         this.alter.processAlterTable(command);
     }
@@ -5408,11 +5371,6 @@ public class Env {
      */
     public void alterView(AlterViewCommand command) throws UserException {
         this.alter.processAlterView(command, ConnectContext.get());
-    }
-
-    public void createMaterializedView(CreateMaterializedViewStmt stmt)
-            throws AnalysisException, DdlException, MetaNotFoundException {
-        this.alter.processCreateMaterializedView(stmt);
     }
 
     public void createMaterializedView(CreateMaterializedViewCommand command)
@@ -6596,7 +6554,7 @@ public class Env {
         }
     }
 
-    public void setConfig(AdminSetFrontendConfigCommand command) throws Exception {
+    public void setConfig(AdminSetFrontendConfigCommand command, boolean isProxy) throws Exception {
         Map<String, String> configs = command.getConfigs();
         Preconditions.checkState(configs.size() == 1);
 
@@ -6608,7 +6566,8 @@ public class Env {
             }
         }
 
-        if (command.isApplyToAll()) {
+        // if this request already come from other Frontend, do not forward it again
+        if (!isProxy && command.isApplyToAll()) {
             for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
                 if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
                     continue;
@@ -6851,10 +6810,6 @@ public class Env {
         }
     }
 
-    public void installPlugin(InstallPluginStmt stmt) throws UserException, IOException {
-        pluginMgr.installPlugin(stmt);
-    }
-
     public long savePlugins(CountingDataOutputStream dos, long checksum) throws IOException {
         Env.getCurrentPluginMgr().write(dos);
         return checksum;
@@ -6872,14 +6827,6 @@ public class Env {
         } catch (Exception e) {
             throw new MetaNotFoundException(e);
         }
-    }
-
-    public void uninstallPlugin(UninstallPluginStmt stmt) throws IOException, UserException {
-        PluginInfo info = pluginMgr.uninstallPlugin(stmt.getPluginName());
-        if (null != info) {
-            editLog.logUninstallPlugin(info);
-        }
-        LOG.info("uninstall plugin = " + stmt.getPluginName());
     }
 
     public void uninstallPlugin(UninstallPluginCommand cmd) throws IOException, UserException {
@@ -7074,18 +7021,6 @@ public class Env {
         }
 
         getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
-    }
-
-    public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
-        String database = stmt.getDatabase();
-        String table = stmt.getTable();
-        long partitionId = stmt.getPartitionId();
-        long visibleVersion = stmt.getVisibleVersion();
-        int setSuccess = setPartitionVersionInternal(database, table, partitionId, visibleVersion, false);
-        if (setSuccess == -1) {
-            throw new DdlException("Failed to set partition visible version to " + visibleVersion + ". " + "Partition "
-                    + partitionId + " not exists. Database " + database + ", Table " + table + ".");
-        }
     }
 
     public void replaySetPartitionVersion(SetPartitionVersionOperationLog log) throws DdlException {

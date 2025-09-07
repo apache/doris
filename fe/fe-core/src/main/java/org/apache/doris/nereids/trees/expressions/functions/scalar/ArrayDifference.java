@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -67,6 +68,19 @@ public class ArrayDifference extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private ArrayDifference(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    /**
+     * array_difference needs to calculate the difference of the elements in the array.
+     * so the element type must be numeric, boolean or string.
+     */
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (child(0).getDataType().isArrayType()
+                && !((ArrayType) child(0).getDataType()).getItemType().canBeCalculatedInArray()) {
+            throw new AnalysisException("array_difference does not support type "
+                    + child(0).getDataType().toString() + ", expression is " + toSql());
+        }
     }
 
     /**

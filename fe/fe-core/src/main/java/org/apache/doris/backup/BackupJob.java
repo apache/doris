@@ -1025,7 +1025,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
-                    info.getTabletId(), info.getPath());
+                    info.getTabletId(), info.getPath(), false/* no used */);
             batchTask.addTask(releaseTask);
         }
         AgentTaskExecutor.submit(batchTask);
@@ -1163,20 +1163,12 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // Avoid loading expired meta.
         long expiredAt = createTime + timeoutMs;
         if (System.currentTimeMillis() >= expiredAt) {
-            return new Snapshot(label, new byte[0], new byte[0], expiredAt, commitSeq);
+            return new Snapshot(label, null, null, expiredAt, commitSeq);
         }
 
-        try {
-            File metaInfoFile = new File(localMetaInfoFilePath);
-            File jobInfoFile = new File(localJobInfoFilePath);
-            byte[] metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
-            byte[] jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
-            return new Snapshot(label, metaInfoBytes, jobInfoBytes, expiredAt, commitSeq);
-        } catch (IOException e) {
-            LOG.warn("failed to load meta info and job info file, meta info file {}, job info file {}: ",
-                    localMetaInfoFilePath, localJobInfoFilePath, e);
-            return null;
-        }
+        File metaInfoFile = new File(localMetaInfoFilePath);
+        File jobInfoFile = new File(localJobInfoFilePath);
+        return new Snapshot(label, metaInfoFile, jobInfoFile, expiredAt, commitSeq);
     }
 
     public synchronized List<String> getInfo() {

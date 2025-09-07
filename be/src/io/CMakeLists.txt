@@ -25,6 +25,13 @@ file(GLOB_RECURSE IO_FILES CONFIGURE_DEPENDS *.cpp)
 if(BUILD_AZURE STREQUAL "OFF")
     list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/azure_obj_storage_client.cpp")
 endif()
+
+if(NOT "${WITH_TDE_DIR}" STREQUAL "")
+    list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/encrypted_fs_factory.cpp")
+    file(GLOB_RECURSE EXTRA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../${WITH_TDE_DIR}/*.cpp")
+    list(APPEND IO_FILES ${EXTRA_SOURCES})
+endif()
+
 list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/fs_benchmark_tool.cpp")
 
 add_library(IO STATIC ${IO_FILES})
@@ -45,6 +52,13 @@ if (${BUILD_FS_BENCHMARK} STREQUAL "ON")
         ${DORIS_LINK_LIBS}
         benchmark
     )
+
+    if (COMPILER_CLANG)
+        target_compile_options(fs_benchmark_tool PRIVATE
+        -Wno-implicit-int-conversion
+        -Wno-shorten-64-to-32
+        )
+    endif()
 
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
     install(TARGETS fs_benchmark_tool DESTINATION ${OUTPUT_DIR}/lib/)

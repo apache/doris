@@ -35,6 +35,7 @@ import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
@@ -145,6 +146,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String DML_PLAN_RETRY_TIMES = "DML_PLAN_RETRY_TIMES";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
+    public static final String ENABLE_INSERT_VALUE_AUTO_CAST = "enable_insert_value_auto_cast";
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
@@ -277,6 +279,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
 
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+
+    // Force the number of scanners to equal the number of segments in OLAP scan when parallel scan is enabled.
+    public static final String OPTIMIZE_INDEX_SCAN_PARALLELISM =
+            "optimize_index_scan_parallelism";
 
     // Limit the max count of scanners to prevent generate too many scanners.
     public static final String PARALLEL_SCAN_MAX_SCANNERS_COUNT = "parallel_scan_max_scanners_count";
@@ -616,6 +622,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
+    public static final String PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY
+            = "pre_materialized_view_rewrite_strategy";
+
     public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
             = "enable_dml_materialized_view_rewrite";
 
@@ -785,12 +794,20 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
-    public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
+    public static final String DEFAULT_AI_RESOURCE = "default_ai_resource";
+    public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
+    public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
+    public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
 
     public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
     public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
                                                             "default_variant_enable_typed_paths_to_sparse";
+
+    public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+                                                            "default_variant_max_sparse_column_statistics_size";
+    public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
+    public static final String AGG_PHASE = "agg_phase";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1132,6 +1149,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_INSERT_VALUE_AUTO_CAST, needForward = true, description = {
+            "INSERT VALUE 语句是否自动类型转换。当前只针对长字符串自动截短。默认开。",
+            "INSERT VALUE statement whether to automatically type cast. Only use for truncate long string. "
+                    + "ON by default."
+    })
+    public boolean enableInsertValueAutoCast = true;
+
     @VariableMgr.VarAttr(name = INSERT_MAX_FILTER_RATIO, needForward = true)
     public double insertMaxFilterRatio = 1.0;
 
@@ -1236,6 +1260,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
     private boolean enableParallelScan = true;
+
+    @VariableMgr.VarAttr(name = OPTIMIZE_INDEX_SCAN_PARALLELISM,
+            needForward = true,
+            description = {"优化索引扫描时的Scan并行度，该优化目前只对 ann topn 查询生效",
+                "Optimize the Scan parallelism when indexing, this optimization only works for ann topn queries."})
+    private boolean optimizeIndexScanParallelism = true;
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1384,10 +1414,23 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
-    @VariableMgr.VarAttr(name = "enable_topn_lazy_materialization", needForward = true,
+    @VariableMgr.VarAttr(name = "topn_lazy_materialization_threshold", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
-    public boolean enableTopnLazyMaterialization = true;
+    public int topNLazyMaterializationThreshold = 512 * 1024;
+
+    public boolean enableTopnLazyMaterialization() {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold > 0;
+    }
+
+    public static int getTopNLazyMaterializationThreshold() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().topNLazyMaterializationThreshold;
+        }
+    }
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
@@ -1669,7 +1712,7 @@ public class SessionVariable implements Serializable, Writable {
     private double leftSemiOrAntiProbeFactor = 0.05;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
-    private double broadcastRowCountLimit = 30000000;
+    private double broadcastRowCountLimit = 30_000_000;
 
     @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE, needForward = true)
     private double broadcastHashtableMemLimitPercentage = 0.2;
@@ -2278,6 +2321,18 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = true;
 
+    @VariableMgr.VarAttr(name = PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY, needForward = true, fuzzy = true,
+            description = {"在RBO阶段基于结构信息的物化视图透明改写的策略，FORCE_IN_ROB ：强制在 RBO 阶段透明改写，"
+                    + "TRY_IN_RBO ：如果在NEED_PRE_REWRITE_RULE_TYPES中的规则改写成功了，那么就会尝试在 RBO 阶段透明改写"
+                    + "NOT_IN_RBO ：不尝试在 RBO 阶段改写，只在 CBO 阶段改写",
+                    "Whether to enable pre materialized view rewriting based on struct info,"
+                            + "FORCE_IN_RBO : Force transparent rewriting in the RBO phase,"
+                            + "TRY_IN_RBO : Attempt transparent rewriting in the RBO phase "
+                            + "if rules in NEED_PRE_REWRITE_RULE_TYPES, "
+                            + "NOT_IN_RBO : Do not attempt rewriting in the RBO phase; apply only during the CBO phase"
+            })
+    public String preMaterializedViewRewriteStrategy = "TRY_IN_RBO";
+
     @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
             description = {"是否允许修改物化视图的数据",
                     "Is it allowed to modify the data of the materialized view"})
@@ -2404,6 +2459,28 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
             description = {"cast使用严格模式", "Use strict mode for cast"})
     public boolean enableStrictCast = false;
+
+    @VariableMgr.VarAttr(name = MULTI_DISTINCT_STRATEGY, description = {"用于控制在包含多个 DISTINCT 函数的 SQL 查询中所采用的"
+            + "执行策略。默认值为 0，表示由系统自动选择最优策略；设为 1 表示强制使用 MultiDistinct 方式处理；"
+            + "设为 2 表示强制采用 CTE 拆分方式执行。",
+            "Used to control the execution strategy used in SQL queries containing multiple DISTINCT "
+                    + "functions. The default value is 0, which means that the system automatically selects "
+                    + "the optimal strategy; setting it to 1 means forcing the use of MultiDistinct processing;"
+                    + " setting it to 2 means forcing the use of CTE splitting execution"},
+            checker = "checkMultiDistinctStrategy")
+    public int multiDistinctStrategy = 0;
+
+    @VariableMgr.VarAttr(name = AGG_PHASE, description = {"用于控制聚合查询的执行阶段划分策略。默认值为 0，"
+            + "表示由系统自动选择最优执行阶段；设为 1 至 4 之间的值则表示强制指定使用对应 1 至 4 阶段进行聚合计算。",
+            "Controls the execution phase strategy for aggregate queries. The default value is 0,"
+                    + "which means the system automatically selects the optimal execution phase. Setting this value"
+                    + "between 1 and 4 forces the use of phases 1 to 4 for aggregate calculations."},
+            checker = "checkAggPhase")
+    public int aggPhase = 0;
+
+    public void setAggPhase(int phase) {
+        aggPhase = phase;
+    }
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
@@ -2766,13 +2843,13 @@ public class SessionVariable implements Serializable, Writable {
     }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
     public int skewRewriteJoinSaltExplodeFactor = 0;
 
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_RESOURCE, needForward = true,
+    @VariableMgr.VarAttr(name = DEFAULT_AI_RESOURCE, needForward = true,
             description = {
-                    "当函数参数未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
-                    "Defines the default LLM resource to be used when no specific LLM resource is specified "
+                    "当函数参数未指定AI Resource时，系统将默认使用此变量定义的 Resource。",
+                    "Defines the default AI resource to be used when no specific AI resource is specified "
                             + "in the function arguments."
             })
-    public String defaultLLMResource = "";
+    public String defaultAIResource = "";
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -2790,6 +2867,21 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableAddIndexForNewData = false;
 
+    @VariableMgr.VarAttr(name = HNSW_EF_SEARCH, needForward = true,
+            description = {"HNSW索引的EF搜索参数，控制搜索的精度和速度",
+                    "HNSW index EF search parameter, controls the precision and speed of the search"})
+    public int hnswEFSearch = 32;
+
+    @VariableMgr.VarAttr(name = HNSW_CHECK_RELATIVE_DISTANCE, needForward = true,
+            description = {"是否启用相对距离检查机制，以提升HNSW搜索的准确性",
+                    "Enable relative distance checking to improve HNSW search accuracy"})
+    public boolean hnswCheckRelativeDistance = true;
+
+    @VariableMgr.VarAttr(name = HNSW_BOUNDED_QUEUE, needForward = true,
+            description = {"是否使用有界优先队列来优化HNSW的搜索性能",
+                    "Whether to use a bounded priority queue to optimize HNSW search performance"})
+    public boolean hnswBoundedQueue = true;
+
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
             needForward = true,
@@ -2804,6 +2896,13 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public boolean defaultEnableTypedPathsToSparse = false;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            needForward = true,
+            fuzzy = true
+    )
+    public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2826,6 +2925,7 @@ public class SessionVariable implements Serializable, Writable {
         // 10MB = 10 * 1024 * 1024 bytes
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
+        this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -2929,6 +3029,21 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSpill = randomInt % 4 != 0;
         this.enableForceSpill = randomInt % 3 == 0;
         this.enableReserveMemory = randomInt % 5 != 0;
+
+        // random pre materialized view rewrite strategy
+        randomInt = random.nextInt(3);
+        switch (randomInt % 3) {
+            case 0:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.NOT_IN_RBO.name();
+                break;
+            case 1:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.TRY_IN_RBO.name();
+                break;
+            case 2:
+            default:
+                this.preMaterializedViewRewriteStrategy = PreRewriteStrategy.FORCE_IN_RBO.name();
+                break;
+        }
         setFuzzyForCatalog(random);
     }
 
@@ -3465,6 +3580,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableInsertStrict(boolean enableInsertStrict) {
         this.enableInsertStrict = enableInsertStrict;
+    }
+
+    public boolean getEnableInsertValueAutoCast() {
+        return enableInsertValueAutoCast;
     }
 
     public double getInsertMaxFilterRatio() {
@@ -4377,6 +4496,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
+        tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
 
@@ -4431,6 +4551,12 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
         tResult.setEnableStrictCast(enableStrictCast);
+        tResult.setNewVersionUnixTimestamp(true); // once FE upgraded, always use new version
+
+        tResult.setHnswEfSearch(hnswEFSearch);
+        tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
+        tResult.setHnswBoundedQueue(hnswBoundedQueue);
+
         return tResult;
     }
 
@@ -4898,6 +5024,28 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkAggPhase(String aggPhaseStr) {
+        try {
+            long aggPhase = Long.parseLong(aggPhaseStr);
+            if (aggPhase < 0 || aggPhase > 4) {
+                throw new InvalidParameterException(AGG_PHASE + " should be between 0 and 4");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(AGG_PHASE + " must be a valid number between 0 and 4");
+        }
+    }
+
+    public void checkMultiDistinctStrategy(String multiDistinctStrategyStr) {
+        try {
+            long aggPhase = Long.parseLong(multiDistinctStrategyStr);
+            if (aggPhase < 0 || aggPhase > 2) {
+                throw new InvalidParameterException(MULTI_DISTINCT_STRATEGY + " should be between 0 and 2");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(MULTI_DISTINCT_STRATEGY + " must be a valid number between 0 and 2");
+        }
+    }
+
     public boolean isEnableInsertGroupCommit() {
         return Config.wait_internal_group_commit_finish
                 || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.ASYNC_MODE
@@ -4921,6 +5069,15 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
+    }
+
+
+    public String getPreMaterializedViewRewriteStrategy() {
+        return preMaterializedViewRewriteStrategy;
+    }
+
+    public void setPreMaterializedViewRewriteStrategy(String preMaterializedViewRewriteStrategy) {
+        this.preMaterializedViewRewriteStrategy = preMaterializedViewRewriteStrategy;
     }
 
     public boolean isEnableDmlMaterializedViewRewrite() {
@@ -5149,6 +5306,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantMaxSubcolumnsCount() {
         return defaultVariantMaxSubcolumnsCount;
+    }
+
+    public int getDefaultVariantMaxSparseColumnStatisticsSize() {
+        return defaultVariantMaxSparseColumnStatisticsSize;
     }
 
     public static boolean isFeDebug() {

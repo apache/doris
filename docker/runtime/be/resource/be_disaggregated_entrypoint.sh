@@ -84,9 +84,9 @@ update_conf_from_configmap()
             mv -f $tgt ${tgt}.bak
         fi
         if [[ "$conffile" == "be.conf" ]]; then
-             cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$file
-             echo "deploy_mode = cloud" >> $DORIS_HOME/conf/$file
-             ontinue
+             cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$conffile
+             echo "deploy_mode = cloud" >> $DORIS_HOME/conf/$conffile
+             continue
          fi
         ln -sfT $CONFIGMAP_MOUNT_PATH/$conffile $tgt
     done
@@ -136,7 +136,7 @@ parse_confval_from_conf()
     # a naive script to grep given confkey from fe conf file
     # assume conf format: ^\s*<key>\s*=\s*<value>\s*$
     local confkey=$1
-    local confvalue=`grep "\<$confkey\>" $BE_CONFIG | grep -v '^\s*#' | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
+    local confvalue=`grep "^\s*$confkey" $BE_CONFIG | grep -v '^\s*#' | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
     echo "$confvalue"
 }
 
@@ -367,6 +367,19 @@ mount_kerberos_config()
     done
 }
 
+function post_exit() {
+    local log_dir=`parse_confval_from_conf "LOG_DIR"`
+    if [[ x"$log_dir" == "x" ]]; then
+        log_dir="/opt/apache-doris/be/log"
+    fi
+
+    if ls | grep "core"  &>/dev/null; then
+        local log_replace_var_dir=`eval echo ${log_dir}`
+        `ls $log_replace_var_dir | grep "core" | xargs -I {} rm $log_replace_var_dir/{}`
+        `ls /opt/apache-doris/ | grep "core" | xargs -I {} mv {} $log_replace_var_dir`
+    fi
+}
+
 
 # scripts start position.
 fe_addrs=$1
@@ -398,7 +411,9 @@ collect_env_info
 #add_self $fe_addr || exit $?
 check_and_register $fe_addrs
 ./doris-debug --component be
+ulimit -c unlimited
 log_stderr "run start_be.sh"
 # the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal
-# sine doris 2.0.2 ,doris start with : start_xx.sh --console  doc: https://doris.apache.org/docs/dev/install/standard-deployment/#version--202
 $DORIS_HOME/bin/start_be.sh --console
+log_stderr "run post_exit"
+post_exit

@@ -53,7 +53,7 @@ struct TabletWithVersion {
 enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
-class BaseTablet {
+class BaseTablet : public std::enable_shared_from_this<BaseTablet> {
 public:
     explicit BaseTablet(TabletMetaSharedPtr tablet_meta);
     virtual ~BaseTablet();
@@ -92,8 +92,6 @@ public:
     std::shared_mutex& get_header_lock() { return _meta_lock; }
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
-
-    Status update_by_least_common_schema(const TabletSchemaSPtr& update_schema);
 
     TabletSchemaSPtr tablet_schema() const {
         std::shared_lock rlock(_meta_lock);
@@ -296,12 +294,6 @@ public:
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                         int64_t limit);
 
-    // Return the merged schema of all rowsets
-    virtual TabletSchemaSPtr merged_tablet_schema() const {
-        std::shared_lock rlock(_meta_lock);
-        return _max_version_schema;
-    }
-
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {
         std::shared_lock rlock(_meta_lock);
@@ -329,6 +321,9 @@ public:
     virtual Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) {
         return Status::OK();
     }
+
+    void prefill_dbm_agg_cache(const RowsetSharedPtr& rowset, int64_t version);
+    void prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& output_rowset);
 
 protected:
     // Find the missed versions until the spec_version.

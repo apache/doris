@@ -71,6 +71,7 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
 } // namespace orc
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // exception safe
 Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
@@ -162,9 +163,12 @@ public:
                 compressed_buf.size = max_len;
             }
 
-            size_t compressed_len =
-                    LZ4_compress_fast_continue(context->ctx, input.data, compressed_buf.data,
-                                               input.size, compressed_buf.size, ACCELARATION);
+            // input.size is aready checked before;
+            // compressed_buf.size is got from max_compressed_len, which is
+            // the return value of LZ4_compressBound, so it is safe to cast to int
+            size_t compressed_len = LZ4_compress_fast_continue(
+                    context->ctx, input.data, compressed_buf.data, static_cast<int>(input.size),
+                    static_cast<int>(compressed_buf.size), ACCELARATION);
             if (compressed_len == 0) {
                 compress_failed = true;
                 return Status::InvalidArgument("Output buffer's capacity is not enough, size={}",
@@ -184,8 +188,8 @@ public:
     }
 
     Status decompress(const Slice& input, Slice* output) override {
-        auto decompressed_len =
-                LZ4_decompress_safe(input.data, output->data, input.size, output->size);
+        auto decompressed_len = LZ4_decompress_safe(
+                input.data, output->data, cast_set<int>(input.size), cast_set<int>(output->size));
         if (decompressed_len < 0) {
             return Status::InternalError("fail to do LZ4 decompress, error={}", decompressed_len);
         }
@@ -193,7 +197,7 @@ public:
         return Status::OK();
     }
 
-    size_t max_compressed_len(size_t len) override { return LZ4_compressBound(len); }
+    size_t max_compressed_len(size_t len) override { return LZ4_compressBound(cast_set<int>(len)); }
 
 private:
     // reuse LZ4 compress stream
@@ -273,11 +277,11 @@ public:
         size_t total_output_len = 4 + 4 * buffers.size() + out_len;
         output->resize(total_output_len);
         char* output_buffer = (char*)output->data();
-        BigEndian::Store32(output_buffer, input.get_size());
+        BigEndian::Store32(output_buffer, cast_set<uint32_t>(input.get_size()));
         output_buffer += 4;
         for (const auto& buffer : buffers) {
             auto slice = buffer.slice();
-            BigEndian::Store32(output_buffer, slice.get_size());
+            BigEndian::Store32(output_buffer, cast_set<uint32_t>(slice.get_size()));
             output_buffer += 4;
             memcpy(output_buffer, slice.get_data(), slice.get_size());
             output_buffer += slice.get_size();
@@ -294,8 +298,9 @@ public:
         size_t more_input_bytes = 0;
         size_t more_output_bytes = 0;
         bool stream_end = false;
-        auto st = _decompressor->decompress((uint8_t*)input.data, input.size, &input_bytes_read,
-                                            (uint8_t*)output->data, output->size, &decompressed_len,
+        auto st = _decompressor->decompress((uint8_t*)input.data, cast_set<uint32_t>(input.size),
+                                            &input_bytes_read, (uint8_t*)output->data,
+                                            cast_set<uint32_t>(output->size), &decompressed_len,
                                             &stream_end, &more_input_bytes, &more_output_bytes);
         //try decompress use hadoopLz4 ,if failed fall back lz4.
         return (st != Status::OK() || stream_end != true)
@@ -612,7 +617,8 @@ public:
             }
 
             size_t compressed_len = LZ4_compress_HC_continue(
-                    context->ctx, input.data, compressed_buf.data, input.size, compressed_buf.size);
+                    context->ctx, input.data, compressed_buf.data, cast_set<int>(input.size),
+                    static_cast<int>(compressed_buf.size));
             if (compressed_len == 0) {
                 compress_failed = true;
                 return Status::InvalidArgument("Output buffer's capacity is not enough, size={}",
@@ -632,8 +638,8 @@ public:
     }
 
     Status decompress(const Slice& input, Slice* output) override {
-        auto decompressed_len =
-                LZ4_decompress_safe(input.data, output->data, input.size, output->size);
+        auto decompressed_len = LZ4_decompress_safe(
+                input.data, output->data, cast_set<int>(input.size), cast_set<int>(output->size));
         if (decompressed_len < 0) {
             return Status::InvalidArgument(
                     "destination buffer is not large enough or the source stream is detected "
@@ -644,7 +650,7 @@ public:
         return Status::OK();
     }
 
-    size_t max_compressed_len(size_t len) override { return LZ4_compressBound(len); }
+    size_t max_compressed_len(size_t len) override { return LZ4_compressBound(cast_set<int>(len)); }
 
 private:
     Status _acquire_compression_ctx(std::unique_ptr<Context>& out) {
@@ -667,7 +673,7 @@ private:
     }
     void _release_compression_ctx(std::unique_ptr<Context> context) {
         DCHECK(context);
-        LZ4_resetStreamHC_fast(context->ctx, _compression_level);
+        LZ4_resetStreamHC_fast(context->ctx, static_cast<int>(_compression_level));
         std::lock_guard<std::mutex> l(_ctx_mutex);
         _ctx_pool.push_back(std::move(context));
     }
@@ -823,11 +829,11 @@ public:
         size_t total_output_len = 4 + 4 * buffers.size() + out_len;
         output->resize(total_output_len);
         char* output_buffer = (char*)output->data();
-        BigEndian::Store32(output_buffer, input.get_size());
+        BigEndian::Store32(output_buffer, cast_set<uint32_t>(input.get_size()));
         output_buffer += 4;
         for (const auto& buffer : buffers) {
             auto slice = buffer.slice();
-            BigEndian::Store32(output_buffer, slice.get_size());
+            BigEndian::Store32(output_buffer, cast_set<uint32_t>(slice.get_size()));
             output_buffer += 4;
             memcpy(output_buffer, slice.get_data(), slice.get_size());
             output_buffer += slice.get_size();
@@ -887,13 +893,13 @@ public:
         }
         // we assume that output is e
         zstrm.next_out = (Bytef*)output->data();
-        zstrm.avail_out = output->size();
+        zstrm.avail_out = cast_set<decltype(zstrm.avail_out)>(output->size());
         for (int i = 0; i < inputs.size(); ++i) {
             if (inputs[i].size == 0) {
                 continue;
             }
             zstrm.next_in = (Bytef*)inputs[i].data;
-            zstrm.avail_in = inputs[i].size;
+            zstrm.avail_in = cast_set<decltype(zstrm.avail_in)>(inputs[i].size);
             int flush = (i == (inputs.size() - 1)) ? Z_FINISH : Z_NO_FLUSH;
 
             zres = deflate(&zstrm, flush);
@@ -947,9 +953,9 @@ public:
     Status compress(const Slice& input, faststring* output) override {
         size_t max_len = max_compressed_len(input.size);
         output->resize(max_len);
-        uint32_t size = output->size();
+        auto size = cast_set<uint32_t>(output->size());
         auto bzres = BZ2_bzBuffToBuffCompress((char*)output->data(), &size, (char*)input.data,
-                                              input.size, 9, 0, 0);
+                                              cast_set<uint32_t>(input.size), 9, 0, 0);
         if (bzres == BZ_MEM_ERROR) {
             throw Exception(
                     Status::MemoryLimitExceeded("Fail to do Bzip2 compress, ret={}", bzres));
@@ -981,13 +987,13 @@ public:
         }
         // we assume that output is e
         bzstrm.next_out = (char*)output->data();
-        bzstrm.avail_out = output->size();
+        bzstrm.avail_out = cast_set<uint32_t>(output->size());
         for (int i = 0; i < inputs.size(); ++i) {
             if (inputs[i].size == 0) {
                 continue;
             }
             bzstrm.next_in = (char*)inputs[i].data;
-            bzstrm.avail_in = inputs[i].size;
+            bzstrm.avail_in = cast_set<uint32_t>(inputs[i].size);
             int flush = (i == (inputs.size() - 1)) ? BZ_FINISH : BZ_RUN;
 
             bzres = BZ2_bzCompress(&bzstrm, flush);
@@ -1132,7 +1138,7 @@ public:
                 bool finished = false;
                 do {
                     // do compress
-                    auto ret = ZSTD_compressStream2(context->ctx, &out_buf, &in_buf, mode);
+                    ret = ZSTD_compressStream2(context->ctx, &out_buf, &in_buf, mode);
 
                     if (ZSTD_isError(ret)) {
                         compress_failed = true;
@@ -1282,9 +1288,9 @@ public:
         }
 
         z_strm.next_in = (Bytef*)input.get_data();
-        z_strm.avail_in = input.get_size();
+        z_strm.avail_in = cast_set<decltype(z_strm.avail_in)>(input.get_size());
         z_strm.next_out = (Bytef*)output->data();
-        z_strm.avail_out = output->size();
+        z_strm.avail_out = cast_set<decltype(z_strm.avail_out)>(output->size());
 
         zres = deflate(&z_strm, Z_FINISH);
         if (zres != Z_OK && zres != Z_STREAM_END) {
@@ -1323,13 +1329,13 @@ public:
 
         // we assume that output is e
         zstrm.next_out = (Bytef*)output->data();
-        zstrm.avail_out = output->size();
+        zstrm.avail_out = cast_set<decltype(zstrm.avail_out)>(output->size());
         for (int i = 0; i < inputs.size(); ++i) {
             if (inputs[i].size == 0) {
                 continue;
             }
             zstrm.next_in = (Bytef*)inputs[i].data;
-            zstrm.avail_in = inputs[i].size;
+            zstrm.avail_in = cast_set<decltype(zstrm.avail_in)>(inputs[i].size);
             int flush = (i == (inputs.size() - 1)) ? Z_FINISH : Z_NO_FLUSH;
 
             zres = deflate(&zstrm, flush);
@@ -1365,9 +1371,9 @@ public:
 
         // 1. set input and output
         z_strm.next_in = reinterpret_cast<Bytef*>(input.data);
-        z_strm.avail_in = input.size;
+        z_strm.avail_in = cast_set<decltype(z_strm.avail_in)>(input.size);
         z_strm.next_out = reinterpret_cast<Bytef*>(output->data);
-        z_strm.avail_out = output->size;
+        z_strm.avail_out = cast_set<decltype(z_strm.avail_out)>(output->size);
 
         if (z_strm.avail_out > 0) {
             // We only support non-streaming use case  for block decompressor
@@ -1414,7 +1420,7 @@ public:
             // http://compgroups.net/comp.unix.programmer/gzip-compressing-an-in-memory-string-usi/54854
             // To have a safe upper bound for "wrapper variations", we add 32 to
             // estimate
-            int upper_bound = deflateBound(&zstrm, len) + 32;
+            auto upper_bound = deflateBound(&zstrm, len) + 32;
             return upper_bound;
         }
     }
@@ -1668,4 +1674,5 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

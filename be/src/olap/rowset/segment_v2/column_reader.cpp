@@ -38,6 +38,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_reader.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -82,6 +83,7 @@
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
 
 namespace doris::segment_v2 {
+#include "column_reader.h"
 #include "common/compile_check_begin.h"
 
 inline bool read_as_string(PrimitiveType type) {
@@ -91,20 +93,20 @@ inline bool read_as_string(PrimitiveType type) {
 
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
-                                  std::unique_ptr<ColumnReader>* reader) {
+                                  std::shared_ptr<ColumnReader>* reader) {
     DCHECK(meta.children_columns_size() == 2 || meta.children_columns_size() == 3);
 
-    std::unique_ptr<ColumnReader> item_reader;
+    std::shared_ptr<ColumnReader> item_reader;
     RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0),
                                          meta.children_columns(0).num_rows(), file_reader,
                                          &item_reader));
 
-    std::unique_ptr<ColumnReader> offset_reader;
+    std::shared_ptr<ColumnReader> offset_reader;
     RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(1),
                                          meta.children_columns(1).num_rows(), file_reader,
                                          &offset_reader));
 
-    std::unique_ptr<ColumnReader> null_reader;
+    std::shared_ptr<ColumnReader> null_reader;
     if (meta.is_nullable()) {
         RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(2),
                                              meta.children_columns(2).num_rows(), file_reader,
@@ -113,7 +115,7 @@ Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnM
 
     // The num rows of the array reader equals to the num rows of the length reader.
     uint64_t array_num_rows = meta.children_columns(1).num_rows();
-    std::unique_ptr<ColumnReader> array_reader(
+    std::shared_ptr<ColumnReader> array_reader(
             new ColumnReader(opts, meta, array_num_rows, file_reader));
     //  array reader do not need to init
     array_reader->_sub_readers.resize(meta.children_columns_size());
@@ -129,22 +131,22 @@ Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnM
 
 Status ColumnReader::create_map(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                 const io::FileReaderSPtr& file_reader,
-                                std::unique_ptr<ColumnReader>* reader) {
+                                std::shared_ptr<ColumnReader>* reader) {
     // map reader now has 3 sub readers for key, value, offsets(scalar), null(scala)
     DCHECK(meta.children_columns_size() == 3 || meta.children_columns_size() == 4);
-    std::unique_ptr<ColumnReader> key_reader;
+    std::shared_ptr<ColumnReader> key_reader;
     RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0),
                                          meta.children_columns(0).num_rows(), file_reader,
                                          &key_reader));
-    std::unique_ptr<ColumnReader> val_reader;
+    std::shared_ptr<ColumnReader> val_reader;
     RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(1),
                                          meta.children_columns(1).num_rows(), file_reader,
                                          &val_reader));
-    std::unique_ptr<ColumnReader> offset_reader;
+    std::shared_ptr<ColumnReader> offset_reader;
     RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(2),
                                          meta.children_columns(2).num_rows(), file_reader,
                                          &offset_reader));
-    std::unique_ptr<ColumnReader> null_reader;
+    std::shared_ptr<ColumnReader> null_reader;
     if (meta.is_nullable()) {
         RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(3),
                                              meta.children_columns(3).num_rows(), file_reader,
@@ -153,7 +155,7 @@ Status ColumnReader::create_map(const ColumnReaderOptions& opts, const ColumnMet
 
     // The num rows of the map reader equals to the num rows of the length reader.
     uint64_t map_num_rows = meta.children_columns(2).num_rows();
-    std::unique_ptr<ColumnReader> map_reader(
+    std::shared_ptr<ColumnReader> map_reader(
             new ColumnReader(opts, meta, map_num_rows, file_reader));
     map_reader->_sub_readers.resize(meta.children_columns_size());
 
@@ -170,16 +172,16 @@ Status ColumnReader::create_map(const ColumnReaderOptions& opts, const ColumnMet
 
 Status ColumnReader::create_struct(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                    uint64_t num_rows, const io::FileReaderSPtr& file_reader,
-                                   std::unique_ptr<ColumnReader>* reader) {
+                                   std::shared_ptr<ColumnReader>* reader) {
     // not support empty struct
     DCHECK(meta.children_columns_size() >= 1);
     // create struct column reader
-    std::unique_ptr<ColumnReader> struct_reader(
+    std::shared_ptr<ColumnReader> struct_reader(
             new ColumnReader(opts, meta, num_rows, file_reader));
     struct_reader->_sub_readers.reserve(meta.children_columns_size());
     // now we support struct column can add the children columns according to the schema-change behavior
     for (int i = 0; i < meta.children_columns_size(); i++) {
-        std::unique_ptr<ColumnReader> sub_reader;
+        std::shared_ptr<ColumnReader> sub_reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(i),
                                              meta.children_columns(i).num_rows(), file_reader,
                                              &sub_reader));
@@ -192,9 +194,9 @@ Status ColumnReader::create_struct(const ColumnReaderOptions& opts, const Column
 
 Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                       uint64_t num_rows, const io::FileReaderSPtr& file_reader,
-                                      std::unique_ptr<ColumnReader>* reader) {
+                                      std::shared_ptr<ColumnReader>* reader) {
     if (!meta.has_function_name()) { // meet old version ColumnMetaPB
-        std::unique_ptr<ColumnReader> reader_local(
+        std::shared_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
         RETURN_IF_ERROR(reader_local->init(&meta));
         *reader = std::move(reader_local);
@@ -207,7 +209,7 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
     auto type = agg_state_type->get_serialized_type()->get_primitive_type();
 
     if (read_as_string(type)) {
-        std::unique_ptr<ColumnReader> reader_local(
+        std::shared_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
         RETURN_IF_ERROR(reader_local->init(&meta));
         *reader = std::move(reader_local);
@@ -235,7 +237,7 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
 Status ColumnReader::create_variant(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
                                     uint32_t column_id, uint64_t num_rows,
                                     const io::FileReaderSPtr& file_reader,
-                                    std::unique_ptr<ColumnReader>* reader) {
+                                    std::shared_ptr<ColumnReader>* reader) {
     std::unique_ptr<VariantColumnReader> reader_local(new VariantColumnReader());
     RETURN_IF_ERROR(reader_local->init(opts, footer, column_id, num_rows, file_reader));
     *reader = std::move(reader_local);
@@ -245,19 +247,20 @@ Status ColumnReader::create_variant(const ColumnReaderOptions& opts, const Segme
 Status ColumnReader::create(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,
                             uint32_t column_id, uint64_t num_rows,
                             const io::FileReaderSPtr& file_reader,
-                            std::unique_ptr<ColumnReader>* reader) {
+                            std::shared_ptr<ColumnReader>* reader) {
+    // create normal column reader or variant subcolumn reader with extracted columns info in footer
     if ((FieldType)footer.columns(column_id).type() != FieldType::OLAP_FIELD_TYPE_VARIANT) {
         return ColumnReader::create(opts, footer.columns(column_id), num_rows, file_reader, reader);
     }
-    // create variant column reader with extracted columns info in footer
+    // create variant column reader with extracted columns info in footer with hierarchical data info
     return create_variant(opts, footer, column_id, num_rows, file_reader, reader);
 }
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
-                            std::unique_ptr<ColumnReader>* reader) {
+                            std::shared_ptr<ColumnReader>* reader) {
     if (is_scalar_type((FieldType)meta.type())) {
-        std::unique_ptr<ColumnReader> reader_local(
+        std::shared_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
         RETURN_IF_ERROR(reader_local->init(&meta));
         *reader = std::move(reader_local);
@@ -279,7 +282,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
         }
         case FieldType::OLAP_FIELD_TYPE_VARIANT: {
             // Read variant only root data using a single ColumnReader
-            std::unique_ptr<ColumnReader> reader_local(
+            std::shared_ptr<ColumnReader> reader_local(
                     new ColumnReader(opts, meta, num_rows, file_reader));
             RETURN_IF_ERROR(reader_local->init(&meta));
             *reader = std::move(reader_local);
@@ -291,6 +294,8 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
         }
     }
 }
+
+ColumnReader::ColumnReader() = default;
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                            uint64_t num_rows, io::FileReaderSPtr file_reader)
@@ -684,7 +689,14 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
         type = _type_info->type();
     }
 
+    if (index_meta->index_type() == IndexType::ANN) {
+        _index_readers[index_meta->index_id()] =
+                std::make_shared<AnnIndexReader>(index_meta, index_file_reader);
+        return Status::OK();
+    }
+
     IndexReaderPtr index_reader;
+
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {
@@ -745,18 +757,18 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     return Status::OK();
 }
 
-Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column) {
+Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column) {
     return new_iterator(iterator, tablet_column, nullptr);
 }
 
-Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column,
+Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column,
                                   const StorageReadOptions* opt) {
     if (is_empty()) {
-        *iterator = new EmptyFileColumnIterator();
+        *iterator = std::make_unique<EmptyFileColumnIterator>();
         return Status::OK();
     }
     if (is_scalar_type((FieldType)_meta_type)) {
-        *iterator = new FileColumnIterator(this);
+        *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
         return Status::OK();
     } else {
         auto type = (FieldType)_meta_type;
@@ -780,100 +792,106 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn*
     }
 }
 
-Status ColumnReader::new_agg_state_iterator(ColumnIterator** iterator) {
-    *iterator = new FileColumnIterator(this);
+Status ColumnReader::new_agg_state_iterator(ColumnIteratorUPtr* iterator) {
+    *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
     return Status::OK();
 }
 
-Status ColumnReader::new_array_iterator(ColumnIterator** iterator,
+Status ColumnReader::new_array_iterator(ColumnIteratorUPtr* iterator,
                                         const TabletColumn* tablet_column) {
-    ColumnIterator* item_iterator = nullptr;
+    ColumnIteratorUPtr item_iterator;
     RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
             &item_iterator, tablet_column && tablet_column->get_subtype_count() > 0
                                     ? &tablet_column->get_sub_column(0)
                                     : nullptr));
 
-    ColumnIterator* offset_iterator = nullptr;
+    ColumnIteratorUPtr offset_iterator;
     RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator, nullptr));
-    auto* ofcIter =
-            new OffsetFileColumnIterator(reinterpret_cast<FileColumnIterator*>(offset_iterator));
+    auto* file_iter = static_cast<FileColumnIterator*>(offset_iterator.release());
+    OffsetFileColumnIteratorUPtr ofcIter = std::make_unique<OffsetFileColumnIterator>(
+            std::unique_ptr<FileColumnIterator>(file_iter));
 
-    ColumnIterator* null_iterator = nullptr;
+    ColumnIteratorUPtr null_iterator;
     if (is_nullable()) {
         RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator, nullptr));
     }
-    *iterator = new ArrayFileColumnIterator(this, ofcIter, item_iterator, null_iterator);
+    *iterator = std::make_unique<ArrayFileColumnIterator>(shared_from_this(), std::move(ofcIter),
+                                                          std::move(item_iterator),
+                                                          std::move(null_iterator));
     return Status::OK();
 }
 
-Status ColumnReader::new_map_iterator(ColumnIterator** iterator,
+Status ColumnReader::new_map_iterator(ColumnIteratorUPtr* iterator,
                                       const TabletColumn* tablet_column) {
-    ColumnIterator* key_iterator = nullptr;
+    ColumnIteratorUPtr key_iterator;
     RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
             &key_iterator, tablet_column && tablet_column->get_subtype_count() > 1
                                    ? &tablet_column->get_sub_column(0)
                                    : nullptr));
-    ColumnIterator* val_iterator = nullptr;
+    ColumnIteratorUPtr val_iterator;
     RETURN_IF_ERROR(_sub_readers[1]->new_iterator(
             &val_iterator, tablet_column && tablet_column->get_subtype_count() > 1
                                    ? &tablet_column->get_sub_column(1)
                                    : nullptr));
-    ColumnIterator* offsets_iterator = nullptr;
+    ColumnIteratorUPtr offsets_iterator;
     RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&offsets_iterator, nullptr));
-    auto* ofcIter =
-            new OffsetFileColumnIterator(reinterpret_cast<FileColumnIterator*>(offsets_iterator));
+    auto* file_iter = static_cast<FileColumnIterator*>(offsets_iterator.release());
+    OffsetFileColumnIteratorUPtr ofcIter = std::make_unique<OffsetFileColumnIterator>(
+            std::unique_ptr<FileColumnIterator>(file_iter));
 
-    ColumnIterator* null_iterator = nullptr;
+    ColumnIteratorUPtr null_iterator;
     if (is_nullable()) {
         RETURN_IF_ERROR(_sub_readers[3]->new_iterator(&null_iterator, nullptr));
     }
-    *iterator = new MapFileColumnIterator(this, null_iterator, ofcIter, key_iterator, val_iterator);
+    *iterator = std::make_unique<MapFileColumnIterator>(
+            shared_from_this(), std::move(null_iterator), std::move(ofcIter),
+            std::move(key_iterator), std::move(val_iterator));
     return Status::OK();
 }
 
-Status ColumnReader::new_struct_iterator(ColumnIterator** iterator,
+Status ColumnReader::new_struct_iterator(ColumnIteratorUPtr* iterator,
                                          const TabletColumn* tablet_column) {
-    std::vector<ColumnIterator*> sub_column_iterators;
+    std::vector<ColumnIteratorUPtr> sub_column_iterators;
     size_t child_size = is_nullable() ? _sub_readers.size() - 1 : _sub_readers.size();
     size_t tablet_column_size = tablet_column ? tablet_column->get_sub_columns().size() : 0;
     sub_column_iterators.reserve(child_size);
 
-    ColumnIterator* sub_column_iterator;
     for (uint64_t i = 0; i < child_size; i++) {
+        ColumnIteratorUPtr sub_column_iterator;
         RETURN_IF_ERROR(_sub_readers[i]->new_iterator(
                 &sub_column_iterator, tablet_column ? &tablet_column->get_sub_column(i) : nullptr));
-        sub_column_iterators.push_back(sub_column_iterator);
+        sub_column_iterators.emplace_back(std::move(sub_column_iterator));
     }
 
     // create default_iterator for schema-change behavior which increase column
     for (size_t i = child_size; i < tablet_column_size; i++) {
         TabletColumn column = tablet_column->get_sub_column(i);
-        std::unique_ptr<ColumnIterator> it;
+        ColumnIteratorUPtr it;
         RETURN_IF_ERROR(Segment::new_default_iterator(column, &it));
-        sub_column_iterators.push_back(it.get());
-        it.release();
+        sub_column_iterators.emplace_back(std::move(it));
     }
 
-    ColumnIterator* null_iterator = nullptr;
+    ColumnIteratorUPtr null_iterator;
     if (is_nullable()) {
         RETURN_IF_ERROR(_sub_readers[child_size]->new_iterator(&null_iterator, nullptr));
     }
-    *iterator = new StructFileColumnIterator(this, null_iterator, sub_column_iterators);
+    *iterator = std::make_unique<StructFileColumnIterator>(
+            shared_from_this(), std::move(null_iterator), std::move(sub_column_iterators));
     return Status::OK();
 }
 
 ///====================== MapFileColumnIterator ============================////
-MapFileColumnIterator::MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
-                                             OffsetFileColumnIterator* offsets_iterator,
-                                             ColumnIterator* key_iterator,
-                                             ColumnIterator* val_iterator)
-        : _map_reader(reader) {
-    _key_iterator.reset(key_iterator);
-    _val_iterator.reset(val_iterator);
-    _offsets_iterator.reset(offsets_iterator);
-
+MapFileColumnIterator::MapFileColumnIterator(std::shared_ptr<ColumnReader> reader,
+                                             ColumnIteratorUPtr null_iterator,
+                                             OffsetFileColumnIteratorUPtr offsets_iterator,
+                                             ColumnIteratorUPtr key_iterator,
+                                             ColumnIteratorUPtr val_iterator)
+        : _map_reader(reader),
+          _offsets_iterator(std::move(offsets_iterator)),
+          _key_iterator(std::move(key_iterator)),
+          _val_iterator(std::move(val_iterator)) {
     if (_map_reader->is_nullable()) {
-        _null_iterator.reset(null_iterator);
+        _null_iterator = std::move(null_iterator);
     }
 }
 
@@ -965,15 +983,11 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
 ////////////////////////////////////////////////////////////////////////////////
 
 StructFileColumnIterator::StructFileColumnIterator(
-        ColumnReader* reader, ColumnIterator* null_iterator,
-        std::vector<ColumnIterator*>& sub_column_iterators)
-        : _struct_reader(reader) {
-    _sub_column_iterators.resize(sub_column_iterators.size());
-    for (size_t i = 0; i < sub_column_iterators.size(); i++) {
-        _sub_column_iterators[i].reset(sub_column_iterators[i]);
-    }
+        std::shared_ptr<ColumnReader> reader, ColumnIteratorUPtr null_iterator,
+        std::vector<ColumnIteratorUPtr>&& sub_column_iterators)
+        : _struct_reader(reader), _sub_column_iterators(std::move(sub_column_iterators)) {
     if (_struct_reader->is_nullable()) {
-        _null_iterator.reset(null_iterator);
+        _null_iterator = std::move(null_iterator);
     }
 }
 
@@ -1102,15 +1116,15 @@ Status OffsetFileColumnIterator::_calculate_offsets(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
-                                                 OffsetFileColumnIterator* offset_reader,
-                                                 ColumnIterator* item_iterator,
-                                                 ColumnIterator* null_iterator)
-        : _array_reader(reader) {
-    _offset_iterator.reset(offset_reader);
-    _item_iterator.reset(item_iterator);
+ArrayFileColumnIterator::ArrayFileColumnIterator(std::shared_ptr<ColumnReader> reader,
+                                                 OffsetFileColumnIteratorUPtr offset_reader,
+                                                 ColumnIteratorUPtr item_iterator,
+                                                 ColumnIteratorUPtr null_iterator)
+        : _array_reader(reader),
+          _offset_iterator(std::move(offset_reader)),
+          _item_iterator(std::move(item_iterator)) {
     if (_array_reader->is_nullable()) {
-        _null_iterator.reset(null_iterator);
+        _null_iterator = std::move(null_iterator);
     }
 }
 
@@ -1201,7 +1215,7 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
 
 ////////////////////////////////////////////////////////////////////////////////
 
-FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {}
+FileColumnIterator::FileColumnIterator(std::shared_ptr<ColumnReader> reader) : _reader(reader) {}
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
@@ -1527,7 +1541,6 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     // "NULL" is a special default value which means the default value is null.
     if (_has_default_value) {
         if (_default_value == "NULL") {
-            DCHECK(_is_nullable);
             _is_default_value_null = true;
         } else {
             _type_size = _type_info->size();

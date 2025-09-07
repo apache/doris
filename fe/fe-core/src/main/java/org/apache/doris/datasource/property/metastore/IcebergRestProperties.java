@@ -100,7 +100,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @ConnectorProperty(names = {"iceberg.rest.oauth2.token-refresh-enabled"},
             required = false,
             description = "Enable oauth2 token refresh for the iceberg rest catalog service.")
-    private String icebergRestOauth2TokenRefreshEnabled = "false";
+    private String icebergRestOauth2TokenRefreshEnabled = String.valueOf(
+            OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT);
 
     @ConnectorProperty(names = {"iceberg.rest.vended-credentials-enabled"},
             required = false,
@@ -161,7 +162,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         Map<String, String> fileIOProperties = Maps.newHashMap();
         Configuration conf = new Configuration();
         toFileIOProperties(storagePropertiesList, fileIOProperties, conf);

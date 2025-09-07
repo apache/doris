@@ -828,6 +828,8 @@ DECLARE_Int64(brpc_max_body_size);
 // Default, if the physical memory is less than or equal to 64G, the value is 1G
 //          if the physical memory is greater than 64G, the value is physical memory * mem_limit(0.8) / 1024 * 20
 DECLARE_Int64(brpc_socket_max_unwritten_bytes);
+// Whether to set FLAGS_usercode_in_pthread to true in brpc
+DECLARE_mBool(brpc_usercode_in_pthread);
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
@@ -1111,6 +1113,8 @@ DECLARE_Bool(enable_java_support);
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
+DECLARE_Bool(enable_graceful_exit_check);
+
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
@@ -1159,8 +1163,11 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 // If your file cache is ample enough to accommodate all the data in your database,
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
+DECLARE_mBool(enable_file_cache_adaptive_write);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
+DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
@@ -1298,13 +1305,14 @@ DECLARE_mInt64(lookup_connection_cache_capacity);
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
-DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
 DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
+// Enable vertical compact subcolumns of variant column
+DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
@@ -1335,7 +1343,7 @@ DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
 
 // The secure path with user files, used in the `local` table function.
-DECLARE_mString(user_files_secure_path);
+DECLARE_String(user_files_secure_path);
 
 // If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
 // as an abnormal fe, this will cause be to cancel this fe's related query.
@@ -1408,9 +1416,6 @@ DECLARE_Bool(enable_snapshot_action);
 // The max columns size for a tablet schema
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
-// The max sparse column statistics size for a variant column
-DECLARE_mInt32(variant_max_sparse_column_statistics_size);
-
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
 
 DECLARE_mInt64(enable_debug_log_timeout_secs);
@@ -1440,9 +1445,8 @@ DECLARE_String(spill_storage_root_path);
 DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
-DECLARE_Int32(spill_io_thread_pool_thread_num);
-DECLARE_Int32(spill_io_thread_pool_queue_size);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
+DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
@@ -1628,8 +1632,19 @@ DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 // p0, daily, rqg, external
 DECLARE_String(fuzzy_test_type);
 
+// The maximum csv line reader output buffer size
+DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
+
 // The maximum number of threads supported when executing LLMFunction
 DECLARE_mInt32(llm_max_concurrent_requests);
+
+// Maximum number of OpenMP threads that can be used by each Doris thread
+DECLARE_Int32(omp_threads_limit);
+// The capacity of segment partial column cache, used to cache column readers for each segment.
+DECLARE_mInt32(max_segment_partial_column_cache_size);
+
+DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
+DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
 
 #ifdef BE_TEST
 // test s3

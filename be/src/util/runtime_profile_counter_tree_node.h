@@ -44,7 +44,7 @@ public:
     // 1. Remove all leaf nodes whose level is greater than the given level.
     // 2. Remove all nodes whose children are all pruned.
     static RuntimeProfileCounterTreeNode prune_the_tree(RuntimeProfileCounterTreeNode node,
-                                                        int level);
+                                                        int64_t level);
 
     // Convert the counter tree to a list of TCounter objects and a map of tree topology.
     void to_thrift(std::vector<TCounter>& tcounter,

@@ -53,7 +53,7 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         std::unique_ptr<vectorized::FileScanner> scanner = vectorized::FileScanner::create_unique(
                 state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get(),
                 &_colname_to_value_range, &p._colname_to_slot_id);
-        RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
+        RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(std::move(scanner));
     }
     return Status::OK();

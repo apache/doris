@@ -130,6 +130,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // from dbProperties;
     private BinlogConfig binlogConfig = new BinlogConfig();
 
+    // ATTN: This field is only used for compatible with old version
+    // Do not use it except for replaying OP_CREATE_DB
+    // it will be removed in version 4.0
+    @Deprecated
+    @SerializedName(value = "cn")
+    private String ctlName;
+
     public Database() {
         this(0, null);
     }
@@ -152,6 +159,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
+    }
+
+    // DO NOT use it except for replaying OP_CREATE_DB
+    public String getCtlName() {
+        return ctlName;
     }
 
     public void markDropped() {
@@ -231,18 +243,23 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    public void setNameWithoutLock(String newName) {
+        // ClusterNamespace.getNameFromFullName should be removed in 3.0
+        this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
+        for (Table table : idToTable.values()) {
+            table.setQualifiedDbName(fullQualifiedName);
+        }
+    }
+
     public void setNameWithLock(String newName) {
         writeLock();
         try {
-            // ClusterNamespace.getNameFromFullName should be removed in 3.0
-            this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
-            for (Table table : idToTable.values()) {
-                table.setQualifiedDbName(fullQualifiedName);
-            }
+            setNameWithoutLock(newName);
         } finally {
             writeUnlock();
         }
     }
+
 
     public void setDataQuota(long newQuota) {
         Preconditions.checkArgument(newQuota >= 0L);
@@ -296,20 +313,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
-    public long getUsedDataQuotaWithLock() {
+    public long getUsedDataQuota() {
         return getUsedDataSize().first;
     }
 
     public Pair<Long, Long> getUsedDataSize() {
         long usedDataSize = 0;
         long usedRemoteDataSize = 0;
-        List<Table> tables = new ArrayList<>();
-        readLock();
-        try {
-            tables.addAll(this.idToTable.values());
-        } finally {
-            readUnlock();
-        }
+        List<Table> tables = new ArrayList<>(this.idToTable.values());
 
         for (Table table : tables) {
             if (!table.isManagedTable()) {
@@ -351,7 +362,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
         String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
                 + quotaUnitPair.second;
-        long usedDataQuota = getUsedDataQuotaWithLock();
+        long usedDataQuota = getUsedDataQuota();
         long leftDataQuota = Math.max(dataQuotaBytes - usedDataQuota, 0);
 
         Pair<Double, String> leftQuotaUnitPair = DebugUtil.getByteUint(leftDataQuota);
@@ -393,24 +404,35 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return nameToTable.containsKey(tableName);
     }
 
-    // return pair <success?, table exist?>
     public Pair<Boolean, Boolean> createTableWithLock(
+            Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
+        writeLockOrDdlException();
+        try {
+            return createTableWithoutLock(table, isReplay, setIfNotExist);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    // return pair <success?, table exist?>
+    // caller must hold db lock
+    public Pair<Boolean, Boolean> createTableWithoutLock(
             Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed
         // some caller of this method may need to know this message
         boolean isTableExist = false;
         table.setQualifiedDbName(fullQualifiedName);
-        writeLockOrDdlException();
-        try {
-            String tableName = table.getName();
-            if (Env.isStoredTableNamesLowerCase()) {
-                tableName = tableName.toLowerCase();
-            }
-            if (isTableExist(tableName)) {
-                result = setIfNotExist;
-                isTableExist = true;
-            } else {
+        String tableName = table.getName();
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        if (isTableExist(tableName)) {
+            result = setIfNotExist;
+            isTableExist = true;
+        } else {
+            table.writeLock();
+            try {
                 registerTable(table);
                 if (table.isTemporary()) {
                     Env.getCurrentEnv().registerTempTableAndSession(table);
@@ -420,17 +442,17 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 }
                 if (!isReplay) {
                     // Write edit log
-                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
+                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
                     Env.getCurrentEnv().getEditLog().logCreateTable(info);
                 }
-                if (table.getType() == TableType.ELASTICSEARCH) {
-                    Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
-                }
+            } finally {
+                table.writeUnlock();
             }
-            return Pair.of(result, isTableExist);
-        } finally {
-            writeUnlock();
+            if (table.getType() == TableType.ELASTICSEARCH) {
+                Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
+            }
         }
+        return Pair.of(result, isTableExist);
     }
 
     @Override
@@ -462,9 +484,17 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
+        if (table == null) {
+            return;
+        }
+        unregisterTable(table.getId());
+    }
+
+    public void unregisterTable(Long tableId) {
+        Table table = getTableNullable(tableId);
         if (table != null) {
-            this.nameToTable.remove(tableName);
-            this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            this.nameToTable.remove(table.getName());
+            this.lowerCaseToTableName.remove(table.getName().toLowerCase());
             this.idToTable.remove(table.getId());
             if (table.isTemporary()) {
                 Env.getCurrentEnv().unregisterTempTable(table);

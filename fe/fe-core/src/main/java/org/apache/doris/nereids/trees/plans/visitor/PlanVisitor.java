@@ -72,6 +72,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -171,7 +172,7 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, C context) {
-        return visit(cteConsumer, context);
+        return visitLogicalRelation(cteConsumer, context);
     }
 
     public R visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, C context) {
@@ -279,6 +280,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitPhysicalLazyMaterializeFileScan(PhysicalLazyMaterializeFileScan scan, C context) {
+        return visit(scan, context);
+    }
+
+    public R visitPhysicalLazyMaterializeTVFScan(PhysicalLazyMaterializeTVFScan scan, C context) {
         return visit(scan, context);
     }
 
