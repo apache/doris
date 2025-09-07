@@ -63,7 +63,7 @@ const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, con
         len = 1;
     }
 
-    while (_idx != bound) {
+    while (_idx < bound) {
         switch (_state.curr_state) {
         case ReaderState::START: {
             _on_start(start, len);
