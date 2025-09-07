@@ -15,8 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.constants;
-
-public class TrinoConnectorProperties {
-    public static final String TRINO_CONNECTOR_NAME = "trino.connector.name";
+suite("distinct_agg_rewriter") {
+    multi_sql"""
+    SET ignore_shape_nodes='PhysicalProject';
+    set runtime_filter_mode=OFF;
+    set enable_parallel_result_sink=false;
+    """
+    multi_sql """
+    analyze table t1000_2 with sync;
+    """
+    qt_use_multi_phase1 """explain shape plan
+    select count(distinct b_5) from t1000_2 group by d_200;"""
+    qt_use_multi_phase2 """explain shape plan
+    select count(distinct b_5) from t1000_2 group by b_5;"""
+    qt_use_multi_phase3 """explain shape plan
+    select count(distinct d_200) from t1000_2 group by b_5;"""
+    qt_use_multi_distinct """explain shape plan
+    select count(distinct d_200) from t1000_2 group by a_1;"""
 }

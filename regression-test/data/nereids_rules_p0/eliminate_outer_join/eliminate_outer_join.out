@@ -160,7 +160,7 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------filter((count(id) > 1))
---------hashAgg[LOCAL]
+--------hashAgg[GLOBAL]
 ----------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------PhysicalProject
 --------------PhysicalOlapScan[t]
@@ -215,7 +215,7 @@ PhysicalResultSink
 -- !right_outer_aggregate --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------PhysicalProject

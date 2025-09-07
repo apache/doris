@@ -458,6 +458,12 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
 
 Status CsvReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (_empty_field_as_null) {
+        if (slice.size == 0) {
+            null_column.insert_data(nullptr, 0);
+            return Status::OK();
+        }
+    }
     if (_options.null_len > 0 && !(_options.converted_from_string && slice.trim_double_quotes())) {
         if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
             null_column.insert_data(nullptr, 0);
@@ -519,6 +525,10 @@ Status CsvReader::_init_options() {
 
     if (_state != nullptr) {
         _keep_cr = _state->query_options().keep_carriage_return;
+    }
+
+    if (_params.file_attributes.text_params.__isset.empty_field_as_null) {
+        _empty_field_as_null = _params.file_attributes.text_params.empty_field_as_null;
     }
     return Status::OK();
 }
