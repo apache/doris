@@ -170,8 +170,7 @@ public:
         data.process_col_data(column_data, offset, arr_size, set);
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
@@ -400,8 +399,7 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;

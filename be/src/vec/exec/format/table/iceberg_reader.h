@@ -185,8 +185,7 @@ protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) final {
         return ParquetReader::create_unique(_profile, _params, delete_desc,
-                                            READ_DELETE_FILE_BATCH_SIZE,
-                                           &_state->timezone_obj(),
+                                            READ_DELETE_FILE_BATCH_SIZE, &_state->timezone_obj(),
                                             _io_ctx, _state, _meta_cache);
     }
 };

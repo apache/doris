@@ -282,7 +282,7 @@ protected:
     bool _ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr);
 
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
-    Status _change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,
+    Status _change_value_range(ColumnValueRange<PrimitiveType>& range, const void* value,
                                const ChangeFixedValueRangeFunc& func, const std::string& fn_name,
                                int slot_ref_child = -1);
 

@@ -177,8 +177,7 @@ public:
         this->data(place).count = 0;
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         if constexpr (is_decimal(T)) {
             this->data(place).sum += this->data(rhs).sum.value;
         } else {

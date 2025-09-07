@@ -22,8 +22,8 @@
 
 #include <stdint.h>
 
-#include "util/string_parser.hpp"
 #include "util/slice.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 class FunctionContext;
@@ -35,7 +35,7 @@ public:
     // Converts src_num in decimal to dest_base,
     // and fills expr_val.string_val with the result.
     static doris::Slice decimal_to_base(doris::FunctionContext* ctx, int64_t src_num,
-                                            int8_t dest_base);
+                                        int8_t dest_base);
 
     // Converts src_num representing a number in src_base but encoded in decimal
     // into its actual decimal number.

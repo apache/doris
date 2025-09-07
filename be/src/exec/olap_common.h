@@ -326,16 +326,18 @@ public:
 
     int scale() const { return _scale; }
 
-    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
+    static void add_fixed_value_range(ColumnValueRange<primitive_type>& range,
+                                      const CppType* value) {
         static_cast<void>(range.add_fixed_value(*value));
     }
 
-    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range, CppType* value) {
+    static void remove_fixed_value_range(ColumnValueRange<primitive_type>& range,
+                                         const CppType* value) {
         range.remove_fixed_value(*value);
     }
 
     static void add_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
-                                CppType* value) {
+                                const CppType* value) {
         static_cast<void>(range.add_range(op, *value));
     }
 
@@ -741,7 +743,7 @@ void ColumnValueRange<primitive_type>::convert_to_range_value() {
 }
 
 template <PrimitiveType primitive_type>
-Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, CppType value) {
+Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType value) {
     if (INVALID_TYPE == _column_type) {
         return Status::InternalError("AddRange failed, Invalid type");
     }

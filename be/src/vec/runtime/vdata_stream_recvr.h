@@ -86,7 +86,7 @@ public:
 
     std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
 
-    Status add_block(std::unique_ptr<PBlock> pblock, int sender_id, int be_number,
+    Status add_block(std::unique_ptr<const PBlock> pblock, int sender_id, int be_number,
                      int64_t packet_seq, ::google::protobuf::Closure** done,
                      const int64_t wait_for_worker, const uint64_t time_to_find_recvr);
 
@@ -181,7 +181,7 @@ public:
 
     Status get_batch(Block* next_block, bool* eos);
 
-    Status add_block(std::unique_ptr<PBlock> pblock, int be_number, int64_t packet_seq,
+    Status add_block(std::unique_ptr<const PBlock> pblock, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);
 
@@ -282,12 +282,12 @@ protected:
         BlockItem(BlockUPtr&& block, size_t block_byte_size)
                 : _block(std::move(block)), _block_byte_size(block_byte_size) {}
 
-        BlockItem(std::unique_ptr<PBlock>&& pblock, size_t block_byte_size)
+        BlockItem(std::unique_ptr<const PBlock>&& pblock, size_t block_byte_size)
                 : _block(nullptr), _pblock(std::move(pblock)), _block_byte_size(block_byte_size) {}
 
     private:
         BlockUPtr _block;
-        std::unique_ptr<PBlock> _pblock;
+        std::unique_ptr<const PBlock> _pblock;
         size_t _block_byte_size = 0;
         int64_t _deserialize_time = 0;
     };

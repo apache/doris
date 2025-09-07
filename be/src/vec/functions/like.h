@@ -136,8 +136,8 @@ struct LikeSearchState {
     }
 };
 
-using LikeFn = std::function<doris::Status(const LikeSearchState*, const ColumnString&, const StringRef&,
-                                           ColumnUInt8::Container&)>;
+using LikeFn = std::function<doris::Status(const LikeSearchState*, const ColumnString&,
+                                           const StringRef&, ColumnUInt8::Container&)>;
 
 using ScalarLikeFn = std::function<doris::Status(const LikeSearchState*, const StringRef&,
                                                  const StringRef&, unsigned char*)>;
@@ -293,8 +293,8 @@ public:
     friend struct VectorEndsWithSearchState;
 
 private:
-    static Status like_fn(const LikeSearchState* state, const ColumnString& val, const StringRef& pattern,
-                          ColumnUInt8::Container& result);
+    static Status like_fn(const LikeSearchState* state, const ColumnString& val,
+                          const StringRef& pattern, ColumnUInt8::Container& result);
 
     static Status like_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                  const StringRef& pattern, unsigned char* result);

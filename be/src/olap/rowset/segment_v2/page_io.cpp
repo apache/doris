@@ -124,8 +124,8 @@ std::string file_cache_key_str(const std::string& seg_path) {
     return file_cache_key_from_path(seg_path).to_string();
 }
 
-Status PageIO::read_and_decompress_page_(PageReadOptions& opts, PageHandle* handle,
-                                         Slice* body, PageFooterPB* footer) {
+Status PageIO::read_and_decompress_page_(PageReadOptions& opts, PageHandle* handle, Slice* body,
+                                         PageFooterPB* footer) {
     opts.sanity_check();
     opts.stats->total_pages_num++;
 
@@ -250,8 +250,8 @@ Status PageIO::read_and_decompress_page_(PageReadOptions& opts, PageHandle* hand
     return Status::OK();
 }
 
-Status PageIO::read_and_decompress_page(PageReadOptions& opts, PageHandle* handle,
-                                        Slice* body, PageFooterPB* footer) {
+Status PageIO::read_and_decompress_page(PageReadOptions& opts, PageHandle* handle, Slice* body,
+                                        PageFooterPB* footer) {
     // First try to read with file cache
     Status st = do_read_and_decompress_page(opts, handle, body, footer);
     if (!st.is<ErrorCode::CORRUPTION>() || !config::is_cloud_mode()) {

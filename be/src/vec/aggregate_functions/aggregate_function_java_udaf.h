@@ -388,8 +388,7 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         Status st =
                 this->data(_exec_place).merge(this->data(rhs), reinterpret_cast<int64_t>(place));
         if (UNLIKELY(!st.ok())) {
@@ -398,8 +397,7 @@ public:
     }
 
     void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        Status st = this->data(_exec_place)
-                            .write(buf, reinterpret_cast<int64_t>(place));
+        Status st = this->data(_exec_place).write(buf, reinterpret_cast<int64_t>(place));
         if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }

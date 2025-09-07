@@ -83,9 +83,9 @@ namespace doris::vectorized {
 
 #include "common/compile_check_begin.h"
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
-                             bool enable_lazy_mat)
+                             const TFileRangeDesc& range, size_t batch_size,
+                             const cctz::time_zone* ctz, io::IOContext* io_ctx, RuntimeState* state,
+                             FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -824,7 +824,7 @@ RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
     const int64_t* delete_rows = &(*_delete_rows)[0];
     const int64_t* delete_rows_end = delete_rows + _delete_rows->size();
     const int64_t* start_pos = std::lower_bound(delete_rows + _delete_rows_index, delete_rows_end,
-                                          row_group_index.first_row);
+                                                row_group_index.first_row);
     int64_t start_index = start_pos - delete_rows;
     const int64_t* end_pos = std::lower_bound(start_pos, delete_rows_end, row_group_index.last_row);
     int64_t end_index = end_pos - delete_rows;

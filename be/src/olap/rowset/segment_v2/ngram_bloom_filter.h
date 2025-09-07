@@ -41,9 +41,7 @@ public:
     void add_bytes(const char* data, size_t len) override;
     bool contains(const BloomFilter& bf_) const override;
     Status init(const char* buf, size_t size, HashStrategyPB strategy) override;
-    char* data() override {
-        return reinterpret_cast<char*>(filter.data());
-    }
+    char* data() override { return reinterpret_cast<char*>(filter.data()); }
     size_t size() const override { return _size; }
     void add_hash(uint64_t) override {}
     bool test_hash(uint64_t hash) const override { return true; }

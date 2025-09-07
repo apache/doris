@@ -67,6 +67,7 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
                                                            int be_exec_version) const {
     const auto& column_variant = assert_cast<const ColumnVariant&>(column);
     if (!column_variant.is_finalized()) {
+        // Icolumn originates from MutablePtr or block, and therefore can be modified.
         const_cast<ColumnVariant&>(column_variant).finalize();
     }
 
@@ -105,6 +106,7 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
 char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     const auto& column_variant = assert_cast<const ColumnVariant&>(column);
     if (!column_variant.is_finalized()) {
+        // Icolumn originates from block, and therefore can be modified.
         const_cast<ColumnVariant&>(column_variant).finalize();
     }
 #ifndef NDEBUG

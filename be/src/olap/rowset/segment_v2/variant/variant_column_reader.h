@@ -59,7 +59,7 @@ public:
                         StorageReadOptions* opt) override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                         StorageReadOptions* opt, ColumnReaderCache* column_reader_cache);
+                        StorageReadOptions* opt, ColumnReaderCache* column_reader_cache);
 
     virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
             const vectorized::PathInData& relative_path) const;
@@ -97,7 +97,7 @@ private:
                                               const StorageReadOptions* opt,
                                               ColumnReaderCache* column_reader_cache);
     Status _new_iterator_with_flat_leaves(ColumnIteratorUPtr* iterator, const TabletColumn& col,
-                                         StorageReadOptions* opts,
+                                          StorageReadOptions* opts,
                                           bool exceeded_sparse_column_limit,
                                           bool existed_in_sparse_column,
                                           ColumnReaderCache* column_reader_cache);

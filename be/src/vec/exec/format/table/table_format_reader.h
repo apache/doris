@@ -130,11 +130,11 @@ public:
     class Node {
     public:
         virtual ~Node() = default;
-        virtual std::shared_ptr<Node> get_children_node(std::string table_column_name) const {
+        virtual std::shared_ptr<Node> get_children_node(const std::string table_column_name) const {
             throw std::logic_error("get_children_node should not be called on base TableInfoNode");
         };
 
-        virtual std::string children_file_column_name(std::string table_column_name) const {
+        virtual std::string children_file_column_name(const std::string table_column_name) const {
             throw std::logic_error(
                     "children_file_column_name should not be called on base TableInfoNode");
         }
@@ -175,13 +175,14 @@ public:
         std::map<std::string, ChildrenType> children;
 
     public:
-        std::shared_ptr<Node> get_children_node(std::string table_column_name) const override {
+        std::shared_ptr<Node> get_children_node(
+                const std::string table_column_name) const override {
             DCHECK(children.contains(table_column_name));
             DCHECK(children_column_exists(table_column_name));
             return std::get<0>(children.at(table_column_name));
         }
 
-        std::string children_file_column_name(std::string table_column_name) const override {
+        std::string children_file_column_name(const std::string table_column_name) const override {
             DCHECK(children.contains(table_column_name));
             DCHECK(children_column_exists(table_column_name));
             return std::get<1>(children.at(table_column_name));
@@ -231,11 +232,12 @@ public:
         // If you can be sure that there has been no schema change between the table and the file,
         // you can use constNode (of course, you need to pay attention to case sensitivity).
     public:
-        std::shared_ptr<Node> get_children_node(std::string table_column_name) const override {
+        std::shared_ptr<Node> get_children_node(
+                const std::string table_column_name) const override {
             return get_instance();
         };
 
-        std::string children_file_column_name(std::string table_column_name) const override {
+        std::string children_file_column_name(const std::string table_column_name) const override {
             return table_column_name;
         }
 

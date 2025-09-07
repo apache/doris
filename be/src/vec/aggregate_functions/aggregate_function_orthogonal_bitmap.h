@@ -283,9 +283,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&>(to);
-        column.get_data().emplace_back(!result.empty()
-                                               ? result
-                                               : this->bitmap_expr_cal.bitmap_calculate());
+        column.get_data().emplace_back(!result.empty() ? result
+                                                       : this->bitmap_expr_cal.bitmap_calculate());
     }
 
     void reset() {
@@ -397,8 +396,7 @@ public:
         this->data(place).add(columns, row_num);
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 

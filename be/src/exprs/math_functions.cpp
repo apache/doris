@@ -125,10 +125,9 @@ Slice MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, int8
         buf[buf_index] = '-';
         ++result_len;
     }
-    // Use _string_result from udf.h, which is a std::string that 
-    // constructs a StringRef, so it can be used with const_cast
+
     Slice result = ctx->create_temp_string_val(result_len);
-    memcpy(const_cast<char*>(result.data), buf + max_digits - result_len, result_len);
+    memcpy(result.data, buf + max_digits - result_len, result_len);
     return result;
 }
 

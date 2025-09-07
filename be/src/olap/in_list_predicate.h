@@ -325,26 +325,23 @@ public:
                     // Datev1/DatetimeV1 using VecDatetimeValue in bloom filter, NO need to convert.
                     const T* value = (const T*)(iter->get_value());
                     decimal12_t decimal12_t_val(value->int_value(), value->frac_value());
-                    if (bf->test_bytes(
-                                reinterpret_cast<const char*>(&decimal12_t_val),
-                                sizeof(decimal12_t))) {
+                    if (bf->test_bytes(reinterpret_cast<const char*>(&decimal12_t_val),
+                                       sizeof(decimal12_t))) {
                         return true;
                     }
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
                     const T* value = (const T*)(iter->get_value());
                     uint24_t date_value(uint32_t(value->to_olap_date()));
-                    if (bf->test_bytes(
-                                reinterpret_cast<const char*>(&date_value),
-                                sizeof(uint24_t))) {
+                    if (bf->test_bytes(reinterpret_cast<const char*>(&date_value),
+                                       sizeof(uint24_t))) {
                         return true;
                     }
                     // DatetimeV1 using int64_t in bloom filter
                 } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
                     const T* value = (const T*)(iter->get_value());
                     int64_t datetime_value(value->to_olap_datetime());
-                    if (bf->test_bytes(
-                                reinterpret_cast<const char*>(&datetime_value),
-                                sizeof(int64_t))) {
+                    if (bf->test_bytes(reinterpret_cast<const char*>(&datetime_value),
+                                       sizeof(int64_t))) {
                         return true;
                     }
                 } else {

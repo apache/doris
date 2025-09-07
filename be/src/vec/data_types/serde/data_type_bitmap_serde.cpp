@@ -87,11 +87,11 @@ Status DataTypeBitMapSerDe::write_column_to_pb(const IColumn& column, PValues& r
     auto row_count = cast_set<int>(end - start);
     result.mutable_bytes_value()->Reserve(row_count);
     for (auto row = start; row < end; ++row) {
-        auto& value = const_cast<BitmapValue&>(data_column.get_element(row));
+        auto& value = data_column.get_element(row);
         std::string memory_buffer;
         auto bytesize = value.getSizeInBytes();
         memory_buffer.resize(bytesize);
-        value.write_to(const_cast<char*>(memory_buffer.data()));
+        value.write_to(memory_buffer.data());
         result.add_bytes_value(memory_buffer);
     }
     return Status::OK();
@@ -111,12 +111,12 @@ void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
                                                   int64_t row_num) const {
     const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
-    auto bitmap_value = const_cast<BitmapValue&>(data_column.get_element(row_num));
+    auto bitmap_value = data_column.get_element(row_num);
     // serialize the content of string
     auto size = bitmap_value.getSizeInBytes();
     // serialize the content of string
-    auto* ptr = arena.alloc(size);
-    bitmap_value.write_to(const_cast<char*>(ptr));
+    void* ptr = arena.alloc(size);
+    bitmap_value.write_to(reinterpret_cast<char*>(ptr));
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(ptr), size);
     result.writeEndBinary();
@@ -132,7 +132,7 @@ Status DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const N
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
                                              array_builder->type()->name()));
         } else {
-            auto& bitmap_value = const_cast<BitmapValue&>(col.get_element(string_i));
+            auto& bitmap_value = col.get_element(string_i);
             std::string memory_buffer(bitmap_value.getSizeInBytes(), '0');
             bitmap_value.write_to(memory_buffer.data());
             RETURN_IF_ERROR(checkArrowStatus(
@@ -198,7 +198,7 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
     size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            auto bitmap_value = const_cast<BitmapValue&>(col_data.get_element(row_id));
+            auto bitmap_value = col_data.get_element(row_id);
             size_t len = bitmap_value.getSizeInBytes();
             total_size += len;
         }
@@ -213,7 +213,7 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
     size_t offset = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            auto bitmap_value = const_cast<BitmapValue&>(col_data.get_element(row_id));
+            auto bitmap_value = col_data.get_element(row_id);
             size_t len = bitmap_value.getSizeInBytes();
             if (offset + len > total_size) {
                 return Status::InternalError(

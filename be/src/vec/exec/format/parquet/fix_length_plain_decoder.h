@@ -52,6 +52,8 @@ public:
         size_t scale_size = (select_vector.num_values() - select_vector.num_filtered()) *
                             (_type_length / primitive_length);
         doris_column->resize(doris_column->size() + scale_size);
+        // doris_column is of type MutableColumnPtr, which uses get_raw_data
+        // to return a StringRef, hence the use of const_cast.
         char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
         ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {

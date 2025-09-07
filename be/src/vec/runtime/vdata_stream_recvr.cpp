@@ -143,7 +143,7 @@ void VDataStreamRecvr::SenderQueue::set_source_ready(std::lock_guard<std::mutex>
     }
 }
 
-Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, int be_number,
+Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<const PBlock> pblock, int be_number,
                                                 int64_t packet_seq,
                                                 ::google::protobuf::Closure** done,
                                                 const int64_t wait_for_worker,
@@ -390,8 +390,9 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
     return Status::OK();
 }
 
-Status VDataStreamRecvr::add_block(std::unique_ptr<PBlock> pblock, int sender_id, int be_number,
-                                   int64_t packet_seq, ::google::protobuf::Closure** done,
+Status VDataStreamRecvr::add_block(std::unique_ptr<const PBlock> pblock, int sender_id,
+                                   int be_number, int64_t packet_seq,
+                                   ::google::protobuf::Closure** done,
                                    const int64_t wait_for_worker,
                                    const uint64_t time_to_find_recvr) {
     SCOPED_ATTACH_TASK(_resource_ctx);

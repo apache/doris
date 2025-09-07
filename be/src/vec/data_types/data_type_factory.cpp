@@ -470,6 +470,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     // Just Mock A NULL Type in Vec Exec Engine
     case TYPE_NULL:
         nested = std::make_shared<vectorized::DataTypeUInt8>();
+        // nested is of type DataTypePtr(std::shared_ptr<const IDataType>). Since it is created
+        // via std::make_shared<vectorized::DataTypeUInt8>(), using const_cast is permissible.
         const_cast<vectorized::DataTypeUInt8&>(
                 reinterpret_cast<const vectorized::DataTypeUInt8&>(*nested))
                 .set_null_literal(true);

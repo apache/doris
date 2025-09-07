@@ -290,6 +290,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         break;
     }
     case TYPE_DECIMALV2: {
+        // column_decimal utilizes the ColumnPtr from the block* block in _validate_data and can be modified.
         auto* column_decimal = const_cast<vectorized::ColumnDecimal128V2*>(
                 assert_cast<const vectorized::ColumnDecimal128V2*>(real_column_ptr.get()));
         const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
@@ -331,9 +332,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
     case TYPE_DECIMAL32: {
 #define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                               \
-    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType::PType>*>(             \
-            assert_cast<const vectorized::ColumnDecimal<DecimalType::PType>*>(                    \
-                    real_column_ptr.get()));                                                      \
+    auto column_decimal = assert_cast<const vectorized::ColumnDecimal<DecimalType::PType>*>(      \
+            real_column_ptr.get());                                                               \
     const auto& max_decimal = _get_decimalv3_min_or_max<DecimalType, false>(type);                \
     const auto& min_decimal = _get_decimalv3_min_or_max<DecimalType, true>(type);                 \
     const auto* __restrict datas = column_decimal->get_data().data();                             \

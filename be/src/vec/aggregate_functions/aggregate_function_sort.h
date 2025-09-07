@@ -149,8 +149,7 @@ public:
         this->data(place).add(columns, _arguments.size(), row_num);
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -175,8 +174,8 @@ public:
             }
 
             _nested_func->add_batch_single_place(arguments_nested[0]->size(),
-                                                 get_nested_place(targetplace), arguments_nested.data(),
-                                                 arena);
+                                                 get_nested_place(targetplace),
+                                                 arguments_nested.data(), arena);
         }
 
         _nested_func->insert_result_into(get_nested_place(targetplace), to);

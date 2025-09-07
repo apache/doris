@@ -218,16 +218,14 @@ public:
             int64_t result_end = dst.size - 1;
 
             // auto SIMD here
-            // dst is a modifiable std::String. Since StringRef is used for
-            // passing, const_cast must be used.
+            // dst is a modifiable std::String. Since StringRef is used for passing, const_cast must be used.
             auto* __restrict l = const_cast<char*>(dst.data);
             auto* __restrict r = str.data;
             for (; begin < end; ++begin, --result_end) {
                 l[result_end] = r[begin];
             }
         } else {
-            // dst is a modifiable std::String. Since StringRef is used for
-            // passing, const_cast must be used.
+            // dst is a modifiable std::String. Since StringRef is used for passing, const_cast must be used.
             char* dst_data = const_cast<char*>(dst.data);
             for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
                 char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];

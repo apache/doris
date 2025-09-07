@@ -915,10 +915,10 @@ struct ObjectVal : public ContainerVal {
         return const_cast<ObjectVal*>(this)->search(key, klen, handler);
     }
 
-    const_iterator search(int key_id) const { 
+    const_iterator search(int key_id) const {
         // Calling a non-const method on a const variable and does not modify the
         // variable; using const_cast is permissible
-        return const_cast<ObjectVal*>(this)->search(key_id); 
+        return const_cast<ObjectVal*>(this)->search(key_id);
     }
     iterator search(const char* key, hDictFind handler = nullptr) {
         if (!key) {
@@ -1006,10 +1006,10 @@ struct ObjectVal : public ContainerVal {
         // variable; using const_cast is permissible
         return const_cast<ObjectVal*>(this)->find(key, klen, handler);
     }
-    JsonbValue* find(int key_id) const { 
+    JsonbValue* find(int key_id) const {
         // Calling a non-const method on a const variable and does not modify the
         // variable; using const_cast is permissible
-        return const_cast<ObjectVal*>(this)->find(key_id); 
+        return const_cast<ObjectVal*>(this)->find(key_id);
     }
 
     // find the JSONB value by a key string (null terminated)
@@ -1490,7 +1490,7 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
     }
 
     if (stream->peek() == WILDCARD) {
-        // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+        // Called by function_jsonb.cpp, the variables passed in originate from a mutable block;
         // using const_cast is acceptable.
         stream->set_leg_ptr(const_cast<char*>(stream->position()));
         stream->add_leg_len();
@@ -1511,7 +1511,7 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         }
     }
 
-    // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+    // Called by function_jsonb.cpp, the variables passed in originate from a mutable block;
     // using const_cast is acceptable.
     stream->set_leg_ptr(const_cast<char*>(stream->position()));
 
@@ -1583,7 +1583,7 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
     }
 
     if (stream->peek() == WILDCARD) {
-        // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+        // Called by function_jsonb.cpp, the variables passed in originate from a mutable block;
         // using const_cast is acceptable.
         stream->set_leg_ptr(const_cast<char*>(stream->position()));
         stream->add_leg_len();
@@ -1595,7 +1595,7 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         return true;
     }
 
-    // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+    // Called by function_jsonb.cpp, the variables passed in originate from a mutable block;
     // using const_cast is acceptable.
     stream->set_leg_ptr(const_cast<char*>(stream->position()));
 
@@ -1618,7 +1618,7 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         } else if (stream->peek() == DOUBLE_QUOTE) {
             if (left_quotation_marks == nullptr) {
                 left_quotation_marks = stream->position();
-                // Called by function_jsonb.cpp, the variables passed in originate from a mutable block; 
+                // Called by function_jsonb.cpp, the variables passed in originate from a mutable block;
                 // using const_cast is acceptable.
                 stream->set_leg_ptr(const_cast<char*>(++left_quotation_marks));
                 continue;

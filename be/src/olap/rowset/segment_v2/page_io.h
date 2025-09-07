@@ -148,8 +148,8 @@ public:
     //     `footer' stores the page footer.
     // This method is exception safe, it will failed when allocate memory failed.
     // deal with CORRUPTION when using file cache, retry from remote
-    static Status read_and_decompress_page(PageReadOptions& opts, PageHandle* handle,
-                                           Slice* body, PageFooterPB* footer);
+    static Status read_and_decompress_page(PageReadOptions& opts, PageHandle* handle, Slice* body,
+                                           PageFooterPB* footer);
 
 private:
     static Status do_read_and_decompress_page(PageReadOptions& opts, PageHandle* handle,
@@ -158,8 +158,8 @@ private:
                 { return read_and_decompress_page_(opts, handle, body, footer); });
     }
     // An internal method that not deal with exception.
-    static Status read_and_decompress_page_(PageReadOptions& opts, PageHandle* handle,
-                                            Slice* body, PageFooterPB* footer);
+    static Status read_and_decompress_page_(PageReadOptions& opts, PageHandle* handle, Slice* body,
+                                            PageFooterPB* footer);
 };
 
 } // namespace segment_v2

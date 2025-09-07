@@ -182,8 +182,8 @@ public:
         ColumnPtr src_logical_column;
         if (is_consistent()) {
             if (dst_logical_type->is_nullable()) {
-                auto doris_nullable_column = const_cast<ColumnNullable*>(
-                        assert_cast<const ColumnNullable*>(dst_logical_col.get()));
+                auto doris_nullable_column =
+                        assert_cast<const ColumnNullable*>(dst_logical_col.get());
                 src_logical_column =
                         ColumnNullable::create(_cached_src_physical_column,
                                                doris_nullable_column->get_null_map_column_ptr());

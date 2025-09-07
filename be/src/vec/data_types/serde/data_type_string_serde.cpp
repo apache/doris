@@ -328,6 +328,7 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
 
     for (auto row_id = start; row_id < end; row_id++) {
         const auto& ele = assert_cast<const ColumnType&>(column).get_data_at(row_id);
+        // to adapt to orc::Writer, no modifications will be made. so can use const_cast
         cur_batch->data[row_id] = const_cast<char*>(ele.data);
         cur_batch->length[row_id] = ele.size;
     }

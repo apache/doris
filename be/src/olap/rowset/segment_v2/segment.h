@@ -111,8 +111,7 @@ public:
     uint32_t num_rows() const { return _num_rows; }
 
     Status new_column_iterator(const TabletColumn& tablet_column,
-                               std::unique_ptr<ColumnIterator>* iter,
-                                StorageReadOptions* opt);
+                               std::unique_ptr<ColumnIterator>* iter, StorageReadOptions* opt);
 
     Status new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
                                std::unique_ptr<ColumnIterator>* iter);

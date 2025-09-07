@@ -108,7 +108,7 @@ struct AggregateFunctionDistinctSingleNumericData {
 
         if constexpr (stable) {
             argument_columns[0]->resize(data.size());
-            // argument_columns[0] is a mutable column created using create_column. 
+            // argument_columns[0] is a mutable column created using create_column.
             // since get_raw_data returns a StringRef, const_cast is required here.
             auto ptr = (typename PrimitiveTypeTraits<T>::CppType*)const_cast<char*>(
                     argument_columns[0]->get_raw_data().data);

@@ -3034,7 +3034,7 @@ constexpr size_t MAX_FORMAT_LEN_INT128() {
 
 template <typename T, size_t N>
 Slice do_format_round(FunctionContext* context, UInt32 scale, T int_value, T frac_value,
-                          Int32 decimal_places) {
+                      Int32 decimal_places) {
     static_assert(std::is_integral<T>::value);
     const bool is_negative = int_value < 0 || frac_value < 0;
 
@@ -3123,9 +3123,8 @@ struct MoneyFormatInt64Impl {
         const auto* data_column = assert_cast<const ColumnInt64*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
-            Slice str =
-                    MoneyFormat::do_money_format<Int64, MoneyFormat::MAX_FORMAT_LEN_INT64()>(
-                            context, 0, value, 0);
+            Slice str = MoneyFormat::do_money_format<Int64, MoneyFormat::MAX_FORMAT_LEN_INT64()>(
+                    context, 0, value, 0);
             result_column->insert_data(str.data, str.size);
         }
     }
@@ -3142,9 +3141,8 @@ struct MoneyFormatInt128Impl {
         // see https://github.com/apache/doris/blob/788abf2d7c3c7c2d57487a9608e889e7662d5fb2/be/src/vec/data_types/data_type_number_base.cpp#L124
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
-            Slice str =
-                    MoneyFormat::do_money_format<Int128, MoneyFormat::MAX_FORMAT_LEN_INT128()>(
-                            context, 0, value, 0);
+            Slice str = MoneyFormat::do_money_format<Int128, MoneyFormat::MAX_FORMAT_LEN_INT128()>(
+                    context, 0, value, 0);
             result_column->insert_data(str.data, str.size);
         }
     }
@@ -3164,10 +3162,9 @@ struct MoneyFormatDecimalImpl {
                 DecimalV2Value value = DecimalV2Value(dec128.value);
                 // unified_frac_value has 3 digits
                 auto unified_frac_value = value.frac_value() / 1000000;
-                Slice str =
-                        MoneyFormat::do_money_format<Int128,
-                                                     MoneyFormat::MAX_FORMAT_LEN_DEC128V2()>(
-                                context, 3, value.int_value(), unified_frac_value);
+                Slice str = MoneyFormat::do_money_format<Int128,
+                                                         MoneyFormat::MAX_FORMAT_LEN_DEC128V2()>(
+                        context, 3, value.int_value(), unified_frac_value);
 
                 result_column->insert_data(str.data, str.size);
             }
@@ -3201,10 +3198,9 @@ struct MoneyFormatDecimalImpl {
                 const Int128& frac_part = decimal128_column->get_fractional_part(i);
                 const Int128& whole_part = decimal128_column->get_intergral_part(i);
 
-                Slice str =
-                        MoneyFormat::do_money_format<Int128,
-                                                     MoneyFormat::MAX_FORMAT_LEN_DEC128V3()>(
-                                context, scale, whole_part, frac_part);
+                Slice str = MoneyFormat::do_money_format<Int128,
+                                                         MoneyFormat::MAX_FORMAT_LEN_DEC128V3()>(
+                        context, scale, whole_part, frac_part);
 
                 result_column->insert_data(str.data, str.size);
             }
@@ -3328,9 +3324,8 @@ struct FormatRoundInt64Impl {
                         "The second argument is {}, it can not be less than 0.", decimal_places);
             }
             Int64 value = data_column->get_element(i);
-            Slice str =
-                    FormatRound::do_format_round<Int64, FormatRound::MAX_FORMAT_LEN_INT64()>(
-                            context, 0, value, 0, decimal_places);
+            Slice str = FormatRound::do_format_round<Int64, FormatRound::MAX_FORMAT_LEN_INT64()>(
+                    context, 0, value, 0, decimal_places);
             result_column->insert_data(str.data, str.size);
         }
         return Status::OK();
@@ -3359,9 +3354,8 @@ struct FormatRoundInt128Impl {
                         "The second argument is {}, it can not be less than 0.", decimal_places);
             }
             Int128 value = data_column->get_element(i);
-            Slice str =
-                    FormatRound::do_format_round<Int128, FormatRound::MAX_FORMAT_LEN_INT128()>(
-                            context, 0, value, 0, decimal_places);
+            Slice str = FormatRound::do_format_round<Int128, FormatRound::MAX_FORMAT_LEN_INT128()>(
+                    context, 0, value, 0, decimal_places);
             result_column->insert_data(str.data, str.size);
         }
         return Status::OK();
@@ -3392,10 +3386,9 @@ struct FormatRoundDecimalImpl {
                 DecimalV2Value value = DecimalV2Value(dec128.value);
                 // unified_frac_value has 3 digits
                 auto unified_frac_value = value.frac_value() / 1000000;
-                Slice str =
-                        FormatRound::do_format_round<Int128,
-                                                     FormatRound::MAX_FORMAT_LEN_DEC128V2()>(
-                                context, 3, value.int_value(), unified_frac_value, decimal_places);
+                Slice str = FormatRound::do_format_round<Int128,
+                                                         FormatRound::MAX_FORMAT_LEN_DEC128V2()>(
+                        context, 3, value.int_value(), unified_frac_value, decimal_places);
 
                 result_column->insert_data(str.data, str.size);
             }
@@ -3447,10 +3440,9 @@ struct FormatRoundDecimalImpl {
                 const Int128& frac_part = decimal128_column->get_fractional_part(i);
                 const Int128& whole_part = decimal128_column->get_intergral_part(i);
 
-                Slice str =
-                        FormatRound::do_format_round<Int128,
-                                                     FormatRound::MAX_FORMAT_LEN_DEC128V3()>(
-                                context, scale, whole_part, frac_part, decimal_places);
+                Slice str = FormatRound::do_format_round<Int128,
+                                                         FormatRound::MAX_FORMAT_LEN_DEC128V3()>(
+                        context, scale, whole_part, frac_part, decimal_places);
 
                 result_column->insert_data(str.data, str.size);
             }

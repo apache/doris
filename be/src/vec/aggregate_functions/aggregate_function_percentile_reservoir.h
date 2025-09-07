@@ -57,9 +57,7 @@ struct QuantileReservoirSampler {
         data.read(buf);
     }
 
-    double get() {
-        return data.quantileInterpolated(this->level);
-    }
+    double get() { return data.quantileInterpolated(this->level); }
 
 private:
     double level = 0.0;
@@ -89,8 +87,7 @@ public:
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 

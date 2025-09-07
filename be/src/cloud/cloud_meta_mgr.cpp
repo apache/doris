@@ -386,7 +386,7 @@ Status retry_rpc(std::string_view op_name, Request& req, Response* res,
                  MetaServiceMethod<Request, Response> method) {
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
-    
+
     req.set_request_ip(BackendOptions::get_be_endpoint());
 
     int retry_times = 0;

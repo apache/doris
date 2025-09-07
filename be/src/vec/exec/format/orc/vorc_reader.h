@@ -379,8 +379,8 @@ private:
         if (scale_params.scale_type != DecimalScaleParams::NOT_INIT) {
             return;
         }
-        auto* decimal_type = reinterpret_cast<DataTypeDecimal<DecimalPrimitiveType>*>(
-                const_cast<IDataType*>(remove_nullable(data_type).get()));
+        auto* decimal_type = reinterpret_cast<const DataTypeDecimal<DecimalPrimitiveType>*>(
+                remove_nullable(data_type).get());
         auto dest_scale = decimal_type->get_scale();
         if (dest_scale > orc_decimal_scale) {
             scale_params.scale_type = DecimalScaleParams::SCALE_UP;
@@ -430,7 +430,7 @@ private:
                 if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
                     value = static_cast<int128_t>(cvb_data[i]);
                 } else {
-                    // cast data to non const
+                    // cast data to non const, to use a third-party dependency method to obtain an integer
                     auto* non_const_data = const_cast<OrcColumnType*>(data);
                     uint64_t hi = non_const_data->values[i].getHighBits();
                     uint64_t lo = non_const_data->values[i].getLowBits();
@@ -446,7 +446,7 @@ private:
                 if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
                     value = static_cast<int128_t>(cvb_data[i]);
                 } else {
-                    // cast data to non const
+                    // cast data to non const, to use a third-party dependency method to obtain an integer
                     auto* non_const_data = const_cast<OrcColumnType*>(data);
                     uint64_t hi = non_const_data->values[i].getHighBits();
                     uint64_t lo = non_const_data->values[i].getLowBits();
@@ -462,7 +462,7 @@ private:
                 if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
                     value = static_cast<int128_t>(cvb_data[i]);
                 } else {
-                    // cast data to non const
+                    // cast data to non const, to use a third-party dependency method to obtain an integer
                     auto* non_const_data = const_cast<OrcColumnType*>(data);
                     uint64_t hi = non_const_data->values[i].getHighBits();
                     uint64_t lo = non_const_data->values[i].getLowBits();

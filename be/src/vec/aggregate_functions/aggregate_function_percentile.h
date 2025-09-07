@@ -169,8 +169,7 @@ public:
         AggregateFunctionPercentileApprox::data(place).reset();
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         AggregateFunctionPercentileApprox::data(place).merge(
                 AggregateFunctionPercentileApprox::data(rhs));
     }
@@ -471,8 +470,7 @@ public:
         AggregateFunctionPercentile::data(place).reset();
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         AggregateFunctionPercentile::data(place).merge(AggregateFunctionPercentile::data(rhs));
     }
 
@@ -534,8 +532,7 @@ public:
         AggregateFunctionPercentileArray::data(place).reset();
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         AggregateFunctionPercentileArray::data(place).merge(
                 AggregateFunctionPercentileArray::data(rhs));
     }

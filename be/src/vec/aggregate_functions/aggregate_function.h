@@ -131,16 +131,14 @@ public:
                           std::vector<int>& rows, Arena&) const {}
 
     /// Merges state (on which place points to) with other state of current aggregation function.
-    virtual void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-                       Arena&) const = 0;
+    virtual void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const = 0;
 
     virtual void merge_vec(const AggregateDataPtr* places, size_t offset, AggregateDataPtr rhs,
                            Arena&, const size_t num_rows) const = 0;
 
     // same as merge_vec, but only call "merge" function when place is not nullptr
     virtual void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                    AggregateDataPtr rhs, Arena&,
-                                    const size_t num_rows) const = 0;
+                                    AggregateDataPtr rhs, Arena&, const size_t num_rows) const = 0;
 
     /// Serializes state (to transmit it over the network, for example).
     virtual void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const = 0;
@@ -527,9 +525,8 @@ public:
         }
     }
 
-    void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                            AggregateDataPtr rhs, Arena& arena,
-                            const size_t num_rows) const override {
+    void merge_vec_selected(const AggregateDataPtr* places, size_t offset, AggregateDataPtr rhs,
+                            Arena& arena, const size_t num_rows) const override {
         const auto* derived = assert_cast<const Derived*>(this);
         const auto size_of_data = derived->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {

@@ -454,9 +454,9 @@ Status IcebergParquetReader::init_reader(
 
 Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* delete_range,
                                                          DeleteFile* position_delete) {
-    ParquetReader parquet_delete_reader(
-            _profile, _params, *delete_range, READ_DELETE_FILE_BATCH_SIZE,
-            &_state->timezone_obj(), _io_ctx, _state, _meta_cache);
+    ParquetReader parquet_delete_reader(_profile, _params, *delete_range,
+                                        READ_DELETE_FILE_BATCH_SIZE, &_state->timezone_obj(),
+                                        _io_ctx, _state, _meta_cache);
     RETURN_IF_ERROR(parquet_delete_reader.init_reader(
             delete_file_col_names, nullptr, {}, nullptr, nullptr, nullptr, nullptr, nullptr,
             TableSchemaChangeHelper::ConstNode::get_instance(), false));

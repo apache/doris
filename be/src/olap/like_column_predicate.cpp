@@ -91,8 +91,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                     sel[new_size] = idx;
                     unsigned char flag = 0;
                     THROW_IF_ERROR((_state->scalar_function)(
-                            &_like_state,
-                            str_col->get_data_at(idx), pattern, &flag));
+                            &_like_state, str_col->get_data_at(idx), pattern, &flag));
                     new_size += _opposite ^ flag;
                 }
             } else {
@@ -107,8 +106,8 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                     StringRef cell_value = str_col->get_data_at(idx);
                     unsigned char flag = 0;
                     THROW_IF_ERROR((_state->scalar_function)(
-                            &_like_state,
-                            StringRef(cell_value.data, cell_value.size), pattern, &flag));
+                            &_like_state, StringRef(cell_value.data, cell_value.size), pattern,
+                            &flag));
                     new_size += _opposite ^ flag;
                 }
             }
@@ -134,9 +133,8 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 unsigned char flag = 0;
-                THROW_IF_ERROR((_state->scalar_function)(
-                        &_like_state,
-                        str_col->get_data_at(idx), pattern, &flag));
+                THROW_IF_ERROR((_state->scalar_function)(&_like_state, str_col->get_data_at(idx),
+                                                         pattern, &flag));
                 new_size += _opposite ^ flag;
             }
         }

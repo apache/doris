@@ -425,7 +425,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                     add_block->set_compressed(block->compressed());
                     add_block->set_compression_type(block->compression_type());
                     add_block->set_uncompressed_size(block->uncompressed_size());
-                    // here using Protobuf's ArenaStringPtr, which returns a const std::string&. 
+                    // here using Protobuf's ArenaStringPtr, which returns a const std::string&.
                     // Since block is a non-const PBlock, using const_cast is acceptable.
                     add_block->set_allocated_column_values(
                             const_cast<std::string*>(&block->column_values()));

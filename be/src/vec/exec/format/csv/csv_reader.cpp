@@ -632,7 +632,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
-            // block is a Block*, and get_by_position returns a ColumnPtr, 
+            // block is a Block*, and get_by_position returns a ColumnPtr,
             // which is a const pointer. Therefore, using const_cast is permissible.
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
@@ -657,7 +657,7 @@ Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& 
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
-            // block is a Block*, and get_by_position returns a ColumnPtr, 
+            // block is a Block*, and get_by_position returns a ColumnPtr,
             // which is a const pointer. Therefore, using const_cast is permissible.
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());

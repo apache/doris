@@ -376,8 +376,7 @@ public:
 
     void reset(AggregateDataPtr place) const override {}
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         static_cast<void>(this->data(place).merge(this->data(rhs)));
     }
 

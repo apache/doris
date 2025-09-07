@@ -74,7 +74,7 @@ bool parse_id(std::string& s, TUniqueId* id) {
     std::size_t idx_lo = 0;
     id->hi = std::stoul(hi_part, &idx_hi, 16);
     id->lo = std::stoul(lo_part, &idx_lo, 16);
-    
+
     bool valid = (idx_hi == hi_part.size()) && (idx_lo == lo_part.size());
     s[pos] = ':';
     return valid;

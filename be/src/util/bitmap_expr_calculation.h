@@ -59,6 +59,7 @@ public:
 
     BitmapValue bitmap_calculate() const {
         // to use a non-const function and no modify, use const_cast is acceptable
+        // add a const way beause std::map does not have a const operator[]
         return const_cast<BitmapExprCalculation*>(this)->bitmap_calculate();
     }
 

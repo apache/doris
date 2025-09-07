@@ -179,8 +179,7 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         auto& rhs_set = this->data(rhs).set;
         if (rhs_set.size() == 0) return;
 

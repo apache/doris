@@ -177,8 +177,7 @@ public:
     }
 
     // Merges the state of another aggregate function into the current one (merges two SpaceSaving sets).
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         auto& rhs_set = this->data(rhs).value;
         if (!rhs_set.size()) {
             return;

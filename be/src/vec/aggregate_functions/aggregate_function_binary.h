@@ -75,8 +75,7 @@ struct AggregateFunctionBinary
                         static_cast<const ColVecT2&>(*columns[1]).get_data()[row_num]));
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 

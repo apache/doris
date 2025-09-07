@@ -69,8 +69,7 @@ public:
         AggregateFunctionCount::data(place).count = 0;
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         data(place).count += data(rhs).count;
     }
 
@@ -216,8 +215,7 @@ public:
 
     void reset(AggregateDataPtr place) const override { data(place).count = 0; }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         data(place).count += data(rhs).count;
     }
 

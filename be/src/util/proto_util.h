@@ -135,15 +135,13 @@ Status request_embed_attachmentv2(Params* brpc_request, const std::string& data,
 // Extract the brpc request and block from the controller attachment,
 // and put the block into the request.
 template <typename Params>
-Status attachment_extract_request_contain_block(Params* brpc_request,
-                                                brpc::Controller* cntl) {
+Status attachment_extract_request_contain_block(Params* brpc_request, brpc::Controller* cntl) {
     auto block = brpc_request->mutable_block();
     return attachment_extract_request(brpc_request, cntl, block->mutable_column_values());
 }
 
 template <typename Params>
-Status attachment_extract_request(Params* brpc_request, brpc::Controller* cntl,
-                                  std::string* data) {
+Status attachment_extract_request(Params* brpc_request, brpc::Controller* cntl, std::string* data) {
     const butil::IOBuf& io_buf = cntl->request_attachment();
 
     // step1: deserialize request string to brpc_request from attachment.

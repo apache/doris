@@ -905,6 +905,7 @@ struct BitmapHasAny {
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
+            // lvec originates from block; modification is permissible.
             auto bitmap = const_cast<BitmapValue&>(lvec[i]);
             bitmap &= rvec[i];
             res[i] = bitmap.cardinality() != 0;
@@ -913,6 +914,7 @@ struct BitmapHasAny {
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
+            // lvec originates from block; modification is permissible.
             auto bitmap = const_cast<BitmapValue&>(lvec[i]);
             bitmap &= rval;
             res[i] = bitmap.cardinality() != 0;
@@ -921,6 +923,7 @@ struct BitmapHasAny {
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
+            // lvec originates from block; modification is permissible.
             auto bitmap = const_cast<BitmapValue&>(lval);
             bitmap &= rvec[i];
             res[i] = bitmap.cardinality() != 0;
@@ -944,6 +947,7 @@ struct BitmapHasAll {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lvec[i].cardinality();
+            // lvec originates from block; modification is permissible.
             auto bitmap = const_cast<BitmapValue&>(lvec[i]);
             bitmap |= rvec[i];
             res[i] = bitmap.cardinality() == lhs_cardinality;
@@ -953,6 +957,7 @@ struct BitmapHasAll {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lvec[i].cardinality();
+            // lvec originates from block; modification is permissible.
             auto bitmap = const_cast<BitmapValue&>(lvec[i]);
             bitmap |= rval;
             res[i] = bitmap.cardinality() == lhs_cardinality;
@@ -962,6 +967,7 @@ struct BitmapHasAll {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lval.cardinality();
+            // lvec originates from block; modification is permissible.
             auto bitmap = const_cast<BitmapValue&>(lval);
             bitmap |= rvec[i];
             res[i] = bitmap.cardinality() == lhs_cardinality;
@@ -1010,7 +1016,7 @@ struct BitmapToBase64 {
         offsets.resize(size);
         size_t output_char_size = 0;
         for (size_t i = 0; i < size; ++i) {
-            BitmapValue& bitmap_val = const_cast<BitmapValue&>(data[i]);
+            const BitmapValue& bitmap_val = data[i];
             auto ser_size = bitmap_val.getSizeInBytes();
             output_char_size += (int)(4.0 * ceil((double)ser_size / 3.0));
         }
@@ -1023,7 +1029,7 @@ struct BitmapToBase64 {
         std::string ser_buff;
         size_t encoded_offset = 0;
         for (size_t i = 0; i < size; ++i) {
-            BitmapValue& bitmap_val = const_cast<BitmapValue&>(data[i]);
+            const BitmapValue& bitmap_val = data[i];
             cur_ser_size = bitmap_val.getSizeInBytes();
             if (cur_ser_size > last_ser_size) {
                 last_ser_size = cur_ser_size;
@@ -1058,8 +1064,7 @@ struct SubBitmap {
                 null_map[i] = 1;
                 continue;
             }
-            if (const_cast<TData1&>(bitmap_data)[i].offset_limit(offset_data[i], limit_data[i],
-                                                                 &res[i]) == 0) {
+            if (bitmap_data[i].offset_limit(offset_data[i], limit_data[i], &res[i]) == 0) {
                 null_map[i] = 1;
             }
         }
@@ -1075,8 +1080,7 @@ struct SubBitmap {
                 null_map[i] = 1;
                 continue;
             }
-            if (const_cast<TData1&>(bitmap_data)[i].offset_limit(offset_data, limit_data,
-                                                                 &res[i]) == 0) {
+            if (bitmap_data[i].offset_limit(offset_data, limit_data, &res[i]) == 0) {
                 null_map[i] = 1;
             }
         }
@@ -1099,7 +1103,7 @@ struct BitmapSubsetLimit {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_limit(offset_data[i], limit_data[i], &res[i]);
+            bitmap_data[i].sub_limit(offset_data[i], limit_data[i], &res[i]);
         }
     }
     static void vector_scalars(const TData1& bitmap_data, const Int64& offset_data,
@@ -1113,7 +1117,7 @@ struct BitmapSubsetLimit {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_limit(offset_data, limit_data, &res[i]);
+            bitmap_data[i].sub_limit(offset_data, limit_data, &res[i]);
         }
     }
 };
@@ -1134,7 +1138,7 @@ struct BitmapSubsetInRange {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_range(range_start[i], range_end[i], &res[i]);
+            bitmap_data[i].sub_range(range_start[i], range_end[i], &res[i]);
         }
     }
     static void vector_scalars(const TData1& bitmap_data, const Int64& range_start,
@@ -1148,7 +1152,7 @@ struct BitmapSubsetInRange {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_range(range_start, range_end, &res[i]);
+            bitmap_data[i].sub_range(range_start, range_end, &res[i]);
         }
     }
 };

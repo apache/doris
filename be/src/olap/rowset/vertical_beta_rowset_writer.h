@@ -40,8 +40,8 @@ public:
 
     ~VerticalBetaRowsetWriter() override = default;
 
-    Status add_columns(vectorized::Block* block, const std::vector<uint32_t>& col_ids,
-                       bool is_key, uint32_t max_rows_per_segment, bool has_cluster_key) override;
+    Status add_columns(vectorized::Block* block, const std::vector<uint32_t>& col_ids, bool is_key,
+                       uint32_t max_rows_per_segment, bool has_cluster_key) override;
 
     // flush last segment's column
     Status flush_columns(bool is_key) override;

@@ -92,9 +92,8 @@ public:
 
         TAIResource config;
         std::shared_ptr<AIAdapter> adapter;
-        if (Status status =
-                    const_cast<Derived*>(assert_cast<const Derived*>(this))
-                            ->_init_from_resource(context, block, arguments, config, adapter);
+        if (Status status = assert_cast<const Derived*>(this)->_init_from_resource(
+                    context, block, arguments, config, adapter);
             !status.ok()) {
             return status;
         }
@@ -218,7 +217,7 @@ private:
     // The ai resource must be literal
     Status _init_from_resource(FunctionContext* context, const Block& block,
                                const ColumnNumbers& arguments, TAIResource& config,
-                               std::shared_ptr<AIAdapter>& adapter) {
+                               std::shared_ptr<AIAdapter>& adapter) const {
         // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         StringRef resource_name_ref = resource_column.column->get_data_at(0);

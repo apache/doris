@@ -1276,7 +1276,7 @@ Status OrcReader::_fill_partition_columns(
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (const auto& kv : partition_columns) {
         auto doris_column = block->get_by_name(kv.first).column;
-        // block is a Block*, and get_by_name returns a ColumnPtr, 
+        // block is a Block*, and get_by_name returns a ColumnPtr,
         // which is a const pointer. Therefore, using const_cast is permissible.
         auto* col_ptr = const_cast<IColumn*>(doris_column.get());
         const auto& [value, slot_desc] = kv.second;
@@ -1682,6 +1682,8 @@ Status OrcReader::_fill_doris_array_offsets(const std::string& col_name,
                                             size_t num_values, size_t* element_size) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     if (num_values > 0) {
+        // The const variable uses a non-const method from a third-party dependency
+        // without modification, so const_cast can be used.
         if (const_cast<orc::DataBuffer<int64_t>&>(orc_offsets).size() < num_values + 1) {
             return Status::InternalError("Wrong array offsets in orc file for column '{}'",
                                          col_name);
@@ -1750,9 +1752,9 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         size_t element_size = 0;
         RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, doris_offsets, orc_offsets, num_values,
                                                   &element_size));
-        DataTypePtr& nested_type = const_cast<DataTypePtr&>(
+        const DataTypePtr& nested_type =
                 reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get())
-                        ->get_nested_type());
+                        ->get_nested_type();
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
         std::string element_name = col_name + ".element";
         return _orc_column_to_doris_column<false>(
@@ -1770,12 +1772,12 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         size_t element_size = 0;
         RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, doris_map.get_offsets(),
                                                   orc_map->offsets, num_values, &element_size));
-        DataTypePtr& doris_key_type = const_cast<DataTypePtr&>(
+        const DataTypePtr& doris_key_type =
                 reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
-                        ->get_key_type());
-        DataTypePtr& doris_value_type = const_cast<DataTypePtr&>(
+                        ->get_key_type();
+        const DataTypePtr& doris_value_type =
                 reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
-                        ->get_value_type());
+                        ->get_value_type();
         const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
         const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
         ColumnPtr& doris_key_column = doris_map.get_keys_ptr();

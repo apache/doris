@@ -682,8 +682,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
 
     // 1. aggregate duplicate rows in block
     RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
-            data.block, data.num_rows, specified_rowsets,
-            segment_caches));
+            data.block, data.num_rows, specified_rowsets, segment_caches));
     if (data.block->rows() != data.num_rows) {
         data.num_rows = data.block->rows();
         _olap_data_convertor->clear_source_content();
@@ -693,16 +692,16 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // we can only encode primary key columns currently becasue all non-primary columns in flexible partial update
     // can have missing cells
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
-    RETURN_IF_ERROR(_block_aggregator.convert_pk_columns(data.block,
-                                                         data.row_pos, data.num_rows, key_columns));
+    RETURN_IF_ERROR(_block_aggregator.convert_pk_columns(data.block, data.row_pos, data.num_rows,
+                                                         key_columns));
     // 3. encode sequence column
     // We encode the seguence column even thought it may have invalid values in some rows because we need to
     // encode the value of sequence column in key for rows that have a valid value in sequence column during
     // lookup_raw_key. We will encode the sequence column again at the end of this method. At that time, we have
     // a valid sequence column to encode the key with seq col.
     vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
-    RETURN_IF_ERROR(_block_aggregator.convert_seq_column(data.block,
-                                                         data.row_pos, data.num_rows, seq_column));
+    RETURN_IF_ERROR(_block_aggregator.convert_seq_column(data.block, data.row_pos, data.num_rows,
+                                                         seq_column));
 
     std::vector<BitmapValue>* skip_bitmaps = &(
             assert_cast<vectorized::ColumnBitmap*>(

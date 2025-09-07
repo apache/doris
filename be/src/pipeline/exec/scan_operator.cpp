@@ -545,14 +545,14 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                                                       vectorized::VExprContext* expr_ctx,
                                                       PushDownType* pdt) {
     // Used to handle constant expressions, such as '1 = 1' _eval_const_conjuncts does not handle cases like 'colA = 1'
-    char* constant_val = nullptr;
+    const char* constant_val = nullptr;
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
         if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
                     const_col_wrapper->column_ptr.get())) {
-            constant_val = const_cast<char*>(const_column->get_data_at(0).data);
-            if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
+            constant_val = const_column->get_data_at(0).data;
+            if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
                 *pdt = PushDownType::ACCEPTABLE;
                 _eos = true;
                 _scan_dependency->set_ready();
@@ -569,8 +569,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
             DCHECK_EQ(bool_column->size(), 1);
             /// TODO: There is a DCHECK here, but an additional check is still needed. It should return an error code.
             if (bool_column->size() == 1) {
-                constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
-                if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
+                constant_val = bool_column->get_data_at(0).data;
+                if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
                     *pdt = PushDownType::ACCEPTABLE;
                     _eos = true;
                     _scan_dependency->set_ready();
@@ -656,7 +656,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
             // column in (nullptr) is always false so continue to
             // dispose next item
             DCHECK(iter->get_value() != nullptr);
-            auto* value = const_cast<void*>(iter->get_value());
+            const auto* value = iter->get_value();
             RETURN_IF_ERROR(_change_value_range<true>(
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
             iter->next();
@@ -694,7 +694,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                             value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
                 }
                 RETURN_IF_ERROR(_change_value_range<true>(
-                        temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                        temp_range, reinterpret_cast<const void*>(value.data),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             }
             range.intersection(temp_range);
@@ -800,7 +800,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         while (iter->has_next()) {
             // column not in (nullptr) is always true
             DCHECK(iter->get_value() != nullptr);
-            auto value = const_cast<void*>(iter->get_value());
+            const auto value = iter->get_value();
             if (is_fixed_range) {
                 RETURN_IF_ERROR(_change_value_range<true>(
                         range, value, ColumnValueRange<T>::remove_fixed_value_range, fn_name));
@@ -842,11 +842,11 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
             } else {
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(_change_value_range<true>(
-                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            range, reinterpret_cast<const void*>(value.data),
                             ColumnValueRange<T>::remove_fixed_value_range, fn_name));
                 } else {
                     RETURN_IF_ERROR(_change_value_range<true>(
-                            not_in_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            not_in_range, reinterpret_cast<const void*>(value.data),
                             ColumnValueRange<T>::add_fixed_value_range, fn_name));
                 }
             }
@@ -872,7 +872,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
 template <typename Derived>
 template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
 Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveType>& temp_range,
-                                                    void* value,
+                                                    const void* value,
                                                     const ChangeFixedValueRangeFunc& func,
                                                     const std::string& fn_name,
                                                     int slot_ref_child) {
@@ -898,18 +898,19 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
     } else if constexpr (PrimitiveType == TYPE_DATETIME) {
         if constexpr (IsFixed) {
             func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
-                         reinterpret_cast<char*>(value)));
+                 reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         reinterpret_cast<const char*>(value)));
         }
     } else if constexpr (PrimitiveType == TYPE_HLL) {
         if constexpr (IsFixed) {
-            func(temp_range, reinterpret_cast<StringRef*>(value));
+            func(temp_range, reinterpret_cast<const StringRef*>(value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<StringRef*>(value));
+                 reinterpret_cast<const StringRef*>(value));
         }
     } else if constexpr ((PrimitiveType == TYPE_DECIMALV2) || (PrimitiveType == TYPE_CHAR) ||
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_DATETIMEV2) ||
@@ -922,10 +923,12 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
             func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<const typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(
+                         value));
         }
     } else {
         static_assert(always_false_v<PrimitiveType>);
@@ -998,7 +1001,7 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
                                                                fn_name, slot_ref_child));
                 } else {
                     RETURN_IF_ERROR(_change_value_range<false>(
-                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
+                            range, reinterpret_cast<const void*>(value.data),
                             ColumnValueRange<T>::add_value_range, fn_name, slot_ref_child));
                 }
                 *pdt = temp_pdt;

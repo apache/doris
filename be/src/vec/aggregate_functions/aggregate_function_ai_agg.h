@@ -261,8 +261,7 @@ public:
 
     void reset(AggregateDataPtr place) const override { data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         data(place).merge(data(rhs));
     }
 

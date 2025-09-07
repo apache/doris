@@ -30,8 +30,8 @@
 
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "vec/common/arena.h"
 #include "util/slice.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
