@@ -155,7 +155,6 @@ public class CatalogProperty {
                 msClass.isInstance(msProperties),
                 String.format("Metastore properties type is not correct. Expected %s but got %s",
                         msClass.getName(), msProperties.getClass().getName()));
-
     }
 
     /**
