@@ -42,11 +42,11 @@ public class VariantType extends PrimitiveType {
 
     public static final int WIDTH = 24;
 
-    private final int variantMaxSubcolumnsCount;
+    private int variantMaxSubcolumnsCount = 0;
 
-    private final boolean enableTypedPathsToSparse;
+    private boolean enableTypedPathsToSparse = false;
 
-    private final int variantMaxSparseColumnStatisticsSize;
+    private int variantMaxSparseColumnStatisticsSize = 10000;
 
     private final List<VariantField> predefinedFields;
 
@@ -54,7 +54,6 @@ public class VariantType extends PrimitiveType {
     public VariantType(int variantMaxSubcolumnsCount) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         predefinedFields = Lists.newArrayList();
-        this.variantMaxSparseColumnStatisticsSize = 0;
     }
 
     /**
@@ -62,7 +61,6 @@ public class VariantType extends PrimitiveType {
      */
     public VariantType(List<VariantField> fields) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
-        this.variantMaxSparseColumnStatisticsSize = 0;
     }
 
     public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount, boolean enableTypedPathsToSparse,
@@ -124,7 +122,7 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
                                     .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
         }
-        if (variantMaxSparseColumnStatisticsSize != 0) {
+        if (variantMaxSparseColumnStatisticsSize != 10000) {
             sb.append(",");
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize))
