@@ -45,10 +45,10 @@ public:
         const ColumnPtr col_ptr = block.get_by_position(arguments[0]).column;
 
         auto res_column = ColumnString::create();
+        res_column->reserve(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             StringRef ref = col_ptr->get_data_at(i);
-            std::string soundex_code = calculate_soundex(ref);
-            res_column->insert_data(soundex_code.c_str(), soundex_code.length());
+            RETURN_IF_ERROR(calculate_soundex_and_insert(ref, res_column.get(), i));
         }
 
         block.replace_by_position(result, std::move(res_column));
@@ -56,9 +56,11 @@ public:
     }
 
 private:
-    std::string calculate_soundex(const StringRef& ref) const {
-        if (ref.empty()) {
-            return "";
+    Status calculate_soundex_and_insert(const StringRef& ref, ColumnString* res_column,
+                                        const size_t row) const {
+        if (ref.size == 0) {
+            res_column->insert_data("", 0);
+            return Status::OK();
         }
 
         std::string result;
@@ -68,7 +70,8 @@ private:
             auto c = static_cast<unsigned char>(ref.data[i]);
 
             if (c > 0x7f) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT, "soundex only supports ASCII");
+                return Status::InvalidArgument("soundex only supports ASCII, but got: {}",
+                                               ref.data[i]);
             }
             if (!std::isalpha(c)) {
                 continue;
@@ -82,7 +85,8 @@ private:
                 if (code != 'V' && code != pre_code) {
                     result += code;
                     if (result.size() == 4) {
-                        return result;
+                        res_column->insert_data(result.c_str(), result.length());
+                        return Status::OK();
                     }
                 }
 
@@ -94,7 +98,8 @@ private:
             result += '0';
         }
 
-        return result;
+        res_column->insert_data(result.c_str(), result.length());
+        return Status::OK();
     }
 
     /** 1. If a vowel (A, E, I, O, U) separates two consonants that have the same soundex code

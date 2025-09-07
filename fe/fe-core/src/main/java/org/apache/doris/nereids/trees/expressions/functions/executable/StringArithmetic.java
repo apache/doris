@@ -1059,4 +1059,57 @@ public class StringArithmetic {
         }
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
     }
+
+    /**
+     * Executable arithmetic functions soundex
+     */
+    @ExecFunction(name = "soundex")
+    public static Expression soundex(StringLikeLiteral first) {
+        char[] soundexTable = {
+            'V', '1', '2', '3', 'V', '1', '2', 'N', 'V',
+            '2', '2', '4', '5', '5', 'V', '1', '2', '6',
+            '2', '3', 'V', '1', 'N', '2', 'V', '2'
+        };
+
+        String result = "";
+        if (!first.getValue().isEmpty()) {
+            char preCode = '\0';
+
+            for (int i = 0; i < first.getValue().length(); i++) {
+                char c = first.getValue().charAt(i);
+
+                if (c > 0x7f) {
+                    throw new RuntimeException("soundex only supports ASCII, but got: " + c);
+                }
+                if (!Character.isLetter(c)) {
+                    continue;
+                }
+
+                c = Character.toUpperCase(c);
+                if (result.isEmpty()) {
+                    result += c;
+                    preCode = (soundexTable[c - 'A'] == 'N') ? '\0' : soundexTable[c - 'A'];
+                } else {
+                    char code = soundexTable[c - 'A'];
+                    if (code != 'N') {
+                        if (code != 'V' && code != preCode) {
+                            result += code;
+                            if (result.length() == 4) {
+                                break;
+                            }
+                        }
+                        preCode = code;
+                    }
+                }
+            }
+
+            if (result.length() > 0) {
+                while (result.length() < 4) {
+                    result += '0';
+                }
+            }
+        }
+
+        return castStringLikeLiteral(first, result);
+    }
 }
