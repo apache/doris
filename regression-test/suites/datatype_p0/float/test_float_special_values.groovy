@@ -439,4 +439,235 @@ suite("test_float_special_values", "datatype_p0") {
     // group by double columns
     qt_select_double_group_by1 "select v1, min(k1), max(k1), sum(k1), count(k1), avg(k1) from test_double_exprs group by v1 order by v1;"
     qt_select_double_group_by2 "select v1, v2, min(k1), max(k1), sum(k1), count(k1), avg(k1) from test_double_exprs group by v1, v2 order by v1, v2;"
+
+    sql """
+        drop table if exists test_array_double_exprs;
+    """
+    sql """
+        create table test_array_double_exprs(
+            k1 decimalv3(10, 6),
+            v1 array<double>
+        ) properties("replication_num" = "1");
+    """
+    sql """
+        insert into test_array_double_exprs values
+            (1, ["+0.0", "+0.0"]),
+            (2, ["+0.0", "-0.0"]),
+            (3, ["-0.0", "+0.0"]),
+            (4, ["-0.0", "-0.0"]),
+            (1, ["+0.0", 1]),
+            (2, ["-0.0", 1]),
+            (1, [1, 1]),
+            (2, [1, 1]),
+            (3, [1, 1]),
+            (1, [1.1, 1.1]),
+            (2, [1.1, 1.1]),
+            (3, [1.1, 1.1]),
+            (1, [3.402823e+38, 3.402823e+38]),
+            (2, [3.402823e+38, 3.402823e+38]),
+            (3, [3.402823e+38, 3.402823e+38]),
+            (1, [-3.402823e+38, -3.402823e+38]),
+            (2, [-3.402823e+38, -3.402823e+38]),
+            (3, [-3.402823e+38, -3.402823e+38]),
+            (1, ['NaN', 'NaN']),
+            (2, ['NaN', 'NaN']),
+            (3, ['NaN', 'NaN']),
+            (1, ['NaN', 1.2]),
+            (2, ['NaN', 1.2]),
+            (3, ['NaN', 1.2]),
+            (1, ['NaN', -1.2]),
+            (2, ['NaN', -1.2]),
+            (3, ['NaN', -1.2]),
+            (1, ['NaN', "Infinity"]),
+            (2, ['NaN', "Infinity"]),
+            (3, ['NaN', "Infinity"]),
+            (1, ['NaN', "-Infinity"]),
+            (2, ['NaN', "-Infinity"]),
+            (3, ['NaN', "-Infinity"]),
+            (1, ['Infinity', 'Infinity']),
+            (2, ['Infinity', 'Infinity']),
+            (3, ['Infinity', 'Infinity']),
+            (1, ['Infinity', 1.3]),
+            (2, ['Infinity', 1.3]),
+            (3, ['Infinity', 1.3]),
+            (1, ['Infinity', -1.3]),
+            (2, ['Infinity', -1.3]),
+            (3, ['Infinity', -1.3]),
+            (1, ['-Infinity', '-Infinity']),
+            (2, ['-Infinity', '-Infinity']),
+            (3, ['-Infinity', '-Infinity']),
+            (1, ['-Infinity', 1.4]),
+            (2, ['-Infinity', 1.4]),
+            (3, ['-Infinity', 1.4]),
+            (1, ['-Infinity', -1.4]),
+            (2, ['-Infinity', -1.4]),
+            (3, ['-Infinity', -1.4]),
+            (1, [null, null]),
+            (2, [null, null]),
+            (3, [null, null]),
+            (1, [null, 1.4]),
+            (2, [null, 1.4]),
+            (3, [null, 1.4]),
+            (1, [null, -1.4]),
+            (2, [null, -1.4]),
+            (3, [null, -1.4]);
+    """
+    qt_select_array_double_all "select * from test_array_double_exprs order by v1,  k1;"
+
+    // group and order by array_double columns
+    qt_select_array_double_group_by1 "select v1, min(k1), max(k1), sum(k1), count(k1), avg(k1) from test_array_double_exprs group by v1 order by v1;"
+
+    sql """
+        drop table if exists test_map_double_exprs;
+    """
+    sql """
+        create table test_map_double_exprs(
+            k1 decimalv3(10, 6),
+            v1 map<double, double>
+        ) properties("replication_num" = "1");
+    """
+    sql """
+        insert into test_map_double_exprs values
+            (1, map("+0.0", "+0.0")),
+            (2, map("+0.0", "-0.0")),
+            (3, map("-0.0", "+0.0")),
+            (4, map("-0.0", "-0.0")),
+            (1, map("+0.0", 1)),
+            (2, map("-0.0", 1)),
+            (1, map(1, 1)),
+            (2, map(1, 1)),
+            (3, map(1, 1)),
+            (1, map(1.1, 1.1)),
+            (2, map(1.1, 1.1)),
+            (3, map(1.1, 1.1)),
+            (1, map(3.402823e+38, 3.402823e+38)),
+            (2, map(3.402823e+38, 3.402823e+38)),
+            (3, map(3.402823e+38, 3.402823e+38)),
+            (1, map(-3.402823e+38, -3.402823e+38)),
+            (2, map(-3.402823e+38, -3.402823e+38)),
+            (3, map(-3.402823e+38, -3.402823e+38)),
+            (1, map('NaN', 'NaN')),
+            (2, map('NaN', 'NaN')),
+            (3, map('NaN', 'NaN')),
+            (1, map('NaN', 1.2)),
+            (2, map('NaN', 1.2)),
+            (3, map('NaN', 1.2)),
+            (1, map('NaN', -1.2)),
+            (2, map('NaN', -1.2)),
+            (3, map('NaN', -1.2)),
+            (1, map('NaN', "Infinity")),
+            (2, map('NaN', "Infinity")),
+            (3, map('NaN', "Infinity")),
+            (1, map('NaN', "-Infinity")),
+            (2, map('NaN', "-Infinity")),
+            (3, map('NaN', "-Infinity")),
+            (1, map('Infinity', 'Infinity')),
+            (2, map('Infinity', 'Infinity')),
+            (3, map('Infinity', 'Infinity')),
+            (1, map('Infinity', 1.3)),
+            (2, map('Infinity', 1.3)),
+            (3, map('Infinity', 1.3)),
+            (1, map('Infinity', -1.3)),
+            (2, map('Infinity', -1.3)),
+            (3, map('Infinity', -1.3)),
+            (1, map('-Infinity', '-Infinity')),
+            (2, map('-Infinity', '-Infinity')),
+            (3, map('-Infinity', '-Infinity')),
+            (1, map('-Infinity', 1.4)),
+            (2, map('-Infinity', 1.4)),
+            (3, map('-Infinity', 1.4)),
+            (1, map('-Infinity', -1.4)),
+            (2, map('-Infinity', -1.4)),
+            (3, map('-Infinity', -1.4)),
+            (1, map(null, null)),
+            (2, map(null, null)),
+            (3, map(null, null)),
+            (1, map(null, 1.4)),
+            (2, map(null, 1.4)),
+            (3, map(null, 1.4)),
+            (1, map(null, -1.4)),
+            (2, map(null, -1.4)),
+            (3, map(null, -1.4));
+    """
+    qt_select_map_double_all "select * from test_map_double_exprs order by v1,  k1;"
+
+    // group and order by map_double columns
+    qt_select_map_double_group_by1 "select v1, min(k1), max(k1), sum(k1), count(k1), avg(k1) from test_map_double_exprs group by v1 order by v1;"
+
+    sql """
+        drop table if exists test_struct_double_exprs;
+    """
+    sql """
+        create table test_struct_double_exprs(
+            k1 decimalv3(10, 6),
+            v1 struct<f1:double, f2:double>
+        ) properties("replication_num" = "1");
+    """
+    sql """
+        insert into test_struct_double_exprs values
+            (1, struct("+0.0", "+0.0")),
+            (2, struct("+0.0", "-0.0")),
+            (3, struct("-0.0", "+0.0")),
+            (4, struct("-0.0", "-0.0")),
+            (1, struct("+0.0", 1)),
+            (2, struct("-0.0", 1)),
+            (1, struct(1, 1)),
+            (2, struct(1, 1)),
+            (3, struct(1, 1)),
+            (1, struct(1.1, 1.1)),
+            (2, struct(1.1, 1.1)),
+            (3, struct(1.1, 1.1)),
+            (1, struct(3.402823e+38, 3.402823e+38)),
+            (2, struct(3.402823e+38, 3.402823e+38)),
+            (3, struct(3.402823e+38, 3.402823e+38)),
+            (1, struct(-3.402823e+38, -3.402823e+38)),
+            (2, struct(-3.402823e+38, -3.402823e+38)),
+            (3, struct(-3.402823e+38, -3.402823e+38)),
+            (1, struct('NaN', 'NaN')),
+            (2, struct('NaN', 'NaN')),
+            (3, struct('NaN', 'NaN')),
+            (1, struct('NaN', 1.2)),
+            (2, struct('NaN', 1.2)),
+            (3, struct('NaN', 1.2)),
+            (1, struct('NaN', -1.2)),
+            (2, struct('NaN', -1.2)),
+            (3, struct('NaN', -1.2)),
+            (1, struct('NaN', "Infinity")),
+            (2, struct('NaN', "Infinity")),
+            (3, struct('NaN', "Infinity")),
+            (1, struct('NaN', "-Infinity")),
+            (2, struct('NaN', "-Infinity")),
+            (3, struct('NaN', "-Infinity")),
+            (1, struct('Infinity', 'Infinity')),
+            (2, struct('Infinity', 'Infinity')),
+            (3, struct('Infinity', 'Infinity')),
+            (1, struct('Infinity', 1.3)),
+            (2, struct('Infinity', 1.3)),
+            (3, struct('Infinity', 1.3)),
+            (1, struct('Infinity', -1.3)),
+            (2, struct('Infinity', -1.3)),
+            (3, struct('Infinity', -1.3)),
+            (1, struct('-Infinity', '-Infinity')),
+            (2, struct('-Infinity', '-Infinity')),
+            (3, struct('-Infinity', '-Infinity')),
+            (1, struct('-Infinity', 1.4)),
+            (2, struct('-Infinity', 1.4)),
+            (3, struct('-Infinity', 1.4)),
+            (1, struct('-Infinity', -1.4)),
+            (2, struct('-Infinity', -1.4)),
+            (3, struct('-Infinity', -1.4)),
+            (1, struct(null, null)),
+            (2, struct(null, null)),
+            (3, struct(null, null)),
+            (1, struct(null, 1.4)),
+            (2, struct(null, 1.4)),
+            (3, struct(null, 1.4)),
+            (1, struct(null, -1.4)),
+            (2, struct(null, -1.4)),
+            (3, struct(null, -1.4));
+    """
+    qt_select_struct_double_all "select * from test_struct_double_exprs order by v1,  k1;"
+
+    // group and order by struct_double columns
+    qt_select_struct_double_group_by1 "select v1, min(k1), max(k1), sum(k1), count(k1), avg(k1) from test_struct_double_exprs group by v1 order by v1;"
 }
