@@ -1140,7 +1140,8 @@ public class ScalarType extends Type {
         if (result == null) {
             result = compatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
         }
-        Preconditions.checkNotNull(result);
+        Preconditions.checkNotNull(result,
+                "data type %s and %s is not compatible", t1, t2);
         if (result == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
         }
@@ -1225,5 +1226,14 @@ public class ScalarType extends Type {
             return ((VariantType) this).getEnableTypedPathsToSparse();
         }
         return false; // The old variant type had a default value of false.
+    }
+
+    public int getVariantMaxSparseColumnStatisticsSize() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantMaxSparseColumnStatisticsSize();
+        }
+        return 0; // The old variant type had a default value of 0.
     }
 }

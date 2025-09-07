@@ -740,8 +740,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                             query_ctx->set_rsc_info = true;
                         }
 
-                        if (params.__isset.llm_resources) {
-                            query_ctx->set_llm_resources(params.llm_resources);
+                        if (params.__isset.ai_resources) {
+                            query_ctx->set_ai_resources(params.ai_resources);
                         }
 
                         RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));

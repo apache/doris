@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -147,7 +148,6 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
     bool is_running() { return _running.load(); }
-    bool is_revoking() const;
     PipelineTask& set_running(bool running) {
         _running.exchange(running);
         return *this;
@@ -209,6 +209,9 @@ private:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
 
+    bool _need_to_revoke_memory = false;
+    std::shared_ptr<SpillContext> _spill_context;
+
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
     RuntimeProfile::Counter* _task_cpu_timer = nullptr;
@@ -235,7 +238,6 @@ private:
 
     // `_read_dependencies` is stored as same order as `_operators`
     std::vector<std::vector<Dependency*>> _read_dependencies;
-    std::vector<Dependency*> _spill_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     std::vector<Dependency*> _execution_dependencies;

@@ -816,7 +816,7 @@ message TabletStatsPB {
     optional int64 cumulative_point = 9;
     optional int64 last_base_compaction_time_ms = 10;
     optional int64 last_cumu_compaction_time_ms = 11;
-    optional int64 full_compaction_cnt = 12;
+    optional int64 full_compaction_cnt = 12; // used by calc_sync_versions() only
     optional int64 last_full_compaction_time_ms = 13;
     optional int64 index_size = 14;
     optional int64 segment_size = 15;
@@ -1243,6 +1243,7 @@ message GetRowsetRequest {
     // for compability reason we use FILL_WITH_DICT as default
     optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
     optional string request_ip = 9;
+    optional int64 full_compaction_cnt = 10;
 }
 
 message GetRowsetResponse {
@@ -1354,18 +1355,13 @@ message AlterInstanceRequest {
         DISABLE_SSE                 = 5;
         SET_OVERDUE                 = 6;
         SET_NORMAL                  = 7;
-        SNAPSHOT_SWITCH_ON          = 8;
-        SNAPSHOT_SWITCH_OFF         = 9;
-        WRITE_MULTI_VERSION_KEYS    = 10;
-        READ_MULTI_VERSION_KEYS     = 11;
-        DISABLE_SINGLE_VERSION_KEYS = 12;
-        SET_SNAPSHOT_PROPERTY       = 13;
+        SET_SNAPSHOT_PROPERTY       = 8;
     }
     optional string instance_id = 1;
     optional Operation op = 2;
     optional string name = 3;
     optional string request_ip = 4;
-    optional string value = 5;
+    map<string, string> properties = 5;
 }
 
 message AlterInstanceResponse {
