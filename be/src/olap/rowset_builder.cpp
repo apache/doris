@@ -152,22 +152,7 @@ Status RowsetBuilder::check_tablet_version_count() {
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { injection = true; });
     int32_t max_version_config = _tablet->max_version_config();
-    if (injection) {
-        // do not return if injection
-    } else if (!_tablet->exceed_version_limit(max_version_config - 100) ||
-               GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
-        return Status::OK();
-    }
-    //trigger compaction
-    auto st = _engine.submit_compaction_task(tablet_sptr(), CompactionType::CUMULATIVE_COMPACTION,
-                                             true);
-    if (!st.ok()) [[unlikely]] {
-        LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id() << " : "
-                     << st;
-    }
     auto version_count = tablet()->version_count();
-    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
-                    { version_count = INT_MAX; });
     if (version_count > max_version_config) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
@@ -175,6 +160,17 @@ Status RowsetBuilder::check_tablet_version_count() {
                 "max_tablet_version_num or time_series_max_tablet_version_num in be.conf to a "
                 "larger value.",
                 version_count, max_version_config, _tablet->tablet_id());
+    }
+    if (!injection && GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+        // (TODO Refrain) what error msg should we return ?
+        return Status::Error<FETCH_MEMORY_EXCEEDED>("check_tablet_version_count failed due to memory shortage");
+    }
+    //trigger compaction
+    auto st = _engine.submit_compaction_task(tablet_sptr(), CompactionType::CUMULATIVE_COMPACTION,
+                                             true);
+    if (!st.ok()) [[unlikely]] {
+        LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id() << " : "
+                     << st;
     }
     return Status::OK();
 }
