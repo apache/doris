@@ -163,7 +163,8 @@ Status RowsetBuilder::check_tablet_version_count() {
     }
     if (!injection && GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // (TODO Refrain) what error msg should we return ?
-        return Status::Error<FETCH_MEMORY_EXCEEDED>("check_tablet_version_count failed due to memory shortage");
+        return Status::Error<FETCH_MEMORY_EXCEEDED>(
+                "check_tablet_version_count failed due to memory shortage");
     }
     //trigger compaction
     auto st = _engine.submit_compaction_task(tablet_sptr(), CompactionType::CUMULATIVE_COMPACTION,
