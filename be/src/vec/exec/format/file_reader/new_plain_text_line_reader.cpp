@@ -83,7 +83,7 @@ const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, con
         }
         }
         if (config::enable_csv_reader_fuzzy_test) [[unlikely]] {
-            if (_idx > bound) {
+            if (_idx >= bound) {
                 break;
             }
             len = std::min(std::max(_idx + 1, len), bound);
