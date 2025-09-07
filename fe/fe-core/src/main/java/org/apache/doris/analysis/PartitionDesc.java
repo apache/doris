@@ -103,48 +103,54 @@ public class PartitionDesc {
     // 2. partition by range(column/function(column)) : support slotRef and some
     // special function eg: date_trunc, date_floor/ceil
     public static List<String> getColNamesFromExpr(ArrayList<Expr> exprs, boolean isListPartition,
-                                                   boolean isAutoPartition) throws AnalysisException {
+            boolean isAutoPartition)
+            throws AnalysisException {
         List<String> colNames = new ArrayList<>();
         for (Expr expr : exprs) {
-            if (expr instanceof FunctionCallExpr) {
+            if ((expr instanceof FunctionCallExpr) && (isListPartition == false)) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
                 List<Expr> paramsExpr = functionCallExpr.getParams().exprs();
                 String name = functionCallExpr.getFnName().getFunction();
-
-                if (!isListPartition && !RANGE_PARTITION_FUNCTIONS.contains(name)) {
-                    throw new AnalysisException(
-                        "auto create partition only support function call expr is date_trunc/date_floor/date_ceil. "
-                            + expr.toSql());
-                }
-                // (Refrain) now we support (f(a), f(b,1), f(c),2)
-                for (Expr param : paramsExpr) {
-                    if (param instanceof SlotRef) {
-                        colNames.add(((SlotRef) param).getColumnName());
-                        // if (colNames.isEmpty()) {
-                        //     colNames.add(((SlotRef) param).getColumnName());
-                        // } else {
-                        //     throw new AnalysisException(
-                        //         "partition only support one slotRef in function expr. "
-                        //             + expr.toSql());
-                        // }
+                if (RANGE_PARTITION_FUNCTIONS.contains(name)) {
+                    for (Expr param : paramsExpr) {
+                        if (param instanceof SlotRef) {
+                            if (colNames.isEmpty()) {
+                                colNames.add(((SlotRef) param).getColumnName());
+                            } else {
+                                throw new AnalysisException(
+                                        "auto create partition only support one slotRef in function expr. "
+                                                + expr.toSql());
+                            }
+                        }
                     }
+                } else {
+                    throw new AnalysisException(
+                            "auto create partition only support function call expr is date_trunc/date_floor/date_ceil. "
+                                    + expr.toSql());
                 }
             } else if (expr instanceof SlotRef) {
                 if (isAutoPartition && !isListPartition) {
                     throw new AnalysisException(
-                        "auto create partition only support date_trunc function of RANGE partition. "
-                            + expr.toSql());
+                            "auto create partition only support date_trunc function of RANGE partition. "
+                                    + expr.toSql());
                 }
                 colNames.add(((SlotRef) expr).getColumnName());
             } else {
-                throw new AnalysisException(
-                    "partition only support slotRef or function expression. " + expr.toSql());
+                if (!isListPartition) {
+                    throw new AnalysisException(
+                            "auto create partition only support slotRef and date_trunc/date_floor/date_ceil"
+                                    + "function in range partitions. " + expr.toSql());
+                } else {
+                    throw new AnalysisException(
+                            "auto create partition only support slotRef in list partitions. "
+                                    + expr.toSql());
+                }
             }
         }
-
         if (colNames.isEmpty()) {
             throw new AnalysisException(
-                "partition have not find any partition columns. " + exprs.get(0).toSql());
+                    "auto create partition have not find any partition columns. "
+                            + exprs.get(0).toSql());
         }
         return colNames;
     }
