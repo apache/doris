@@ -21,6 +21,7 @@ It mainly tests the agg function, etc
  */
 suite("partition_mv_rewrite_dimension_2_3") {
     String db = context.config.getDbNameByFile(context.file)
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "use ${db}"
 
     sql """

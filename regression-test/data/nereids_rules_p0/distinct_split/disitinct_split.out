@@ -366,14 +366,16 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalOlapScan[test_distinct_multi]
 --PhysicalResultSink
 ----NestedLoopJoin[CROSS_JOIN]
-------hashAgg[DISTINCT_LOCAL]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------hashAgg[DISTINCT_LOCAL]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_count_mulitcols_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -381,14 +383,16 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalOlapScan[test_distinct_multi]
 --PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((d <=> .d)) otherCondition=()
-------hashAgg[DISTINCT_LOCAL]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------hashAgg[DISTINCT_LOCAL]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !three_count_mulitcols_without_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -397,18 +401,21 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalResultSink
 ----NestedLoopJoin[CROSS_JOIN]
 ------NestedLoopJoin[CROSS_JOIN]
+--------hashAgg[DISTINCT_GLOBAL]
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------hashAgg[DISTINCT_GLOBAL]
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[DISTINCT_GLOBAL]
 --------hashAgg[DISTINCT_LOCAL]
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------hashAgg[DISTINCT_LOCAL]
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------hashAgg[DISTINCT_LOCAL]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !four_count_mulitcols_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -418,22 +425,26 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----hashJoin[INNER_JOIN] hashCondition=((d <=> .d)) otherCondition=()
 ------hashJoin[INNER_JOIN] hashCondition=((d <=> .d)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((d <=> .d)) otherCondition=()
-----------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
 ----------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------hashAgg[DISTINCT_LOCAL]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !has_other_func --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -464,40 +475,144 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN] hashCondition=((c <=> .c)) otherCondition=()
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_count_with_gby --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------PhysicalOlapScan[test_distinct_multi]
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[test_distinct_multi]
+--PhysicalResultSink
+----hashJoin[INNER_JOIN] hashCondition=((c <=> .c)) otherCondition=()
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_sum_with_gby --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------PhysicalOlapScan[test_distinct_multi]
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[test_distinct_multi]
+--PhysicalResultSink
+----hashJoin[INNER_JOIN] hashCondition=((c <=> .c)) otherCondition=()
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !sum_count_with_gby --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------PhysicalOlapScan[test_distinct_multi]
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[test_distinct_multi]
+--PhysicalResultSink
+----hashJoin[INNER_JOIN] hashCondition=((a <=> .a)) otherCondition=()
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[GLOBAL]
+--------hashAgg[GLOBAL]
+----------hashAgg[LOCAL]
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !has_grouping --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------PhysicalRepeat
---------PhysicalOlapScan[test_distinct_multi]
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalRepeat
+------PhysicalOlapScan[test_distinct_multi]
+--PhysicalResultSink
+----hashJoin[INNER_JOIN] hashCondition=((GROUPING_ID <=> .GROUPING_ID) and (a <=> .a) and (b <=> .b) and (c <=> .c)) otherCondition=()
+------hashAgg[GLOBAL]
+--------hashAgg[GLOBAL]
+----------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[GLOBAL]
+--------hashAgg[GLOBAL]
+----------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !null_hash --
 1	\N	0	0.0
+
+-- !same_distinct_arg --
+2	1
+
+-- !same_distinct_arg_2group --
+1	3	2
+
+-- !same_distinct_arg_shape --
+PhysicalResultSink
+--hashAgg[DISTINCT_GLOBAL]
+----hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[test_distinct_multi]
+
+-- !same_distinct_arg_2group_shape --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[test_distinct_multi]
+--PhysicalResultSink
+----NestedLoopJoin[CROSS_JOIN]
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+
+-- !use_multi_distinct --
+\N	\N	\N	12	10	15500.00	1291.6666	12
+\N	\N	Clothing	5	5	3900.00	780.0000	5
+\N	\N	Electronics	7	5	11600.00	1657.1428	7
+East	\N	Clothing	1	1	850.00	850.0000	1
+East	\N	Electronics	1	1	1300.00	1300.0000	1
+East	Nanjing	\N	2	2	2150.00	1075.0000	2
+North	\N	Clothing	2	2	1400.00	700.0000	2
+North	\N	Electronics	3	2	4700.00	1566.6666	3
+North	Beijing	\N	3	2	3500.00	1166.6666	3
+North	Tianjin	\N	2	2	2600.00	1300.0000	2
+South	\N	Clothing	2	2	1650.00	825.0000	2
+South	\N	Electronics	3	2	5600.00	1866.6666	3
+South	Guangzhou	\N	2	2	2950.00	1475.0000	2
+South	Shanghai	\N	3	2	4300.00	1433.3333	3
+
+-- !use_cte_split --
+\N	\N	\N	12	10	15500.00	1291.6666	12
+\N	\N	Clothing	5	5	3900.00	780.0000	5
+\N	\N	Electronics	7	5	11600.00	1657.1428	7
+East	\N	Clothing	1	1	850.00	850.0000	1
+East	\N	Electronics	1	1	1300.00	1300.0000	1
+East	Nanjing	\N	2	2	2150.00	1075.0000	2
+North	\N	Clothing	2	2	1400.00	700.0000	2
+North	\N	Electronics	3	2	4700.00	1566.6666	3
+North	Beijing	\N	3	2	3500.00	1166.6666	3
+North	Tianjin	\N	2	2	2600.00	1300.0000	2
+South	\N	Clothing	2	2	1650.00	825.0000	2
+South	\N	Electronics	3	2	5600.00	1866.6666	3
+South	Guangzhou	\N	2	2	2950.00	1475.0000	2
+South	Shanghai	\N	3	2	4300.00	1433.3333	3
 

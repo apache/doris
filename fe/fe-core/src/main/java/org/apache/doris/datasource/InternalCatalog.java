@@ -989,13 +989,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                     costTimes.put("5:getRecycleTimeById", watch.getSplitTime());
                 }
             }
+            DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, isView, forceDrop, recycleTime);
+            Env.getCurrentEnv().getEditLog().logDropTable(info);
         } finally {
             table.writeUnlock();
         }
 
-        DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, isView, forceDrop, recycleTime);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
-        Env.getCurrentEnv().getEditLog().logDropTable(info);
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
                     .clearTableLastTxnId(db.getId(), table.getId());
