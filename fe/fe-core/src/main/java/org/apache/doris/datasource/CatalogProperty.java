@@ -153,9 +153,8 @@ public class CatalogProperty {
         Preconditions.checkNotNull(msProperties, "Metastore properties are not configured properly");
         Preconditions.checkArgument(
                 msClass.isInstance(msProperties),
-                "Metastore properties type is not correct. Expected %s but got %s"
-                        + msClass.getName()
-                        + msProperties.getClass().getName());
+                String.format("Metastore properties type is not correct. Expected %s but got %s",
+                        msClass.getName(), msProperties.getClass().getName()));
 
     }
 
@@ -175,7 +174,7 @@ public class CatalogProperty {
                     } catch (UserException e) {
                         LOG.warn("Failed to create metastore properties", e);
                         throw new RuntimeException("Failed to create metastore properties, error: "
-                                + ExceptionUtils.getRootCause(e), e);
+                                + ExceptionUtils.getRootCauseMessage(e), e);
                     }
                 }
             }

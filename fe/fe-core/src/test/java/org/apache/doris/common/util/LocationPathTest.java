@@ -38,7 +38,6 @@ public class LocationPathTest {
 
     static {
         Map<String, String> props = new HashMap<>();
-        props.put("dfs.nameservices", "namenode:8020");
         props.put("dfs.nameservices", "ns1");
         // NameNodes for this nameservice
         props.put("dfs.ha.namenodes.ns1", "nn1,nn2");
