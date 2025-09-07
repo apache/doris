@@ -1110,9 +1110,9 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 
 // Calculate statistics about variant data paths from the encoded sparse column
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
-                                                    segment_v2::VariantStatisticsPB* stats,
-                                                    size_t max_sparse_column_statistics_size,
-                                                    size_t row_pos, size_t num_rows) {
+                             segment_v2::VariantStatisticsPB* stats,
+                             size_t max_sparse_column_statistics_size, size_t row_pos,
+                             size_t num_rows) {
     // Cast input column to ColumnMap type since sparse column is stored as a map
     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
 
