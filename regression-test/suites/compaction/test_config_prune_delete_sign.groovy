@@ -83,7 +83,7 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
 
         tablets = sql_return_maparray """ show tablets from ${table1}; """
         logger.info("tablets: ${tablets}")
-        String compactionUrl = tablets[0]["CompactionStatus"]
+        compactionUrl = tablets[0]["CompactionStatus"]
         (code, out, err) = curl("GET", compactionUrl)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
         assert code == 0
