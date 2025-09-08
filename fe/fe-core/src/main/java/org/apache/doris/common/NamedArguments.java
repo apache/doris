@@ -134,13 +134,13 @@ public class NamedArguments {
             String stringValue = properties.get(arg.getName());
 
             // Check required arguments
-            if (arg.isRequired() && (stringValue == null || stringValue.trim().isEmpty())) {
+            if (arg.isRequired() && stringValue == null) {
                 throw new AnalysisException("Missing required argument: " + arg.getName());
             }
 
             // Determine the value to parse (either provided or default)
             Object valueToStore = null;
-            if (stringValue != null && !stringValue.trim().isEmpty()) {
+            if (stringValue != null) {
                 // Parse provided value
                 try {
                     valueToStore = arg.getParser().parse(stringValue);
