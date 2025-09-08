@@ -61,14 +61,18 @@ private:
     friend class HybridTaskScheduler;
 
     TaskScheduler(int core_num, std::string name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : _name(std::move(name)), _task_queue(core_num), _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
-    TaskScheduler() : _task_queue(0) {}
+            : _name(std::move(name)),
+              _task_queue(core_num),
+              _num_threads(core_num),
+              _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
+    TaskScheduler() : _task_queue(0), _num_threads(0) {}
     std::string _name;
     std::unique_ptr<ThreadPool> _fix_thread_pool;
 
     MultiCoreTaskQueue _task_queue;
     bool _need_to_stop = false;
     bool _shutdown = false;
+    const int _num_threads;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
 
     void _do_work(int index);
