@@ -428,19 +428,19 @@ void BlockFileCache::use_cell(FileBlockCell& cell, FileBlocks* result, bool move
     /// Move to the end of the queue. The iterator remains valid.
     if (cell.queue_iterator && move_iter_flag) {
         if (cell.file_block->cache_type() == FileCacheType::COLD_NORMAL) {
-            auto& new_queue = get_queue(FileCacheType::NORMAL);
-            auto new_queue_iterator = new_queue.add(cell.file_block->_key.hash,
+            queue.remove(*cell.queue_iterator, cache_lock);
+            _lru_recorder->record_queue_event(FileCacheType::COLD_NORMAL,
+                                              CacheLRULogType::REMOVE,
+                                              cell.file_block->get_hash_value(),
+                                              cell.file_block->offset(), cell.size());
+            auto& normal_queue = get_queue(FileCacheType::NORMAL);
+            cell.queue_iterator = normal_queue.add(cell.file_block->_key.hash,
                                                     cell.file_block->_key.offset, cell.size(),
                                                     cache_lock);
             _lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD,
                                               cell.file_block->get_hash_value(),
                                               cell.file_block->offset(), cell.size());
-            queue.remove(*cell.queue_iterator, cache_lock);
-            cell.queue_iterator = new_queue_iterator;
-            _lru_recorder->record_queue_event(FileCacheType::COLD_NORMAL,
-                                              CacheLRULogType::REMOVE,
-                                              cell.file_block->get_hash_value(),
-                                              cell.file_block->offset(), cell.size());
+            cell.file_block->set_cache_type(FileCacheType::NORMAL);
         }
         else {
             queue.move_to_end(*cell.queue_iterator, cache_lock);
@@ -886,14 +886,17 @@ BlockFileCache::FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& ha
                      << " error=" << st.msg();
     }
 
+    if (config::enable_normal_queue_cold_hot_separation &&
+        cell.file_block->cache_type() == FileCacheType::NORMAL) {
+        cell.file_block->set_cache_type(FileCacheType::COLD_NORMAL);
+    }
+
     auto& queue = get_queue(cell.file_block->cache_type());
     cell.queue_iterator = queue.add(hash, offset, size, cache_lock);
     _lru_recorder->record_queue_event(cell.file_block->cache_type(), CacheLRULogType::ADD,
                                       cell.file_block->get_hash_value(), cell.file_block->offset(),
                                       cell.size());
-    if (cell.file_block->cache_type() == FileCacheType::NORMAL) {
-        cell.file_block->set_cache_type(FileCacheType::COLD_NORMAL);
-    }
+
     if (cell.file_block->cache_type() == FileCacheType::TTL) {
         if (_key_to_time.find(hash) == _key_to_time.end()) {
             _key_to_time[hash] = context.expiration_time;
@@ -2392,16 +2395,16 @@ void BlockFileCache::run_background_lru_log_replay() {
         _lru_recorder->replay_queue_event(FileCacheType::TTL);
         _lru_recorder->replay_queue_event(FileCacheType::INDEX);
         _lru_recorder->replay_queue_event(FileCacheType::NORMAL);
-        _lru_recorder->replay_queue_event(FileCacheType::DISPOSABLE);
         _lru_recorder->replay_queue_event(FileCacheType::COLD_NORMAL);
+        _lru_recorder->replay_queue_event(FileCacheType::DISPOSABLE);
 
         if (config::enable_evaluate_shadow_queue_diff) {
             SCOPED_CACHE_LOCK(_mutex, this);
             _lru_recorder->evaluate_queue_diff(_ttl_queue, "ttl", cache_lock);
             _lru_recorder->evaluate_queue_diff(_index_queue, "index", cache_lock);
             _lru_recorder->evaluate_queue_diff(_normal_queue, "normal", cache_lock);
-            _lru_recorder->evaluate_queue_diff(_disposable_queue, "disposable", cache_lock);
             _lru_recorder->evaluate_queue_diff(_cold_normal_queue, "cold_normal", cache_lock);
+            _lru_recorder->evaluate_queue_diff(_disposable_queue, "disposable", cache_lock);
         }
     }
 }
@@ -2421,10 +2424,10 @@ void BlockFileCache::run_background_lru_dump() {
         if (config::file_cache_background_lru_dump_tail_record_num > 0 &&
             !ExecEnv::GetInstance()->get_is_upgrading()) {
             _lru_dumper->dump_queue("disposable");
+            _lru_dumper->dump_queue("cold_normal");
             _lru_dumper->dump_queue("normal");
             _lru_dumper->dump_queue("index");
             _lru_dumper->dump_queue("ttl");
-            _lru_dumper->dump_queue("cold_normal");
         }
     }
 }
@@ -2434,8 +2437,8 @@ void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& c
     _lru_dumper->restore_queue(_ttl_queue, "ttl", cache_lock);
     _lru_dumper->restore_queue(_index_queue, "index", cache_lock);
     _lru_dumper->restore_queue(_normal_queue, "normal", cache_lock);
-    _lru_dumper->restore_queue(_disposable_queue, "disposable", cache_lock);
     _lru_dumper->restore_queue(_cold_normal_queue, "cold_normal", cache_lock);
+    _lru_dumper->restore_queue(_disposable_queue, "disposable", cache_lock);
 }
 
 std::map<std::string, double> BlockFileCache::get_stats() {
@@ -2462,18 +2465,18 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["normal_queue_curr_elements"] =
             (double)_cur_normal_queue_element_count_metrics->get_value();
 
-    stats["cold_normal_queue_max_size"] = (double)_cold_normal_queue.get_max_size();
-    stats["cold_normal_queue_curr_size"] = (double)_cur_cold_normal_queue_cache_size_metrics->get_value();
-    stats["cold_normal_queue_max_elements"] = (double)_cold_normal_queue.get_max_element_size();
-    stats["cold_normal_queue_curr_elements"] =
-            (double)_cur_cold_normal_queue_element_count_metrics->get_value();
-
     stats["disposable_queue_max_size"] = (double)_disposable_queue.get_max_size();
     stats["disposable_queue_curr_size"] =
             (double)_cur_disposable_queue_cache_size_metrics->get_value();
     stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
     stats["disposable_queue_curr_elements"] =
             (double)_cur_disposable_queue_element_count_metrics->get_value();
+
+    stats["cold_normal_queue_max_size"] = (double)_cold_normal_queue.get_max_size();
+    stats["cold_normal_queue_curr_size"] = (double)_cur_cold_normal_queue_cache_size_metrics->get_value();
+    stats["cold_normal_queue_max_elements"] = (double)_cold_normal_queue.get_max_element_size();
+    stats["cold_normal_queue_curr_elements"] =
+            (double)_cur_cold_normal_queue_element_count_metrics->get_value();
 
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();

@@ -33,30 +33,25 @@ std::string cache_type_to_surfix(FileCacheType type) {
     case FileCacheType::DISPOSABLE:
         return "_disposable";
     case FileCacheType::NORMAL:
-        return "_normal";
+        return "";
     case FileCacheType::TTL:
         return "_ttl";
     case FileCacheType::COLD_NORMAL:
-        return "_cold_normal";
+        return "";
     }
-    DCHECK(false) << "unknown type: " << type;
-    return "_normal";
+    return "";
 }
 
 FileCacheType surfix_to_cache_type(const std::string& str) {
-    if (str == "normal") {
-        return FileCacheType::NORMAL;
-    } else if (str == "idx") {
+    if (str == "idx") {
         return FileCacheType::INDEX;
     } else if (str == "disposable") {
         return FileCacheType::DISPOSABLE;
     } else if (str == "ttl") {
         return FileCacheType::TTL;
-    } else if (str == "cold_normal") {
-        return FileCacheType::COLD_NORMAL;
     }
     DCHECK(false) << "The string is " << str;
-    return FileCacheType::NORMAL;
+    return FileCacheType::DISPOSABLE;
 }
 
 FileCacheType string_to_cache_type(const std::string& str) {

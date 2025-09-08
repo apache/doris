@@ -285,8 +285,11 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, 
                                                         FileCacheType type, bool is_tmp) {
     if (is_tmp) {
         return Path(dir) / (std::to_string(offset) + "_tmp");
+    } else if (type == FileCacheType::TTL) {
+        return Path(dir) / std::to_string(offset);
+    } else {
+        return Path(dir) / (std::to_string(offset) + cache_type_to_surfix(type));
     }
-    return Path(dir) / (std::to_string(offset) + cache_type_to_surfix(type));
 }
 
 std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std::string& dir,
@@ -300,11 +303,11 @@ std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std
 std::vector<std::string> FSFileCacheStorage::get_path_in_local_cache_all_candidates(
         const std::string& dir, size_t offset) {
     std::vector<std::string> candidates;
-    candidates.push_back(get_path_in_local_cache(dir, offset, FileCacheType::NORMAL));
-    candidates.push_back(get_path_in_local_cache(dir, offset, FileCacheType::INDEX));
-    candidates.push_back(get_path_in_local_cache(dir, offset, FileCacheType::TTL));
-    candidates.push_back(get_path_in_local_cache(dir, offset, FileCacheType::DISPOSABLE));
-    candidates.push_back(get_path_in_local_cache(dir, offset, FileCacheType::COLD_NORMAL));
+    std::string base = get_path_in_local_cache(dir, offset, FileCacheType::NORMAL);
+    candidates.push_back(base);
+    candidates.push_back(base + "_idx");
+    candidates.push_back(base + "_ttl");
+    candidates.push_back(base + "_disposable");
     return candidates;
 }
 
@@ -593,14 +596,19 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
     bool parsed = true;
 
     try {
-        *offset = stoull(offset_with_suffix.substr(0, delim_pos1));
-        std::string suffix = offset_with_suffix.substr(delim_pos1 + 1);
-        // not need persistent anymore
-        // if suffix is equals to "tmp", it should be removed too.
-        if (suffix == "tmp") [[unlikely]] {
-            *is_tmp = true;
+        if (delim_pos1 == std::string::npos) {
+            // same as type "normal"
+            *offset = stoull(offset_with_suffix);
         } else {
-            *cache_type = surfix_to_cache_type(suffix);
+            *offset = stoull(offset_with_suffix.substr(0, delim_pos1));
+            std::string suffix = offset_with_suffix.substr(delim_pos1 + 1);
+            // not need persistent anymore
+            // if suffix is equals to "tmp", it should be removed too.
+            if (suffix == "tmp") [[unlikely]] {
+                *is_tmp = true;
+            } else {
+                *cache_type = surfix_to_cache_type(suffix);
+            }
         }
     } catch (...) {
         parsed = false;
