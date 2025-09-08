@@ -183,7 +183,7 @@ public class MysqlSerializer {
         // Column type: one byte integer
         writeInt1(type.getPrimitiveType().toMysqlType().getCode());
         // Flags: two byte integer
-        writeInt2(0);
+        writeInt2(getMysqlFlags(type));
         // Decimals: one byte integer
         writeInt1(getMysqlDecimals(type));
         // filler: two byte integer
@@ -212,7 +212,7 @@ public class MysqlSerializer {
         // Column type: one byte integer
         writeInt1(column.getDataType().toMysqlType().getCode());
         // Flags: two byte integer
-        writeInt2(0);
+        writeInt2(getMysqlFlags(column.getType()));
         // Decimals: one byte integer
         writeInt1(getMysqlDecimals(column.getType()));
         // filler: two byte integer
@@ -247,7 +247,7 @@ public class MysqlSerializer {
         // Column type: one byte integer
         writeInt1(type.getPrimitiveType().toMysqlType().getCode());
         // Flags: two byte integer
-        writeInt2(0);
+        writeInt2(getMysqlFlags(type));
         // Decimals: one byte integer
         writeInt1(getMysqlDecimals(type));
         // filler: two byte integer
@@ -310,6 +310,9 @@ public class MysqlSerializer {
                 }
                 return precision;
             }
+            case VARBINARY: {
+                return type.getLength();
+            }
             // todo:It needs to be obtained according to the field length set during the actual creation,
             // todo:which is not supported for the time being.default is 255
             // CHAR,VARCHAR:
@@ -335,5 +338,14 @@ public class MysqlSerializer {
             default:
                 return 0;
         }
+    }
+
+    // see https://github.com/mysql/mysql-server/blob/trunk/include/mysql_com.h#L161
+    private int getMysqlFlags(Type type) {
+        int flags = 0;
+        if (type.getPrimitiveType().isVarbinaryType()) {
+            flags |= 128; //BINARY_FLAG
+        }
+        return flags;
     }
 }

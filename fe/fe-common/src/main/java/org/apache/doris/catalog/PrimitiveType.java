@@ -993,7 +993,7 @@ public enum PrimitiveType {
             case VARIANT:
                 return MysqlColType.MYSQL_TYPE_JSON;
             case VARBINARY:
-                return MysqlColType.MYSQL_TYPE_BLOB;
+                return MysqlColType.MYSQL_TYPE_VARSTRING;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

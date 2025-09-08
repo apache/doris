@@ -539,8 +539,6 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return 12; // use 12 bytes in olap engine.
     default:
         LOG(WARNING) << "unknown field type. [type=" << type << "]";
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Data type {} get_field_length_by_type not supported.", type);
         return 0;
     }
 }

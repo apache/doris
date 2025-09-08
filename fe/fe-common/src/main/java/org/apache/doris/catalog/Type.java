@@ -2353,8 +2353,7 @@ public abstract class Type {
      * @return 33 (utf8_general_ci) if type is char varchar hll or bitmap
      * 63 (binary) others
      * <p>
-     * https://dev.mysql.com/doc/internals/en/com-query-response.html#column-definition
-     * character_set (2) -- is the column character set and is defined in Protocol::CharacterSet.
+     * https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_character_set.html
      */
     public int getMysqlResultSetFieldCharsetIndex() {
         switch (this.getPrimitiveType()) {
