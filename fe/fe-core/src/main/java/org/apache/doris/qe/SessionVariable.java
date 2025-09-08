@@ -565,7 +565,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SQL_DIALECT = "sql_dialect";
 
-    public static final String ENABLE_SQL_CONVERTER_RETRY_ORIGINAL = "enable_sql_converter_retry_original";
+    public static final String RETRY_ORIGIN_SQL_ON_CONVERT_FAIL = "retry_origin_sql_on_convert_fail";
 
     public static final String SERDE_DIALECT = "serde_dialect";
 
@@ -2185,9 +2185,10 @@ public class SessionVariable implements Serializable, Writable {
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
     public String sqlDialect = "doris";
 
-    @VariableMgr.VarAttr(name = ENABLE_SQL_CONVERTER_RETRY_ORIGINAL, needForward = true,
-            description = {"开启SQL转换器重试原始SQL功能", "Enable SQL converter retry original SQL feature."})
-    public boolean enableSqlConverterRetryOriginal = false;
+    @VariableMgr.VarAttr(name = RETRY_ORIGIN_SQL_ON_CONVERT_FAIL, needForward = true,
+            description = {"当转换后的SQL解析失败时，是否重试原始SQL",
+                    "Enable retrying original SQL when converted SQL parsing fails."})
+    public boolean retryOriginSqlOnConvertFail = false;
 
     @VariableMgr.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
             description = {"返回给 MySQL 客户端时各数据类型的输出格式方言",
@@ -3862,8 +3863,8 @@ public class SessionVariable implements Serializable, Writable {
         return sqlDialect;
     }
 
-    public boolean isEnableSqlConverterRetryOriginal() {
-        return enableSqlConverterRetryOriginal;
+    public boolean isRetryOriginSqlOnConvertFail() {
+        return retryOriginSqlOnConvertFail;
     }
 
     public String[] getSqlConvertorFeatures() {

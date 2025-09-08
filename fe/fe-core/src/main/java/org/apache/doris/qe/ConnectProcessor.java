@@ -301,26 +301,9 @@ public abstract class ConnectProcessor {
         }
 
         if (stmts == null) {
-            try {
-                stmts = new NereidsParser().parseSQL(convertedStmt, sessionVariable);
-            } catch (NotSupportedException e) {
-                stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
-                if (stmts == null) {
-                    // Parse sql failed, audit it and return
-                    handleQueryException(e, convertedStmt, null, null);
-                    return;
-                }
-            } catch (Exception e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
-                            e.getMessage(), convertedStmt, e);
-                }
-                Throwable exception = new AnalysisException(e.getMessage(), e);
-                stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
-                if (stmts == null) {
-                    handleQueryException(exception, originStmt, null, null);
-                    return;
-                }
+            stmts = parseWithFallback(originStmt, convertedStmt, sessionVariable);
+            if (stmts == null) {
+                return;
             }
         }
 
@@ -466,12 +449,41 @@ public abstract class ConnectProcessor {
     }
 
     /**
+     * Parse converted SQL statement with fallback to original SQL
+     */
+    protected List<StatementBase> parseWithFallback(String originStmt, String convertedStmt,
+            SessionVariable sessionVariable) throws ConnectionException {
+        try {
+            return new NereidsParser().parseSQL(convertedStmt, sessionVariable);
+        } catch (NotSupportedException e) {
+            List<StatementBase> stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
+            if (stmts == null) {
+                handleQueryException(e, convertedStmt, null, null);
+                return null;
+            }
+            return stmts;
+        } catch (Exception e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                        e.getMessage(), convertedStmt, e);
+            }
+            Throwable exception = new AnalysisException(e.getMessage(), e);
+            List<StatementBase> stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
+            if (stmts == null) {
+                handleQueryException(exception, originStmt, null, null);
+                return null;
+            }
+            return stmts;
+        }
+    }
+
+    /**
      * Try to retry SQL parsing with original SQL when conversion fails
      */
-    private List<StatementBase> tryRetryOriginalSql(String originStmt, String convertedStmt,
+    protected List<StatementBase> tryRetryOriginalSql(String originStmt, String convertedStmt,
             SessionVariable sessionVariable) {
         // Try to retry with original SQL if enabled and convertedStmt is different from originStmt
-        if (sessionVariable.isEnableSqlConverterRetryOriginal()
+        if (sessionVariable.isRetryOriginSqlOnConvertFail()
                 && !convertedStmt.equals(originStmt)) {
             try {
                 List<StatementBase> stmts = new NereidsParser().parseSQL(originStmt, sessionVariable);
