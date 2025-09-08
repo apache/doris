@@ -75,7 +75,7 @@ Status CloudSnapshotMgr::make_snapshot(int64_t target_tablet_id, StorageResource
         // 1. deserialize tablet meta from memory
         RETURN_IF_ERROR(tablet_meta.create_from_buffer((const uint8_t*)slice->data, slice->size));
         TabletMetaPB tablet_meta_pb;
-        tablet_meta.to_meta_pb(&tablet_meta_pb);
+        tablet_meta.to_meta_pb(&tablet_meta_pb, false);
 
         tablet_meta_pb.clear_rs_metas(); // copy the rs meta
         if (tablet_meta.all_rs_metas().size() > 0) {

@@ -554,7 +554,7 @@ Status TabletMeta::save_as_json(const string& file_path) {
 
 Status TabletMeta::save(const string& file_path) {
     TabletMetaPB tablet_meta_pb;
-    to_meta_pb(&tablet_meta_pb);
+    to_meta_pb(&tablet_meta_pb, false);
     return TabletMeta::save(file_path, tablet_meta_pb);
 }
 
@@ -606,7 +606,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
 
 void TabletMeta::serialize(string* meta_binary) {
     TabletMetaPB tablet_meta_pb;
-    to_meta_pb(&tablet_meta_pb);
+    to_meta_pb(&tablet_meta_pb, false);
     if (tablet_meta_pb.partition_id() <= 0) {
         LOG(WARNING) << "invalid partition id " << tablet_meta_pb.partition_id() << " tablet "
                      << tablet_meta_pb.tablet_id();
@@ -771,7 +771,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             tablet_meta_pb.time_series_compaction_level_threshold();
 }
 
-void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool get_rowset_meta) {
+void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_meta) {
     tablet_meta_pb->set_table_id(table_id());
     tablet_meta_pb->set_index_id(index_id());
     tablet_meta_pb->set_partition_id(partition_id());
@@ -802,7 +802,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool get_rowset_meta) 
         break;
     }
 
-    if (!config::is_cloud_mode() || get_rowset_meta) {
+    if (!config::is_cloud_mode() || cloud_get_rowset_meta) {
         // RowsetMetaPB is separated from TabletMetaPB
         for (auto& rs : _rs_metas) {
             rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
@@ -864,7 +864,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool get_rowset_meta) 
 
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
     TabletMetaPB tablet_meta_pb;
-    to_meta_pb(&tablet_meta_pb);
+    to_meta_pb(&tablet_meta_pb, false);
     json2pb::ProtoMessageToJson(tablet_meta_pb, json_string, options);
 }
 

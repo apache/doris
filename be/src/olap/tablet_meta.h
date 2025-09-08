@@ -142,7 +142,7 @@ public:
     Status deserialize(std::string_view meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
-    void to_meta_pb(TabletMetaPB* tablet_meta_pb, bool get_rowset_meta = false);
+    void to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_meta);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
     size_t tablet_columns_num() const { return _schema->num_columns(); }
 

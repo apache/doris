@@ -626,7 +626,7 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTestV1) {
 
     // 4. Update schema in tablet
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    _tablet_meta->to_meta_pb(&tablet_meta_pb, false);
 
     TabletSchemaPB v1_schema_pb;
     v1_schema->to_schema_pb(&v1_schema_pb);
@@ -1425,7 +1425,7 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTestV1) {
 
     // 4. Update schema in tablet
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    _tablet_meta->to_meta_pb(&tablet_meta_pb, false);
 
     TabletSchemaPB v1_schema_pb;
     v1_schema->to_schema_pb(&v1_schema_pb);
@@ -1830,7 +1830,7 @@ TEST_F(IndexBuilderTest, DropIndexV1FormatTest) {
 
     // 4. Update schema in tablet
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    _tablet_meta->to_meta_pb(&tablet_meta_pb, false);
 
     TabletSchemaPB v1_schema_pb;
     v1_schema->to_schema_pb(&v1_schema_pb);
