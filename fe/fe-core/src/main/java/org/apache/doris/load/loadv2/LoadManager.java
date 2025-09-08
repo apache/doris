@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -143,58 +142,6 @@ public class LoadManager implements Writable {
             }
 
             loadJob = BulkLoadJob.fromLoadCommand(command, executor, ctx);
-
-            if (twgList != null) {
-                loadJob.settWorkloadGroups(twgList);
-            }
-
-            createLoadJob(loadJob);
-        } finally {
-            writeUnlock();
-        }
-
-        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
-
-        // The job must be submitted after edit log.
-        // It guarantees that load job has not been changed before edit log.
-        loadJobScheduler.submitJob(loadJob);
-        return loadJob.getId();
-    }
-
-    /**
-     * This method will be invoked by the broker load(v2) now.
-     */
-    public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException, UserException {
-        List<TPipelineWorkloadGroup> twgList = null;
-        if (Config.enable_workload_group) {
-            try {
-                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
-                        .stream()
-                        .map(e -> e.toThrift())
-                        .collect(Collectors.toList());
-            } catch (Throwable t) {
-                LOG.info("Get workload group failed when create load job,", t);
-                throw t;
-            }
-        }
-
-        Database database = checkDb(stmt.getLabel().getDbName());
-        long dbId = database.getId();
-        LoadJob loadJob;
-        writeLock();
-        try {
-            checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-            if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
-                throw new DdlException("LoadManager only support the broker and spark load.");
-            }
-            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
-                throw new DdlException(
-                        "There are more than " + Config.desired_max_waiting_jobs
-                                + " unfinished load jobs, please retry later. "
-                                + "You can use `SHOW LOAD` to view submitted jobs");
-            }
-
-            loadJob = BulkLoadJob.fromLoadStmt(stmt);
 
             if (twgList != null) {
                 loadJob.settWorkloadGroups(twgList);
