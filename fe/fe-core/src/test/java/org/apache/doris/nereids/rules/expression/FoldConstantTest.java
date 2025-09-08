@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
@@ -90,6 +91,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sinh;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
@@ -555,6 +557,30 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         );
         rewritten = executor.rewrite(replace, context);
         Assertions.assertEquals(new StringLiteral("default"), rewritten);
+
+        Soundex soundex = new Soundex(StringLiteral.of("Ashcraft"));
+        rewritten = executor.rewrite(soundex, context);
+        Assertions.assertEquals(new StringLiteral("A261"), rewritten);
+        soundex = new Soundex(StringLiteral.of("Robert"));
+        rewritten = executor.rewrite(soundex, context);
+        Assertions.assertEquals(new StringLiteral("R163"), rewritten);
+        soundex = new Soundex(StringLiteral.of("R@bert"));
+        rewritten = executor.rewrite(soundex, context);
+        Assertions.assertEquals(new StringLiteral("R163"), rewritten);
+        soundex = new Soundex(StringLiteral.of("Honeyman"));
+        rewritten = executor.rewrite(soundex, context);
+        Assertions.assertEquals(new StringLiteral("H555"), rewritten);
+        soundex = new Soundex(StringLiteral.of("Apache Doris你好"));
+        rewritten = executor.rewrite(soundex, context);
+        Assertions.assertEquals(new StringLiteral("A123"), rewritten);
+        soundex = new Soundex(StringLiteral.of(""));
+        rewritten = executor.rewrite(soundex, context);
+        Assertions.assertEquals(new StringLiteral(""), rewritten);
+
+        Assertions.assertThrows(NotSupportedException.class, () -> {
+            Soundex soundexThrow = new Soundex(new StringLiteral("Doris你好"));
+            executor.rewrite(soundexThrow, context);
+        }, "soundex only supports ASCII");
     }
 
     @Test

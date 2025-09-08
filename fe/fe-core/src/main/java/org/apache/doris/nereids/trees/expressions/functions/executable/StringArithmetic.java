@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -1079,8 +1080,9 @@ public class StringArithmetic {
                 char c = first.getValue().charAt(i);
 
                 if (c > 0x7f) {
-                    throw new RuntimeException("soundex only supports ASCII, but got: " + c);
+                    throw new NotSupportedException("soundex only supports ASCII, but got: " + c);
                 }
+
                 if (!Character.isLetter(c)) {
                     continue;
                 }
