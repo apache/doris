@@ -123,6 +123,7 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
+import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -162,6 +163,7 @@ import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateA
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggregation;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.legacy.PushDownAggThroughJoinOnPkFk;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.legacy.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -660,12 +662,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         //cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                         //        LogicalAggregate.class, LogicalJoin.class
                         //),
-                        //costBased(topDown(
-                        //        new PushDownAggWithDistinctThroughJoinOneSide(),
+                        costBased(topDown(
+                               new PushDownAggWithDistinctThroughJoinOneSide()
                         //new PushDownAggThroughJoinOneSide(),
                         //new PushDownAggThroughJoin()
-                        //)),
-                        //costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        )),
+                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
