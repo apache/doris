@@ -345,13 +345,14 @@ Status NewPlainTextLineReader::extend_output_buf() {
     return Status::OK();
 }
 
-// 检查 [cur_ptr, pos) 范围内是否有多于一个 JSON 对象
-bool has_multiple_json_objects(const uint8_t* cur_ptr, const uint8_t* pos) {
+// 检查 [cur_ptr, cur_ptr + offset) 范围内是否有多于一个 JSON 对象
+bool has_multiple_json_objects(const uint8_t* cur_ptr, size_t offset) {
     int brace_count = 0;
     bool in_string = false;
     char string_char = 0;
 
-    for (const uint8_t* ptr = cur_ptr; ptr < pos; ++ptr) {
+    const uint8_t* end = cur_ptr + offset;
+    for (const uint8_t* ptr = cur_ptr; ptr < end; ++ptr) {
         uint8_t c = *ptr;
 
         if (c == '"' && (ptr == cur_ptr || *(ptr-1) != '\\')) {
@@ -442,6 +443,12 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                         return Status::InternalError(
                                 "Compressed file has been truncated, which is not allowed");
                     } else {
+                        if (offset = output_buf_read_remaining(); offset > 0) {  
+                            if (has_multiple_json_objects(cur_ptr, offset)) {
+                                return Status::DataQualityError(
+                                    "Multiple JSON objects in a single line, `read_json_by_line` must be FALSE.");    
+                            }
+                        }
                         // last loop we meet stream end,
                         // and now we finished reading file, so we are finished
                         // break this loop to see if there is data in buffer
@@ -524,8 +531,9 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
             std::string substring(reinterpret_cast<const char*>(cur_ptr), offset);
             LOG(INFO) << "a line string: " << substring;
 
-            if (has_multiple_json_objects(cur_ptr, pos)) {
-                LOG(WARNING) << "Invalid JSON format: multiple JSON objects in a single line";
+            if (has_multiple_json_objects(cur_ptr, offset)) {
+                return Status::DataQualityError(
+                    "Multiple JSON objects in a single line,  `read_json_by_line` must be FALSE.");
             }
 
             break;

@@ -551,6 +551,13 @@ Status NewJsonReader::_read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* fi
 Status NewJsonReader::_simdjson_init_reader() {
     RETURN_IF_ERROR(_get_range_params());
 
+    if (!_strip_outer_array && !_read_json_by_line) {
+        LOG(WARNING) << "Invalid configuration: Both `read_json_by_line` and `_strip_outer_array` are set to FALSE.";
+        return Status::DataQualityError(
+            "Invalid configuration: Both `read_json_by_line` and `_strip_outer_array` are set to FALSE. "
+            "At least one of them must be TRUE to properly parse the JSON input.");
+    }
+
     RETURN_IF_ERROR(_open_file_reader(false));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
@@ -1270,7 +1277,12 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
 
     // (Refrain LOG)
     std::string json_str(reinterpret_cast<const char*>(_json_str), *size);
-    LOG(INFO) << "Read from read_line : " << json_str;
+    if (_read_json_by_line) {
+        LOG(INFO) << "read by line : " << json_str;
+    }
+    if (_strip_outer_array) {
+        LOG(INFO) << "read by array : " << json_str;
+    }
     
     // step2: init json parser iterate.
     if (*size + simdjson::SIMDJSON_PADDING > _padded_size) {
