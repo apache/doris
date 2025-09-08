@@ -459,4 +459,76 @@ suite("test_array_function_doc", "p0") {
         sql """ SELECT ARRAY_REVERSE_SORT(array(array(1, 2), array(3, 4))); """
         exception "array_reverse_sort does not support types: ARRAY<ARRAY<TINYINT>>"
     }
+
+    qt_sql """ SELECT ARRAY_REMOVE(ARRAY(1, 2, 3, 2, null), 2); """
+    qt_sql """ SELECT ARRAY_REMOVE(array_int, 2) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_RANGE(5); """
+    qt_sql """ SELECT ARRAY_RANGE(1, 5); """
+    qt_sql """ SELECT ARRAY_RANGE(1, 10, 2); """
+    qt_sql """ SELECT ARRAY_RANGE(id) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_RANGE(id, id + 3) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_RANGE(id, id + 6, 2) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_REPEAT('x', 3); """
+    qt_sql """ SELECT ARRAY_REPEAT(id, 2) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_REVERSE_SORT(ARRAY(3, 1, 2, null)); """
+    qt_sql """ SELECT ARRAY_REVERSE_SORT(array_string) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REVERSE_SORT(array_int) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_REVERSE_SPLIT([1,2,3,4,5], [0,0,0,1,0]); """
+    qt_sql """ SELECT ARRAY_REVERSE_SPLIT(x -> (x > 1), array_int) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_SHUFFLE([1,2,3,4,5], 0); """
+    qt_sql """ SELECT ARRAY_SIZE(ARRAY_SHUFFLE(array_string, 0)) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_SIZE(ARRAY('a','b',null)); """
+    qt_sql """ SELECT ARRAY_SIZE(array_string) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_SLICE([1,2,3,4,5,6], 2, 3); """
+    qt_sql """ SELECT ARRAY_SLICE(array_int, 2, 2) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_SORT([3,1,2,null]); """
+    qt_sql """ SELECT ARRAY_SORT(array_string) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_SORT(array_int) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_SORTBY(['a','b','c'], [3,2,1]); """
+    qt_sql """ SELECT ARRAY_SORTBY(array_string, array_int) from ${tableName}; """
+
+    qt_sql """ SELECT ARRAY_SPLIT([1,2,3,4,5], [1,0,0,0,0]); """
+    qt_sql """ SELECT ARRAY_SPLIT(x -> (x > 1), array_int) from ${tableName}; """
+
+    qt_sql """ SELECT CountEqual([1,2,2,3,null], 2); """
+    qt_sql """ SELECT CountEqual(array_int, id) from ${tableName}; """
+
+
+    sql """
+        INSERT INTO ${tableName} (id, array_boolean, array_tinyint, array_smallint, array_int, array_bigint, array_largeint, array_float, array_double, array_decimal32, array_decimal64, array_decimal128, array_decimal256, array_string, array_varchar, array_char, array_date, array_datetime, array_ipv4, array_ipv6, array_struct, array_array, array_map) VALUES
+        (1, [true, false, true, null], [1, 2, 3, null], [1, 2, 3, null], [1, 2, 3, null], [1, 2, 3, null], [1, 2, 3, null], [1.1, 2.2, 3.3, null], [1.1, 2.2, 3.3, null], [1.1, 2.2, 3.3, null], [1.1, 2.2, 3.3, null], [1.1, 2.2, 3.3, null], [1.1, 2.2, 3.3, null],
+        ['hello', 'world', 'hello world', null], ['hello', 'world', 'hello world', null], ['hello', 'world', 'hello world', null], ['2021-01-01', '2021-01-02', '2021-01-03', null], ['2021-01-01 00:00:00', '2021-01-02 00:00:00', '2021-01-03 00:00:00', null], ['192.168.1.1', '192.168.1.2', '192.168.1.3', null], ['::1', '::2', '::3', null],
+        ARRAY(STRUCT(1, 'John'), STRUCT(2, 'Jane'), STRUCT(3, 'Jim'), null), [[1, 2, 3], [4, 5, 6], [7, 8, 9], null], ARRAY(MAP('key1', 1), MAP('key2', 2), MAP('key3', 3), null));
+    """
+
+    qt_sql """ SELECT ARRAY_REMOVE(ARRAY(1, 2, 3, 2, null), null); """
+    qt_sql """ SELECT ARRAY_REMOVE(array_int, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_boolean, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_tinyint, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_smallint, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_int, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_bigint, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_largeint, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_float, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_double, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_decimal32, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_decimal64, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_decimal128, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_decimal256, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_string, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_varchar, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_char, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_date, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_datetime, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_ipv4, null) from ${tableName}; """
+    qt_sql """ SELECT ARRAY_REMOVE(array_ipv6, null) from ${tableName}; """
 }
