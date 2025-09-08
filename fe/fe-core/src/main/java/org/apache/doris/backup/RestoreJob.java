@@ -2373,6 +2373,10 @@ public class RestoreJob extends AbstractJob {
         }
 
         if (!isReplay) {
+            restoredPartitions.clear();
+            restoredTbls.clear();
+            restoredResources.clear();
+
             // backupMeta is useless
             backupMeta = null;
 
