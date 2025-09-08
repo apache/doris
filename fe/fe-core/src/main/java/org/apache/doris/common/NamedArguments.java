@@ -108,11 +108,11 @@ public class NamedArguments {
     /**
      * Validate and parse the provided properties against registered arguments.
      * This method will:
-     * 1. Check that all required arguments are provided
-     * 2. Apply default values for missing optional arguments
-     * 3. Parse and validate all provided argument values using their parsers
-     * 4. Store parsed values for later retrieval
-     * 5. Report unknown arguments that weren't registered or allowed
+     * 1. Report unknown arguments that weren't registered or allowed
+     * 2. Check that all required arguments are provided
+     * 3. Apply default values for missing optional arguments
+     * 4. Parse and validate all provided argument values using their parsers
+     * 5. Store parsed values for later retrieval
      * 
      * @param properties The property map to validate and parse
      * @throws AnalysisException If validation or parsing fails
@@ -120,6 +120,13 @@ public class NamedArguments {
     public void validate(Map<String, String> properties) throws AnalysisException {
         // Clear previous parsed values
         parsedValues.clear();
+
+        // Check for unknown arguments
+        for (String providedArg : properties.keySet()) {
+            if (!isRegisteredArgument(providedArg) && !isAllowedArgument(providedArg)) {
+                throw new AnalysisException("Unknown argument: " + providedArg);
+            }
+        }
 
         // Check required arguments, apply defaults, and parse values
         for (ArgumentDefinition<?> arg : argumentDefinitions) {
@@ -136,12 +143,12 @@ public class NamedArguments {
                 // Parse provided value
                 try {
                     valueToStore = arg.getParser().parse(stringValue);
-                } catch (Exception e) {
+                } catch (IllegalArgumentException e) {
                     throw new AnalysisException(String.format(
                             "Invalid value for argument '%s': %s. %s",
                             arg.getName(), stringValue, e.getMessage()));
                 }
-            } else if (arg.getDefaultValue() != null) {
+            } else {
                 // Use default value directly (no parsing needed since it's already typed)
                 valueToStore = arg.getDefaultValue();
             }
@@ -149,13 +156,6 @@ public class NamedArguments {
             // Store the parsed/default value
             if (valueToStore != null) {
                 parsedValues.put(arg.getName(), valueToStore);
-            }
-        }
-
-        // Check for unknown arguments
-        for (String providedArg : properties.keySet()) {
-            if (!isRegisteredArgument(providedArg) && !isAllowedArgument(providedArg)) {
-                throw new AnalysisException("Unknown argument: " + providedArg);
             }
         }
     }
@@ -223,7 +223,6 @@ public class NamedArguments {
      * @return The typed value, or null if not set
      * @throws ClassCastException If the stored value cannot be cast to T
      */
-    @SuppressWarnings("unchecked")
     public <T> T getValue(String name) {
         return (T) parsedValues.get(name);
     }
