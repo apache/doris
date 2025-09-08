@@ -24,7 +24,6 @@ import org.apache.doris.analysis.CopyIntoProperties;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StageAndPattern;
@@ -68,6 +67,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -289,7 +289,7 @@ public class CopyIntoInfo {
         try {
             properties.putAll(copyIntoProperties.getExecProperties());
             // TODO support exec params as LoadStmt
-            LoadStmt.checkProperties(properties);
+            LoadCommand.checkProperties(properties);
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }

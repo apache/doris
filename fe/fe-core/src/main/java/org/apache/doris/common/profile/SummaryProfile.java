@@ -352,6 +352,8 @@ public class SummaryProfile {
 
     private Map<Backend, Long> assignedWeightPerBackend;
 
+    public boolean parsedByConnectionProcess = false;
+
     public SummaryProfile() {
         init();
     }

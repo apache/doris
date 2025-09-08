@@ -2050,3 +2050,58 @@ TEST(MetaReaderTest, BatchGetTabletCompactStats) {
         ASSERT_EQ(versionstamps.size(), tablet_ids.size());
     }
 }
+
+TEST(MetaReaderTest, GetSnapshots) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+
+    {
+        // Test empty result when no snapshots exist
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
+        TxnErrorCode err = meta_reader.get_snapshots(&snapshots);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(snapshots.empty());
+    }
+
+    // Create some snapshots
+    std::vector<Versionstamp> expected_versionstamps;
+    {
+        // Create multiple snapshots with different timestamps
+        for (int i = 1; i <= 3; ++i) {
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+            std::string snapshot_key = versioned::snapshot_full_key({instance_id});
+            SnapshotPB snapshot_pb;
+            snapshot_pb.set_label(fmt::format("snapshot_{}", i));
+            snapshot_pb.set_instance_id(instance_id);
+
+            std::string snapshot_value = snapshot_pb.SerializeAsString();
+            versioned_put(txn.get(), snapshot_key, snapshot_value);
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        }
+    }
+
+    {
+        // Test getting snapshots with created transaction
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
+        TxnErrorCode err = meta_reader.get_snapshots(&snapshots);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(snapshots.size(), 3);
+
+        // Verify snapshots are returned (order may vary due to versionstamp ordering)
+        std::set<std::string> snapshot_ids;
+        for (const auto& [snapshot_pb, versionstamp] : snapshots) {
+            snapshot_ids.insert(snapshot_pb.label());
+            ASSERT_EQ(snapshot_pb.instance_id(), instance_id);
+        }
+        ASSERT_EQ(snapshot_ids.size(), 3);
+        ASSERT_TRUE(snapshot_ids.count("snapshot_1"));
+        ASSERT_TRUE(snapshot_ids.count("snapshot_2"));
+        ASSERT_TRUE(snapshot_ids.count("snapshot_3"));
+    }
+}
