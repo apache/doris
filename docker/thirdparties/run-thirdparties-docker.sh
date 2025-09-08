@@ -37,6 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
      --reserve-ports    reserve host ports by setting 'net.ipv4.ip_local_reserved_ports' to avoid port already bind error
      --no-load-data     do not load data into the components
+     --load-parallel <num>  set the parallel number to load data, default is the 50% of CPU cores
 
   All valid components:
     mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger
@@ -50,6 +51,7 @@ HELP=0
 STOP=0
 NEED_RESERVE_PORTS=0
 export NEED_LOAD_DATA=1
+export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
 
 if ! OPTS="$(getopt \
     -n "$0" \
@@ -58,6 +60,7 @@ if ! OPTS="$(getopt \
     -l 'stop' \
     -l 'reserve-ports' \
     -l 'no-load-data' \
+    -l 'load-parallel:' \
     -o 'hc:' \
     -- "$@")"; then
     usage
@@ -94,6 +97,10 @@ else
         --no-load-data)
             export NEED_LOAD_DATA=0
             shift
+            ;;
+        --load-parallel)
+            export LOAD_PARALLEL=$2
+            shift 2
             ;;
         --)
             shift
@@ -364,19 +371,6 @@ start_hive2() {
         echo "please set IP_HOST according to your actual situation"
     fi
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
-    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
-
-    # sed all s3 info in run.sh of each suite
-    find "${ROOT}/docker-compose/hive/scripts/data/" -type f -name "run.sh" | while read -r file; do
-        if [ -f "$file" ]; then
-            echo "Processing $file"
-            sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
-            sed -i "s/s3BucketName/${s3BucketName}/g" "${file}"
-        else
-            echo "File not found: $file"
-        fi
-    done
 
     # generate hive-2x.yaml
     export IP_HOST=${IP_HOST}
@@ -403,20 +397,7 @@ start_hive3() {
         exit -1
     fi
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
-    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
-    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
-
-    # sed all s3 info in run.sh of each suite
-    find "${ROOT}/docker-compose/hive/scripts/data" -type f -name "run.sh" | while read -r file; do
-        if [ -f "$file" ]; then
-            echo "Processing $file"
-            sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
-            sed -i "s/s3BucketName/${s3BucketName}/g" "${file}"
-        else
-            echo "File not found: $file"
-        fi
-    done
-
+    
     # generate hive-3x.yaml
     export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
@@ -657,6 +638,19 @@ echo "starting dockers in parallel"
 
 reserve_ports
 
+# Ensure hive data is downloaded before starting hive2/hive3, but only once
+need_prepare_hive_data=0
+if [[ "$NEED_LOAD_DATA" -eq 1 ]]; then
+    if [[ "${RUN_HIVE2}" -eq 1 ]] || [[ "${RUN_HIVE3}" -eq 1 ]]; then
+        need_prepare_hive_data=1
+    fi
+fi
+
+if [[ $need_prepare_hive_data -eq 1 ]]; then
+    echo "prepare hive2/hive3 data"
+    bash "${ROOT}/docker-compose/hive/scripts/prepare-hive-data.sh"
+fi
+
 declare -A pids
 
 if [[ "${RUN_ES}" -eq 1 ]]; then
@@ -753,7 +747,6 @@ if [[ "${RUN_RANGER}" -eq 1 ]]; then
     start_ranger > start_ranger.log 2>&1 &
     pids["ranger"]=$!
 fi
-
 echo "waiting all dockers starting done"
 
 for compose in "${!pids[@]}"; do
