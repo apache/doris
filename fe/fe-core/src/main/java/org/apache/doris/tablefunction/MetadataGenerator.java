@@ -69,6 +69,7 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -765,7 +766,14 @@ public class MetadataGenerator {
                     }
                     trow.addToColumnValue(new TCell().setStringVal(inactiveReason));
                     // PCT_TABLES
-
+                    List<String> pctTables = Lists.newArrayList();
+                    if (!mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
+                        BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+                        String relatedCol = mtmv.getMvPartitionInfo().getRelatedCol();
+                        pctTables.add(String.format("%s.%s.%s.%s", relatedTableInfo.getCtlName(),
+                                relatedTableInfo.getDbName(), relatedTableInfo.getTableName(), relatedCol));
+                    }
+                    trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(pctTables)));
                     // IS_SYNC_WITH_BASE_TABLES
                     MTMVRefreshContext mtmvRefreshContext;
                     try {
@@ -790,7 +798,7 @@ public class MetadataGenerator {
                     }
                     trow.addToColumnValue(new TCell().setStringVal(schedulePeriod));
                     // PARTITION_TYPE
-                    trow.addToColumnValue(new TCell().setStringVal(mtmv.getMvPartitionInfo().toNameString()));
+                    trow.addToColumnValue(new TCell().setStringVal(mtmv.getMvPartitionInfo().getPartitionType().name()));
                     // ROW_COUNT
                     trow.addToColumnValue(new TCell().setLongVal(mtmv.getRowCount()));
                     // PARTITION_COUNT
