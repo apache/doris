@@ -19,25 +19,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_change_5") {
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
     
     def tableName = "test_index_change_5"
+
+    sql "set enable_add_index_for_new_data = true"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -88,12 +73,12 @@ suite("test_index_change_5") {
 
     // drop inverted index idx_user_id, idx_note
     sql """ DROP INDEX idx_user_id ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
     // create bitmap index
     sql """ CREATE INDEX idx_sex ON ${tableName}(`sex`) USING BITMAP """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_col_change_finish(tableName, timeout)
     // wait_for_build_index_on_partition_finish(tableName, timeout)
 
     def show_result = sql "show index from ${tableName}"
@@ -158,12 +143,12 @@ suite("test_index_change_5") {
 
     // drop inverted index idx_user_id, idx_note
     sql """ DROP INDEX idx_user_id ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
     // create bitmap index
     sql """ CREATE INDEX idx_sex ON ${tableName}(`sex`) USING BITMAP """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_col_change_finish(tableName, timeout)
     // wait_for_build_index_on_partition_finish(tableName, timeout)
 
     show_result = sql "show index from ${tableName}"
