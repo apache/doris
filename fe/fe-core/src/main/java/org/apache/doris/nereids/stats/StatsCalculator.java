@@ -638,6 +638,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(tableRowCount);
         }
+        return computeVirtualColumnStats(olapScan, builder.build());
+    }
+
+    private Statistics computeVirtualColumnStats(OlapScan relation, Statistics stats) {
+        List<NamedExpression> virtualColumns;
+        if (relation instanceof LogicalOlapScan) {
+            virtualColumns = ((LogicalOlapScan) relation).getVirtualColumns();
+        } else if (relation instanceof PhysicalOlapScan) {
+            virtualColumns = ((PhysicalOlapScan) relation).getVirtualColumns();
+        } else {
+            return stats;
+        }
+        if (virtualColumns.isEmpty()) {
+            return stats;
+        }
+        StatisticsBuilder builder = new StatisticsBuilder(stats);
+        for (NamedExpression virtualColumn : virtualColumns) {
+            ColumnStatistic colStats = ExpressionEstimation.estimate(virtualColumn, stats);
+            builder.putColumnStatistics(virtualColumn.toSlot(), colStats);
+        }
         return builder.build();
     }
 
