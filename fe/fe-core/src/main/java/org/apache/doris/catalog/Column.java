@@ -1291,11 +1291,11 @@ public class Column implements GsonPostProcessable {
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
     }
-    
+
     public int getVariantMaxSparseColumnStatisticsSize() {
         return type.isVariantType() ? ((ScalarType) type).getVariantMaxSparseColumnStatisticsSize() : -1;
     }
-    
+
     public String getExtraInfo() {
         return extraInfo;
     }
