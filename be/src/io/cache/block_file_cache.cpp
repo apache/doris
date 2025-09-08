@@ -95,8 +95,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_total_evict_size");
-    _total_query_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_total_query_evict_size");
     _gc_evict_bytes_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                     "file_cache_gc_evict_bytes");
     _gc_evict_count_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -196,8 +194,6 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                             "file_cache_num_hit_blocks");
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
-    _num_query_removed_blocks = std::make_shared<bvar::Adder<size_t>>(
-            _cache_base_path.c_str(), "file_cache_num_query_removed_blocks");
 
     _num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
@@ -2359,9 +2355,6 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
     stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
 
-    stats["total_query_removed_counts"] = (double)_num_query_removed_blocks->get_value();
-    stats["total_query_removed_size"] = (double)_total_query_evict_size_metrics->get_value();
-
     return stats;
 }
 
@@ -2398,8 +2391,6 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
     stats["total_read_counts"] = (double)_num_read_blocks->get_value();
-    stats["total_query_removed_counts"] = (double)_num_query_removed_blocks->get_value();
-    stats["total_query_removed_size"] = (double)_total_query_evict_size_metrics->get_value();
 
     return stats;
 }
