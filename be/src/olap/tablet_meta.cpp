@@ -1194,7 +1194,7 @@ static void decode_agg_cache_key(const std::string& key_str, int64_t& tablet_id,
     const char* ptr = key_str.data();
     tablet_id = *reinterpret_cast<const int64_t*>(ptr);
     ptr += sizeof(tablet_id);
-    auto* t = reinterpret_cast<DeleteBitmap::BitmapKey*>(const_cast<char*>(ptr));
+    const auto* t = reinterpret_cast<const DeleteBitmap::BitmapKey*>(ptr);
     std::get<RowsetId>(bmk).version = std::get<RowsetId>(*t).version;
     std::get<RowsetId>(bmk).hi = std::get<RowsetId>(*t).hi;
     std::get<RowsetId>(bmk).mi = std::get<RowsetId>(*t).mi;
