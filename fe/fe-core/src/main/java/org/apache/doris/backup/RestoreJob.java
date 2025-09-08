@@ -2350,6 +2350,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         cleanMetaObjects(isReplay);
 
         if (!isReplay) {
+            restoredPartitions.clear();
+            restoredTbls.clear();
+            restoredResources.clear();
+
             // backupMeta is useless
             backupMeta = null;
 
