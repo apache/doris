@@ -599,7 +599,6 @@ public:
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
-        return StringRef {};
     }
 
     /// Returns ratio of values in column, that are equal to default value of column.
