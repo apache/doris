@@ -345,6 +345,34 @@ Status NewPlainTextLineReader::extend_output_buf() {
     return Status::OK();
 }
 
+// 检查 [cur_ptr, pos) 范围内是否有多于一个 JSON 对象
+bool has_multiple_json_objects(const uint8_t* cur_ptr, const uint8_t* pos) {
+    int brace_count = 0;
+    bool in_string = false;
+    char string_char = 0;
+
+    for (const uint8_t* ptr = cur_ptr; ptr < pos; ++ptr) {
+        uint8_t c = *ptr;
+
+        if (c == '"' && (ptr == cur_ptr || *(ptr-1) != '\\')) {
+            if (!in_string) {
+                in_string = true;
+                string_char = c;
+            } else if (string_char == c) {
+                in_string = false;
+            }
+        }
+
+        if (!in_string && c == '{') {
+            brace_count++;
+            if (brace_count > 1) {
+                return true; // 发现多个 JSON 对象
+            }
+        }
+    }
+    return false;
+}
+
 Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
                                          const io::IOContext* io_ctx) {
     if (_eof || update_eof()) {
@@ -492,6 +520,14 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
             // ready to return
             offset = pos - cur_ptr;
             found_line_delimiter = _line_reader_ctx->line_delimiter_length();
+            // (Refrain LOG)
+            std::string substring(reinterpret_cast<const char*>(cur_ptr), offset);
+            LOG(INFO) << "a line string: " << substring;
+
+            if (has_multiple_json_objects(cur_ptr, pos)) {
+                LOG(WARNING) << "Invalid JSON format: multiple JSON objects in a single line";
+            }
+
             break;
         }
     } // while (!done())

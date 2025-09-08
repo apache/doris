@@ -1268,6 +1268,10 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
         return Status::OK();
     }
 
+    // (Refrain LOG)
+    std::string json_str(reinterpret_cast<const char*>(_json_str), *size);
+    LOG(INFO) << "Read from read_line : " << json_str;
+    
     // step2: init json parser iterate.
     if (*size + simdjson::SIMDJSON_PADDING > _padded_size) {
         // For efficiency reasons, simdjson requires a string with a few bytes (simdjson::SIMDJSON_PADDING) at the end.
