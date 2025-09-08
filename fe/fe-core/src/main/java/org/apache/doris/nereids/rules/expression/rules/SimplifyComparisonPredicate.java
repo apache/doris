@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -280,11 +281,18 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
             }
 
             if (comparisonPredicate instanceof EqualTo || comparisonPredicate instanceof NullSafeEqual) {
-                List<Expression> conjunctions = Lists.newArrayListWithExpectedSize(3);
-                conjunctions.add(new GreaterThanEqual(left, lowBound));
-                conjunctions.add(new LessThanEqual(left, upBound));
+                List<Expression> conjunctions;
                 if (left.nullable() && comparisonPredicate instanceof NullSafeEqual) {
-                    conjunctions.add(new Not(new IsNull(left)));
+                    conjunctions = ImmutableList.of(
+                            new GreaterThanEqual(new NonNullable(left), lowBound),
+                            new LessThanEqual(new NonNullable(left), upBound),
+                            new Not(new IsNull(left))
+                    );
+                } else {
+                    conjunctions = ImmutableList.of(
+                            new GreaterThanEqual(left, lowBound),
+                            new LessThanEqual(left, upBound)
+                    );
                 }
                 return new And(conjunctions);
             }
@@ -333,11 +341,18 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         }
 
         if (comparisonPredicate instanceof EqualTo || comparisonPredicate instanceof NullSafeEqual) {
-            List<Expression> conjunctions = Lists.newArrayListWithExpectedSize(3);
-            conjunctions.add(new GreaterThanEqual(left, lowBound));
-            conjunctions.add(new LessThanEqual(left, upBound));
+            List<Expression> conjunctions;
             if (left.nullable() && comparisonPredicate instanceof NullSafeEqual) {
-                conjunctions.add(new Not(new IsNull(left)));
+                conjunctions = ImmutableList.of(
+                        new GreaterThanEqual(new NonNullable(left), lowBound),
+                        new LessThanEqual(new NonNullable(left), upBound),
+                        new Not(new IsNull(left))
+                );
+            } else {
+                conjunctions = ImmutableList.of(
+                        new GreaterThanEqual(left, lowBound),
+                        new LessThanEqual(left, upBound)
+                );
             }
             return new And(conjunctions);
         }

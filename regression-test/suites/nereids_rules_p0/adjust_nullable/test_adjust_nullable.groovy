@@ -23,8 +23,8 @@ suite('test_adjust_nullable') {
     sql "SET detail_shape_nodes='PhysicalProject'"
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
     sql "set runtime_filter_mode=OFF"
-    sql "CREATE TABLE ${tbl}(a int not null, b int, c int not null) distributed by hash(a) properties('replication_num' = '1')"
-    sql "INSERT INTO ${tbl} VALUES(1, 2, 3)"
+    sql "CREATE TABLE ${tbl}(a int not null, b int, c int not null, d datetime(3)) distributed by hash(a) properties('replication_num' = '1')"
+    sql "INSERT INTO ${tbl} VALUES(1, 2, 3, '2020-12-01 01:02:03.456')"
 
     // avg => sum / count
     // avg is not nullable,  while divide '/' is nullable, need add non_nullable
@@ -32,6 +32,14 @@ suite('test_adjust_nullable') {
     qt_avg_shape """explain shape plan
         SELECT AVG(distinct a), AVG(distinct b) FROM ${tbl} GROUP BY c
     """
+
+    qt_null_safe_equal_datetime '''explain shape plan
+        select cast(d as datetime(0)) <=> '2000-01-02 12:34:56' from test_adjust_nullable_t
+    '''
+
+    qt_null_safe_equal_date '''explain shape plan
+        select cast(d as date) <=> '2000-01-02' from test_adjust_nullable_t
+    '''
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
 }
