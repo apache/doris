@@ -23,12 +23,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.action.OptimizeAction;
@@ -66,8 +63,6 @@ public class OptimizeTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate(ctx);
-
         // Get the table
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
         if (catalog == null) {
@@ -108,38 +103,8 @@ public class OptimizeTableCommand extends Command implements ForwardWithSync {
             action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
             action.execute(externalTable);
 
-        } catch (DdlException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-    }
-
-    /**
-     * validate
-     */
-    public void validate(ConnectContext ctx) throws AnalysisException {
-        tableNameInfo.analyze(ctx);
-
-        InternalDatabaseUtil.checkDatabase(tableNameInfo.getDb(), ctx);
-        // check access
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
-                        tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
-        }
-
-        // check partition if specified
-        if (partitionNamesInfo.isPresent()) {
-            partitionNamesInfo.get().validate();
-        }
-
-        // validate properties
-        if (properties.isEmpty()) {
-            throw new AnalysisException("OPTIMIZE TABLE requires PROPERTIES to be specified");
-        }
-
-        String action = properties.get("action");
-        if (action == null || action.isEmpty()) {
-            throw new AnalysisException("OPTIMIZE TABLE requires 'action' property to be specified");
+        } catch (UserException e) {
+            throw new DdlException("Failed to execute OPTIMIZE TABLE: " + e.getMessage(), e);
         }
     }
 
