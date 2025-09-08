@@ -127,7 +127,7 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
                                     .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
         }
-        if (variantMaxSparseColumnStatisticsSize != 0) {
+        if (variantMaxSparseColumnStatisticsSize != 10000) {
             sb.append(",");
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize))
