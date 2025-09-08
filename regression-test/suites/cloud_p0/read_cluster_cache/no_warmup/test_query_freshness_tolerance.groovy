@@ -54,7 +54,7 @@ suite('test_query_freshness_tolerance', 'docker') {
         }
 
         // clear file cache is async, wait it done
-        sleep(5000)
+        sleep(2000)
     }
 
     def updateBeConf = {cluster, key, value ->
@@ -131,7 +131,7 @@ suite('test_query_freshness_tolerance', 'docker') {
         """
 
         clearFileCacheOnAllBackends()
-        sleep(15000)
+        sleep(2000)
 
         sql """insert into test values (1, '{"a" : 1.0}')"""
         sql """insert into test values (2, '{"a" : 111.1111}')"""

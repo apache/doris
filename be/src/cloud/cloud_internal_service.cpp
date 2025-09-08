@@ -190,6 +190,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             continue;
         }
         int64_t tablet_id = rs_meta.tablet_id();
+        auto rowset_id = rs_meta.rowset_id();
         bool local_only = !(request->has_skip_existence_check() && request->skip_existence_check());
         auto res = _engine.tablet_mgr().get_tablet(tablet_id, /* warmup_data = */ false,
                                                    /* sync_delete_bitmap = */ true,
@@ -216,7 +217,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             g_file_cache_warm_up_rowset_request_to_handle_slow_count << 1;
             LOG(INFO) << "warm up rowset (request to handle) took " << handle_ts - request_ts
                       << " us, tablet_id: " << rs_meta.tablet_id()
-                      << ", rowset_id: " << rs_meta.rowset_id().to_string();
+                      << ", rowset_id: " << rowset_id.to_string();
         }
         int64_t expiration_time =
                 tablet_meta->ttl_seconds() == 0 || rs_meta.newest_write_timestamp() <= 0
@@ -227,16 +228,14 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         }
 
         if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpState::TRIGGERED_BY_JOB)) {
-            LOG(INFO) << "found duplicate warmup task for rowset " << rs_meta.rowset_id()
+            LOG(INFO) << "found duplicate warmup task for rowset " << rowset_id.to_string()
                       << ", skip it";
             continue;
         }
 
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
-            auto download_done = [&, tablet_id = rs_meta.tablet_id(),
-                                  rowset_id = rs_meta.rowset_id().to_string(),
-                                  segment_size = rs_meta.segment_file_size(segment_id),
-                                  wait](Status st) {
+            auto segment_size = rs_meta.segment_file_size(segment_id);
+            auto download_done = [=, version = rs_meta.version()](Status st) {
                 if (st.ok()) {
                     g_file_cache_event_driven_warm_up_finished_segment_num << 1;
                     g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
@@ -250,25 +249,26 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         now_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
                         g_file_cache_warm_up_rowset_slow_count << 1;
                         LOG(INFO) << "warm up rowset took " << now_ts - request_ts
-                                  << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id
+                                  << " us, tablet_id: " << tablet_id
+                                  << ", rowset_id: " << rowset_id.to_string()
                                   << ", segment_id: " << segment_id;
                     }
                     if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
                         g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
                         LOG(INFO) << "warm up rowset (handle to finish) took " << now_ts - handle_ts
-                                  << " us, tablet_id: " << tablet_id << ", rowset_id: " << rowset_id
+                                  << " us, tablet_id: " << tablet_id
+                                  << ", rowset_id: " << rowset_id.to_string()
                                   << ", segment_id: " << segment_id;
                     }
                 } else {
                     g_file_cache_event_driven_warm_up_failed_segment_num << 1;
                     g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
                     LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
-                                 << " rowset_id: " << rowset_id << ", error: " << st;
+                                 << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
                 }
-                if (tablet->complete_rowset_segment_warmup(rs_meta.rowset_id(), st) ==
-                    WarmUpState::DONE) {
-                    VLOG_DEBUG << "warmup rowset " << rs_meta.version() << "(" << rowset_id
-                               << ") completed";
+                if (tablet->complete_rowset_segment_warmup(rowset_id, st) == WarmUpState::DONE) {
+                    VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
+                               << rowset_id.to_string() << ") completed";
                 }
                 if (wait) {
                     wait->signal();
@@ -277,9 +277,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
 
             io::DownloadFileMeta download_meta {
                     .path = storage_resource.value()->remote_segment_path(rs_meta, segment_id),
-                    .file_size = rs_meta.segment_file_size(segment_id),
+                    .file_size = segment_size,
                     .offset = 0,
-                    .download_size = rs_meta.segment_file_size(segment_id),
+                    .download_size = segment_size,
                     .file_system = storage_resource.value()->fs,
                     .ctx =
                             {
@@ -291,8 +291,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     .download_done = std::move(download_done),
             };
             g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
-            g_file_cache_event_driven_warm_up_submitted_segment_size
-                    << rs_meta.segment_file_size(segment_id);
+            g_file_cache_event_driven_warm_up_submitted_segment_size << segment_size;
             if (wait) {
                 wait->add_count();
             }
@@ -300,8 +299,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
 
             auto download_inverted_index = [&](std::string index_path, uint64_t idx_size) {
                 auto storage_resource = rs_meta.remote_storage_resource();
-                auto download_done = [=, tablet_id = rs_meta.tablet_id(),
-                                      rowset_id = rs_meta.rowset_id().to_string()](Status st) {
+                auto download_done = [=, rowset_id = rowset_id.to_string()](Status st) {
                     if (st.ok()) {
                         g_file_cache_event_driven_warm_up_finished_index_num << 1;
                         g_file_cache_event_driven_warm_up_finished_index_size << idx_size;
