@@ -492,6 +492,11 @@ public abstract class ConnectProcessor {
                 ctx.setSqlHash(originalSqlHash);
                 return stmts;
             } catch (Exception e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Retry with original SQL failed. "
+                                    + "Reason: {}. Original Statement: \"{}\". Converted Statement: \"{}\".",
+                            e.getMessage(), originStmt, convertedStmt, e);
+                }
                 // Retry failed, return null
                 return null;
             }
