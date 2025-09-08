@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -29,11 +30,12 @@ import java.util.Optional;
 
 /**
  * Iceberg fast forward action implementation.
- * This action fast-forwards the current branch to a target branch or snapshot.
+ * Fast-forward the current snapshot of one branch to the latest snapshot of
+ * another.
  */
 public class IcebergFastForwardAction extends BaseIcebergAction {
-    public static final String TARGET_BRANCH = "target_branch";
-    public static final String TARGET_SNAPSHOT = "target_snapshot";
+    public static final String BRANCH = "branch";
+    public static final String TO = "to";
 
     public IcebergFastForwardAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -43,25 +45,18 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
     }
 
     @Override
+    protected void registerIcebergArguments() {
+        // Register required arguments for branch and to
+        namedArguments.registerRequiredArgument(BRANCH,
+                "Name of the target branch to fast-forward to",
+                ArgumentParsers.nonEmptyString(BRANCH));
+        namedArguments.registerRequiredArgument(TO,
+                "Target snapshot ID to fast-forward to",
+                ArgumentParsers.positiveLong(TO));
+    }
+
+    @Override
     protected void validateIcebergAction() throws UserException {
-        String targetBranch = getProperty(TARGET_BRANCH, "");
-        String targetSnapshot = getProperty(TARGET_SNAPSHOT, "");
-
-        // Either target_branch or target_snapshot must be specified, but not both
-        if ((targetBranch.isEmpty() && targetSnapshot.isEmpty())
-                || (!targetBranch.isEmpty() && !targetSnapshot.isEmpty())) {
-            throw new DdlException("Either 'target_branch' or 'target_snapshot' must be specified, but not both");
-        }
-
-        // Validate target_snapshot format if specified
-        if (!targetSnapshot.isEmpty()) {
-            try {
-                Long.parseLong(targetSnapshot);
-            } catch (NumberFormatException e) {
-                throw new DdlException("Invalid target_snapshot format: " + targetSnapshot);
-            }
-        }
-
         // Iceberg procedures don't support partitions or where conditions
         validateNoPartitions();
         validateNoWhereCondition();
@@ -74,6 +69,6 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
 
     @Override
     public String getDescription() {
-        return "Fast-forward Iceberg table to a target branch or snapshot";
+        return "Fast-forward the current snapshot of one branch to the latest snapshot of another.";
     }
 }

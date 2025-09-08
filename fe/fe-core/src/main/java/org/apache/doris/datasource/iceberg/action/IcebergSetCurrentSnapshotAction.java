@@ -18,7 +18,8 @@
 package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -30,10 +31,11 @@ import java.util.Optional;
 /**
  * Iceberg set current snapshot action implementation.
  * This action sets the current snapshot of an Iceberg table to a specific
- * snapshot ID.
+ * snapshot ID or reference (branch or tag).
  */
 public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
     public static final String SNAPSHOT_ID = "snapshot_id";
+    public static final String REF = "ref";
 
     public IcebergSetCurrentSnapshotAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -43,14 +45,31 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
     }
 
     @Override
-    protected void validateIcebergAction() throws UserException {
-        // Validate required properties for Iceberg set current snapshot procedure
-        String snapshotId = getRequiredProperty(SNAPSHOT_ID);
+    protected void registerIcebergArguments() {
+        // Either snapshot_id or ref must be provided but not both
+        namedArguments.registerOptionalArgument(SNAPSHOT_ID,
+                "Snapshot ID to set as current",
+                null,
+                ArgumentParsers.positiveLong(SNAPSHOT_ID));
 
-        try {
-            Long.parseLong(snapshotId);
-        } catch (NumberFormatException e) {
-            throw new DdlException("Invalid snapshot_id format: " + snapshotId);
+        namedArguments.registerOptionalArgument(REF,
+                "Snapshot Reference (branch or tag) to set as current",
+                null,
+                ArgumentParsers.nonEmptyString(REF));
+    }
+
+    @Override
+    protected void validateIcebergAction() throws UserException {
+        // Either snapshot_id or ref must be provided but not both
+        Long snapshotId = namedArguments.getLong(SNAPSHOT_ID);
+        String ref = namedArguments.getString(REF);
+
+        if (snapshotId == null && ref == null) {
+            throw new AnalysisException("Either snapshot_id or ref must be provided");
+        }
+
+        if (snapshotId != null && ref != null) {
+            throw new AnalysisException("snapshot_id and ref are mutually exclusive, only one can be provided");
         }
 
         // Iceberg procedures don't support partitions or where conditions
@@ -60,11 +79,11 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
 
     @Override
     public void execute(TableIf table) throws UserException {
-        throw new DdlException("Iceberg set_current_snapshot procedure is not implemented yet");
+        throw new AnalysisException("Iceberg set_current_snapshot procedure is not implemented yet");
     }
 
     @Override
     public String getDescription() {
-        return "Set current snapshot of Iceberg table to a specific snapshot ID";
+        return "Set current snapshot of Iceberg table to a specific snapshot ID or reference";
     }
 }

@@ -63,7 +63,7 @@ public class NamedArguments {
      * @param description Human-readable description
      * @param parser      Type-safe parser for validation and conversion
      */
-    public <T> void registerArgument(String name, String description, ArgumentParser<T> parser) {
+    public <T> void registerRequiredArgument(String name, String description, ArgumentParser<T> parser) {
         registerArgument(name, description, true, null, parser);
     }
 
@@ -76,7 +76,8 @@ public class NamedArguments {
      * @param defaultValue Default value if not provided
      * @param parser       Type-safe parser for validation and conversion
      */
-    public <T> void registerArgument(String name, String description, T defaultValue, ArgumentParser<T> parser) {
+    public <T> void registerOptionalArgument(String name, String description, T defaultValue,
+            ArgumentParser<T> parser) {
         registerArgument(name, description, false, defaultValue, parser);
     }
 

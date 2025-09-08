@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -28,8 +29,12 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Iceberg cherrypick snapshot action implementation.
- * This action cherrypicks a specific snapshot to create a new branch or merge changes.
+ * Implementation for Iceberg cherrypick_snapshot action.
+ * This action cherry-picks changes from a snapshot into the current table
+ * state.
+ * Cherry-picking creates a new snapshot from an existing snapshot without
+ * altering
+ * or removing the original.
  */
 public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
     public static final String SNAPSHOT_ID = "snapshot_id";
@@ -42,17 +47,17 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
     }
 
     @Override
+    protected void registerIcebergArguments() {
+        // Register snapshot_id as a required parameter with type-safe parsing
+        namedArguments.registerRequiredArgument(SNAPSHOT_ID,
+                "The snapshot ID to cherry-pick",
+                ArgumentParsers.positiveLong(SNAPSHOT_ID));
+    }
+
+    @Override
     protected void validateIcebergAction() throws UserException {
-        // Validate required properties for Iceberg cherrypick snapshot procedure
-        String snapshotId = getRequiredProperty(SNAPSHOT_ID);
-
-        try {
-            Long.parseLong(snapshotId);
-        } catch (NumberFormatException e) {
-            throw new DdlException("Invalid snapshot_id format: " + snapshotId);
-        }
-
-        // Iceberg procedures don't support partitions or where conditions
+        // Iceberg cherrypick_snapshot procedures don't support partitions or where
+        // conditions
         validateNoPartitions();
         validateNoWhereCondition();
     }
@@ -64,6 +69,6 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
 
     @Override
     public String getDescription() {
-        return "Cherrypick changes from a specific snapshot in Iceberg table";
+        return "Cherry-pick changes from a specific snapshot in Iceberg table";
     }
 }

@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -32,7 +34,8 @@ import java.util.Optional;
 
 /**
  * Iceberg expire snapshots action implementation.
- * This action removes old snapshots from Iceberg tables to free up storage space
+ * This action removes old snapshots from Iceberg tables to free up storage
+ * space
  * and improve metadata performance.
  */
 public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
@@ -40,6 +43,8 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     public static final String RETAIN_LAST = "retain_last";
     public static final String MAX_CONCURRENT_DELETES = "max_concurrent_deletes";
     public static final String STREAM_RESULTS = "stream_results";
+    public static final String SNAPSHOT_IDS = "snapshot_ids";
+    public static final String CLEAN_EXPIRED_METADATA = "clean_expired_metadata";
 
     public IcebergExpireSnapshotsAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -49,10 +54,33 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
     }
 
     @Override
+    protected void registerIcebergArguments() {
+        // Register optional arguments for expire_snapshots
+        namedArguments.registerOptionalArgument(OLDER_THAN,
+                "Timestamp before which snapshots will be removed",
+                null, ArgumentParsers.nonEmptyString(OLDER_THAN));
+        namedArguments.registerOptionalArgument(RETAIN_LAST,
+                "Number of ancestor snapshots to preserve regardless of older_than",
+                null, ArgumentParsers.positiveInt(RETAIN_LAST));
+        namedArguments.registerOptionalArgument(MAX_CONCURRENT_DELETES,
+                "Size of the thread pool used for delete file actions",
+                null, ArgumentParsers.positiveInt(MAX_CONCURRENT_DELETES));
+        namedArguments.registerOptionalArgument(STREAM_RESULTS,
+                "When true, deletion files will be sent to Spark driver by RDD partition",
+                null, ArgumentParsers.booleanValue(STREAM_RESULTS));
+        namedArguments.registerOptionalArgument(SNAPSHOT_IDS,
+                "Array of snapshot IDs to expire",
+                null, ArgumentParsers.nonEmptyString(SNAPSHOT_IDS));
+        namedArguments.registerOptionalArgument(CLEAN_EXPIRED_METADATA,
+                "When true, cleans up metadata such as partition specs and schemas",
+                null, ArgumentParsers.booleanValue(CLEAN_EXPIRED_METADATA));
+    }
+
+    @Override
     protected void validateIcebergAction() throws UserException {
         // Validate older_than parameter (timestamp)
-        if (properties.containsKey(OLDER_THAN)) {
-            String olderThan = properties.get(OLDER_THAN);
+        String olderThan = namedArguments.getString(OLDER_THAN);
+        if (olderThan != null) {
             try {
                 // Try to parse as ISO datetime format
                 LocalDateTime.parse(olderThan, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
@@ -61,30 +89,24 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
                     // Try to parse as timestamp (milliseconds since epoch)
                     long timestamp = Long.parseLong(olderThan);
                     if (timestamp < 0) {
-                        throw new DdlException("older_than timestamp must be non-negative");
+                        throw new AnalysisException("older_than timestamp must be non-negative");
                     }
                 } catch (NumberFormatException nfe) {
-                    throw new DdlException("Invalid older_than format. Expected ISO datetime "
+                    throw new AnalysisException("Invalid older_than format. Expected ISO datetime "
                             + "(yyyy-MM-ddTHH:mm:ss) or timestamp in milliseconds: " + olderThan);
                 }
             }
         }
 
         // Validate retain_last parameter
-        if (properties.containsKey(RETAIN_LAST)) {
-            try {
-                int retainLast = Integer.parseInt(properties.get(RETAIN_LAST));
-                if (retainLast < 1) {
-                    throw new DdlException("retain_last must be at least 1");
-                }
-            } catch (NumberFormatException e) {
-                throw new DdlException("Invalid retain_last format: " + properties.get(RETAIN_LAST));
-            }
+        Integer retainLast = namedArguments.getInt(RETAIN_LAST);
+        if (retainLast != null && retainLast < 1) {
+            throw new AnalysisException("retain_last must be at least 1");
         }
 
-        // At least one of older_than or retain_last must be specified
-        if (!properties.containsKey(OLDER_THAN) && !properties.containsKey(RETAIN_LAST)) {
-            throw new DdlException("At least one of 'older_than' or 'retain_last' must be specified");
+        // At least one of older_than or retain_last must be specified for validation
+        if (olderThan == null && retainLast == null) {
+            throw new AnalysisException("At least one of 'older_than' or 'retain_last' must be specified");
         }
 
         // Iceberg procedures don't support partitions or where conditions

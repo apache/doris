@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -33,8 +34,22 @@ import java.util.Optional;
  * and improve query performance.
  */
 public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
-    public static final String TARGET_FILE_SIZE = "target_file_size";
-    public static final String MIN_INPUT_FILES = "min_input_files";
+    // File size parameters
+    public static final String TARGET_FILE_SIZE_BYTES = "target-file-size-bytes";
+    public static final String MIN_FILE_SIZE_BYTES = "min-file-size-bytes";
+    public static final String MAX_FILE_SIZE_BYTES = "max-file-size-bytes";
+
+    // Input files parameters
+    public static final String MIN_INPUT_FILES = "min-input-files";
+    public static final String REWRITE_ALL = "rewrite-all";
+    public static final String MAX_FILE_GROUP_SIZE_BYTES = "max-file-group-size-bytes";
+
+    // Delete files parameters
+    public static final String DELETE_FILE_THRESHOLD = "delete-file-threshold";
+    public static final String DELETE_RATIO_THRESHOLD = "delete-ratio-threshold";
+
+    // Output specification parameter
+    public static final String OUTPUT_SPEC_ID = "output-spec-id";
 
     public IcebergRewriteDataFilesAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -43,35 +58,64 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
         super("rewrite_data_files", properties, partitionNamesInfo, whereCondition, icebergTable);
     }
 
+    /**
+     * Register all arguments supported by rewrite_data_files action.
+     */
+    @Override
+    protected void registerIcebergArguments() {
+        // File size arguments
+        namedArguments.registerOptionalArgument(TARGET_FILE_SIZE_BYTES,
+                "Target file size in bytes for output files",
+                536870912L,
+                ArgumentParsers.positiveLong(TARGET_FILE_SIZE_BYTES));
+
+        namedArguments.registerOptionalArgument(MIN_FILE_SIZE_BYTES,
+                "Minimum file size in bytes for files to be rewritten",
+                0L,
+                ArgumentParsers.positiveLong(MIN_FILE_SIZE_BYTES));
+
+        namedArguments.registerOptionalArgument(MAX_FILE_SIZE_BYTES,
+                "Maximum file size in bytes for files to be rewritten",
+                0L,
+                ArgumentParsers.positiveLong(MAX_FILE_SIZE_BYTES));
+
+        // Input files arguments
+        namedArguments.registerOptionalArgument(MIN_INPUT_FILES,
+                "Minimum number of input files to rewrite together",
+                5,
+                ArgumentParsers.intRange(MIN_INPUT_FILES, 1, 10000));
+
+        namedArguments.registerOptionalArgument(REWRITE_ALL,
+                "Whether to rewrite all files regardless of size",
+                false,
+                ArgumentParsers.booleanValue(REWRITE_ALL));
+
+        namedArguments.registerOptionalArgument(MAX_FILE_GROUP_SIZE_BYTES,
+                "Maximum size in bytes for a file group to be rewritten",
+                107374182400L,
+                ArgumentParsers.positiveLong(MAX_FILE_GROUP_SIZE_BYTES));
+
+        // Delete files arguments
+        namedArguments.registerOptionalArgument(DELETE_FILE_THRESHOLD,
+                "Minimum number of delete files to trigger rewrite",
+                Integer.MAX_VALUE,
+                ArgumentParsers.intRange(DELETE_FILE_THRESHOLD, 1, Integer.MAX_VALUE));
+
+        namedArguments.registerOptionalArgument(DELETE_RATIO_THRESHOLD,
+                "Minimum ratio of delete records to total records to trigger rewrite",
+                0.3,
+                ArgumentParsers.doubleRange(DELETE_RATIO_THRESHOLD, 0.0, 1.0));
+
+        // Output specification argument
+        namedArguments.registerOptionalArgument(OUTPUT_SPEC_ID,
+                "Partition specification ID for output files",
+                2L,
+                ArgumentParsers.positiveLong(OUTPUT_SPEC_ID));
+    }
+
     @Override
     protected void validateIcebergAction() throws UserException {
-        // Validate target_file_size parameter
-        if (properties.containsKey(TARGET_FILE_SIZE)) {
-            try {
-                long targetFileSize = Long.parseLong(properties.get(TARGET_FILE_SIZE));
-                if (targetFileSize <= 0) {
-                    throw new DdlException("target_file_size must be positive");
-                }
-            } catch (NumberFormatException e) {
-                throw new DdlException("Invalid target_file_size format: " + properties.get(TARGET_FILE_SIZE));
-            }
-        }
-
-        // Validate min_input_files parameter
-        if (properties.containsKey(MIN_INPUT_FILES)) {
-            try {
-                int minInputFiles = Integer.parseInt(properties.get(MIN_INPUT_FILES));
-                if (minInputFiles < 1) {
-                    throw new DdlException("min_input_files must be at least 1");
-                }
-            } catch (NumberFormatException e) {
-                throw new DdlException("Invalid min_input_files format: " + properties.get(MIN_INPUT_FILES));
-            }
-        }
-
-        // Iceberg procedures don't support partitions or where conditions
-        validateNoPartitions();
-        validateNoWhereCondition();
+        // TODO: Implement validation logic for rewrite_data_files parameters
     }
 
     @Override

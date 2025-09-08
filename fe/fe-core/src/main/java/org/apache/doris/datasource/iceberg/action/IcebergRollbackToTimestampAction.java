@@ -24,15 +24,13 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.Optional;
 
 /**
  * Iceberg rollback to timestamp action implementation.
- * This action rolls back the Iceberg table to a specific point in time.
+ * This action rolls back the Iceberg table to the snapshot that was current
+ * at a specific timestamp.
  */
 public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
     public static final String TIMESTAMP = "timestamp";
@@ -45,28 +43,43 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
     }
 
     @Override
+    protected void registerIcebergArguments() {
+        // Create a custom timestamp parser that supports both ISO datetime and
+        // millisecond formats
+        namedArguments.registerRequiredArgument(TIMESTAMP,
+                "A timestamp to rollback to (ISO datetime 'yyyy-MM-ddTHH:mm:ss' or milliseconds since epoch)",
+                value -> {
+                    if (value == null || value.trim().isEmpty()) {
+                        throw new IllegalArgumentException("timestamp cannot be empty");
+                    }
+
+                    String trimmed = value.trim();
+
+                    // Try to parse as milliseconds first
+                    try {
+                        long timestampMs = Long.parseLong(trimmed);
+                        if (timestampMs < 0) {
+                            throw new IllegalArgumentException("Timestamp must be non-negative: " + timestampMs);
+                        }
+                        return trimmed;
+                    } catch (NumberFormatException e) {
+                        // If not a number, try as ISO datetime format
+                        try {
+                            java.time.LocalDateTime.parse(trimmed,
+                                    java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                            return trimmed;
+                        } catch (java.time.format.DateTimeParseException dte) {
+                            throw new IllegalArgumentException("Invalid timestamp format. Expected ISO datetime "
+                                    + "(yyyy-MM-ddTHH:mm:ss) or timestamp in milliseconds: " + trimmed);
+                        }
+                    }
+                });
+    }
+
+    @Override
     protected void validateIcebergAction() throws UserException {
-        // Validate required properties for Iceberg rollback procedure
-        String timestamp = getRequiredProperty(TIMESTAMP);
-
-        // Validate timestamp format
-        try {
-            // Try to parse as ISO datetime first
-            LocalDateTime.parse(timestamp, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-        } catch (DateTimeParseException e) {
-            try {
-                // Try to parse as timestamp (milliseconds since epoch)
-                long timestampMs = Long.parseLong(timestamp);
-                if (timestampMs < 0) {
-                    throw new DdlException("Timestamp must be non-negative: " + timestamp);
-                }
-            } catch (NumberFormatException nfe) {
-                throw new DdlException("Invalid timestamp format. Expected ISO datetime "
-                        + "(yyyy-MM-ddTHH:mm:ss) or timestamp in milliseconds: " + timestamp);
-            }
-        }
-
-        // Iceberg procedures don't support partitions or where conditions
+        // Iceberg rollback_to_timestamp procedures don't support partitions or where
+        // conditions
         validateNoPartitions();
         validateNoWhereCondition();
     }
@@ -78,6 +91,6 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
 
     @Override
     public String getDescription() {
-        return "Rollback Iceberg table to a specific timestamp";
+        return "Rollback Iceberg table to the snapshot that was current at a specific timestamp";
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg.action;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -43,17 +44,17 @@ public class IcebergRollbackToSnapshotAction extends BaseIcebergAction {
     }
 
     @Override
+    protected void registerIcebergArguments() {
+        // Register snapshot_id as a required parameter
+        namedArguments.registerRequiredArgument(SNAPSHOT_ID,
+                "Snapshot ID to rollback to",
+                ArgumentParsers.positiveLong(SNAPSHOT_ID));
+    }
+
+    @Override
     protected void validateIcebergAction() throws UserException {
-        // Validate required properties for Iceberg rollback procedure
-        String snapshotId = getRequiredProperty(SNAPSHOT_ID);
-
-        try {
-            Long.parseLong(snapshotId);
-        } catch (NumberFormatException e) {
-            throw new DdlException("Invalid snapshot_id format: " + snapshotId);
-        }
-
-        // Iceberg procedures don't support partitions or where conditions
+        // Iceberg rollback_to_snapshot procedures don't support partitions or where
+        // conditions
         validateNoPartitions();
         validateNoWhereCondition();
     }
