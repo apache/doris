@@ -174,7 +174,7 @@ constexpr int64_t SECOND_PER_HOUR = 3600;
 constexpr int64_t SECOND_PER_MINUTE = 60;
 constexpr int64_t MS_PER_SECOND = 1000 * 1000;
 
-inline constexpr int S_DAYS_IN_MONTH[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+inline constexpr uint8_t S_DAYS_IN_MONTH[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 constexpr size_t const_length(const char* str) {
     return (str == nullptr || *str == 0) ? 0 : const_length(str + 1) + 1;

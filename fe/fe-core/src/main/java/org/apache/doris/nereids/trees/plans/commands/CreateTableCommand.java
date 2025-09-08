@@ -198,6 +198,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                     false,
                     false,
                     false,
+                    false,
                     true
             );
         } catch (Exception e) {

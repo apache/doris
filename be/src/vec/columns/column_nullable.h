@@ -258,7 +258,7 @@ public:
                get_null_map_column().is_exclusive();
     }
 
-    bool only_null() const override { return size() == 1 && is_null_at(0); }
+    bool only_null() const override;
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }

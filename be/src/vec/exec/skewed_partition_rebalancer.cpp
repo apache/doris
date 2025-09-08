@@ -24,6 +24,7 @@
 #include <list>
 
 namespace doris::vectorized {
+#include "common/compile_check_avoid_begin.h"
 
 SkewedPartitionRebalancer::SkewedPartitionRebalancer(
         int partition_count, int task_count, int task_bucket_count,
@@ -276,4 +277,5 @@ void SkewedPartitionRebalancer::_rebalance_partitions(long data_processed) {
                                              task_bucket_max_partitions);
     _data_processed_at_last_rebalance = data_processed;
 }
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

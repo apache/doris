@@ -21,7 +21,7 @@ import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
-import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
@@ -73,7 +73,7 @@ public class S3FileSystemTest {
         properties.put("AWS_ACCESS_KEY", System.getenv().getOrDefault("AWS_AK", ""));
         properties.put("AWS_SECRET_KEY", System.getenv().getOrDefault("AWS_SK", ""));
         properties.put("AWS_ENDPOINT", "http://s3.ap-northeast-1.amazonaws.com");
-        properties.put(PropertyConverter.USE_PATH_STYLE, "false");
+        properties.put(S3Properties.USE_PATH_STYLE, "false");
         properties.put("AWS_REGION", "bj");
         content =
                 "O wild West Wind, thou breath of Autumn's being\n"

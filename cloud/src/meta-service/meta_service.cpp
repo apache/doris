@@ -828,7 +828,7 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
             return;
         }
         LOG(INFO) << "put versioned tablet load and compact stats, tablet_id=" << tablet_id
-                  << " load_stats_key=" << hex(stats_key)
+                  << " load_stats_key=" << hex(load_stats_key)
                   << " compact_stats_key=" << hex(compact_stats_key);
     }
 
@@ -1061,8 +1061,8 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                 return;
             }
         } else {
-            TxnErrorCode err =
-                    reader.get_tablet_meta(tablet_meta_info.tablet_id(), &tablet_meta, nullptr);
+            TxnErrorCode err = reader.get_tablet_meta(txn.get(), tablet_meta_info.tablet_id(),
+                                                      &tablet_meta, nullptr);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get versioned tablet meta, err={}", err);
@@ -2814,6 +2814,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
 std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, int64_t bc_cnt,
                                                             int64_t req_cc_cnt, int64_t cc_cnt,
                                                             int64_t req_cp, int64_t cp,
+                                                            int64_t req_fc_cnt, int64_t fc_cnt,
                                                             int64_t req_start, int64_t req_end) {
     using Version = std::pair<int64_t, int64_t>;
     // combine `v1` `v2`  to `v1`, return true if success
@@ -2839,8 +2840,8 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
 
     if (req_cc_cnt < cc_cnt) {
         Version cc_version;
-        if (req_cp < cp && req_cc_cnt + 1 == cc_cnt) {
-            // * only one CC happened and CP changed
+        if (req_cp < cp && req_cc_cnt + 1 == cc_cnt && req_fc_cnt == fc_cnt) {
+            // * only one CC happened and CP changed, and no full compaction happened
             // BE  [=][=][=][=][=====][=][=]
             //                  ^~~~~ req_cp
             // MS  [=][=][=][=][xxxxxxxxxxxxxx][=======][=][=]
@@ -2864,6 +2865,13 @@ std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(int64_t req_bc_cnt, 
             //                  ^_____________________^ related_versions: [req_cp, max]
             //                                           there may be holes if we don't return all version
             //                                           after ms_cp, however it can be optimized.
+            // * one CC happened and CP changed, and full compaction happened
+            // BE  [=][=][=][=][=][=][=][=][=][=]
+            //                  ^~~~~ req_cp
+            // MS  [xxxxxxxxxxxxxx][xxxxxxxxxxxxxx][=======][=][=]
+            //                      ^~~~~~~ ms_cp
+            //                  ^___________________________^ related_versions: [req_cp, max]
+            //
             cc_version = {req_cp, std::numeric_limits<int64_t>::max() - 1};
         }
         if (versions.empty() || !combine_if_overlapping(versions.front(), cc_version)) {
@@ -2954,6 +2962,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     }
     int64_t req_bc_cnt = request->base_compaction_cnt();
     int64_t req_cc_cnt = request->cumulative_compaction_cnt();
+    int64_t req_fc_cnt = request->has_full_compaction_cnt() ? request->full_compaction_cnt() : 0;
     int64_t req_cp = request->cumulative_point();
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
@@ -3007,7 +3016,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 response->set_partition_max_version(partition_version);
             } else {
                 err = reader.get_partition_pending_txn_id(txn.get(), idx.partition_id(),
-                                                          &first_txn_id);
+                                                          &first_txn_id, &partition_version);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
                     msg = fmt::format(
@@ -3017,6 +3026,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     LOG(WARNING) << msg;
                     return;
                 }
+                response->set_partition_max_version(partition_version);
             }
             if (first_txn_id >= 0) {
                 stats.get_bytes += txn->get_bytes();
@@ -3056,6 +3066,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
 
         int64_t bc_cnt = tablet_stat.base_compaction_cnt();
         int64_t cc_cnt = tablet_stat.cumulative_compaction_cnt();
+        int64_t fc_cnt =
+                tablet_stat.has_full_compaction_cnt() ? tablet_stat.full_compaction_cnt() : 0;
         int64_t cp = tablet_stat.cumulative_point();
 
         response->mutable_stats()->CopyFrom(tablet_stat);
@@ -3067,17 +3079,18 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         //==========================================================================
         //      Find version ranges to be synchronized due to compaction
         //==========================================================================
-        if (req_bc_cnt > bc_cnt || req_cc_cnt > cc_cnt || req_cp > cp) {
+        if (req_bc_cnt > bc_cnt || req_cc_cnt > cc_cnt || req_cp > cp || req_fc_cnt > fc_cnt) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             ss << "no valid compaction_cnt or cumulative_point given. req_bc_cnt=" << req_bc_cnt
                << ", bc_cnt=" << bc_cnt << ", req_cc_cnt=" << req_cc_cnt << ", cc_cnt=" << cc_cnt
-               << ", req_cp=" << req_cp << ", cp=" << cp << " tablet_id=" << tablet_id;
+               << " req_fc_cnt=" << req_fc_cnt << ", fc_cnt=" << fc_cnt << ", req_cp=" << req_cp
+               << ", cp=" << cp << " tablet_id=" << tablet_id;
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
         }
         auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
-                                           req_start, req_end);
+                                           req_fc_cnt, fc_cnt, req_start, req_end);
         if (!is_versioned_read) {
             for (auto [start, end] : versions) {
                 internal_get_rowset(txn.get(), start, end, instance_id, tablet_id, code, msg,
@@ -3206,8 +3219,8 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
                 break;
             }
         } else {
-            TxnErrorCode err =
-                    reader.get_tablet_merged_stats(idx.tablet_id(), tablet_stats, nullptr);
+            TxnErrorCode err = reader.get_tablet_merged_stats(txn.get(), idx.tablet_id(),
+                                                              tablet_stats, nullptr);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get versioned tablet stats, err={}, tablet_id={}", err,
@@ -5376,6 +5389,32 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
     }
 
     response->mutable_schema_dict()->Swap(&schema_dict);
+}
+
+std::string hide_access_key(const std::string& ak) {
+    std::string key = ak;
+    size_t key_len = key.length();
+    size_t reserved_count;
+    if (key_len > 6) {
+        reserved_count = 6;
+    } else if (key_len > 2) {
+        reserved_count = key_len - 2;
+    } else {
+        reserved_count = 0;
+    }
+
+    size_t x_count = key_len - reserved_count;
+    size_t left_x_count = x_count / 2;
+
+    if (left_x_count > 0) {
+        key.replace(0, left_x_count, left_x_count, 'x');
+    }
+
+    if (x_count - left_x_count > 0) {
+        key.replace(key_len - (x_count - left_x_count), x_count - left_x_count,
+                    x_count - left_x_count, 'x');
+    }
+    return key;
 }
 
 } // namespace doris::cloud
