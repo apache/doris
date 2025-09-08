@@ -870,6 +870,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
     public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
+    public static final String ENABLE_JOIN_SAME_CTE_CHILD = "enable_join_same_cte_child";
 
     static {
         affectQueryResultFields = Arrays.stream(SessionVariable.class.getDeclaredFields())
@@ -2698,6 +2699,9 @@ public class SessionVariable implements Serializable, Writable {
                     "用于控制结果反序列化时 thrift 字段的最大值，当遇到类似\"MaxMessageSize reached\"这样的错误时可以考虑修改该参数"})
     public int maxMsgSizeOfResultReceiver = TConfiguration.DEFAULT_MAX_MESSAGE_SIZE;
 
+    @VariableMgr.VarAttr(name = ENABLE_JOIN_SAME_CTE_CHILD, description = {"Enable join in plan for same CTE child",
+            "Enable join in plan for same CTE child"})
+    public boolean enableJoinSameCteChild = true;
 
     // CLOUD_VARIABLES_BEGIN
     @VariableMgr.VarAttr(name = CLOUD_CLUSTER, alias = {COMPUTE_GROUP})
