@@ -186,6 +186,9 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         if (root instanceof LogicalJoin && !((LogicalJoin) root).isMarkJoin()) {
             return true;
         }
+        if (root.children().isEmpty()) {
+            return false;
+        }
         return root.children().stream().anyMatch(this::containsPushDownJoin);
     }
 

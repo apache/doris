@@ -68,7 +68,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private static final double LOWER_AGGREGATE_EFFECT_COEFFICIENT = 10000;
     private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
     private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
-
+    private static final double MAX_SINGLE_NDV_LIMIT = 100_000;
     private final StatsDerive derive = new StatsDerive(true);
 
     @Override
@@ -359,10 +359,12 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         // 1.3 the lower cardinality <= 3 and lowerCartesian < lowerUpper
         // 1.4 false
         if (high.isEmpty() && medium.isEmpty()) {
-            if (lowerCartesian <= stats.getRowCount() && lowerCartesian < lowerUpper && lower.size() <= 3) {
+            if (lower.size() == 1 && lowerCartesian * 20 <= stats.getRowCount()) {
                 return true;
-            //} else if (lower.size() <= 3 && lowerCartesian < lowerUpper) {
-            //    return true;
+            } else if (lower.size() == 2 && lowerCartesian * 7 <= stats.getRowCount()) {
+                return true;
+            } else if (lower.size() <= 3 && lowerCartesian * 20 <= stats.getRowCount() && lowerCartesian < lowerUpper) {
+                return true;
             } else {
                 return false;
             }

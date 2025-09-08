@@ -827,10 +827,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "eager_aggregation_mode", needForward = true,
             description = {"0: 根据统计信息决定是使用eager aggregation，"
                     + "1: 强制使用 eager aggregation，"
-                    + "2: 禁止使用 eager aggregation",
+                    + "-1: 禁止使用 eager aggregation",
                     "0: Determine eager aggregation by statistics, "
                     + "1: force eager aggregation, "
-                    + "2: Prohibit eager aggregation "}
+                    + "-1: Prohibit eager aggregation "}
     )
     public int eagerAggregationMode = 0;
 
