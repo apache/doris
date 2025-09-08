@@ -47,7 +47,7 @@ public class VariantType extends ScalarType {
     private boolean enableTypedPathsToSparse = false;
 
     @SerializedName(value = "variantMaxSparseColumnStatisticsSize")
-    private int variantMaxSparseColumnStatisticsSize = 0;
+    private int variantMaxSparseColumnStatisticsSize = 10000;
 
     private Map<String, String> properties = Maps.newHashMap();
 
@@ -56,7 +56,7 @@ public class VariantType extends ScalarType {
         this.predefinedFields = Lists.newArrayList();
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
-        this.variantMaxSparseColumnStatisticsSize = 0;
+        this.variantMaxSparseColumnStatisticsSize = 10000;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
