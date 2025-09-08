@@ -317,6 +317,18 @@ TxnErrorCode Transaction::init() {
         return cast_as_txn_code(err);
     }
 
+    if (config::enable_logging_conflict_keys) {
+        err = fdb_transaction_set_option(
+                txn_, FDBTransactionOption::FDB_TR_OPTION_REPORT_CONFLICTING_KEYS, nullptr, 0);
+        if (err) {
+            LOG_WARNING("fdb_transaction_set_option error: ")
+                    .tag("option", "FDB_TR_OPTION_REPORT_CONFLICTING_KEYS")
+                    .tag("code", err)
+                    .tag("msg", fdb_get_error(err));
+            return cast_as_txn_code(err);
+        }
+    }
+
     return TxnErrorCode::TXN_OK;
 }
 
@@ -551,10 +563,15 @@ TxnErrorCode Transaction::commit() {
 
     if (err) {
         LOG(WARNING) << "fdb commit error, code=" << err << " msg=" << fdb_get_error(err);
-        fdb_error_is_txn_conflict(err) ? g_bvar_txn_kv_commit_conflict_counter << 1
-                                       : g_bvar_txn_kv_commit_error_counter << 1;
+        if (fdb_error_is_txn_conflict(err)) {
+            g_bvar_txn_kv_commit_conflict_counter << 1;
+            static_cast<void>(report_conflicting_range()); // don't overwrite the original error.
+        } else {
+            g_bvar_txn_kv_commit_error_counter << 1;
+        }
         return cast_as_txn_code(err);
     }
+
     return TxnErrorCode::TXN_OK;
 }
 
@@ -593,6 +610,79 @@ TxnErrorCode Transaction::get_committed_version(int64_t* version) {
 }
 
 TxnErrorCode Transaction::abort() {
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::get_conflicting_range(
+        std::vector<std::pair<std::string, std::string>>* values) {
+    constexpr std::string_view start = "\xff\xff/transaction/conflicting_keys/";
+    constexpr std::string_view end = "\xff\xff/transaction/conflicting_keys/\xff";
+
+    int limit = 0;
+    int target_bytes = 0;
+    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
+    int iteration = 0;
+    fdb_bool_t snapshot = 0;
+    fdb_bool_t reverse = 0;
+    FDBFuture* future = fdb_transaction_get_range(
+            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
+            target_bytes, mode, iteration, snapshot, reverse);
+
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(future);
+    };
+
+    RETURN_IF_ERROR(await_future(future));
+
+    FDBKeyValue const* out_kvs;
+    int out_kvs_count;
+    fdb_bool_t out_more;
+    do {
+        fdb_error_t err =
+                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
+        if (err) {
+            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
+                         << fdb_get_error(err);
+            return cast_as_txn_code(err);
+        }
+        for (int i = 0; i < out_kvs_count; i++) {
+            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
+            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
+            key.remove_prefix(start.size());
+            values->emplace_back(key, value);
+        }
+    } while (out_more);
+
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::report_conflicting_range() {
+    if (!config::enable_logging_conflict_keys) {
+        return TxnErrorCode::TXN_OK;
+    }
+
+    std::vector<std::pair<std::string, std::string>> key_values;
+    RETURN_IF_ERROR(get_conflicting_range(&key_values));
+
+    // See https://github.com/apple/foundationdb/pull/2257/files for detail.
+    if (key_values.size() % 2 != 0) {
+        LOG(WARNING) << "the conflicting range is not well-formed, size=" << key_values.size();
+        return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+    }
+
+    std::string out;
+    for (size_t i = 0; i < key_values.size(); i += 2) {
+        std::string_view start = key_values[i].first;
+        std::string_view end = key_values[i + 1].first;
+        std::string_view conflict_count = key_values[i].second;
+        if (!out.empty()) {
+            out += ", ";
+        }
+        out += fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
+    }
+    LOG(WARNING) << "conflicting key ranges: " << out;
+
     return TxnErrorCode::TXN_OK;
 }
 

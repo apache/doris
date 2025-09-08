@@ -1603,6 +1603,124 @@ TEST(MetaServiceHttpTest, get_obj_store_info_response_sk) {
     ms->get_obj_store_info(&cntl, &req1, &res1, nullptr);
 }
 
+TEST(MetaServiceHttpTest, get_instance_response_sk) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    GetInstanceResponse res;
+    auto* obj_info = res.mutable_instance()->add_obj_info();
+    obj_info->set_ak("instance-ak");
+    obj_info->set_sk("instance-sk");
+    auto foo = [res](auto args) {
+        (*(try_any_cast<GetInstanceResponse**>(args[0])))->CopyFrom(res);
+    };
+    sp->set_call_back("get_instance_sk_response", foo);
+    sp->set_call_back("get_instance_sk_response_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+
+    auto rate_limiter = std::make_shared<cloud::RateLimiter>();
+
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+
+    auto bar = [](auto args) {
+        std::cout << *try_any_cast<std::string*>(args[0]);
+
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("instance-sk") ==
+                    std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
+                            .find("md5: 79d1924d669b7412019edc42db31bd92") != std::string::npos);
+    };
+    sp->set_call_back("sk_finish_rpc", bar);
+
+    GetInstanceResponse res1;
+    GetInstanceRequest req1;
+    brpc::Controller cntl;
+    ms->get_instance(&cntl, &req1, &res1, nullptr);
+}
+
+TEST(MetaServiceHttpTest, create_instance_request_sk) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    CreateInstanceRequest req;
+    req.set_instance_id("get_value_instance_id");
+    req.set_user_id("test_user");
+    req.set_name("test_name");
+    ObjectStoreInfoPB obj;
+    obj.set_ak("instance-ak");
+    obj.set_sk("instance-sk");
+    req.mutable_obj_info()->CopyFrom(obj);
+
+    auto foo = [req](auto args) {
+        (*(try_any_cast<CreateInstanceRequest**>(args[0])))->CopyFrom(req);
+    };
+    sp->set_call_back("create_instance_sk_request", foo);
+    sp->set_call_back("create_instance_sk_request_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+
+    auto rate_limiter = std::make_shared<cloud::RateLimiter>();
+
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+
+    auto bar = [](auto args) {
+        std::cout << *try_any_cast<std::string*>(args[0]) << '\n';
+
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("instance-sk") ==
+                    std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
+                            .find("md5: 79d1924d669b7412019edc42db31bd92") != std::string::npos);
+    };
+    sp->set_call_back("sk_begin_rpc", bar);
+
+    CreateInstanceResponse res1;
+    CreateInstanceRequest req1;
+    brpc::Controller cntl;
+    ms->create_instance(&cntl, &req1, &res1, nullptr);
+}
+
+TEST(MetaServiceHttpTest, create_stage_request_sk) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    CreateStageRequest req;
+    req.mutable_stage()->mutable_obj_info()->set_ak("stage-ak");
+    req.mutable_stage()->mutable_obj_info()->set_sk("stage-sk");
+
+    auto foo = [req](auto args) {
+        (*(try_any_cast<CreateStageRequest**>(args[0])))->CopyFrom(req);
+    };
+    sp->set_call_back("create_stage_sk_request", foo);
+    sp->set_call_back("create_stage_sk_request_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+
+    auto rate_limiter = std::make_shared<cloud::RateLimiter>();
+
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+
+    auto bar = [](auto args) {
+        std::cout << *try_any_cast<std::string*>(args[0]) << '\n';
+
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("stage-sk") == std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
+                            .find("md5: f497d053066fa4b7d3b1f6564597d233") != std::string::npos);
+    };
+    sp->set_call_back("sk_begin_rpc", bar);
+
+    CreateStageResponse res1;
+    CreateStageRequest req1;
+    brpc::Controller cntl;
+    ms->create_stage(&cntl, &req1, &res1, nullptr);
+}
+
 TEST(MetaServiceHttpTest, AdjustRateLimit) {
     HttpContext ctx;
     {

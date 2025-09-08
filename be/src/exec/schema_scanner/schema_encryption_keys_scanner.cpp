@@ -113,6 +113,7 @@ Status SchemaEncryptionKeysScanner::_fill_block_impl(vectorized::Block* block) {
 
         std::vector<StringRef> str_refs(row_num);
         std::vector<int32_t> int_vals(row_num);
+        std::vector<int64_t> int64_vals(row_num);
         std::vector<int8_t> bool_vals(row_num);
         std::vector<void*> datas(row_num);
         std::vector<std::string> column_values(row_num);
@@ -184,11 +185,15 @@ Status SchemaEncryptionKeysScanner::_fill_block_impl(vectorized::Block* block) {
                                                 ? encryption_key.parent_version()
                                                 : 0;
                     break;
-                case 8:
-                    int_vals[row_idx] = encryption_key.has_crc32() ? encryption_key.crc32() : 0;
-                    break;
                 }
                 datas[row_idx] = &int_vals[row_idx];
+            } else if (col_desc.type == TYPE_BIGINT) {
+                switch (col_idx) {
+                case 8:
+                    int64_vals[row_idx] = encryption_key.has_crc32() ? encryption_key.crc32() : 0;
+                    break;
+                }
+                datas[row_idx] = &int64_vals[row_idx];
             } else if (col_desc.type == TYPE_DATETIMEV2) {
                 switch (col_idx) {
                 case 9:

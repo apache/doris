@@ -1901,16 +1901,19 @@ public class PropertyAnalyzer {
 
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {
         String name;
+        //if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
+        //    name = Config.doris_tde_algorithm;
+        //} else if (!PLAINTEXT.equals(Config.doris_tde_algorithm)) {
+        //    throw new AnalysisException("Cannot create a table on encrypted FE,"
+        //            + " please set Config.doris_tde_algorithm to PLAINTEXT");
+        //} else {
+        //    name = properties.remove(PROPERTIES_TDE_ALGORITHM);
+        //}
+        //
         if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
-            if (Config.doris_tde_algorithm.isEmpty()) {
-                return TEncryptionAlgorithm.PLAINTEXT;
-            }
             name = Config.doris_tde_algorithm;
-        } else if (!PLAINTEXT.equals(Config.doris_tde_algorithm)) {
-            throw new AnalysisException("Cannot create a table on encrypted FE,"
-                    + " please set Config.doris_tde_algorithm to PLAINTEXT");
         } else {
-            name = properties.remove(PROPERTIES_TDE_ALGORITHM);
+            throw new AnalysisException("Do not support tde_algorithm property currently");
         }
 
         if (AES256.equalsIgnoreCase(name)) {

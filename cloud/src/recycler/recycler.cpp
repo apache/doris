@@ -996,7 +996,8 @@ int64_t calculate_restore_job_expired_time(
         const std::string& instance_id_, const RestoreJobCloudPB& restore_job,
         int64_t* earlest_ts /* restore job earliest expiration ts */) {
     if (config::force_immediate_recycle || restore_job.state() == RestoreJobCloudPB::DROPPED ||
-        restore_job.state() == RestoreJobCloudPB::COMPLETED) {
+        restore_job.state() == RestoreJobCloudPB::COMPLETED ||
+        restore_job.state() == RestoreJobCloudPB::RECYCLING) {
         // final state, recycle immediately
         return 0L;
     }

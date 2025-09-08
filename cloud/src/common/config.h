@@ -120,6 +120,8 @@ CONF_Bool(force_immediate_recycle, "false");
 CONF_mBool(enable_mow_job_key_check, "false");
 CONF_mBool(enable_restore_job_check, "false");
 
+CONF_mBool(enable_tablet_stats_key_check, "false");
+
 CONF_mBool(enable_checker_for_meta_key_check, "false");
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
@@ -343,4 +345,6 @@ CONF_mString(ca_cert_file_paths,
              "/etc/ssl/ca-bundle.pem");
 
 CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
+CONF_mBool(enable_logging_conflict_keys, "false");
+
 } // namespace doris::cloud::config

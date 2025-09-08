@@ -1658,6 +1658,12 @@ public class Config extends ConfigBase {
         "Whether to enable cloud restore job."}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cloud_restore_job = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "存算分离恢复过程中，一次 create tablets rpc 创建的 tablet 数量上限，默认值为256个",
+        "During the cloud restore job, the maximum number of tablets created by one "
+            + "create tablets RPC, 256 by default."})
+    public static int cloud_restore_create_tablet_batch_size = 256;
+
     /**
      * Control the default max num of the instance for a user.
      */
