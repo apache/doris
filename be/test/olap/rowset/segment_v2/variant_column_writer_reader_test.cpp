@@ -715,6 +715,14 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it7.get()) != nullptr);
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+
+    // 20. check sparse column reader is nullptr
+    ColumnIteratorUPtr it_error;
+    variant_column_reader->_sparse_column_reader = nullptr;
+    st = variant_column_reader->new_iterator(&it_error, &sparse_column, &storage_read_opts,
+                                             &column_reader_cache);
+    EXPECT_FALSE(st.ok()) << st.msg();
+    EXPECT_TRUE(it_error == nullptr);
 }
 
 TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
