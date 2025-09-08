@@ -374,7 +374,7 @@ public class HiveMetaStoreCache {
         // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
         List<RemoteFile> remoteFiles = new ArrayList<>();
         boolean isRecursiveDirectories = Boolean.valueOf(
-                catalog.getProperties().getOrDefault("hive.recursive_directories", "false"));
+                catalog.getProperties().getOrDefault("hive.recursive_directories", "true"));
         Status status = fs.listFiles(location, isRecursiveDirectories, remoteFiles);
         if (status.ok()) {
             for (RemoteFile remoteFile : remoteFiles) {
