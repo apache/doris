@@ -105,6 +105,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         computeColumnsFilter();
         computePartitionInfo();
         createScanRangeLocations();
+        super.finalizeForNereids();
     }
 
     @Override
