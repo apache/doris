@@ -18,17 +18,19 @@
 package org.apache.doris.common;
 
 /**
- * Interface for argument parsers that validate and parse string values to typed objects.
- * This interface extends the validation concept to include type conversion and storage.
- * 
+ * Interface for argument parsers that validate and parse string values to typed
+ * objects.
+ * This interface extends the validation concept to include type conversion and
+ * storage.
+ *
  * @param <T> The target type that this parser converts string values to
  */
 @FunctionalInterface
 public interface ArgumentParser<T> {
-    
+
     /**
      * Parse and validate a string value, converting it to the target type.
-     * 
+     *
      * @param value The string value to parse
      * @return The parsed and validated value of type T
      * @throws IllegalArgumentException if the value is invalid or cannot be parsed

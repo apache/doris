@@ -22,10 +22,10 @@ package org.apache.doris.common;
  * This utility class provides pre-built parsers for common data types
  * and validation patterns. All parsers implement ArgumentParser interface
  * and return typed values after validation and conversion.
- * 
+ *
  * <p>
  * Usage example:
- * 
+ *
  * <pre>
  * NamedArguments args = new NamedArguments();
  * args.registerArgument("port", "Server port", 8080,
@@ -39,7 +39,7 @@ public class ArgumentParsers {
 
     /**
      * Parse and validate non-empty string.
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @return String parser
      */
@@ -54,7 +54,7 @@ public class ArgumentParsers {
 
     /**
      * Parse string with length constraints.
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @param minLength Minimum string length (inclusive)
      * @param maxLength Maximum string length (inclusive)
@@ -78,7 +78,7 @@ public class ArgumentParsers {
 
     /**
      * Parse string from a set of allowed values (case-sensitive).
-     * 
+     *
      * @param paramName     Parameter name for error messages
      * @param allowedValues Array of allowed string values
      * @return String parser
@@ -102,7 +102,7 @@ public class ArgumentParsers {
 
     /**
      * Parse string from a set of allowed values (case-insensitive).
-     * 
+     *
      * @param paramName     Parameter name for error messages
      * @param allowedValues Array of allowed string values
      * @return String parser
@@ -128,7 +128,7 @@ public class ArgumentParsers {
 
     /**
      * Parse positive integer value.
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @return Integer parser
      */
@@ -148,7 +148,7 @@ public class ArgumentParsers {
 
     /**
      * Parse integer value within specified range.
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @param minValue  Minimum allowed value (inclusive)
      * @param maxValue  Maximum allowed value (inclusive)
@@ -173,7 +173,7 @@ public class ArgumentParsers {
 
     /**
      * Parse positive long value.
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @return Long parser
      */
@@ -193,7 +193,7 @@ public class ArgumentParsers {
 
     /**
      * Parse non-negative long value.
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @return Long parser
      */
@@ -213,7 +213,7 @@ public class ArgumentParsers {
 
     /**
      * Parse long value within specified range.
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @param minValue  Minimum allowed value (inclusive)
      * @param maxValue  Maximum allowed value (inclusive)
@@ -238,7 +238,7 @@ public class ArgumentParsers {
 
     /**
      * Parse positive double value.
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @return Double parser
      */
@@ -258,7 +258,7 @@ public class ArgumentParsers {
 
     /**
      * Parse double value within specified range.
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @param minValue  Minimum allowed value (inclusive)
      * @param maxValue  Maximum allowed value (inclusive)
@@ -284,7 +284,7 @@ public class ArgumentParsers {
 
     /**
      * Parse boolean value (case-insensitive "true" or "false").
-     * 
+     *
      * @param paramName Parameter name for error messages
      * @return Boolean parser
      */

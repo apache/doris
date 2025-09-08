@@ -31,20 +31,20 @@ import java.util.Set;
  * type-safe parsers and validate them against provided property maps.
  * After validation, parsed values are stored internally and can be retrieved
  * using type-safe getter methods.
- * 
+ *
  * <p>
  * Usage example:
- * 
+ *
  * <pre>
  * NamedArguments args = new NamedArguments();
  * args.registerArgument("timeout", "Request timeout in seconds", 30,
  *         ArgumentParsers.positiveInt("timeout"));
  * args.registerArgument("enabled", "Whether feature is enabled", true,
  *         ArgumentParsers.booleanValue("enabled"));
- * 
+ *
  * Map&lt;String, String&gt; properties = Map.of("timeout", "60", "enabled", "false");
  * args.validate(properties); // Parse and store values
- * 
+ *
  * int timeout = args.getInt("timeout"); // Returns 60
  * boolean enabled = args.getBoolean("enabled"); // Returns false
  * </pre>
@@ -57,7 +57,7 @@ public class NamedArguments {
 
     /**
      * Register a required argument with type-safe parser.
-     * 
+     *
      * @param <T>         The type of the argument value
      * @param name        The argument name
      * @param description Human-readable description
@@ -69,7 +69,7 @@ public class NamedArguments {
 
     /**
      * Register an optional argument with default value and type-safe parser.
-     * 
+     *
      * @param <T>          The type of the argument value
      * @param name         The argument name
      * @param description  Human-readable description
@@ -83,7 +83,7 @@ public class NamedArguments {
 
     /**
      * Register an argument with full specification.
-     * 
+     *
      * @param <T>          The type of the argument value
      * @param name         The argument name
      * @param description  Human-readable description
@@ -99,7 +99,7 @@ public class NamedArguments {
     /**
      * Add an allowed argument name that should not trigger unknown argument errors.
      * This is useful for framework-level arguments that are handled elsewhere.
-     * 
+     *
      * @param argumentName The allowed argument name
      */
     public void addAllowedArgument(String argumentName) {
@@ -114,7 +114,7 @@ public class NamedArguments {
      * 3. Apply default values for missing optional arguments
      * 4. Parse and validate all provided argument values using their parsers
      * 5. Store parsed values for later retrieval
-     * 
+     *
      * @param properties The property map to validate and parse
      * @throws AnalysisException If validation or parsing fails
      */
@@ -163,7 +163,7 @@ public class NamedArguments {
 
     /**
      * Get a string value by argument name.
-     * 
+     *
      * @param name The argument name
      * @return The string value, or null if not set
      */
@@ -174,7 +174,7 @@ public class NamedArguments {
 
     /**
      * Get an integer value by argument name.
-     * 
+     *
      * @param name The argument name
      * @return The integer value, or null if not set
      * @throws ClassCastException If the stored value is not an Integer
@@ -185,7 +185,7 @@ public class NamedArguments {
 
     /**
      * Get a long value by argument name.
-     * 
+     *
      * @param name The argument name
      * @return The long value, or null if not set
      * @throws ClassCastException If the stored value is not a Long
@@ -196,7 +196,7 @@ public class NamedArguments {
 
     /**
      * Get a double value by argument name.
-     * 
+     *
      * @param name The argument name
      * @return The double value, or null if not set
      * @throws ClassCastException If the stored value is not a Double
@@ -207,7 +207,7 @@ public class NamedArguments {
 
     /**
      * Get a boolean value by argument name.
-     * 
+     *
      * @param name The argument name
      * @return The boolean value, or null if not set
      * @throws ClassCastException If the stored value is not a Boolean
@@ -218,7 +218,7 @@ public class NamedArguments {
 
     /**
      * Get a typed value by argument name.
-     * 
+     *
      * @param <T>  The expected type of the value
      * @param name The argument name
      * @return The typed value, or null if not set
@@ -230,7 +230,7 @@ public class NamedArguments {
 
     /**
      * Get all registered argument definitions.
-     * 
+     *
      * @return List of argument definitions
      */
     public List<ArgumentDefinition<?>> getArgumentDefinitions() {
@@ -239,7 +239,7 @@ public class NamedArguments {
 
     /**
      * Get the number of registered arguments.
-     * 
+     *
      * @return Number of registered arguments
      */
     public int size() {
@@ -248,7 +248,7 @@ public class NamedArguments {
 
     /**
      * Check if any arguments have been registered.
-     * 
+     *
      * @return true if no arguments are registered, false otherwise
      */
     public boolean isEmpty() {
