@@ -771,6 +771,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
 
+    public static final String ENABLE_JOIN_SAME_CTE_CHILD = "enable_join_same_cte_child";
+
     @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
                 description = {"value 在每百行中的最低出现次数",
                         "The minimum number of occurrences of 'value' per hundred lines"})
@@ -2477,6 +2479,10 @@ public class SessionVariable implements Serializable, Writable {
                     + "between 1 and 4 forces the use of phases 1 to 4 for aggregate calculations."},
             checker = "checkAggPhase")
     public int aggPhase = 0;
+
+    @VariableMgr.VarAttr(name = ENABLE_JOIN_SAME_CTE_CHILD, description = {"Enable join in plan for same CTE child",
+            "Enable join in plan for same CTE child"})
+    public boolean enableJoinSameCteChild = false;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
