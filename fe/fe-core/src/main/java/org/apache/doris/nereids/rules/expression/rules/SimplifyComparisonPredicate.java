@@ -66,7 +66,6 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
