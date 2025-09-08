@@ -41,9 +41,7 @@ public:
     ColumnVarbinary(const size_t n) : _data(n) {}
 
 private:
-    ColumnVarbinary(const ColumnVarbinary& src)
-            : _data(src._data.begin(), src._data.end()),
-              _buffer(src._buffer.begin(), src._buffer.end()) {}
+    ColumnVarbinary(const ColumnVarbinary& src) : _data(src._data.begin(), src._data.end()) {}
 
 public:
     std::string get_name() const override { return "ColumnVarbinary"; }
@@ -59,7 +57,7 @@ public:
 
     void clear() override {
         _data.clear();
-        _buffer.clear();
+        _arena.clear();
     }
 
     Field operator[](size_t n) const override {
@@ -97,10 +95,7 @@ public:
     }
 
     void insert_to_buffer(const char* pos, size_t length) {
-        auto old_size = _buffer.size();
-        _buffer.resize(old_size + length);
-        auto* dst = _buffer.data() + old_size;
-        memcpy(dst, pos, length);
+        const char* dst = _arena.insert(pos, length);
         _data.push_back(doris::StringView(dst, cast_set<uint32_t>(length)));
     }
 
@@ -125,14 +120,11 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    size_t allocated_bytes() const override {
-        return _data.allocated_bytes() + _buffer.allocated_bytes();
-    }
+    size_t allocated_bytes() const override { return _data.allocated_bytes() + _arena.size(); }
 
     size_t byte_size() const override {
         size_t bytes = _data.size() * sizeof(doris::StringView);
-        bytes += _buffer.size() * sizeof(_buffer[0]);
-        return bytes;
+        return bytes + _arena.used_size();
     }
 
     bool has_enough_capacity(const IColumn& src) const override {
@@ -167,9 +159,9 @@ public:
 
     MutableColumnPtr convert_to_string_column() const;
 
-protected:
+private:
     Container _data;
-    PaddedPODArray<UInt8> _buffer;
+    Arena _arena;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

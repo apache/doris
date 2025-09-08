@@ -2,7 +2,7 @@
 -- !sql --
 bigint	bigint	Yes	true	\N	NONE
 bigint_u	largeint	Yes	true	\N	NONE
-binary	text	Yes	true	\N	NONE
+binary	varbinary(12)	Yes	true	\N	NONE
 bit	text	Yes	true	\N	NONE
 blob	text	Yes	true	\N	NONE
 boolean	tinyint	Yes	true	\N	NONE
@@ -29,7 +29,7 @@ time	text	Yes	true	\N	NONE
 timestamp	datetime(4)	Yes	true	\N	NONE
 tinyint	tinyint	Yes	true	\N	NONE
 tinyint_u	smallint	Yes	true	\N	NONE
-varbinary	text	Yes	true	\N	NONE
+varbinary	varbinary(12)	Yes	true	\N	NONE
 varchar	varchar(10)	Yes	true	\N	NONE
 year	smallint	Yes	true	\N	NONE
 

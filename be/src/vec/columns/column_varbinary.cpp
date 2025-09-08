@@ -25,6 +25,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_common.h"
+#include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 
 namespace doris::vectorized {
@@ -43,10 +44,10 @@ MutableColumnPtr ColumnVarbinary::clone_resized(size_t size) const {
 }
 
 void ColumnVarbinary::insert_range_from(const IColumn& src, size_t start, size_t length) {
-    const auto& src_col = assert_cast<const ColumnVarbinary&>(src);
     if (length == 0) {
         return;
     }
+    const auto& src_col = assert_cast<const ColumnVarbinary&>(src);
 
     if (start + length > src_col.size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -109,11 +110,8 @@ size_t ColumnVarbinary::filter(const IColumn::Filter& filter) {
             if (src_vec.get_data()[i].isInline()) {
                 _data[pos] = src_vec.get_data()[i];
             } else {
-                auto old_size = _buffer.size();
                 auto val = src_vec.get_data()[i];
-                _buffer.resize(old_size + val.size());
-                auto* dst = _buffer.data() + old_size;
-                memcpy(dst, val.data(), val.size());
+                const auto* dst = _arena.insert(val.data(), val.size());
                 _data[pos] = doris::StringView(dst, val.size());
             }
             pos++;
@@ -142,10 +140,7 @@ MutableColumnPtr ColumnVarbinary::permute(const IColumn::Permutation& perm, size
             res_data[i] = val;
             continue;
         }
-        auto old_size = res->_buffer.size();
-        res->_buffer.resize(old_size + val.size());
-        auto* dst = res->_buffer.data() + old_size;
-        memcpy(dst, val.data(), val.size());
+        const auto* dst = const_cast<Arena&>(_arena).insert(val.data(), val.size());
         res_data[i] = doris::StringView(dst, val.size());
     }
 
@@ -160,10 +155,7 @@ void ColumnVarbinary::replace_column_data(const IColumn& rhs, size_t row, size_t
         _data[self_row] = val;
         return;
     }
-    auto old_size = _buffer.size();
-    _buffer.resize(old_size + val.size());
-    auto* dst = _buffer.data() + old_size;
-    memcpy(dst, val.data(), val.size());
+    const auto* dst = _arena.insert(val.data(), val.size());
     _data[self_row] = doris::StringView(dst, val.size());
 }
 

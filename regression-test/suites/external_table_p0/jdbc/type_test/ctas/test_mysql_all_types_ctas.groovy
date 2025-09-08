@@ -40,11 +40,11 @@ suite("test_mysql_all_types_ctas", "p0,external,mysql,external_docker,external_d
 
         sql """use internal.test_mysql_all_types_ctas;"""
 
-        sql """create table all_types_nullable properties("replication_num" = "1") as select * from mysql_all_type_ctas_test.doris_test.all_types_nullable;"""
+        sql """create table all_types_nullable properties("replication_num" = "1") as select * EXCEPT(`binary`,`varbinary`) from mysql_all_type_ctas_test.doris_test.all_types_nullable;"""
 
         qt_select_all_types_nullable """select * from internal.test_mysql_all_types_ctas.all_types_nullable order by 1;"""
 
-        sql """create table all_types_non_nullable properties("replication_num" = "1") as select * from mysql_all_type_ctas_test.doris_test.all_types_non_nullable;"""
+        sql """create table all_types_non_nullable properties("replication_num" = "1") as select  * EXCEPT(`binary`,`varbinary`) from mysql_all_type_ctas_test.doris_test.all_types_non_nullable;"""
 
         if (!isCloudMode()) {
             qt_select_all_types_non_nullable """select * from internal.test_mysql_all_types_ctas.all_types_non_nullable order by 1;"""

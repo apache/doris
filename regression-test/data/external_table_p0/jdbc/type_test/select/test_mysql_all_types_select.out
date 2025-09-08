@@ -41,8 +41,8 @@ blob	text	Yes	true	\N
 json	text	Yes	true	\N	
 set	text	Yes	true	\N	
 bit	text	Yes	true	\N	
-binary	text	Yes	true	\N	
-varbinary	text	Yes	true	\N	
+binary	varbinary(12)	Yes	true	\N	
+varbinary	varbinary(12)	Yes	true	\N	
 enum	text	Yes	true	\N	
 
 -- !select_all_types_null --
@@ -93,8 +93,8 @@ blob	text	No	true	\N
 json	text	No	true	\N	
 set	text	No	true	\N	
 bit	text	No	true	\N	
-binary	text	No	true	\N	
-varbinary	text	No	true	\N	
+binary	varbinary(12)	No	true	\N	
+varbinary	varbinary(12)	No	true	\N	
 enum	text	No	true	\N	
 
 -- !select_all_types_non_null --
