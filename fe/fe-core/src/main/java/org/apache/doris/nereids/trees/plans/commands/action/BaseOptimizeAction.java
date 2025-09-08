@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.NamedArguments;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -44,6 +45,9 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
     protected final Optional<PartitionNamesInfo> partitionNamesInfo;
     protected final Optional<Expression> whereCondition;
 
+    // Named arguments for parameter validation
+    protected final NamedArguments namedArguments = new NamedArguments();
+
     protected BaseOptimizeAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
             Optional<Expression> whereCondition) {
@@ -51,6 +55,12 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
         this.properties = properties != null ? properties : Maps.newHashMap();
         this.partitionNamesInfo = partitionNamesInfo;
         this.whereCondition = whereCondition;
+
+        // Add OPTIMIZE TABLE specific allowed arguments
+        namedArguments.addAllowedArgument("action");
+
+        // Register arguments specific to this action
+        registerArguments();
     }
 
     @Override
@@ -64,7 +74,26 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
                     tableNameInfo.getTbl());
         }
 
+        // Validate all registered arguments
+        namedArguments.validate(properties);
+
+        // Additional validation logic specific to the action
         validateAction();
+    }
+
+    /**
+     * Register arguments specific to this action type.
+     * Subclasses should override this method to register their arguments.
+     */
+    protected abstract void registerArguments();
+
+    /**
+     * Additional engine-specific validation logic.
+     * Subclasses can override this method for custom validation beyond argument
+     * validation.
+     */
+    protected void validateAction() throws UserException {
+        // Default implementation does nothing
     }
 
     @Override
@@ -88,28 +117,13 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
     }
 
     /**
-     * Engine-specific validation logic.
-     * Subclasses should override this method to implement their specific
-     * validation requirements.
+     * Check if partitions are required but not specified.
      */
-    protected abstract void validateAction() throws UserException;
-
-    /**
-     * Get property value with default.
-     */
-    protected String getProperty(String key, String defaultValue) {
-        return properties.getOrDefault(key, defaultValue);
-    }
-
-    /**
-     * Get required property, throw exception if missing.
-     */
-    protected String getRequiredProperty(String key) throws DdlException {
-        String value = properties.get(key);
-        if (value == null || value.trim().isEmpty()) {
-            throw new DdlException("Missing required property: " + key);
+    protected void validateRequiredWhereCondition() throws DdlException {
+        if (!whereCondition.isPresent()) {
+            throw new DdlException(String.format("Action '%s' requires WHERE condition",
+                    actionType));
         }
-        return value;
     }
 
     /**
@@ -138,16 +152,6 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
     protected void validateRequiredPartitions() throws DdlException {
         if (!partitionNamesInfo.isPresent()) {
             throw new DdlException(String.format("Action '%s' requires partition specification",
-                    actionType));
-        }
-    }
-
-    /**
-     * Check if WHERE condition is required but not specified.
-     */
-    protected void validateRequiredWhereCondition() throws DdlException {
-        if (!whereCondition.isPresent()) {
-            throw new DdlException(String.format("Action '%s' requires WHERE condition",
                     actionType));
         }
     }

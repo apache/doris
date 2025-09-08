@@ -50,16 +50,30 @@ public abstract class BaseIcebergAction extends BaseOptimizeAction {
     }
 
     @Override
+    protected final void registerArguments() {
+        registerIcebergArguments();
+    }
+
+    @Override
     protected final void validateAction() throws UserException {
         validateIcebergAction();
     }
+
+    /**
+     * Iceberg-specific argument registration.
+     * Subclasses should override this method to register their specific
+     * arguments.
+     */
+    protected abstract void registerIcebergArguments();
 
     /**
      * Iceberg-specific validation logic.
      * Subclasses should override this method to implement their specific
      * validation.
      */
-    protected abstract void validateIcebergAction() throws UserException;
+    protected void validateIcebergAction() throws UserException {
+        // Default implementation does nothing.
+    }
 
     /**
      * Get the underlying Iceberg table instance for procedure execution.
