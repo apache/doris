@@ -55,7 +55,7 @@ public class VariantType extends PrimitiveType {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.predefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
-        this.variantMaxSparseColumnStatisticsSize = 0;
+        this.variantMaxSparseColumnStatisticsSize = 10000;
     }
 
     /**
@@ -65,7 +65,7 @@ public class VariantType extends PrimitiveType {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
-        this.variantMaxSparseColumnStatisticsSize = 0;
+        this.variantMaxSparseColumnStatisticsSize = 10000;
     }
 
     public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount, boolean enableTypedPathsToSparse,
