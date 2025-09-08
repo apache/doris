@@ -202,12 +202,12 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Failed to parse {} response: {}", _config.provider_type,
+                                      response_body);
         }
         if (!doc.HasMember("data") || !doc["data"].IsArray()) {
-            return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Invalid {} response format: {}", _config.provider_type,
+                                      response_body);
         }
 
         /*{
@@ -229,8 +229,8 @@ public:
         results.reserve(data.Size());
         for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
             if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
-                return Status::InternalError("Invalid {} response format: {}",
-                                             _config.provider_type, response_body);
+                return Status::FatalError("Invalid {} response format: {}", _config.provider_type,
+                                          response_body);
             }
 
             std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
@@ -310,8 +310,8 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Failed to parse {} response: {}", _config.provider_type,
+                                      response_body);
         }
 
         // Handle various response formats from local LLMs
@@ -352,7 +352,7 @@ public:
             return Status::OK();
         }
 
-        return Status::InternalError("Unsupported response format from local AI.");
+        return Status::NotSupported("Unsupported response format from local AI.");
     }
 
     Status build_embedding_request(const std::vector<std::string>& inputs,
@@ -388,8 +388,8 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Failed to parse {} response: {}", _config.provider_type,
+                                      response_body);
         }
 
         // parse different response format
@@ -400,8 +400,7 @@ public:
             results.reserve(data.Size());
             for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
                 if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
-                    return Status::InternalError("Invalid {} response format",
-                                                 _config.provider_type);
+                    return Status::FatalError("Invalid {} response format", _config.provider_type);
                 }
 
                 std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
@@ -416,8 +415,8 @@ public:
                            std::back_inserter(results.emplace_back()),
                            [](const auto& val) { return val.GetFloat(); });
         } else {
-            return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Invalid {} response format: {}", _config.provider_type,
+                                      response_body);
         }
 
         return Status::OK();
@@ -434,7 +433,6 @@ public:
         return Status::OK();
     }
 
-    // TODO: Only supports GPT-4 and earlier; GPT-5 and newer are not supported yet.
     Status build_request_payload(const std::vector<std::string>& inputs,
                                  const char* const system_prompt,
                                  std::string& request_body) const override {
@@ -442,39 +440,78 @@ public:
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
-        /*{
-          "model": "gpt-4",
-          "messages": [
-            {"role": "system", "content": "system_prompt here"},
-            {"role": "user", "content": "xxx"}
-          ],
-          "temperature": x,
-          "max_tokens": x,
-        }*/
-        doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
+        if (_config.endpoint.ends_with("responses")) {
+            /*{
+              "model": "gpt-4.1-mini",
+              "input": [
+                {"role": "system", "content": "system_prompt here"},
+                {"role": "user", "content": "xxx"}
+              ],
+              "temperature": 0.7,
+              "max_output_tokens": 150
+            }*/
+            doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
+                          allocator);
 
-        // If 'temperature' and 'max_tokens' are set, add them to the request body.
-        if (_config.temperature != -1) {
-            doc.AddMember("temperature", _config.temperature, allocator);
-        }
-        if (_config.max_tokens != -1) {
-            doc.AddMember("max_tokens", _config.max_tokens, allocator);
-        }
+            // If 'temperature' and 'max_tokens' are set, add them to the request body.
+            if (_config.temperature != -1) {
+                doc.AddMember("temperature", _config.temperature, allocator);
+            }
+            if (_config.max_tokens != -1) {
+                doc.AddMember("max_output_tokens", _config.max_tokens, allocator);
+            }
 
-        rapidjson::Value messages(rapidjson::kArrayType);
-        if (system_prompt && *system_prompt) {
-            rapidjson::Value sys_msg(rapidjson::kObjectType);
-            sys_msg.AddMember("role", "system", allocator);
-            sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
-            messages.PushBack(sys_msg, allocator);
+            // input
+            rapidjson::Value input(rapidjson::kArrayType);
+            if (system_prompt && *system_prompt) {
+                rapidjson::Value sys_msg(rapidjson::kObjectType);
+                sys_msg.AddMember("role", "system", allocator);
+                sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
+                input.PushBack(sys_msg, allocator);
+            }
+            for (const auto& msg : inputs) {
+                rapidjson::Value message(rapidjson::kObjectType);
+                message.AddMember("role", "user", allocator);
+                message.AddMember("content", rapidjson::Value(msg.c_str(), allocator), allocator);
+                input.PushBack(message, allocator);
+            }
+            doc.AddMember("input", input, allocator);
+        } else {
+            /*{
+              "model": "gpt-4",
+              "messages": [
+                {"role": "system", "content": "system_prompt here"},
+                {"role": "user", "content": "xxx"}
+              ],
+              "temperature": x,
+              "max_tokens": x,
+            }*/
+            doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
+                          allocator);
+
+            // If 'temperature' and 'max_tokens' are set, add them to the request body.
+            if (_config.temperature != -1) {
+                doc.AddMember("temperature", _config.temperature, allocator);
+            }
+            if (_config.max_tokens != -1) {
+                doc.AddMember("max_tokens", _config.max_tokens, allocator);
+            }
+
+            rapidjson::Value messages(rapidjson::kArrayType);
+            if (system_prompt && *system_prompt) {
+                rapidjson::Value sys_msg(rapidjson::kObjectType);
+                sys_msg.AddMember("role", "system", allocator);
+                sys_msg.AddMember("content", rapidjson::Value(system_prompt, allocator), allocator);
+                messages.PushBack(sys_msg, allocator);
+            }
+            for (const auto& input : inputs) {
+                rapidjson::Value message(rapidjson::kObjectType);
+                message.AddMember("role", "user", allocator);
+                message.AddMember("content", rapidjson::Value(input.c_str(), allocator), allocator);
+                messages.PushBack(message, allocator);
+            }
+            doc.AddMember("messages", messages, allocator);
         }
-        for (const auto& input : inputs) {
-            rapidjson::Value message(rapidjson::kObjectType);
-            message.AddMember("role", "user", allocator);
-            message.AddMember("content", rapidjson::Value(input.c_str(), allocator), allocator);
-            messages.PushBack(message, allocator);
-        }
-        doc.AddMember("messages", messages, allocator);
 
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -490,41 +527,73 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Failed to parse {} response: {}", _config.provider_type,
+                                      response_body);
         }
 
-        if (!doc.HasMember("choices") || !doc["choices"].IsArray()) {
-            return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
-                                         response_body);
-        }
+        if (doc.HasMember("output") && doc["output"].IsArray()) {
+            /// for responses endpoint
+            /*{
+              "output": [
+                {
+                  "id": "msg_123",
+                  "type": "message",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "result text here"   <- result
+                    }
+                  ]
+                }
+              ]
+            }*/
+            const auto& output = doc["output"];
+            results.reserve(output.Size());
 
-        /*{
-          "object": "chat.completion",
-          "model": "gpt-4",
-          "choices": [
-            {
-              ...
-              "message": {
-                "role": "assistant",
-                "content": "xxx"      <- result
-              },
-              ...
+            for (rapidjson::SizeType i = 0; i < output.Size(); i++) {
+                if (!output[i].HasMember("content") || !output[i]["content"].IsArray() ||
+                    output[i]["content"].Empty() || !output[i]["content"][0].HasMember("text") ||
+                    !output[i]["content"][0]["text"].IsString()) {
+                    return Status::FatalError("Invalid output format in {} response: {}",
+                                              _config.provider_type, response_body);
+                }
+
+                results.emplace_back(output[i]["content"][0]["text"].GetString());
             }
-          ],
-          ...
-        }*/
-        const auto& choices = doc["choices"];
-        results.reserve(choices.Size());
+        } else if (doc.HasMember("choices") && doc["choices"].IsArray()) {
+            /// for completions endpoint
+            /*{
+              "object": "chat.completion",
+              "model": "gpt-4",
+              "choices": [
+                {
+                  ...
+                  "message": {
+                    "role": "assistant",
+                    "content": "xxx"      <- result
+                  },
+                  ...
+                }
+              ],
+              ...
+            }*/
+            const auto& choices = doc["choices"];
+            results.reserve(choices.Size());
 
-        for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
-            if (!choices[i].HasMember("message") || !choices[i]["message"].HasMember("content") ||
-                !choices[i]["message"]["content"].IsString()) {
-                return Status::InternalError("Invalid choice format in {} response: {}",
-                                             _config.provider_type, response_body);
+            for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
+                if (!choices[i].HasMember("message") ||
+                    !choices[i]["message"].HasMember("content") ||
+                    !choices[i]["message"]["content"].IsString()) {
+                    return Status::FatalError("Invalid choice format in {} response: {}",
+                                              _config.provider_type, response_body);
+                }
+
+                results.emplace_back(choices[i]["message"]["content"].GetString());
             }
-
-            results.emplace_back(choices[i]["message"]["content"].GetString());
+        } else {
+            return Status::FatalError("Invalid {} response format: {}", _config.provider_type,
+                                      response_body);
         }
 
         return Status::OK();
@@ -711,12 +780,12 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Failed to parse {} response: {}", _config.provider_type,
+                                      response_body);
         }
         if (!doc.HasMember("candidates") || !doc["candidates"].IsArray()) {
-            return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Invalid {} response format: {}", _config.provider_type,
+                                      response_body);
         }
 
         /*{
@@ -742,8 +811,8 @@ public:
                 candidates[i]["content"]["parts"].Empty() ||
                 !candidates[i]["content"]["parts"][0].HasMember("text") ||
                 !candidates[i]["content"]["parts"][0]["text"].IsString()) {
-                return Status::InternalError("Invalid candidate format in {} response",
-                                             _config.provider_type);
+                return Status::FatalError("Invalid candidate format in {} response",
+                                          _config.provider_type);
             }
 
             results.emplace_back(candidates[i]["content"]["parts"][0]["text"].GetString());
@@ -802,12 +871,12 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Failed to parse {} response: {}", _config.provider_type,
+                                      response_body);
         }
         if (!doc.HasMember("embedding") || !doc["embedding"].IsObject()) {
-            return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Invalid {} response format: {}", _config.provider_type,
+                                      response_body);
         }
 
         /*{
@@ -817,8 +886,8 @@ public:
         }*/
         const auto& embedding = doc["embedding"];
         if (!embedding.HasMember("values") || !embedding["values"].IsArray()) {
-            return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Invalid {} response format: {}", _config.provider_type,
+                                      response_body);
         }
         std::transform(embedding["values"].Begin(), embedding["values"].End(),
                        std::back_inserter(results.emplace_back()),
@@ -901,12 +970,12 @@ public:
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Failed to parse {} response: {}", _config.provider_type,
+                                      response_body);
         }
         if (!doc.HasMember("content") || !doc["content"].IsArray()) {
-            return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
-                                         response_body);
+            return Status::FatalError("Invalid {} response format: {}", _config.provider_type,
+                                      response_body);
         }
 
         /*{
@@ -968,10 +1037,10 @@ public:
         doc.SetObject();
         doc.Parse(response_body.c_str());
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse embedding response");
+            return Status::FatalError("Failed to parse embedding response");
         }
         if (!doc.HasMember("embedding") || !doc["embedding"].IsArray()) {
-            return Status::InternalError("Invalid embedding response format");
+            return Status::FatalError("Invalid embedding response format");
         }
 
         results.reserve(1);
