@@ -70,12 +70,17 @@ import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
@@ -114,6 +119,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -340,7 +346,7 @@ public class MetadataGenerator {
                 result = viewDependencyMetadataResult(schemaTableParams);
                 columnIndex = VIEW_DEPENDENCY_COLUMN_TO_INDEX;
                 break;
-            case VIEW_DEPENDENCY:
+            case VIEW_DEPENDENCY1:
                 result = asyncMviewStatusMetadataResult(schemaTableParams);
                 columnIndex = ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
             default:
@@ -712,9 +718,10 @@ public class MetadataGenerator {
         if (params.isSetFrontendConjuncts()) {
             conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
         }
-        List<Expression> viewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_ID");
-        List<Expression> viewTypeConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_CATALOG");
-        List<Expression> viewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_NAME");
+        List<Expression> mviewIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_ID");
+        List<Expression> mviewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts,
+                "ASYNC_MVIEW_SCHEMA");
+        List<Expression> mviewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_NAME");
         Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
@@ -722,29 +729,79 @@ public class MetadataGenerator {
         ctx.setEnv(Env.getCurrentEnv());
         for (DatabaseIf<? extends TableIf> db : allDbs) {
             String dbName = db.getFullName();
-            if (FrontendConjunctsUtils.isFiltered(viewSchemaConjuncts, "VIEW_SCHEMA", dbName)) {
+            if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "ASYNC_MVIEW_SCHEMA", dbName)) {
                 continue;
             }
             List<? extends TableIf> tables = db.getTables();
             for (TableIf table : tables) {
-                if (FrontendConjunctsUtils.isFiltered(viewTypeConjuncts, "VIEW_TYPE", table.getType().name())) {
-                    continue;
-                }
                 if (table instanceof MTMV) {
+                    MTMV mtmv = (MTMV) table;
                     String tableName = table.getName();
-                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                    if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
+                        continue;
+                    }
+                    long tableId = table.getId();
+                    if (FrontendConjunctsUtils.isFiltered(mviewIdConjuncts, "ASYNC_MVIEW_ID", tableId)) {
                         continue;
                     }
                     TRow trow = new TRow();
-                    new TCell().
+                    MTMVStatus mtmvStatus = mtmv.getStatus();
+                    // ASYNC_MVIEW_ID
+                    trow.addToColumnValue(new TCell().setLongVal(tableId));
+                    // ASYNC_MVIEW_CATALOG
                     trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                    // ASYNC_MVIEW_SCHEMA
                     trow.addToColumnValue(new TCell().setStringVal(dbName));
+                    // ASYNC_MVIEW_NAME
                     trow.addToColumnValue(new TCell().setStringVal(tableName));
-                    trow.addToColumnValue(new TCell().set));
-
-                    dataBatch.add(trow);
+                    // IS_ACTIVE
+                    trow.addToColumnValue(new TCell().setBoolVal(mtmvStatus.getState().equals(MTMVState.NORMAL)));
+                    // INACTIVE_REASON
+                    String inactiveReason = "";
+                    if (mtmvStatus.getState().equals(MTMVState.INIT)) {
+                        inactiveReason = "init";
+                    } else if (mtmvStatus.getState().equals(MTMVState.SCHEMA_CHANGE)) {
+                        inactiveReason = mtmvStatus.getSchemaChangeDetail();
                     }
+                    trow.addToColumnValue(new TCell().setStringVal(inactiveReason));
+                    // PCT_TABLES
+
+                    // IS_SYNC_WITH_BASE_TABLES
+                    MTMVRefreshContext mtmvRefreshContext;
+                    try {
+                        mtmvRefreshContext = MTMVRefreshContext.buildContext(mtmv);
+                    } catch (AnalysisException e) {
+                        LOG.warn(e.getMessage(), e);
+                        continue;
+                    }
+                    List<String> needRefreshPartitions = MTMVPartitionUtil.getMTMVNeedRefreshPartitions(mtmvRefreshContext,mtmv.getRelation().getBaseTablesOneLevel());
+                    trow.addToColumnValue(new TCell().setBoolVal(CollectionUtils.isEmpty(needRefreshPartitions)));
+                    // UNSYNC_PARTITIONS_IN_ASYNC_MVIEW
+                    trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(needRefreshPartitions)));
+                    // REFRESH_TYPE
+                    MTMVRefreshTriggerInfo refreshTriggerInfo = mtmv.getRefreshInfo().getRefreshTriggerInfo();
+                    trow.addToColumnValue(new TCell().setStringVal(refreshTriggerInfo.getRefreshTrigger()
+                            .name()));
+                    // REFRESH_JOB_STATUS
+                    // SCHEDULE_PERIOD
+                    String schedulePeriod = "";
+                    if (refreshTriggerInfo.getRefreshTrigger().equals(RefreshTrigger.SCHEDULE)) {
+                        schedulePeriod = refreshTriggerInfo.getIntervalTrigger().toString();
+                    }
+                    trow.addToColumnValue(new TCell().setStringVal(schedulePeriod));
+                    // PARTITION_TYPE
+                    trow.addToColumnValue(new TCell().setStringVal(mtmv.getMvPartitionInfo().toNameString()));
+                    // ROW_COUNT
+                    trow.addToColumnValue(new TCell().setLongVal(mtmv.getRowCount()));
+                    // PARTITION_COUNT
+                    trow.addToColumnValue(new TCell().setLongVal(mtmv.getPartitionNum()));
+                    // DEFINITION
+                    trow.addToColumnValue(new TCell().setStringVal(mtmv.getQuerySql()));
+                    // PROPERTIES
+                    trow.addToColumnValue(new TCell().setStringVal(mtmv.getMvProperties().toString()));
+                    dataBatch.add(trow);
                 }
+            }
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));

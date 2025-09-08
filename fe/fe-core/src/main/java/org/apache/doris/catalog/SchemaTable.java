@@ -705,13 +705,13 @@ public class SchemaTable extends Table {
                                     .column("IS_SYNC_WITH_BASE_TABLES", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("UNSYNC_PARTITIONS_IN_ASYNC_MVIEW",
                                             new ArrayType(ScalarType.createStringType()))
-                                    .column("REFRESH_TYPE", new ArrayType(ScalarType.createStringType()))
-                                    .column("REFRESH_JOB_STATUS", new ArrayType(ScalarType.createStringType()))
-                                    .column("SCHEDULE_PERIOD", new ArrayType(ScalarType.createStringType()))
-                                    .column("PARTITION_TYPE", new ArrayType(ScalarType.createStringType()))
+                                    .column("REFRESH_TYPE", ScalarType.createStringType())
+                                    .column("REFRESH_JOB_STATUS", ScalarType.createStringType())
+                                    .column("SCHEDULE_PERIOD", ScalarType.createStringType())
+                                    .column("PARTITION_TYPE", ScalarType.createStringType())
                                     .column("ROW_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("PARTITION_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("DEFINITION", new ArrayType(ScalarType.createStringType()))
+                                    .column("DEFINITION", ScalarType.createStringType())
                                     .column("PROPERTIES",
                                             new MapType(ScalarType.createStringType(), ScalarType.createStringType()))
                                     .build()))
