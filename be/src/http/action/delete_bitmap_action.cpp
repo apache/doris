@@ -209,7 +209,7 @@ Status DeleteBitmapAction::_handle_show_agg_cache_delete_bitmap_count(HttpReques
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
-    auto dbm = tablet->tablet_meta()->delete_bitmap().agg_cache_snapshot();
+    auto dbm = tablet->tablet_meta()->delete_bitmap()->agg_cache_snapshot();
     _show_delete_bitmap(dbm, verbose, json_result);
     return Status::OK();
 }
@@ -227,6 +227,14 @@ void DeleteBitmapAction::handle(HttpRequest* req) {
     } else if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_MS) {
         std::string json_result;
         Status st = _handle_show_ms_delete_bitmap_count(req, &json_result);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
+        } else {
+            HttpChannel::send_reply(req, HttpStatus::OK, json_result);
+        }
+    } else if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_AGG_CACHE) {
+        std::string json_result;
+        Status st = _handle_show_agg_cache_delete_bitmap_count(req, &json_result);
         if (!st.ok()) {
             HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
         } else {

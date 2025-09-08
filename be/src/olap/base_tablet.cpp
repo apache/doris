@@ -2137,7 +2137,7 @@ TabletSchemaSPtr BaseTablet::calculate_variant_extended_schema() const {
 
 void BaseTablet::prefill_dbm_agg_cache(const RowsetSharedPtr& rowset, int64_t version) {
     for (std::size_t i = 0; i < rowset->num_segments(); i++) {
-        tablet_meta()->delete_bitmap().get_agg({rowset->rowset_id(), i, version});
+        tablet_meta()->delete_bitmap()->get_agg({rowset->rowset_id(), i, version});
     }
 }
 
