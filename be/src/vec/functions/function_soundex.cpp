@@ -46,9 +46,13 @@ public:
 
         auto res_column = ColumnString::create();
         res_column->reserve(input_rows_count);
+        auto& res_data = res_column->get_chars();
+        auto& res_offsets = res_column->get_offsets();
+        res_data.reserve(input_rows_count * CODE_SIZE);
+        res_offsets.resize(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             StringRef ref = col_ptr->get_data_at(i);
-            RETURN_IF_ERROR(calculate_soundex_and_insert(ref, res_column.get(), i));
+            RETURN_IF_ERROR(calculate_soundex_and_insert(ref, res_data, res_offsets, i));
         }
 
         block.replace_by_position(result, std::move(res_column));
@@ -56,15 +60,16 @@ public:
     }
 
 private:
-    Status calculate_soundex_and_insert(const StringRef& ref, ColumnString* res_column,
-                                        const size_t row) const {
+    Status calculate_soundex_and_insert(const StringRef& ref, ColumnString::Chars& chars,
+                                        ColumnString::Offsets& offsets, const size_t row) const {
+        uint32_t row_start = (row == 0) ? 0 : offsets[row - 1];
+        uint32_t expect_end = row_start + CODE_SIZE;
+
         if (ref.size == 0) {
-            res_column->insert_data("", 0);
+            offsets[row] = row_start;
             return Status::OK();
         }
 
-        std::string result;
-        result.reserve(4);
         char pre_code = '\0';
         for (size_t i = 0; i < ref.size; ++i) {
             auto c = static_cast<unsigned char>(ref.data[i]);
@@ -78,14 +83,14 @@ private:
             }
 
             c = static_cast<char>(std::toupper(c));
-            if (result.empty()) {
-                result += c;
+            if (chars.size() == row_start) {
+                chars.push_back(c);
                 pre_code = (SOUNDEX_TABLE[c - 'A'] == 'N') ? '\0' : SOUNDEX_TABLE[c - 'A'];
             } else if (char code = SOUNDEX_TABLE[c - 'A']; code != 'N') {
                 if (code != 'V' && code != pre_code) {
-                    result += code;
-                    if (result.size() == 4) {
-                        res_column->insert_data(result.c_str(), result.length());
+                    chars.push_back(code);
+                    if (chars.size() == expect_end) {
+                        offsets[row] = static_cast<ColumnString::Offset>(chars.size());
                         return Status::OK();
                     }
                 }
@@ -94,11 +99,11 @@ private:
             }
         }
 
-        while (!result.empty() && result.size() < 4) {
-            result += '0';
+        while (chars.size() != row_start && chars.size() < expect_end) {
+            chars.push_back('0');
         }
+        offsets[row] = static_cast<ColumnString::Offset>(chars.size());
 
-        res_column->insert_data(result.c_str(), result.length());
         return Status::OK();
     }
 
@@ -114,6 +119,8 @@ private:
     static constexpr char SOUNDEX_TABLE[26] = {'V', '1', '2', '3', 'V', '1', '2', 'N', 'V',
                                                '2', '2', '4', '5', '5', 'V', '1', '2', '6',
                                                '2', '3', 'V', '1', 'N', '2', 'V', '2'};
+
+    static constexpr uint8_t CODE_SIZE = 4;
 };
 
 void register_function_soundex(SimpleFunctionFactory& factory) {
