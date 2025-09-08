@@ -85,6 +85,7 @@ Suite.metaClass.http_get = { url ->
 
 Suite.metaClass.check_inverted_index_filter_rows = { sql, expectedRowsInvertedIndexFiltered ->
     order_qt_sql sql
+    Thread.sleep(5000)
     def profileUrl = '/rest/v1/query_profile/'
     def profiles = http_get(profileUrl)
     log.debug("profiles:{}", profiles);

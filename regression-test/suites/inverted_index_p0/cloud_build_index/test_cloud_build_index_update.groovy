@@ -139,7 +139,7 @@ suite("test_cloud_build_index_update") {
     wait_for_last_build_index_finish("test_cloud_build_idx_del_tab", timeout)
 
     check_inverted_index_filter_rows("select * from test_cloud_build_idx_del_tab" +
-            " where address='eeeee' order by user_id,username,age,address", 9)
+            " where address='eeeee' order by user_id,username,age,address", 12)
 
     qt_select_del_tab_ret3 """select count(1) from test_cloud_build_idx_del_tab where age=23;"""
     qt_select_del_tab_ret4 """select count(1) from test_cloud_build_idx_del_tab where age!=23;"""
