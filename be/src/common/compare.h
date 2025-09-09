@@ -197,6 +197,32 @@ template <>
 inline double Compare::max_value<double>() {
     return std::numeric_limits<double>::quiet_NaN();
 }
+
+template <class T>
+struct Less {
+    bool operator()(const T& lhs, const T& rhs) const { return std::less<T> {}(lhs, rhs); }
+};
+template <>
+inline bool Less<double>::operator()(const double& lhs, const double& rhs) const {
+    return Compare::less(lhs, rhs);
+}
+template <>
+inline bool Less<float>::operator()(const float& lhs, const float& rhs) const {
+    return Compare::less(lhs, rhs);
+}
+
+template <class T>
+struct EqualTo {
+    inline bool operator()(const T& a, const T& b) const { return std::equal_to<T>()(a, b); }
+};
+template <>
+inline bool EqualTo<double>::operator()(const double& lhs, const double& rhs) const {
+    return Compare::equal(lhs, rhs);
+}
+template <>
+inline bool EqualTo<float>::operator()(const float& lhs, const float& rhs) const {
+    return Compare::equal(lhs, rhs);
+}
 } // namespace doris
 
 #include "common/compile_check_end.h"
