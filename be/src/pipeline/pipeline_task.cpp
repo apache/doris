@@ -81,6 +81,7 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
           _task_idx(task_idx),
           _memory_sufficient_dependency(state->get_query_ctx()->get_memory_sufficient_dependency()),
           _pipeline_name(_pipeline->name()) {
+    _query_mem_tracker = fragment_context->get_query_ctx()->query_mem_tracker();
     _execution_dependencies.push_back(state->get_query_ctx()->get_execution_dependency());
     if (!_shared_state_map.contains(_sink->dests_id().front())) {
         auto shared_state = _sink->create_shared_state();
@@ -88,6 +89,17 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
             _sink_shared_state = shared_state;
         }
     }
+}
+
+PipelineTask::~PipelineTask() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
+    _sink_shared_state.reset();
+    _op_shared_states.clear();
+    _sink.reset();
+    _operators.clear();
+    _spill_context.reset();
+    _block.reset();
+    _pipeline.reset();
 }
 
 Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,

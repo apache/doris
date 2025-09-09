@@ -55,6 +55,8 @@ public:
                          shared_state_map,
                  int task_idx);
 
+    ~PipelineTask();
+
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
                    const TDataSink& tsink);
 
@@ -259,6 +261,8 @@ private:
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};
     std::atomic<bool> _wake_up_early {false};
+    // PipelineTask maybe hold by TaskQueue
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
     /**
          *
