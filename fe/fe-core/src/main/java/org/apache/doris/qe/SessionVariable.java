@@ -2943,7 +2943,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
-        this.disableStreamPreaggregations = random.nextBoolean();
+        // disableStreamPreaggregations = true will make some query very slow
+        // maybe need discover why
+        // this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
 
         // 4KB = 4 * 1024 bytes
