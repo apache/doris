@@ -550,14 +550,6 @@ Status NewJsonReader::_read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* fi
 // simdjson, replace none simdjson function if it is ready
 Status NewJsonReader::_simdjson_init_reader() {
     RETURN_IF_ERROR(_get_range_params());
-
-    if (!_strip_outer_array && !_read_json_by_line) {
-        LOG(WARNING) << "Invalid configuration: Both `read_json_by_line` and `_strip_outer_array` are set to FALSE.";
-        return Status::DataQualityError(
-            "Invalid configuration: Both `read_json_by_line` and `_strip_outer_array` are set to FALSE. "
-            "At least one of them must be TRUE to properly parse the JSON input.");
-    }
-
     RETURN_IF_ERROR(_open_file_reader(false));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
