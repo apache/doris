@@ -794,24 +794,47 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
+    public static final String SKEW_VALUE_THRESHOLD = "skew_value_threshold";
 
-    @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
-                description = {"当列中某个特定值的出现次数大于等于（rowCount/ndv）× hotValueThreshold 时，该值即被视为热点值",
+
+    @VariableMgr.VarAttr(name = SKEW_VALUE_THRESHOLD, needForward = true,
+                description = {"当列中某个特定值的出现次数大于等于（rowCount/ndv）× skewValueThreshold 时，该值即被视为热点值",
                         "When the occurrence of a value in a column is greater than "
-                                + "hotValueThreshold tmies of average occurences "
-                                + "(occurrences >= hotValueThreshold * rowCount / ndv), "
+                                + "skewValueThreshold tmies of average occurences "
+                                + "(occurrences >= skewValueThreshold * rowCount / ndv), "
                                 + "the value is regarded as hot value"})
-    private double hotValueThreshold = 10;
+    private double skewValueThreshold = 10;
 
-    public void setHotValueThreshold(int threshold) {
+    public void setSkewValueThreshold(int threshold) {
+        this.skewValueThreshold = threshold;
+    }
+
+    public static double getSkewValueThreshold() {
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getState().isInternal()) {
+                return 0.0;
+            } else {
+                return ConnectContext.get().getSessionVariable().skewValueThreshold;
+            }
+        } else {
+            return Double.parseDouble(VariableMgr.getDefaultValue(SKEW_VALUE_THRESHOLD));
+        }
+    }
+
+    public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
+    @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
+            description = {"hot value 在列中出现的最小比例",
+                    "The minimum ratio of occurrences of a hot value in a column"})
+    private double hotValueThreshold = 0.10d;
+
+    public void setHotValueThreshold(double threshold) {
         this.hotValueThreshold = threshold;
     }
 
     public static double getHotValueThreshold() {
         if (ConnectContext.get() != null) {
             if (ConnectContext.get().getState().isInternal()) {
-                return 0.0;
+                return 0.1;
             } else {
                 return ConnectContext.get().getSessionVariable().hotValueThreshold;
             }
