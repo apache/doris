@@ -60,6 +60,12 @@ struct FaissBuildParameter {
         IP, ///< Inner product (cosine similarity when vectors are normalized)
     };
 
+    enum class Quantizer {
+        FLAT, ///< Flat (exact) quantizer
+        SQ4,  ///< Scalar quantization with 4 bits
+        SQ8,  ///< Scalar quantization with 8 bits
+    };
+
     /**
      * @brief Converts string representation to IndexType enum.
      * @param type String representation of index type (e.g., "hnsw")
@@ -92,12 +98,26 @@ struct FaissBuildParameter {
         }
     }
 
+    static Quantizer string_to_quantizer(const std::string& type) {
+        if (type == "flat") {
+            return Quantizer::FLAT;
+        } else if (type == "sq4") {
+            return Quantizer::SQ4;
+        } else if (type == "sq8") {
+            return Quantizer::SQ8;
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Unsupported quantizer type: {}", type);
+        }
+    }
+
     // HNSW-specific parameters
     int dim = 0;        ///< Vector dimensionality (must match data vectors)
     int max_degree = 0; ///< Maximum number of connections per node in HNSW graph
     IndexType index_type = IndexType::HNSW;  ///< Type of index to build
     MetricType metric_type = MetricType::L2; ///< Distance metric to use
     int ef_construction = 40; ///< Size of dynamic list for nearest neighbors during construction
+    Quantizer quantizer = Quantizer::FLAT; ///< Quantizer type
 };
 
 /**
@@ -150,6 +170,8 @@ public:
      */
     FaissVectorIndex();
 
+    void train(vectorized::Int64 n, const float* x) override;
+
     /**
      * @brief Adds vectors to the index for future searches.
      * 
@@ -160,7 +182,7 @@ public:
      * @param vec Pointer to vector data (n * dim float values)
      * @return Status indicating success or failure
      */
-    doris::Status add(int n, const float* vec) override;
+    doris::Status add(vectorized::Int64 n, const float* vec) override;
 
     /**
      * @brief Sets the build parameters for the index.

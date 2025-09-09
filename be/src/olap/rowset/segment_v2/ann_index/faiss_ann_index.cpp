@@ -33,10 +33,12 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "faiss/Index.h"
 #include "faiss/IndexHNSW.h"
 #include "faiss/MetricType.h"
 #include "faiss/impl/IDSelector.h"
 #include "faiss/impl/io.h"
+#include "faiss/index_factory.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_files.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
@@ -143,6 +145,13 @@ public:
     lucene::store::IndexInput* _input = nullptr;
 };
 
+void FaissVectorIndex::train(vectorized::Int64 n, const float* x) {
+    DCHECK(x != nullptr);
+    DCHECK(_index != nullptr);
+    omp_set_num_threads(config::omp_threads_limit);
+    _index->train(n, x);
+}
+
 /** Add n vectors of dimension d to the index.
 *
 * Vectors are implicitly assigned labels ntotal .. ntotal + n - 1
@@ -151,7 +160,7 @@ public:
 * @param n      number of vectors
 * @param x      input matrix, size n * d
 */
-doris::Status FaissVectorIndex::add(int n, const float* vec) {
+doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
     omp_set_num_threads(config::omp_threads_limit);
@@ -175,17 +184,37 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
     }
 
     if (params.index_type == FaissBuildParameter::IndexType::HNSW) {
-        std::unique_ptr<faiss::IndexHNSWFlat> hnsw_index;
-        if (params.metric_type == FaissBuildParameter::MetricType::L2) {
-            hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
-                                                                faiss::METRIC_L2);
-        } else if (params.metric_type == FaissBuildParameter::MetricType::IP) {
-            hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
-                                                                faiss::METRIC_INNER_PRODUCT);
-        } else {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Unsupported metric type: {}",
-                                   static_cast<int>(params.metric_type));
+        std::unique_ptr<faiss::IndexHNSW> hnsw_index;
+        if (params.quantizer == FaissBuildParameter::Quantizer::SQ4) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                hnsw_index = std::make_unique<faiss::IndexHNSWSQ>(
+                        params.dim, faiss::ScalarQuantizer::QT_4bit, params.max_degree,
+                        faiss::METRIC_L2);
+            } else {
+                hnsw_index = std::make_unique<faiss::IndexHNSWSQ>(
+                        params.dim, faiss::ScalarQuantizer::QT_4bit, params.max_degree,
+                        faiss::METRIC_INNER_PRODUCT);
+            }
+        }
+        if (params.quantizer == FaissBuildParameter::Quantizer::SQ8) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                hnsw_index = std::make_unique<faiss::IndexHNSWSQ>(
+                        params.dim, faiss::ScalarQuantizer::QT_8bit, params.max_degree,
+                        faiss::METRIC_L2);
+            } else {
+                hnsw_index = std::make_unique<faiss::IndexHNSWSQ>(
+                        params.dim, faiss::ScalarQuantizer::QT_8bit, params.max_degree,
+                        faiss::METRIC_INNER_PRODUCT);
+            }
+        }
+        if (params.quantizer == FaissBuildParameter::Quantizer::FLAT) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
+                                                                    faiss::METRIC_L2);
+            } else {
+                hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
+                                                                    faiss::METRIC_INNER_PRODUCT);
+            }
         }
         hnsw_index->hnsw.efConstruction = params.ef_construction;
         _index = std::move(hnsw_index);
