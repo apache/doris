@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import com.google.common.base.Preconditions;
+
 /**
  * Common argument parsers for NamedArguments.
  * This utility class provides pre-built parsers for common data types
@@ -45,7 +47,8 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<String> nonEmptyString(String paramName) {
         return value -> {
-            if (value == null || value.trim().isEmpty()) {
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
+            if (value.trim().isEmpty()) {
                 throw new IllegalArgumentException(paramName + " cannot be empty");
             }
             return value.trim();
@@ -62,9 +65,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<String> stringLength(String paramName, int minLength, int maxLength) {
         return value -> {
-            if (value == null) {
-                throw new IllegalArgumentException(paramName + " cannot be null");
-            }
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             String trimmed = value.trim();
             int length = trimmed.length();
             if (length < minLength || length > maxLength) {
@@ -85,9 +86,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<String> stringChoice(String paramName, String... allowedValues) {
         return value -> {
-            if (value == null) {
-                throw new IllegalArgumentException(paramName + " cannot be null");
-            }
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             String trimmed = value.trim();
             for (String allowed : allowedValues) {
                 if (allowed.equals(trimmed)) {
@@ -109,9 +108,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<String> stringChoiceIgnoreCase(String paramName, String... allowedValues) {
         return value -> {
-            if (value == null) {
-                throw new IllegalArgumentException(paramName + " cannot be null");
-            }
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             String trimmed = value.trim();
             for (String allowed : allowedValues) {
                 if (allowed.equalsIgnoreCase(trimmed)) {
@@ -134,6 +131,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<Integer> positiveInt(String paramName) {
         return value -> {
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             try {
                 int intValue = Integer.parseInt(value.trim());
                 if (intValue <= 0) {
@@ -156,6 +154,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<Integer> intRange(String paramName, int minValue, int maxValue) {
         return value -> {
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             try {
                 int intValue = Integer.parseInt(value.trim());
                 if (intValue < minValue || intValue > maxValue) {
@@ -179,6 +178,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<Long> positiveLong(String paramName) {
         return value -> {
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             try {
                 long longValue = Long.parseLong(value.trim());
                 if (longValue <= 0) {
@@ -199,6 +199,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<Long> nonNegativeLong(String paramName) {
         return value -> {
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             try {
                 long longValue = Long.parseLong(value.trim());
                 if (longValue < 0) {
@@ -221,6 +222,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<Long> longRange(String paramName, long minValue, long maxValue) {
         return value -> {
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             try {
                 long longValue = Long.parseLong(value.trim());
                 if (longValue < minValue || longValue > maxValue) {
@@ -244,6 +246,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<Double> positiveDouble(String paramName) {
         return value -> {
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             try {
                 double doubleValue = Double.parseDouble(value.trim());
                 if (doubleValue <= 0) {
@@ -266,6 +269,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<Double> doubleRange(String paramName, double minValue, double maxValue) {
         return value -> {
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             try {
                 double doubleValue = Double.parseDouble(value.trim());
                 if (doubleValue < minValue || doubleValue > maxValue) {
@@ -290,6 +294,7 @@ public class ArgumentParsers {
      */
     public static ArgumentParser<Boolean> booleanValue(String paramName) {
         return value -> {
+            Preconditions.checkNotNull(value, paramName + " cannot be null");
             String trimmed = value.trim();
             if ("true".equalsIgnoreCase(trimmed)) {
                 return Boolean.TRUE;
