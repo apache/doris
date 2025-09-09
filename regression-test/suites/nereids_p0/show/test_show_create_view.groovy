@@ -63,7 +63,7 @@ suite("test_show_create_view", "query,arrow_flight_sql") {
             CREATE VIEW IF NOT EXISTS ${view_name_2}
             (
             k1,
-            k2 comment k2_comment"
+            k2 comment "k2_comment"
             )
             COMMENT "v2"
             AS
