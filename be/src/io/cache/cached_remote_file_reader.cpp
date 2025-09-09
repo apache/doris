@@ -34,7 +34,9 @@
 #include "io/cache/block_file_cache_profile.h"
 #include "io/cache/file_block.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/hdfs_file_reader.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/s3_file_reader.h"
 #include "io/io_common.h"
 #include "util/bit_util.h"
 #include "util/doris_metrics.h"
@@ -43,6 +45,7 @@
 namespace doris::io {
 
 bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
+bvar::Adder<uint64_t> hdfs_read_counter("cached_remote_reader_hdfs_read");
 bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
 bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
@@ -254,7 +257,12 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
         {
-            s3_read_counter << 1;
+            // Check the type of remote file reader and increment appropriate counter
+            if (dynamic_cast<S3FileReader*>(_remote_file_reader.get()) != nullptr) {
+                s3_read_counter << 1;
+            } else if (dynamic_cast<HdfsFileReader*>(_remote_file_reader.get()) != nullptr) {
+                hdfs_read_counter << 1;
+            }
             SCOPED_RAW_TIMER(&stats.remote_read_timer);
             RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
                                                          &size, io_ctx));
@@ -349,7 +357,12 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                              << st.msg() << ", block state=" << block_state;
                 size_t bytes_read {0};
                 stats.hit_cache = false;
-                s3_read_counter << 1;
+                // Check the type of remote file reader and increment appropriate counter
+                if (dynamic_cast<S3FileReader*>(_remote_file_reader.get()) != nullptr) {
+                    s3_read_counter << 1;
+                } else if (dynamic_cast<HdfsFileReader*>(_remote_file_reader.get()) != nullptr) {
+                    hdfs_read_counter << 1;
+                }
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 RETURN_IF_ERROR(_remote_file_reader->read_at(
                         current_offset, Slice(result.data + (current_offset - offset), read_size),
