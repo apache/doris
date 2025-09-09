@@ -68,7 +68,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
     private static final double LOWER_AGGREGATE_EFFECT_COEFFICIENT = 10000;
     private static final double LOW_AGGREGATE_EFFECT_COEFFICIENT = 1000;
     private static final double MEDIUM_AGGREGATE_EFFECT_COEFFICIENT = 100;
-    private static final double MAX_SINGLE_NDV_LIMIT = 100_000;
     private final StatsDerive derive = new StatsDerive(true);
 
     @Override
@@ -323,7 +322,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
 
         List<ColumnStatistic> groupKeysStats = new ArrayList<>();
-        double maxGroupKeyNdv = 0.0;
+
         List<ColumnStatistic> lower = Lists.newArrayList();
         List<ColumnStatistic> medium = Lists.newArrayList();
         List<ColumnStatistic> high = Lists.newArrayList();
@@ -335,7 +334,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             if (colStats.isUnKnown) {
                 return false;
             }
-            maxGroupKeyNdv = Math.max(maxGroupKeyNdv, colStats.ndv);
             groupKeysStats.add(colStats);
             cards[groupByCardinality(colStats, stats.getRowCount())].add(colStats);
         }
@@ -349,15 +347,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         double lowerUpper = Math.max(stats.getRowCount() / 20, 1);
         lowerUpper = Math.pow(lowerUpper, Math.max(lower.size() / 2, 1));
 
-        // 1. white push down rules
-        // 1.1 only one lower/medium cardinality columns
         if (high.isEmpty() && (lower.size() + medium.size()) == 1) {
             return true;
         }
 
-        // 1.2 the cartesian of all lower/count <= 1
-        // 1.3 the lower cardinality <= 3 and lowerCartesian < lowerUpper
-        // 1.4 false
         if (high.isEmpty() && medium.isEmpty()) {
             if (lower.size() == 1 && lowerCartesian * 20 <= stats.getRowCount()) {
                 return true;
@@ -370,9 +363,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             }
         }
 
-        // 2.1 high cardinality >= 2
-        // 2.2 medium cardinality > 2
-        // 2.3 high cardinality = 1 and medium cardinality > 0
         if (high.size() >= 2 || medium.size() > 2 || (high.size() == 1 && !medium.isEmpty())) {
             return false;
         }
@@ -386,19 +376,6 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return estAggRowCount < lowerCartesianLowerBound;
         }
 
-        //// 4. high cardinality < 2 and lower cardinality < 2
-        //if (high.size() == 1 && lower.size() <= 2) {
-        //    return pushDownMode >= PUSH_DOWN_HIGH_CARDINALITY_AGG;
-        //}
-        //
-        //// 5. medium cardinality <= 2
-        //if (lower.size() <= 2) {
-        //    if (pushDownMode >= PUSH_DOWN_MEDIUM_CARDINALITY_AGG) {
-        //        return true;
-        //    }
-        //    return statistics.getOutputRowCount() >=
-        //            StatisticsEstimateCoefficient.SMALL_SCALE_ROWS_LIMIT;
-        //}
         return false;
     }
 
