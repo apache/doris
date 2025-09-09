@@ -611,6 +611,8 @@ public class DateLiteral extends Literal implements ComparableLiteral {
                 return new BigIntLiteral(value);
             } else if (targetType.isLargeIntType()) {
                 return new LargeIntLiteral(new BigInteger(String.valueOf(value)));
+            } else {
+                throw new AnalysisException("Date can not cast to " + targetType);
             }
         } else if (targetType.isFloatType()) {
             return new FloatLiteral(value);
