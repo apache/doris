@@ -1881,11 +1881,14 @@ public class PropertyAnalyzer {
     public static int analyzeVariantMaxSparseColumnStatisticsSize(Map<String, String> properties, int defuatValue)
                                                                                 throws AnalysisException {
         int maxSparseColumnStatisticsSize = defuatValue;
+        LOG.info("analyzeVariantMaxSparseColumnStatisticsSize defaultValue: {}", defuatValue);
         if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
             String maxSparseColumnStatisticsSizeStr =
                     properties.get(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
             try {
                 maxSparseColumnStatisticsSize = Integer.parseInt(maxSparseColumnStatisticsSizeStr);
+                LOG.info("analyzeVariantMaxSparseColumnStatisticsSize maxSparseColumnStatisticsSize: {},"
+                + "maxSparseColumnStatisticsSizeStr: {}", maxSparseColumnStatisticsSize, maxSparseColumnStatisticsSizeStr);
                 if (maxSparseColumnStatisticsSize < 0 || maxSparseColumnStatisticsSize > 50000) {
                     throw new AnalysisException("variant_max_sparse_column_statistics_size must between 0 and 50000 ");
                 }
