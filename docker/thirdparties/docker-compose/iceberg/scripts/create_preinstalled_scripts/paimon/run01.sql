@@ -4,9 +4,9 @@ use test_paimon_spark;
 
 drop table if exists test_tb_mix_format;
 create table test_tb_mix_format (
-                                    id int,
-                                    value int,
-                                    par string
+    id int,
+    value int,
+    par string
 ) PARTITIONED BY (par) TBLPROPERTIES (
     'primary-key' = 'id, par',
     'bucket'=1000,
@@ -26,9 +26,9 @@ alter table test_tb_mix_format unset TBLPROPERTIES ('file.format');
 
 drop table if exists two_partition;
 CREATE TABLE two_partition (
-                               id BIGINT,
-                               create_date STRING,
-                               region STRING
+   id BIGINT,
+   create_date STRING,
+   region STRING
 ) PARTITIONED BY (create_date,region) TBLPROPERTIES (
     'primary-key' = 'create_date,region,id',
     'bucket'=10,
@@ -52,8 +52,8 @@ drop table if exists null_partition;
 -- );
 -- in paimon 1.0.1 ,primary-key is `not null`. 
 CREATE TABLE null_partition (
-                                id BIGINT,
-                                region STRING
+   id BIGINT,
+   region STRING
 ) PARTITIONED BY (region) TBLPROPERTIES (
     'primary-key' = 'id',
     'bucket'='-1',
@@ -68,8 +68,8 @@ insert into null_partition values(5,'NULL');
 
 drop table if exists date_partition;
 CREATE TABLE date_partition (
-                                id BIGINT,
-                                create_date DATE
+                               id BIGINT,
+                               create_date DATE
 ) PARTITIONED BY (create_date) TBLPROPERTIES (
     'primary-key' = 'create_date,id',
     'bucket'=10,

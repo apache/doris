@@ -17,5 +17,3 @@ INSERT INTO employees VALUES
 
 
 msck repair table employees;
-
-

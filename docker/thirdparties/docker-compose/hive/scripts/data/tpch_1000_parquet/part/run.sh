@@ -6,7 +6,7 @@ set -x
 # if [[ ! -d "${CUR_DIR}/data" ]]; then
 #     echo "${CUR_DIR}/data does not exist"
 #     cd "${CUR_DIR}" && rm -f data.tar.gz \
-#     && curl -O https://s3BucketName.s3Endpoint/regression/datalake/pipeline_data/tpch_1000_parquet/part/data.tar.gz \
+#     && curl -O https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/tpch_1000_parquet/part/data.tar.gz \
 #     && tar xzf data.tar.gz
 #     cd -
 # else
