@@ -81,7 +81,9 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
           _task_idx(task_idx),
           _memory_sufficient_dependency(state->get_query_ctx()->get_memory_sufficient_dependency()),
           _pipeline_name(_pipeline->name()) {
+#ifndef BE_TEST
     _query_mem_tracker = fragment_context->get_query_ctx()->query_mem_tracker();
+#endif
     _execution_dependencies.push_back(state->get_query_ctx()->get_execution_dependency());
     if (!_shared_state_map.contains(_sink->dests_id().front())) {
         auto shared_state = _sink->create_shared_state();
@@ -92,11 +94,13 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
 }
 
 PipelineTask::~PipelineTask() {
-    // PipelineTask is also hold by task queue( https://github.com/apache/doris/pull/49753),
-    // so that it maybe the last one to be destructed.
-    // But pipeline task hold some objects, like operators, shared state, etc. So that should release
-    // memory manually.
+// PipelineTask is also hold by task queue( https://github.com/apache/doris/pull/49753),
+// so that it maybe the last one to be destructed.
+// But pipeline task hold some objects, like operators, shared state, etc. So that should release
+// memory manually.
+#ifndef BE_TEST
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
+#endif
     _shared_state_map.clear();
     _sink_shared_state.reset();
     _op_shared_states.clear();
