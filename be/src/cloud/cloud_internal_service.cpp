@@ -26,6 +26,7 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "util/debug_points.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -236,6 +237,12 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
             auto segment_size = rs_meta.segment_file_size(segment_id);
             auto download_done = [=, version = rs_meta.version()](Status st) {
+                DBUG_EXECUTE_IF("CloudInternalServiceImpl::warm_up_rowset.download_segment", {
+                    auto sleep_time = dp->param<int>("sleep", 3);
+                    LOG_INFO("[verbose] block download for rowset={}, version={}, sleep={}",
+                             rowset_id.to_string(), version.to_string(), sleep_time);
+                    std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+                });
                 if (st.ok()) {
                     g_file_cache_event_driven_warm_up_finished_segment_num << 1;
                     g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;
