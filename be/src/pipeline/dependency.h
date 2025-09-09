@@ -815,7 +815,10 @@ public:
 
 struct FetchRpcStruct {
     std::shared_ptr<PBackendService_Stub> stub;
+    std::unique_ptr<brpc::Controller> cntl;
     PMultiGetRequestV2 request;
+    PMultiGetResponseV2 response;
+
     std::shared_ptr<doris::DummyBrpcCallback<PMultiGetResponseV2>> callback;
     MonotonicStopWatch rpc_timer;
 };
@@ -829,6 +832,9 @@ public:
     Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
     Status merge_multi_response(vectorized::Block* block);
 
+    Status merge_multi_response();
+    void get_block(vectorized::Block* block);
+
     void create_counter_dependency(int operator_id, int node_id, const std::string& name);
 
 private:
@@ -836,7 +842,6 @@ private:
 
 public:
     bool rpc_struct_inited = false;
-    AtomicStatus rpc_status;
 
     bool last_block = false;
     // empty materialization sink block not need to merge block

@@ -540,6 +540,72 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
     return Status::OK();
 }
 
+void MaterializationSharedState::get_block(vectorized::Block* block) {
+    for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); i++) {
+        if (i != rowid_to_block_loc) {
+            block->insert(origin_block.get_by_position(i));
+        } else {
+            auto response_block = response_blocks[j].to_block();
+            for (int k = 0; k < response_block.columns(); k++) {
+                auto& data = response_block.get_by_position(k);
+                response_blocks[j].mutable_columns()[k] = data.column->clone_empty();
+                block->insert(data);
+            }
+            if (++j < rowid_locs.size()) {
+                rowid_to_block_loc = rowid_locs[j];
+            }
+        }
+    }
+    origin_block.clear();
+}
+
+Status MaterializationSharedState::merge_multi_response() {
+    std::map<int64_t, std::pair<vectorized::Block, int>> _block_maps;
+    for (int i = 0; i < block_order_results.size(); ++i) {
+        for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
+            vectorized::Block partial_block;
+            DCHECK(rpc_struct.response.blocks_size() > i);
+            RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block()));
+            if (rpc_struct.response.blocks(i).has_profile()) {
+                auto response_profile =
+                        RuntimeProfile::from_proto(rpc_struct.response.blocks(i).profile());
+                _update_profile_info(backend_id, response_profile.get());
+            }
+
+            if (!partial_block.is_empty_column()) {
+                _block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
+            }
+        }
+
+        for (int j = 0; j < block_order_results[i].size(); ++j) {
+            auto backend_id = block_order_results[i][j];
+            if (backend_id) {
+                auto& source_block_rows = _block_maps[backend_id];
+                DCHECK(source_block_rows.second < source_block_rows.first.rows());
+                for (int k = 0; k < response_blocks[i].columns(); ++k) {
+                    response_blocks[i].get_column_by_position(k)->insert_from(
+                            *source_block_rows.first.get_by_position(k).column,
+                            source_block_rows.second);
+                }
+                source_block_rows.second++;
+            } else {
+                for (int k = 0; k < response_blocks[i].columns(); ++k) {
+                    response_blocks[i].get_column_by_position(k)->insert_default();
+                }
+            }
+        }
+    }
+
+    // clear request/response
+    for (auto& [_, rpc_struct] : rpc_struct_map) {
+        for (int i = 0; i < rpc_struct.request.request_block_descs_size(); ++i) {
+            rpc_struct.request.mutable_request_block_descs(i)->clear_row_id();
+            rpc_struct.request.mutable_request_block_descs(i)->clear_file_id();
+        }
+    }
+    return Status::OK();
+}
+
 void MaterializationSharedState::_update_profile_info(int64_t backend_id,
                                                       RuntimeProfile* response_profile) {
     if (!backend_profile_info_string.contains(backend_id)) {
@@ -687,13 +753,16 @@ Status MaterializationSharedState::init_multi_requests(
             return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
                                          node_info.host, node_info.async_internal_port);
         }
-        rpc_struct_map.emplace(node_info.id, FetchRpcStruct {.stub = std::move(client),
-                                                             .request = multi_get_request,
-                                                             .callback = nullptr,
-                                                             .rpc_timer = MonotonicStopWatch()});
+        rpc_struct_map.emplace(node_info.id,
+                               FetchRpcStruct {.stub = std::move(client),
+                                               .cntl = std::make_unique<brpc::Controller>(),
+                                               .request = multi_get_request,
+                                               .response = PMultiGetResponseV2(),
+                                               .callback = nullptr,
+                                               .rpc_timer = MonotonicStopWatch()});
     }
     // add be_num ad count finish counter for source dependency
-    ((CountedFinishDependency*)source_deps.back().get())->add((int)rpc_struct_map.size());
+    // ((CountedFinishDependency*)source_deps.back().get())->add((int)rpc_struct_map.size());
 
     return Status::OK();
 }
