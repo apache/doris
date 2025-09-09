@@ -151,6 +151,8 @@ Status RowsetBuilder::check_tablet_version_count() {
     bool injection = false;
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { injection = true; });
+    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
+                    { version_count = INT_MAX; });
     if (!injection && GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // (TODO Refrain) what error msg should we return ?
         return Status::Error<FETCH_MEMORY_EXCEEDED>(
@@ -176,8 +178,6 @@ Status RowsetBuilder::check_tablet_version_count() {
                          << " : " << st;
         }
     }
-    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
-                    { version_count = INT_MAX; });
     return Status::OK();
 }
 
