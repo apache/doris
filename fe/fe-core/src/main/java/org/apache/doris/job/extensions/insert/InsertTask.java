@@ -67,7 +67,8 @@ public class InsertTask extends AbstractTask {
             new Column("FinishTime", ScalarType.createStringType()),
             new Column("TrackingUrl", ScalarType.createStringType()),
             new Column("LoadStatistic", ScalarType.createStringType()),
-            new Column("User", ScalarType.createStringType()));
+            new Column("User", ScalarType.createStringType()),
+            new Column("Offset", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -272,6 +273,7 @@ public class InsertTask extends AbstractTask {
         } else {
             trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
         }
+        trow.addToColumnValue(new TCell().setStringVal(""));
         return trow;
     }
 
@@ -292,6 +294,7 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
+        trow.addToColumnValue(new TCell().setStringVal(""));
         return trow;
     }
 

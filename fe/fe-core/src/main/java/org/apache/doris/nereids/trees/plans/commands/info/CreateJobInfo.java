@@ -27,10 +27,13 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.base.JobProperties;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -39,6 +42,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -66,6 +70,8 @@ public class CreateJobInfo {
     private final String comment;
 
     private final String executeSql;
+    private final boolean streamingJob;
+    private final Map<String, String> jobProperties;
 
     /**
      * Constructor for CreateJobInfo.
@@ -83,7 +89,8 @@ public class CreateJobInfo {
     public CreateJobInfo(Optional<String> labelNameOptional, Optional<String> onceJobStartTimestampOptional,
                          Optional<Long> intervalOptional, Optional<String> intervalTimeUnitOptional,
                          Optional<String> startsTimeStampOptional, Optional<String> endsTimeStampOptional,
-                         Optional<Boolean> immediateStartOptional, String comment, String executeSql) {
+                         Optional<Boolean> immediateStartOptional, String comment, String executeSql,
+                         boolean streamingJob, Map<String, String> jobProperties) {
         this.labelNameOptional = labelNameOptional;
         this.onceJobStartTimestampOptional = onceJobStartTimestampOptional;
         this.intervalOptional = intervalOptional;
@@ -93,7 +100,8 @@ public class CreateJobInfo {
         this.immediateStartOptional = immediateStartOptional;
         this.comment = comment;
         this.executeSql = executeSql;
-
+        this.streamingJob = streamingJob;
+        this.jobProperties = jobProperties;
     }
 
     /**
@@ -117,16 +125,32 @@ public class CreateJobInfo {
         // check its insert stmt,currently only support insert stmt
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         JobExecuteType executeType = intervalOptional.isPresent() ? JobExecuteType.RECURRING : JobExecuteType.ONE_TIME;
+        JobProperties properties = null;
+        if (streamingJob) {
+            executeType = JobExecuteType.STREAMING;
+            properties = new StreamingJobProperties(jobProperties);
+        }
         jobExecutionConfiguration.setExecuteType(executeType);
-        TimerDefinition timerDefinition = new TimerDefinition();
 
+        TimerDefinition timerDefinition = new TimerDefinition();
         if (executeType.equals(JobExecuteType.ONE_TIME)) {
             buildOnceJob(timerDefinition, jobExecutionConfiguration);
+        } else if (executeType.equals(JobExecuteType.STREAMING)) {
+            buildStreamingJob(timerDefinition, properties);
         } else {
             buildRecurringJob(timerDefinition, jobExecutionConfiguration);
         }
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
-        return analyzeAndCreateJob(executeSql, dbName, jobExecutionConfiguration);
+        return analyzeAndCreateJob(executeSql, dbName, jobExecutionConfiguration, properties);
+    }
+
+    private void buildStreamingJob(TimerDefinition timerDefinition, JobProperties props)
+            throws AnalysisException {
+        StreamingJobProperties properties = (StreamingJobProperties) props;
+        timerDefinition.setInterval(properties.getMaxIntervalSecond());
+        timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
+        timerDefinition.setStartTimeMs(System.currentTimeMillis());
+        properties.validate();
     }
 
     /**
@@ -210,7 +234,17 @@ public class CreateJobInfo {
      * @throws UserException if there is an error during SQL analysis or job creation
      */
     private AbstractJob analyzeAndCreateJob(String sql, String currentDbName,
-                                            JobExecutionConfiguration jobExecutionConfiguration) throws UserException {
+                                            JobExecutionConfiguration jobExecutionConfiguration,
+                                            JobProperties properties) throws UserException {
+        if (jobExecutionConfiguration.getExecuteType().equals(JobExecuteType.STREAMING)) {
+            return analyzeAndCreateStreamingInsertJob(sql, currentDbName, jobExecutionConfiguration, properties);
+        } else {
+            return analyzeAndCreateInsertJob(sql, currentDbName, jobExecutionConfiguration);
+        }
+    }
+
+    private AbstractJob analyzeAndCreateInsertJob(String sql, String currentDbName,
+            JobExecutionConfiguration jobExecutionConfiguration) throws UserException {
         NereidsParser parser = new NereidsParser();
         LogicalPlan logicalPlan = parser.parseSingle(sql);
         if (logicalPlan instanceof InsertIntoTableCommand) {
@@ -228,6 +262,26 @@ public class CreateJobInfo {
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }
+        } else {
+            throw new AnalysisException("Not support this sql : " + sql + " Command class is "
+                    + logicalPlan.getClass().getName() + ".");
+        }
+    }
+
+    private AbstractJob analyzeAndCreateStreamingInsertJob(String sql, String currentDbName,
+            JobExecutionConfiguration jobExecutionConfiguration, JobProperties properties) throws UserException {
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        if (logicalPlan instanceof InsertIntoTableCommand) {
+            return new StreamingInsertJob(labelNameOptional.get(),
+                    JobStatus.RUNNING,
+                    currentDbName,
+                    comment,
+                    ConnectContext.get().getCurrentUserIdentity(),
+                    jobExecutionConfiguration,
+                    System.currentTimeMillis(),
+                    sql,
+                    (StreamingJobProperties) properties);
         } else {
             throw new AnalysisException("Not support this sql : " + sql + " Command class is "
                     + logicalPlan.getClass().getName() + ".");

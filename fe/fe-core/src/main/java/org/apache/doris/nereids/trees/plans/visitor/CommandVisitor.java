@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterResourceCommand;
@@ -385,6 +386,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateJobCommand(CreateJobCommand createJobCommand, C context) {
         return visitCommand(createJobCommand, context);
+    }
+
+    default R visitAlterJobCommand(AlterJobCommand alterJobCommand, C context) {
+        return visitCommand(alterJobCommand, context);
     }
 
     default R visitCreateFileCommand(CreateFileCommand createFileCommand, C context) {

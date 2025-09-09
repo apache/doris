@@ -32,6 +32,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
@@ -219,6 +220,17 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         jobMap.get(jobId).logUpdateOperation();
     }
 
+    public void alterJob(T job) {
+        writeLock();
+        try {
+            jobMap.put(job.getJobId(), job);
+            job.logUpdateOperation();
+        } finally {
+            writeUnlock();
+        }
+        log.info("update job success, jobId: {}", job.getJobId());
+    }
+
     public void alterJobStatus(String jobName, JobStatus jobStatus) throws JobException {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
@@ -349,6 +361,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      */
     public void cancelTaskById(String jobName, Long taskId) throws JobException {
         for (T job : jobMap.values()) {
+            if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)) {
+                throw new JobException("streaming job not support cancel task by id");
+            }
             if (job.getJobName().equals(jobName)) {
                 job.cancelTaskById(taskId);
                 job.logUpdateOperation();
@@ -392,6 +407,14 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         return jobMap.get(jobId);
     }
 
+    public T getJobByName(String jobName) throws JobException {
+        for (T a : jobMap.values()) {
+            if (a.getJobName().equals(jobName)) {
+                return a;
+            }
+        }
+        throw new JobException("job not exist, jobName:" + jobName);
+    }
 
     /**
      * get load info by db
