@@ -161,10 +161,10 @@ HYPERSCAN_MD5SUM="202f4b42f5dd4a7bb2506445e51a33b9"
 MACHINE_TYPE=$(uname -m)
 if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
     echo "use vectorscan instead of hyperscan on aarch64"
-    HYPERSCAN_DOWNLOAD="https://github.com/VectorCamp/vectorscan/archive/refs/tags/vectorscan/5.4.11.tar.gz"
-    HYPERSCAN_NAME=vectorscan-5.4.11.tar.gz
-    HYPERSCAN_SOURCE=vectorscan-vectorscan-5.4.11
-    HYPERSCAN_MD5SUM="e67b70403cba6c1654a9fef4fd15a2f2"
+    HYPERSCAN_DOWNLOAD="https://github.com/VectorCamp/vectorscan/archive/refs/tags/vectorscan/5.4.12.tar.gz"
+    HYPERSCAN_NAME=vectorscan-5.4.12.tar.gz
+    HYPERSCAN_SOURCE=vectorscan-vectorscan-5.4.12
+    HYPERSCAN_MD5SUM="384eab5b23831993df96e5fa55f9951e"
 fi
 
 # ragel (dependency for hyperscan)
