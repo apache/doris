@@ -629,7 +629,7 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(300, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
     }
 
     @Test

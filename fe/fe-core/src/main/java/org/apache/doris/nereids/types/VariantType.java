@@ -107,7 +107,9 @@ public class VariantType extends PrimitiveType {
         sb.append("<");
         if (!predefinedFields.isEmpty()) {
             sb.append(predefinedFields.stream().map(VariantField::toSql).collect(Collectors.joining(",")));
-            if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse) {
+            if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse
+                    && variantMaxSparseColumnStatisticsSize == 10000) {
+                // end sign for predefinedFields
                 sb.append(">");
                 return sb.toString();
             } else {
