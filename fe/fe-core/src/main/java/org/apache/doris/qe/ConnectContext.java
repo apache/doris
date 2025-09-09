@@ -1026,7 +1026,7 @@ public class ConnectContext {
         if (killConnection) {
             isKilled = true;
             // Close channel to break connection with client
-            closeChannel();
+            // closeChannel();
         }
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
