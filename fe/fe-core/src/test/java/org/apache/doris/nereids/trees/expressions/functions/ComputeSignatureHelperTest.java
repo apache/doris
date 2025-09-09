@@ -544,11 +544,11 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.returnType instanceof VariantType);
         Assertions.assertEquals(100, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(0, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(10000, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(100, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
 
         Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
     }
@@ -568,10 +568,10 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(150, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.getArgType(1) instanceof VariantType);
         Assertions.assertEquals(250, ((VariantType) signature.getArgType(1)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(0, ((VariantType) signature.getArgType(1)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(1)).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.returnType instanceof IntegerType);
     }
 
@@ -590,7 +590,7 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(75, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
         Assertions.assertTrue(signature.getArgType(2) instanceof DoubleType);
 
@@ -610,7 +610,7 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.getArgType(1) instanceof IntegerType);
     }
 
@@ -663,10 +663,10 @@ public class ComputeSignatureHelperTest {
 
         Assertions.assertTrue(signature.returnType instanceof VariantType);
         Assertions.assertEquals(200, ((VariantType) signature.returnType).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(0, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(10000, ((VariantType) signature.returnType).getVariantMaxSparseColumnStatisticsSize());
         Assertions.assertTrue(signature.getArgType(0) instanceof VariantType);
         Assertions.assertEquals(200, ((VariantType) signature.getArgType(0)).getVariantMaxSubcolumnsCount());
-        Assertions.assertEquals(0, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(10000, ((VariantType) signature.getArgType(0)).getVariantMaxSparseColumnStatisticsSize());
     }
 
     /**
