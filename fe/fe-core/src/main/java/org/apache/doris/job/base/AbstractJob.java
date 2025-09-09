@@ -477,4 +477,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     public boolean needPersist() {
         return true;
     }
+
+    public boolean isFinalStatus() {
+        return jobStatus.equals(JobStatus.STOPPED) || jobStatus.equals(JobStatus.FINISHED);
+    }
 }

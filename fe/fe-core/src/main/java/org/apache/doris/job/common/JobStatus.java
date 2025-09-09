@@ -19,7 +19,10 @@ package org.apache.doris.job.common;
 
 public enum JobStatus {
 
-
+    /**
+     * For streaming job, if the task has not been created, the job will be in pending state.
+     */
+    PENDING,
     /**
      * When the task is not started, the initial state will be triggered.
      * The initial state can be started
