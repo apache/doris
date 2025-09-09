@@ -60,7 +60,13 @@ suite("test_show_create_view", "query,arrow_flight_sql") {
 
         // Create a view based on the new table
         sql """
-            CREATE VIEW IF NOT EXISTS ${view_name_2} AS
+            CREATE VIEW IF NOT EXISTS ${view_name_2}
+            (
+            k1,
+            k2 comment k2_comment"
+            )
+            COMMENT "v2"
+            AS
             SELECT key_field, value FROM ${table_name_2}
         """
         
