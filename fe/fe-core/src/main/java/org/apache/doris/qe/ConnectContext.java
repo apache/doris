@@ -870,6 +870,21 @@ public class ConnectContext {
         }
     }
 
+    /**
+     * kill connection by other thread
+     */
+    protected void killConnection() {
+        isKilled = true;
+        // Close channel to break connection with client
+        closeChannel();
+        returnRows = 0;
+        deleteTempTable();
+        Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
+    }
+
+    /**
+     * kill connection by self
+     */
     public void cleanup() {
         closeChannel();
         threadLocalInfo.remove();
@@ -1024,9 +1039,7 @@ public class ConnectContext {
                 killConnection);
 
         if (killConnection) {
-            isKilled = true;
-            // Close channel to break connection with client
-            // closeChannel();
+           killConnection();
         }
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
@@ -1038,9 +1051,7 @@ public class ConnectContext {
             LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, remote: {}, "
                             + "wait timeout: {}",
                     getConnectType(), connectionId, getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
-            isKilled = true;
-            // Close channel to break connection with client
-            closeChannel();
+            killConnection();
         }
         // Now, cancel running query.
         // cancelQuery by time out
@@ -1052,10 +1063,6 @@ public class ConnectContext {
                     getConnectType(), connectionId);
             executorRef.cancel(new Status(TStatusCode.TIMEOUT,
                     "query is timeout, killed by timeout checker"));
-        }
-        // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
-        if (killConnection) {
-            cleanup();
         }
     }
 
