@@ -120,7 +120,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                     .addColumn(new Column("LoadStatistic", ScalarType.createVarchar(200)))
                     .addColumn(new Column("User", ScalarType.createVarchar(50)))
                     // only execute type = streaming need record
-                    .addColumn(new Column("ExecuteSql", ScalarType.createStringType()))
+                    .addColumn(new Column("Offset", ScalarType.createStringType()))
                     .build();
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;

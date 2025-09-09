@@ -28,8 +28,8 @@ import java.util.Map;
 @Data
 public class StreamingJobProperties implements JobProperties {
     public static final String MAX_INTERVAL_SECOND_PROPERTY = "max_interval";
-    public static final String S3_BATCH_FILES_PROPERTY = "max_batch_rows";
-    public static final String S3_BATCH_SIZE_PROPERTY = "max_batch_size";
+    public static final String S3_BATCH_FILES_PROPERTY = "s3.batch_files";
+    public static final String S3_BATCH_SIZE_PROPERTY = "s3.batch_size";
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_S3_BATCH_FILES = 256;
     public static final long DEFAULT_S3_BATCH_SIZE = 10 * 1024 * 1024 * 1024L; // 10GB
