@@ -23,6 +23,7 @@ suite("query5") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set topn_opt_limit_threshold = 1024'
+    sql "set be_number_for_test=3;"
     def ckBench = """SELECT COUNT(DISTINCT UserID) FROM hits"""
     qt_ckbench_shape_5 """
     explain shape plan
