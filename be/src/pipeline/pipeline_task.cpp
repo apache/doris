@@ -93,6 +93,7 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
 
 PipelineTask::~PipelineTask() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
+    _shared_state_map.clear();
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _sink.reset();
