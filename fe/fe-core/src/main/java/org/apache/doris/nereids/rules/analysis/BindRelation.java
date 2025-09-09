@@ -479,29 +479,33 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             qualifierWithoutTableName);
                     LogicalSubQueryAlias<LogicalSchemaScan> subQueryAlias = new LogicalSubQueryAlias<>(
                             qualifiedTableName, schemaScan);
-                    SchemaTable schemaTable = (SchemaTable) schemaScan.getTable();
-                    if (schemaTable.shouldAddAgg()) {
-                        List<Expression> groupByExpressions = new ArrayList<>();
-                        List<NamedExpression> outputExpressions = new ArrayList<>();
-                        List<Slot> output = subQueryAlias.getOutput();
-                        for (Slot slot : output) {
-                            SchemaColumn column = (SchemaColumn) schemaTable.getColumn(slot.getName());
-                            if (column.isKey()) {
-                                groupByExpressions.add(slot);
-                                outputExpressions.add(slot);
-                            } else {
-                                Expression function = SchemaTable.generateAggBySchemaAggType(slot,
-                                        column.getSchemaTableAggregateType());
-                                Alias alias = new Alias(StatementScopeIdGenerator.newExprId(),
-                                        ImmutableList.of(function),
-                                        slot.getName(), qualifiedTableName, true);
-                                outputExpressions.add(alias);
-                            }
-                        }
-                        return new LogicalAggregate<>(groupByExpressions, outputExpressions, subQueryAlias);
-                    } else {
+                    TableIf tableIf = schemaScan.getTable();
+                    // may be ExternalInfoSchemaTable
+                    if (!(tableIf instanceof SchemaTable)) {
                         return subQueryAlias;
                     }
+                    SchemaTable schemaTable = (SchemaTable) tableIf;
+                    if (!schemaTable.shouldAddAgg()) {
+                        return subQueryAlias;
+                    }
+                    List<Expression> groupByExpressions = new ArrayList<>();
+                    List<NamedExpression> outputExpressions = new ArrayList<>();
+                    List<Slot> output = subQueryAlias.getOutput();
+                    for (Slot slot : output) {
+                        SchemaColumn column = (SchemaColumn) schemaTable.getColumn(slot.getName());
+                        if (column.isKey()) {
+                            groupByExpressions.add(slot);
+                            outputExpressions.add(slot);
+                        } else {
+                            Expression function = SchemaTable.generateAggBySchemaAggType(slot,
+                                    column.getSchemaTableAggregateType());
+                            Alias alias = new Alias(StatementScopeIdGenerator.newExprId(),
+                                    ImmutableList.of(function),
+                                    slot.getName(), qualifiedTableName, true);
+                            outputExpressions.add(alias);
+                        }
+                    }
+                    return new LogicalAggregate<>(groupByExpressions, outputExpressions, subQueryAlias);
                 case JDBC_EXTERNAL_TABLE:
                 case JDBC:
                     return new LogicalJdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
