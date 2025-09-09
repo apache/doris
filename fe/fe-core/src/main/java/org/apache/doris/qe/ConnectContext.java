@@ -1039,7 +1039,7 @@ public class ConnectContext {
                 killConnection);
 
         if (killConnection) {
-           killConnection();
+            killConnection();
         }
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
