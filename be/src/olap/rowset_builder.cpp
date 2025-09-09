@@ -169,11 +169,11 @@ Status RowsetBuilder::check_tablet_version_count() {
     // (TODO Refrain) Maybe we can use a configurable param instead of hardcoded values '100'
     if (version_count > max_version_config - 100) {
         //trigger compaction
-        auto st = _engine.submit_compaction_task(tablet_sptr(), CompactionType::CUMULATIVE_COMPACTION,
-                                                true);
+        auto st = _engine.submit_compaction_task(tablet_sptr(),
+                                                 CompactionType::CUMULATIVE_COMPACTION, true);
         if (!st.ok()) [[unlikely]] {
-            LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id() << " : "
-                        << st;
+            LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id()
+                         << " : " << st;
         }
     }
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
