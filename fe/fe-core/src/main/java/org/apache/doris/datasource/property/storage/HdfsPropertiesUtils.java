@@ -20,7 +20,9 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
+import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -28,8 +30,12 @@ import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class HdfsPropertiesUtils {
     private static final String URI_KEY = "uri";
@@ -127,7 +133,7 @@ public class HdfsPropertiesUtils {
     }
 
     public static String validateAndNormalizeUri(String location, String host, String defaultFs,
-                                                  Set<String> supportedSchemas) {
+                                                 Set<String> supportedSchemas) {
         if (StringUtils.isBlank(location)) {
             throw new IllegalArgumentException("Property 'uri' is required.");
         }
@@ -179,4 +185,76 @@ public class HdfsPropertiesUtils {
             throw new StoragePropertiesException("Failed to parse URI: " + location, e);
         }
     }
+
+    /**
+     * Validate the required HDFS HA configuration properties.
+     *
+     * <p>This method checks the following:
+     * <ul>
+     *   <li>{@code dfs.nameservices} must be defined if HA is enabled.</li>
+     *   <li>{@code dfs.ha.namenodes.<nameservice>} must be defined and contain at least 2 namenodes.</li>
+     *   <li>For each namenode, {@code dfs.namenode.rpc-address.<nameservice>.<namenode>} must be defined.</li>
+     *   <li>{@code dfs.client.failover.proxy.provider.<nameservice>} must be defined.</li>
+     * </ul>
+     *
+     * @param hdfsProperties configuration map (similar to core-site.xml/hdfs-site.xml properties)
+     */
+    public static void checkHaConfig(Map<String, String> hdfsProperties) {
+        if (hdfsProperties == null) {
+            return;
+        }
+        // 1. Check dfs.nameservices
+        String dfsNameservices = hdfsProperties.getOrDefault(HdfsClientConfigKeys.DFS_NAMESERVICES, "");
+        if (Strings.isNullOrEmpty(dfsNameservices)) {
+            // No nameservice configured => HA is not enabled, nothing to validate
+            return;
+        }
+        for (String dfsservice : splitAndTrim(dfsNameservices)) {
+            if (dfsservice.isEmpty()) {
+                continue;
+            }
+            // 2. Check dfs.ha.namenodes.<nameservice>
+            String haNnKey = HdfsClientConfigKeys.DFS_HA_NAMENODES_KEY_PREFIX + "." + dfsservice;
+            String namenodes = hdfsProperties.getOrDefault(haNnKey, "");
+            if (Strings.isNullOrEmpty(namenodes)) {
+                throw new IllegalArgumentException("Missing property: " + haNnKey);
+            }
+            List<String> names = splitAndTrim(namenodes);
+            if (names.size() < 2) {
+                throw new IllegalArgumentException("HA requires at least 2 namenodes for service: " + dfsservice);
+            }
+            // 3. Check dfs.namenode.rpc-address.<nameservice>.<namenode>
+            for (String name : names) {
+                String rpcKey = HdfsClientConfigKeys.DFS_NAMENODE_RPC_ADDRESS_KEY + "." + dfsservice + "." + name;
+                String address = hdfsProperties.getOrDefault(rpcKey, "");
+                if (Strings.isNullOrEmpty(address)) {
+                    throw new IllegalArgumentException("Missing property: " + rpcKey + " (expected format: host:port)");
+                }
+            }
+            // 4. Check dfs.client.failover.proxy.provider.<nameservice>
+            String failoverKey = HdfsClientConfigKeys.Failover.PROXY_PROVIDER_KEY_PREFIX + "." + dfsservice;
+            String failoverProvider = hdfsProperties.getOrDefault(failoverKey, "");
+            if (Strings.isNullOrEmpty(failoverProvider)) {
+                throw new IllegalArgumentException("Missing property: " + failoverKey);
+            }
+        }
+    }
+
+    /**
+     * Utility method to split a comma-separated string, trim whitespace,
+     * and remove empty tokens.
+     *
+     * @param s the input string
+     * @return list of trimmed non-empty values
+     */
+    private static List<String> splitAndTrim(String s) {
+        if (Strings.isNullOrEmpty(s)) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(s.split(","))
+                .map(String::trim)
+                .filter(tok -> !tok.isEmpty())
+                .collect(Collectors.toList());
+    }
 }
+

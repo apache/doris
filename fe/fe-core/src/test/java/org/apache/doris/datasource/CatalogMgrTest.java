@@ -125,7 +125,7 @@ public class CatalogMgrTest extends TestWithFeService {
         env.getCatalogMgr().createCatalog(hiveCatalog2);
 
         CreateCatalogStmt iceBergCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog iceberg properties('type' = 'hms', 'iceberg.hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
+                "create catalog iceberg properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
                 rootCtx);
         env.getCatalogMgr().createCatalog(iceBergCatalog);
 
@@ -573,7 +573,7 @@ public class CatalogMgrTest extends TestWithFeService {
                 + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
                 + ");";
         CreateCatalogStmt createStmt1 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Missing dfs.ha.namenodes.your-nameservice property",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Missing property: dfs.ha.namenodes.your-nameservice",
                 () -> mgr.createCatalog(createStmt1));
 
         createCatalogSql = "CREATE CATALOG bad_hive2 PROPERTIES (\n"
@@ -587,8 +587,8 @@ public class CatalogMgrTest extends TestWithFeService {
                 + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
                 + ");";
         CreateCatalogStmt createStmt2 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Missing dfs.namenode.rpc-address.your-nameservice.nn1 property",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Missing property: dfs.namenode.rpc-address.your-nameservice.nn1 (expected format: host:port)",
                 () -> mgr.createCatalog(createStmt2));
 
         createCatalogSql = "CREATE CATALOG good_hive PROPERTIES (\n"
@@ -601,8 +601,8 @@ public class CatalogMgrTest extends TestWithFeService {
                 + "    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007'\n"
                 + ");";
         CreateCatalogStmt createStmt3 = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Missing dfs.client.failover.proxy.provider.your-nameservice property",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Missing property: dfs.client.failover.proxy.provider.your-nameservice",
                 () -> mgr.createCatalog(createStmt3));
 
         createCatalogSql = "CREATE CATALOG bad_jdbc PROPERTIES (\n"
@@ -690,8 +690,8 @@ public class CatalogMgrTest extends TestWithFeService {
                 + ");";
         AlterCatalogPropertyStmt alterCatalogPropertyStmt1 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(
                 alterCatalogSql);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Missing dfs.ha.namenodes.HANN property",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Missing property: dfs.ha.namenodes.HANN",
                 () -> mgr.alterCatalogProps(alterCatalogPropertyStmt1));
 
         alterCatalogSql = "ALTER CATALOG test_hive1 SET PROPERTIES (\n"
@@ -706,8 +706,8 @@ public class CatalogMgrTest extends TestWithFeService {
                 + ");";
         AlterCatalogPropertyStmt alterCatalogPropertyStmt2 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(
                 alterCatalogSql);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Missing dfs.client.failover.proxy.provider.HANN property",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Missing property: dfs.client.failover.proxy.provider.HANN",
                 () -> mgr.alterCatalogProps(alterCatalogPropertyStmt2));
 
         alterCatalogSql = "ALTER CATALOG test_hive1 SET PROPERTIES (\n"
