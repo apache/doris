@@ -172,14 +172,14 @@ public:
                                         assert_cast<ReturnColumnType*>(result_column.get()),
 
                                         input_rows_count);
-            block.get_by_position(result).column = std::move(result_column)
+            block.get_by_position(result).column = std::move(result_column);
         } else if (col_const[1] && col_const[2]) {
             auto result_column = ColumnType::create();
             execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
                              assert_cast<const ColumnString*>(argument_columns[1].get()),
                              assert_cast<const ColumnString*>(argument_columns[2].get()),
                              assert_cast<ReturnColumnType*>(result_column.get()), input_rows_count);
-            block.get_by_position(result).column = std::move(result_column)
+            block.get_by_position(result).column = std::move(result_column);
         } else {
             auto result_column = ColumnType::create();
             _execute(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
@@ -220,12 +220,12 @@ private:
 
             if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
                 std::pair<int64_t, int64_t> timestamp;
-                ts_value.unix_timestamp(&timestamp, from_tz
+                ts_value.unix_timestamp(&timestamp, from_tz);
                 ts_value2.from_unixtime(timestamp, to_tz);
             } else {
                 int64_t timestamp;
-                ts_value.unix_timestamp(&timestamp, from_tz)
-                        ts_value2.from_unixtime(timestamp, to_tz);
+                ts_value.unix_timestamp(&timestamp, from_tz);
+                ts_value2.from_unixtime(timestamp, to_tz);
             }
 
             if (!ts_value2.is_valid_date()) [[unlikely]] {
@@ -279,10 +279,12 @@ private:
 
         if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
             std::pair<int64_t, int64_t> timestamp;
-            ts_value.unix_timestamp(&timestamp, from_tz) ts_value2.from_unixtime(timestamp, to_tz);
+            ts_value.unix_timestamp(&timestamp, from_tz);
+            ts_value2.from_unixtime(timestamp, to_tz);
         } else {
             int64_t timestamp;
-            ts_value.unix_timestamp(&timestamp, from_tz) ts_value2.from_unixtime(timestamp, to_tz);
+            ts_value.unix_timestamp(&timestamp, from_tz);
+            ts_value2.from_unixtime(timestamp, to_tz);
         }
 
         if (!ts_value2.is_valid_date()) [[unlikely]] {
