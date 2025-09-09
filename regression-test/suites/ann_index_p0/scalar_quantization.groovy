@@ -17,7 +17,7 @@
 
 suite("scalar_quantization") {
     sql "drop table if exists scalar_quantization"
-    sql "create table scalar_quantization (
+    sql """create table scalar_quantization (
             id int not null,
             vec array<float> not null,
             index ann_idx (vec)
@@ -25,12 +25,12 @@ suite("scalar_quantization") {
             engine=olap
             duplicate key(id)
             distributed by hash(id) buckets 1
-            properties('replication_num' = '1');"
-    sql "insert into scalar_quantization values (1, [1.0, 2.0, 3.0])"
-    qt_sql "select * from scalar_quantization order by id"
+            properties('replication_num' = '1');"""
+    sql """insert into scalar_quantization values (1, [1.0, 2.0, 3.0])"""
+    qt_sql """select * from scalar_quantization order by id"""
 
-    sql "drop table if exists scalar_quantization"
-    sql "create table scalar_quantization (
+    sql """drop table if exists scalar_quantization"""
+    sql """create table scalar_quantization (
             id int not null,
             vec array<float> not null,
             index ann_idx (vec)
@@ -38,13 +38,13 @@ suite("scalar_quantization") {
             engine=olap
             duplicate key(id)
             distributed by hash(id) buckets 1
-            properties('replication_num' = '1');"
-    sql "insert into scalar_quantization values (1, [1.0, 2.0, 3.0])"
-    qt_sql "select * from scalar_quantization order by id"
+            properties('replication_num' = '1');"""
+    sql """insert into scalar_quantization values (1, [1.0, 2.0, 3.0])"""
+    qt_sql """select * from scalar_quantization order by id"""
 
-    sql "drop table if exists scalar_quantization"
+    sql """drop table if exists scalar_quantization"""
     test {
-        sql "create table scalar_quantization (
+        sql """create table scalar_quantization (
             id int not null,
             vec array<float> not null,
             index ann_idx (vec)
@@ -52,8 +52,8 @@ suite("scalar_quantization") {
             engine=olap
             duplicate key(id)
             distributed by hash(id) buckets 1
-            properties('replication_num' = '1');"
-        exception "only support ann index with quantizer flat, sq4 or sq8"
+            properties('replication_num' = '1');"""
+        exception """only support ann index with quantizer flat, sq4 or sq8"""
     }
     
 
