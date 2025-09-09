@@ -17,68 +17,54 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.datasource.credentials.AbstractVendedCredentialsProvider;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties.Type;
 
 import com.google.common.collect.Maps;
 import org.apache.iceberg.Table;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
-public class IcebergVendedCredentialsProvider {
-    private static final Logger LOG = LogManager.getLogger(IcebergVendedCredentialsProvider.class);
+public class IcebergVendedCredentialsProvider extends AbstractVendedCredentialsProvider {
+    private static final IcebergVendedCredentialsProvider INSTANCE = new IcebergVendedCredentialsProvider();
 
-    private static final IcebergS3CredentialExtractor s3Extractor = new IcebergS3CredentialExtractor();
+    private IcebergVendedCredentialsProvider() {
+        // Singleton pattern
+    }
 
-    /**
-     * Extract vended credentials from Iceberg Table and convert to backend properties.
-     *
-     * @param table the Iceberg table
-     * @return Map of backend properties with credentials
-     */
-    public static Map<String, String> extractVendedCredentialsFromTable(Table table) {
-        if (table == null || table.io() == null) {
+    public static IcebergVendedCredentialsProvider getInstance() {
+        return INSTANCE;
+    }
+
+    @Override
+    protected boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
+        if (metastoreProperties instanceof IcebergRestProperties) {
+            return ((IcebergRestProperties) metastoreProperties).isIcebergRestVendedCredentialsEnabled();
+        }
+        return false;
+    }
+
+    @Override
+    protected <T> Map<String, String> extractRawVendedCredentials(T tableObject) {
+        if (!(tableObject instanceof Table)) {
             return Maps.newHashMap();
         }
 
-        Map<String, String> ioProperties = table.io().properties();
-        return s3Extractor.extractCredentials(ioProperties);
+        Table table = (Table) tableObject;
+        if (table.io() == null) {
+            return Maps.newHashMap();
+        }
+
+        // Return table.io().properties() directly, and let StorageProperties.createAll() to convert the format
+        return table.io().properties();
     }
 
-    /**
-     * Get backend location properties for Iceberg catalog with optional vended credentials support.
-     * This method extracts the duplicate logic from IcebergScanNode and IcebergTableSink.
-     *
-     * @param storagePropertiesMap Map of storage properties
-     * @param icebergTable Optional Iceberg table for vended credentials extraction
-     * @return Map of backend location properties
-     */
-    public static Map<String, String> getBackendLocationProperties(
-            MetastoreProperties metastoreProperties,
-            Map<Type, StorageProperties> storagePropertiesMap,
-            Table icebergTable) {
-        boolean vendedCredentialsEnabled = false;
-        if (metastoreProperties instanceof IcebergRestProperties) {
-            vendedCredentialsEnabled =
-                    ((IcebergRestProperties) metastoreProperties).isIcebergRestVendedCredentialsEnabled();
+    @Override
+    protected <T> String getTableName(T tableObject) {
+        if (tableObject instanceof Table) {
+            return ((Table) tableObject).name();
         }
-        Map<String, String> locationProperties = Maps.newHashMap();
-        for (StorageProperties storageProperties : storagePropertiesMap.values()) {
-            if (vendedCredentialsEnabled && icebergTable != null) {
-                Map<String, String> vendedCredentials = extractVendedCredentialsFromTable(icebergTable);
-                locationProperties.putAll(storageProperties.getBackendConfigProperties(vendedCredentials));
-            } else {
-                locationProperties.putAll(storageProperties.getBackendConfigProperties());
-            }
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Iceberg backend location properties: {}, vendedCredentialsEnabled: {}, icebergTable: {}",
-                    locationProperties, vendedCredentialsEnabled, icebergTable != null ? icebergTable.name() : "null");
-        }
-        return locationProperties;
+        return super.getTableName(tableObject);
     }
 }
