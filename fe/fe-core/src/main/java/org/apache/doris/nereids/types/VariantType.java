@@ -39,11 +39,12 @@ import java.util.stream.Collectors;
  *
  */
 public class VariantType extends PrimitiveType {
-    private static final Logger LOG = LogManager.getLogger(VariantType.class);
 
     public static final VariantType INSTANCE = new VariantType(0);
 
     public static final int WIDTH = 24;
+
+    private static final Logger LOG = LogManager.getLogger(VariantType.class);
 
     private final int variantMaxSubcolumnsCount;
 
