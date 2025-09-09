@@ -51,6 +51,8 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -96,6 +98,11 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             .add(new Column("CreateTime", ScalarType.createStringType()))
             .addAll(COMMON_SCHEMA)
             .add(new Column("Comment", ScalarType.createStringType()))
+            // only execute type = streaming need record
+            .add(new Column("Progress", ScalarType.createStringType()))
+            .add(new Column("RemoteOffset", ScalarType.createStringType()))
+            .add(new Column("LoadStatistic", ScalarType.createStringType()))
+            .add(new Column("ErrorMsg", ScalarType.createStringType()))
             .build();
 
     private static final ShowResultSetMetaData TASK_META_DATA =
@@ -112,6 +119,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                     .addColumn(new Column("TrackingUrl", ScalarType.createVarchar(200)))
                     .addColumn(new Column("LoadStatistic", ScalarType.createVarchar(200)))
                     .addColumn(new Column("User", ScalarType.createVarchar(50)))
+                    // only execute type = streaming need record
+                    .addColumn(new Column("ExecuteSql", ScalarType.createStringType()))
                     .build();
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
@@ -521,6 +530,28 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    public TRow getTvfInfo() {
+        TRow trow = new TRow();
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(getJobName()));
+        trow.addToColumnValue(new TCell().setStringVal(getCreateUser().getQualifiedUser()));
+        trow.addToColumnValue(new TCell().setStringVal(getJobConfig().getExecuteType().name()));
+        trow.addToColumnValue(new TCell().setStringVal(getJobConfig().convertRecurringStrategyToString()));
+        trow.addToColumnValue(new TCell().setStringVal(getJobStatus().name()));
+        trow.addToColumnValue(new TCell().setStringVal(getExecuteSql()));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getSucceedTaskCount().get())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getCanceledTaskCount().get())));
+        trow.addToColumnValue(new TCell().setStringVal(getComment()));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(loadStatistic.toJson()));
+        trow.addToColumnValue(new TCell().setStringVal(failMsg == null ? FeConstants.null_string : failMsg.getMsg()));
+        return trow;
     }
 
     @Override

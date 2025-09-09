@@ -17,13 +17,16 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.PauseReason;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -37,6 +40,8 @@ import java.util.Map;
 
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> {
 
+    @SerializedName("did")
+    private final long dbId;
     @Getter
     @SerializedName("st")
     protected JobStatus status;
@@ -51,6 +56,26 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     @Setter
     protected long autoResumeCount;
+
+    @Getter
+    @SerializedName("jp")
+    private StreamingJobProperties jobProperties;
+
+    public StreamingInsertJob(String jobName,
+            JobStatus jobStatus,
+            String dbName,
+            String comment,
+            UserIdentity createUser,
+            JobExecutionConfiguration jobConfig,
+            Long createTimeMs,
+            String executeSql,
+            StreamingJobProperties jobProperties) {
+        super(getNextJobId(), jobName, jobStatus, dbName, comment, createUser,
+                jobConfig, createTimeMs, executeSql);
+        this.dbId = ConnectContext.get().getCurrentDbId();
+        this.jobProperties = jobProperties;
+    }
+
 
     @Override
     public void updateJobStatus(JobStatus status) throws JobException {
