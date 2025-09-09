@@ -251,6 +251,10 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
 
+    _num_hit_blocks_1m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_num_hit_blocks_1m", _num_hit_blocks.get(), 60);
+    _num_read_blocks_1m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_num_read_blocks_1m", _num_read_blocks.get(), 60);
     _num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
             _cache_base_path.c_str(), "file_cache_num_hit_blocks_5m", _num_hit_blocks.get(), 300);
     _num_read_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
@@ -263,6 +267,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
 
     _hit_ratio = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                         "file_cache_hit_ratio", 0.0);
+    _hit_ratio_1m = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
+                                                              "file_cache_hit_ratio_1m", 0.0);
     _hit_ratio_5m = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                            "file_cache_hit_ratio_5m", 0.0);
     _hit_ratio_1h = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
@@ -2046,6 +2052,10 @@ void BlockFileCache::run_background_monitor() {
                 _hit_ratio->set_value((double)_num_hit_blocks->get_value() /
                                       (double)_num_read_blocks->get_value());
             }
+            if (_num_read_blocks_1m->get_value() > 0) {
+                _hit_ratio_1m->set_value((double)_num_hit_blocks_1m->get_value() /
+                                         (double)_num_read_blocks_1m->get_value());
+            }
             if (_num_read_blocks_5m->get_value() > 0) {
                 _hit_ratio_5m->set_value((double)_num_hit_blocks_5m->get_value() /
                                          (double)_num_read_blocks_5m->get_value());
@@ -2444,6 +2454,7 @@ void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& c
 std::map<std::string, double> BlockFileCache::get_stats() {
     std::map<std::string, double> stats;
     stats["hits_ratio"] = (double)_hit_ratio->get_value();
+    stats["hits_ratio_1m"] = (double)_hit_ratio_1m->get_value();
     stats["hits_ratio_5m"] = (double)_hit_ratio_5m->get_value();
     stats["hits_ratio_1h"] = (double)_hit_ratio_1h->get_value();
 
@@ -2491,6 +2502,7 @@ std::map<std::string, double> BlockFileCache::get_stats() {
 std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
     std::map<std::string, double> stats;
     stats["hits_ratio"] = (double)_hit_ratio->get_value();
+    stats["hits_ratio_1m"] = (double)_hit_ratio_1m->get_value();
     stats["hits_ratio_5m"] = (double)_hit_ratio_5m->get_value();
     stats["hits_ratio_1h"] = (double)_hit_ratio_1h->get_value();
 

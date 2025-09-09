@@ -509,6 +509,8 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[5];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_try_release;
 
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_1m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_1m;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_5m;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_1h;
@@ -519,6 +521,7 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
 
     std::shared_ptr<bvar::Status<double>> _hit_ratio;
+    std::shared_ptr<bvar::Status<double>> _hit_ratio_1m;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
