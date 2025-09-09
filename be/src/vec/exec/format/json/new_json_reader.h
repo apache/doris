@@ -201,8 +201,8 @@ private:
 
     std::string _jsonpaths;
     std::string _json_root;
-    bool _read_json_by_line;
-    bool _strip_outer_array;
+    bool _read_json_by_line{true};
+    bool _strip_outer_array{false};
     bool _num_as_string;
     bool _fuzzy_parse;
 

@@ -345,8 +345,7 @@ Status NewPlainTextLineReader::extend_output_buf() {
     return Status::OK();
 }
 
-// 检查 [cur_ptr, cur_ptr + offset) 范围内是否有多于一个 JSON 对象
-bool has_multiple_json_objects(const uint8_t* cur_ptr, size_t offset) {
+bool NewPlainTextLineReader::has_multiple_json_objects(const uint8_t* cur_ptr, size_t offset) {
     int brace_count = 0;
     bool in_string = false;
     char string_char = 0;
@@ -367,7 +366,7 @@ bool has_multiple_json_objects(const uint8_t* cur_ptr, size_t offset) {
         if (!in_string && c == '{') {
             brace_count++;
             if (brace_count > 1) {
-                return true; // 发现多个 JSON 对象
+                return true;
             }
         }
     }
@@ -445,8 +444,10 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     } else {
                         if (offset = output_buf_read_remaining(); offset > 0) {  
                             if (has_multiple_json_objects(cur_ptr, offset)) {
-                                return Status::DataQualityError(
-                                    "Multiple JSON objects in a single line, `read_json_by_line` must be FALSE.");    
+                                fmt::memory_buffer error_msg;
+                                fmt::format_to(error_msg, "{}",
+                                            "Multiple JSON objects in a single line, `read_json_by_line` must be FALSE.");
+                                return return_quality_error(error_msg, std::string((char*)_json_str, *size));    
                             }
                         }
                         // last loop we meet stream end,
@@ -527,13 +528,11 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
             // ready to return
             offset = pos - cur_ptr;
             found_line_delimiter = _line_reader_ctx->line_delimiter_length();
-            // (Refrain LOG)
-            std::string substring(reinterpret_cast<const char*>(cur_ptr), offset);
-            LOG(INFO) << "a line string: " << substring;
-
             if (has_multiple_json_objects(cur_ptr, offset)) {
-                return Status::DataQualityError(
-                    "Multiple JSON objects in a single line,  `read_json_by_line` must be FALSE.");
+                fmt::memory_buffer error_msg;
+                fmt::format_to(error_msg, "{}",
+                            "Multiple JSON objects in a single line, `read_json_by_line` must be FALSE.");
+                return return_quality_error(error_msg, std::string((char*)_json_str, *size));
             }
 
             break;
