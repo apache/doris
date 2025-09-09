@@ -1,0 +1,2005 @@
+{
+  "version" : 2,
+  "id" : 1,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "c1",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "c2",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 2,
+    "name" : "c3",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 3,
+    "name" : "c4",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 4,
+    "name" : "c5",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "STRING"
+      }
+    }
+  }, {
+    "id" : 5,
+    "name" : "c6",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 6,
+    "name" : "c7",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 7,
+    "name" : "c8",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 8,
+    "name" : "c9",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "INT"
+      }
+    }
+  }, {
+    "id" : 9,
+    "name" : "c10",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 10,
+    "name" : "c11",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 11,
+    "name" : "c12",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 12,
+    "name" : "c13",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "DATE"
+      }
+    }
+  }, {
+    "id" : 13,
+    "name" : "c14",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "ARRAY",
+        "element" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 14,
+    "name" : "c15",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 15,
+    "name" : "c16",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 16,
+    "name" : "c17",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 17,
+    "name" : "c18",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 18,
+    "name" : "c19",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 19,
+    "name" : "c20",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 20,
+    "name" : "c21",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 21,
+    "name" : "c22",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 22,
+    "name" : "c23",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 23,
+    "name" : "c24",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 24,
+    "name" : "c25",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 25,
+    "name" : "c26",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 26,
+    "name" : "c27",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BOOLEAN",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 27,
+    "name" : "c28",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 28,
+    "name" : "c29",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 29,
+    "name" : "c30",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 30,
+    "name" : "c31",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 31,
+    "name" : "c32",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 32,
+    "name" : "c33",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 33,
+    "name" : "c34",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 34,
+    "name" : "c35",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 35,
+    "name" : "c36",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 36,
+    "name" : "c37",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 37,
+    "name" : "c38",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 38,
+    "name" : "c39",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 39,
+    "name" : "c40",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "CHAR(1)",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 40,
+    "name" : "c41",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 41,
+    "name" : "c42",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 42,
+    "name" : "c43",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 43,
+    "name" : "c44",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 44,
+    "name" : "c45",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 45,
+    "name" : "c46",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 46,
+    "name" : "c47",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 47,
+    "name" : "c48",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 48,
+    "name" : "c49",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 49,
+    "name" : "c50",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 50,
+    "name" : "c51",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 51,
+    "name" : "c52",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 52,
+    "name" : "c53",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "VARCHAR(2)",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 53,
+    "name" : "c54",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 54,
+    "name" : "c55",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 55,
+    "name" : "c56",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 56,
+    "name" : "c57",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 57,
+    "name" : "c58",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 58,
+    "name" : "c59",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 59,
+    "name" : "c60",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 60,
+    "name" : "c61",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 61,
+    "name" : "c62",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 62,
+    "name" : "c63",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 63,
+    "name" : "c64",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 64,
+    "name" : "c65",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 65,
+    "name" : "c66",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "STRING",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 66,
+    "name" : "c67",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 67,
+    "name" : "c68",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 68,
+    "name" : "c69",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 69,
+    "name" : "c70",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 70,
+    "name" : "c71",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 71,
+    "name" : "c72",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 72,
+    "name" : "c73",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 73,
+    "name" : "c74",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 74,
+    "name" : "c75",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 75,
+    "name" : "c76",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 76,
+    "name" : "c77",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 77,
+    "name" : "c78",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 78,
+    "name" : "c79",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DECIMAL(10, 2)",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 79,
+    "name" : "c80",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 80,
+    "name" : "c81",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 81,
+    "name" : "c82",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 82,
+    "name" : "c83",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 83,
+    "name" : "c84",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 84,
+    "name" : "c85",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 85,
+    "name" : "c86",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 86,
+    "name" : "c87",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 87,
+    "name" : "c88",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 88,
+    "name" : "c89",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 89,
+    "name" : "c90",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 90,
+    "name" : "c91",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 91,
+    "name" : "c92",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TINYINT",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 92,
+    "name" : "c93",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 93,
+    "name" : "c94",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 94,
+    "name" : "c95",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 95,
+    "name" : "c96",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 96,
+    "name" : "c97",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 97,
+    "name" : "c98",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 98,
+    "name" : "c99",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 99,
+    "name" : "c100",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 100,
+    "name" : "c101",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 101,
+    "name" : "c102",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 102,
+    "name" : "c103",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 103,
+    "name" : "c104",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 104,
+    "name" : "c105",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "SMALLINT",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 105,
+    "name" : "c106",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 106,
+    "name" : "c107",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 107,
+    "name" : "c108",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 108,
+    "name" : "c109",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 109,
+    "name" : "c110",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 110,
+    "name" : "c111",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 111,
+    "name" : "c112",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 112,
+    "name" : "c113",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 113,
+    "name" : "c114",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 114,
+    "name" : "c115",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 115,
+    "name" : "c116",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 116,
+    "name" : "c117",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 117,
+    "name" : "c118",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "INT",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 118,
+    "name" : "c119",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 119,
+    "name" : "c120",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 120,
+    "name" : "c121",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 121,
+    "name" : "c122",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 122,
+    "name" : "c123",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 123,
+    "name" : "c124",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 124,
+    "name" : "c125",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 125,
+    "name" : "c126",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 126,
+    "name" : "c127",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 127,
+    "name" : "c128",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 128,
+    "name" : "c129",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 129,
+    "name" : "c130",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 130,
+    "name" : "c131",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "BIGINT",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 131,
+    "name" : "c132",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 132,
+    "name" : "c133",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 133,
+    "name" : "c134",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 134,
+    "name" : "c135",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 135,
+    "name" : "c136",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 136,
+    "name" : "c137",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 137,
+    "name" : "c138",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 138,
+    "name" : "c139",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 139,
+    "name" : "c140",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 140,
+    "name" : "c141",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 141,
+    "name" : "c142",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 142,
+    "name" : "c143",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 143,
+    "name" : "c144",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "FLOAT",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 144,
+    "name" : "c145",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 145,
+    "name" : "c146",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 146,
+    "name" : "c147",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 147,
+    "name" : "c148",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 148,
+    "name" : "c149",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 149,
+    "name" : "c150",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 150,
+    "name" : "c151",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 151,
+    "name" : "c152",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 152,
+    "name" : "c153",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 153,
+    "name" : "c154",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 154,
+    "name" : "c155",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 155,
+    "name" : "c156",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 156,
+    "name" : "c157",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DOUBLE",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 157,
+    "name" : "c158",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 158,
+    "name" : "c159",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 159,
+    "name" : "c160",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 160,
+    "name" : "c161",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 161,
+    "name" : "c162",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 162,
+    "name" : "c163",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 163,
+    "name" : "c164",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 164,
+    "name" : "c165",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 165,
+    "name" : "c166",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 166,
+    "name" : "c167",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 167,
+    "name" : "c168",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 168,
+    "name" : "c169",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 169,
+    "name" : "c170",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "DATE",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  }, {
+    "id" : 170,
+    "name" : "c171",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "BOOLEAN"
+      }
+    }
+  }, {
+    "id" : 171,
+    "name" : "c172",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "CHAR(1)"
+      }
+    }
+  }, {
+    "id" : 172,
+    "name" : "c173",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "VARCHAR(2)"
+      }
+    }
+  }, {
+    "id" : 173,
+    "name" : "c174",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "STRING"
+      }
+    }
+  }, {
+    "id" : 174,
+    "name" : "c175",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "DECIMAL(10, 2)"
+      }
+    }
+  }, {
+    "id" : 175,
+    "name" : "c176",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "TINYINT"
+      }
+    }
+  }, {
+    "id" : 176,
+    "name" : "c177",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "SMALLINT"
+      }
+    }
+  }, {
+    "id" : 177,
+    "name" : "c178",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "INT"
+      }
+    }
+  }, {
+    "id" : 178,
+    "name" : "c179",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "BIGINT"
+      }
+    }
+  }, {
+    "id" : 179,
+    "name" : "c180",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "FLOAT"
+      }
+    }
+  }, {
+    "id" : 180,
+    "name" : "c181",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "DOUBLE"
+      }
+    }
+  }, {
+    "id" : 181,
+    "name" : "c182",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "DATE"
+      }
+    }
+  }, {
+    "id" : 182,
+    "name" : "c183",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : {
+        "type" : "MAP",
+        "key" : "TIMESTAMP(6)",
+        "value" : "TIMESTAMP(6)"
+      }
+    }
+  } ],
+  "highestFieldId" : 182,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "bucket" : "-1"
+  },
+  "timeMillis" : 1736832959715
+}
