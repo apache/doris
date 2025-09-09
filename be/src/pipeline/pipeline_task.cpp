@@ -92,6 +92,10 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
 }
 
 PipelineTask::~PipelineTask() {
+    // PipelineTask is also hold by task queue( https://github.com/apache/doris/pull/49753),
+    // so that it maybe the last one to be destructed.
+    // But pipeline task hold some objects, like operators, shared state, etc. So that should release
+    // memory manually.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
     _shared_state_map.clear();
     _sink_shared_state.reset();
