@@ -66,15 +66,13 @@ public:
 
     std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
-    int get_core_id() const { return _core_id; }
+    int get_thread_id(int num_threads) const {
+        return _thread_id == -1 ? _thread_id : _thread_id % num_threads;
+    }
 
-    PipelineTask& set_core_id(int id) {
-        if (id != _core_id) {
-            if (_core_id != -1) {
-                COUNTER_UPDATE(_core_change_times, 1);
-            }
-            _core_id = id;
-        }
+    PipelineTask& set_thread_id(int thread_id) {
+        _thread_id = thread_id;
+        COUNTER_UPDATE(_core_change_times, 1);
         return *this;
     }
 
@@ -193,7 +191,7 @@ private:
     PipelinePtr _pipeline;
     bool _opened;
     RuntimeState* _state = nullptr;
-    int _core_id = -1;
+    int _thread_id = -1;
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
 

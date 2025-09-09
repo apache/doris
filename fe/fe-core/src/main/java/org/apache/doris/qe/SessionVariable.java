@@ -769,14 +769,40 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
 
+    public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
+    @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
+                description = {"列统计信息收集时，收集占比排名前 HOT_VALUE_COLLECT_COUNT 的值作为hot value",
+                        "When collecting column statistics, collect the top values ranked by their "
+                                + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT."})
+    public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
+
+    public void setHotValueCollectCount(int count) {
+        this.hotValueCollectCount = count;
+    }
+
+    public static int getHotValueCollectCount() {
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getState().isInternal()) {
+                return 0;
+            } else {
+                return ConnectContext.get().getSessionVariable().hotValueCollectCount;
+            }
+        } else {
+            return Integer.parseInt(VariableMgr.getDefaultValue(HOT_VALUE_COLLECT_COUNT));
+        }
+    }
+
     public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
 
     @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
-                description = {"value 在每百行中的最低出现次数",
-                        "The minimum number of occurrences of 'value' per hundred lines"})
-    private double hotValueThreshold = 33; // by percentage
+                description = {"当列中某个特定值的出现次数大于等于（rowCount/ndv）× hotValueThreshold 时，该值即被视为热点值",
+                        "When the occurrence of a value in a column is greater than "
+                                + "hotValueThreshold tmies of average occurences "
+                                + "(occurrences >= hotValueThreshold * rowCount / ndv), "
+                                + "the value is regarded as hot value"})
+    private double hotValueThreshold = 10;
 
-    public void setHotValueThreshold(double threshold) {
+    public void setHotValueThreshold(int threshold) {
         this.hotValueThreshold = threshold;
     }
 
