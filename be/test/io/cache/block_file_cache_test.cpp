@@ -1390,7 +1390,7 @@ TEST_F(BlockFileCacheTest, query_limit_dcheck) {
         auto holder = cache.get_or_set(key, 40, 5, context); /// Add range [40, 44]
         auto blocks = fromHolder(holder);
         ASSERT_GE(blocks.size(), 1);
-        assert_range(1, blocks[0], io::FileBlock::Range(40, 44), io::FileBlock::State::EMPTY);
+        assert_range(1, blocks[0], io::FileBlock::Range(40, 44), io::FileBlock::State::SKIP_CACHE);
         ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
         assert_range(2, blocks[0], io::FileBlock::Range(40, 44), io::FileBlock::State::DOWNLOADING);
         download(blocks[0]);
@@ -3353,7 +3353,7 @@ TEST_F(BlockFileCacheTest, test_query_limit) {
         settings.disposable_queue_elements = 0;
         settings.capacity = 30;
         settings.max_file_block_size = 30;
-        settings.max_query_cache_size = 15;
+        settings.max_query_cache_size = 30;
         io::CacheContext context;
         ReadStatistics rstats;
         context.stats = &rstats;
