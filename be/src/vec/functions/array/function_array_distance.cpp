@@ -21,7 +21,7 @@
 
 namespace doris::vectorized {
 
-#if defined(__x86_64__) && (defined(__clang_major__) && (__clang_major__ > 10))
+#if defined(__clang_major__) && (__clang_major__ > 10)
 #define PRAGMA_IMPRECISE_FUNCTION_BEGIN _Pragma("float_control(precise, off, push)")
 #define PRAGMA_IMPRECISE_FUNCTION_END _Pragma("float_control(pop)")
 
