@@ -498,10 +498,10 @@ public class StatsCalculatorTest {
                 true,
                 ImmutableList.of(new DummyPlan(), new DummyPlan())
         );
-        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
-                rowCount, "1", "10", 0, ImmutableMap.of("0", 40.0f, "1", 50.0f));
-        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
-                rowCount, "1", "10", 0, ImmutableMap.of("1", 40.0f, "2", 40.0f));
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 30,
+                rowCount, "1", "10", 0, ImmutableMap.of("0", 0.40f, "1", 0.50f));
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ia", 30,
+                rowCount, "1", "10", 0, ImmutableMap.of("1", 0.40f, "2", 0.40f));
         Statistics child0Stats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats));
         Statistics child1Stats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
 
@@ -527,7 +527,7 @@ public class StatsCalculatorTest {
         Pair<Expression, ArrayList<SlotReference>> pair1 = StatsTestUtil.instance.createExpr("ia");
         SlotReference ia = pair1.second.get(0);
         ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
-                rowCount, "1", "10", 0, ImmutableMap.of("0", 40.0f, "1", 50.0f));
+                rowCount, "1", "10", 0, ImmutableMap.of("0", 0.40f, "1", 0.50f));
 
         Statistics childStats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats));
         StatsCalculator calculator = new StatsCalculator(null);

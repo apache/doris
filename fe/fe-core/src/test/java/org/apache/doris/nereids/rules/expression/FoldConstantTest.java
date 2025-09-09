@@ -106,6 +106,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -117,6 +118,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -936,6 +938,22 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         fmod = new Fmod(new DoubleLiteral(Double.NaN), new DoubleLiteral(1));
         rewritten = executor.rewrite(fmod, context);
         Assertions.assertEquals(new DoubleLiteral(Double.NaN), rewritten);
+        fmod = new Fmod(new DoubleLiteral(Double.NaN), new DoubleLiteral(0));
+        rewritten = executor.rewrite(fmod, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
+
+        fmod = new Fmod(new FloatLiteral(Float.POSITIVE_INFINITY), new FloatLiteral(1));
+        rewritten = executor.rewrite(fmod, context);
+        Assertions.assertEquals(new FloatLiteral(Float.NaN), rewritten);
+        fmod = new Fmod(new FloatLiteral(Float.NEGATIVE_INFINITY), new FloatLiteral(1));
+        rewritten = executor.rewrite(fmod, context);
+        Assertions.assertEquals(new FloatLiteral(Float.NaN), rewritten);
+        fmod = new Fmod(new FloatLiteral(Float.NaN), new FloatLiteral(1));
+        rewritten = executor.rewrite(fmod, context);
+        Assertions.assertEquals(new FloatLiteral(Float.NaN), rewritten);
+        fmod = new Fmod(new FloatLiteral(Float.NaN), new FloatLiteral(0));
+        rewritten = executor.rewrite(fmod, context);
+        Assertions.assertEquals(new NullLiteral(FloatType.INSTANCE), rewritten);
 
         Radians radians = new Radians(new DoubleLiteral(Double.POSITIVE_INFINITY));
         rewritten = executor.rewrite(radians, context);
