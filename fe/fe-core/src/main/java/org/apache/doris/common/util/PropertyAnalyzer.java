@@ -1888,7 +1888,8 @@ public class PropertyAnalyzer {
             try {
                 maxSparseColumnStatisticsSize = Integer.parseInt(maxSparseColumnStatisticsSizeStr);
                 LOG.info("analyzeVariantMaxSparseColumnStatisticsSize maxSparseColumnStatisticsSize: {},"
-                + "maxSparseColumnStatisticsSizeStr: {}", maxSparseColumnStatisticsSize, maxSparseColumnStatisticsSizeStr);
+                    + "maxSparseColumnStatisticsSizeStr: {}", maxSparseColumnStatisticsSize,
+                    maxSparseColumnStatisticsSizeStr);
                 if (maxSparseColumnStatisticsSize < 0 || maxSparseColumnStatisticsSize > 50000) {
                     throw new AnalysisException("variant_max_sparse_column_statistics_size must between 0 and 50000 ");
                 }
