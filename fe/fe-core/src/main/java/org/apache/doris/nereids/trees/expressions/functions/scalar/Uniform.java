@@ -66,6 +66,8 @@ public class Uniform extends ScalarFunction
         if (!child(1).isLiteral()) {
             throw new AnalysisException("The second parameter (max) of uniform function must be literal");
         }
+        // if do folding on BE, will before checkLegalityAfterRewrite, so we need it here too.
+        checkLegalityAfterRewrite();
     }
 
     @Override

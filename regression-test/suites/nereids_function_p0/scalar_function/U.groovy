@@ -62,6 +62,12 @@ suite("nereids_scalar_fn_U") {
 		sql """select uniform(100, 1, 1) from numbers("number" = "10");"""
 		exception "The third parameter (gen) of uniform function must not be literal"
 	}
+	sql "set enable_fold_constant_by_be=true;"
+	test {
+		sql """select uniform(100, 1, 1) from numbers("number" = "10");"""
+		exception "The third parameter (gen) of uniform function must not be literal"
+	}
+	sql "set enable_fold_constant_by_be=false;"
 	test {
 		sql """select uniform(ksint, 1, random()) from fn_test;"""
 		exception "The first parameter (min) of uniform function must be literal"
