@@ -34,6 +34,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -117,6 +118,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         Map<String, String> params = buildSqlParams();
         params.put("min", StatisticsUtil.quote(min));
         params.put("max", StatisticsUtil.quote(max));
+        params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
         long tableRowCount = info.indexId == -1
                 ? tbl.getRowCount()
                 : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
