@@ -56,6 +56,9 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
                 properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
+            def desc_table = sql """ desc ${tableName} """
+            logger.info("${desc_table}")
+            assertTrue(desc_table.toString().contains("variant_max_sparse_column_statistics_size"))
             def create_tbl_res = sql """ show create table ${tableName} """
             logger.info("${create_tbl_res}")
             assertTrue(create_tbl_res.toString().contains("variant_max_sparse_column_statistics_size"))

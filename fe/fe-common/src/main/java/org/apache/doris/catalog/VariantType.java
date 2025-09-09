@@ -135,6 +135,7 @@ public class VariantType extends ScalarType {
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
         }
         sb.append(")>");
+        LOG.info("VariantType toSql: {}", sb.toString());
         return sb.toString();
     }
 
