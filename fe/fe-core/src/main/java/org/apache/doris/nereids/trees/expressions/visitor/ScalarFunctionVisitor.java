@@ -417,6 +417,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
@@ -2029,6 +2030,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSm4Encrypt(Sm4Encrypt sm4Encrypt, C context) {
         return visitScalarFunction(sm4Encrypt, context);
+    }
+
+    default R visitSoundex(Soundex soundex, C context) {
+        return visitScalarFunction(soundex, context);
     }
 
     default R visitSpace(Space space, C context) {
