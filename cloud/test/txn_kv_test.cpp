@@ -48,7 +48,7 @@ using namespace doris::cloud;
 std::shared_ptr<TxnKv> txn_kv;
 
 void init_txn_kv() {
-    config::fdb_cluster_file_path = "fdb.cluster";
+    config::fdb_cluster_file_path = "/mnt/disk2/lianyukang/fdb/fdb_runtime/config/fdb.cluster";
     txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<FdbTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     int ret = txn_kv->init();
@@ -273,6 +273,74 @@ TEST(TxnKvTest, AtomicAddTest) {
     ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
     ASSERT_EQ(val.size(), 8);
     ASSERT_EQ(*(int64_t*)val.data(), 60);
+}
+
+TEST(TxnKvTest, GetVersionstampTest) {
+    std::unique_ptr<Transaction> txn;
+    std::string key_prefix = "versionstamp_test_";
+
+    // Test without enabling versionstamp
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_INVALID_ARGUMENT);
+    }
+
+    // Test with versionstamp enabled but no commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        std::string versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // Test with versionstamp enabled and commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Enable versionstamp and perform versioned operations
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "key1", "value1");
+        txn->atomic_set_ver_value(key_prefix + "key2", "value2");
+
+        // Commit transaction
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Get versionstamp
+        std::string versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp.size(), 10); // Versionstamp should be 10 bytes
+
+        std::cout << "Versionstamp: ";
+        for (int i = 0; i < versionstamp.size(); i++) {
+            std::cout << std::hex << (int)(unsigned char)versionstamp[i];
+        }
+        std::cout << std::dec << std::endl;
+    }
+
+    // Test multiple transactions get different versionstamps
+    std::string versionstamp1, versionstamp2;
+    {
+        // First transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx1", "value1");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp1), TxnErrorCode::TXN_OK);
+
+        // Small delay to ensure different timestamps
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        // Second transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx2", "value2");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp2), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_NE(versionstamp1, versionstamp2);
+    ASSERT_LT(versionstamp1, versionstamp2); // Later transaction should have larger versionstamp
 }
 
 TEST(TxnKvTest, CompatibleGetTest) {

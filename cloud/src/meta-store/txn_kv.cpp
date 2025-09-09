@@ -673,6 +673,12 @@ TxnErrorCode Transaction::commit() {
     fdb_error_t err = 0;
     TEST_INJECTION_POINT_CALLBACK("Transaction::commit.inject_random_fault", &err);
     TEST_SYNC_POINT_CALLBACK("transaction:commit:get_err", &err);
+
+    FDBFuture* versionstamp_fut = nullptr;
+    if (versionstamp_enabled_) {
+        versionstamp_fut = fdb_transaction_get_versionstamp(txn_);
+    }
+
     if (err == 0) [[likely]] {
         StopWatch sw;
         auto* fut = fdb_transaction_commit(txn_);
@@ -686,6 +692,9 @@ TxnErrorCode Transaction::commit() {
     }
 
     if (err) {
+        if (versionstamp_fut) {
+            fdb_future_destroy(versionstamp_fut);
+        }
         LOG(WARNING) << "fdb commit error, code=" << err << " msg=" << fdb_get_error(err);
         if (fdb_error_is_txn_conflict(err)) {
             g_bvar_txn_kv_commit_conflict_counter << 1;
@@ -694,6 +703,29 @@ TxnErrorCode Transaction::commit() {
             g_bvar_txn_kv_commit_error_counter << 1;
         }
         return cast_as_txn_code(err);
+    }
+
+    if (versionstamp_fut) {
+        RETURN_IF_ERROR(await_future(versionstamp_fut));
+        err = fdb_future_get_error(versionstamp_fut);
+        if (err) {
+            LOG(WARNING) << "get versionstamp error, code=" << err << " msg=" << fdb_get_error(err);
+            fdb_future_destroy(versionstamp_fut);
+            return cast_as_txn_code(err);
+        }
+
+        const uint8_t* versionstamp_data;
+        int versionstamp_length;
+        err = fdb_future_get_key(versionstamp_fut, &versionstamp_data, &versionstamp_length);
+        if (err) {
+            LOG(WARNING) << "get versionstamp key error, code=" << err
+                         << " msg=" << fdb_get_error(err);
+            fdb_future_destroy(versionstamp_fut);
+            return cast_as_txn_code(err);
+        }
+
+        versionstamp_result_ = std::string((char*)versionstamp_data, versionstamp_length);
+        fdb_future_destroy(versionstamp_fut);
     }
 
     return TxnErrorCode::TXN_OK;
@@ -734,6 +766,25 @@ TxnErrorCode Transaction::get_committed_version(int64_t* version) {
 }
 
 TxnErrorCode Transaction::abort() {
+    return TxnErrorCode::TXN_OK;
+}
+
+void Transaction::enable_get_versionstamp() {
+    versionstamp_enabled_ = true;
+}
+
+TxnErrorCode Transaction::get_versionstamp(std::string* versionstamp) {
+    if (!versionstamp_enabled_) {
+        LOG(WARNING) << "get_versionstamp called but versionstamp not enabled";
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    if (versionstamp_result_.empty()) {
+        LOG(WARNING) << "versionstamp not available, commit may not have been called or failed";
+        return TxnErrorCode::TXN_KEY_NOT_FOUND;
+    }
+
+    *versionstamp = versionstamp_result_;
     return TxnErrorCode::TXN_OK;
 }
 
