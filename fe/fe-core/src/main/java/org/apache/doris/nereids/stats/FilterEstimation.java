@@ -524,21 +524,23 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private ColumnStatistic convertDateColStatsToStringColStats(ColumnStatistic colStats,
             Map<DateLiteral, StringLiteral> literalMap) {
-        if (colStats.minExpr == null && colStats.maxExpr == null) {
-            // when sel=0, minExpr and maxExpr are both null
-            return colStats;
-        }
-        Preconditions.checkArgument(colStats.minExpr instanceof DateLiteral
-                        && colStats.maxExpr instanceof DateLiteral,
-                "cannot convert colStats back to stringType %s", colStats.toString());
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-        StringLiteral newMinLiteral = new StringLiteral(colStats.maxExpr.toString());
-        return builder.setMaxExpr(newMinLiteral)
-                .setMaxExpr(literalMap.get(colStats.maxExpr))
-                .setMaxValue(StringLikeLiteral.getDouble(colStats.maxExpr.toString()))
-                .setMinExpr(literalMap.get(colStats.minExpr))
-                .setMinValue(StringLikeLiteral.getDouble(colStats.minExpr.getStringValue()))
-                .build();
+        if (colStats.minExpr != null) {
+            builder.setMinExpr(literalMap.get(colStats.minExpr))
+                    .setMinValue(StringLikeLiteral.getDouble(colStats.minExpr.getStringValue()));
+        } else {
+            builder.setMinExpr(null)
+                    .setMinValue(Double.NEGATIVE_INFINITY);
+        }
+
+        if (colStats.maxExpr != null) {
+            builder.setMaxExpr(literalMap.get(colStats.maxExpr))
+                    .setMaxValue(StringLikeLiteral.getDouble(colStats.maxExpr.toString()));
+        } else {
+            builder.setMaxExpr(null)
+                    .setMaxValue(Double.POSITIVE_INFINITY);
+        }
+        return builder.build();
     }
 
     private Optional<ColumnStatistic> tryConvertStringColStatsToDateColStats(ColumnStatistic colStats,

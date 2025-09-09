@@ -24,6 +24,7 @@ suite("aggregate_without_roll_up") {
     // because mv3_0 is optimized by hyper
     sql "SET enable_dphyp_optimizer = false;"
     sql "SET max_table_count_use_cascades_join_reorder = 20;"
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
     drop table if exists orders

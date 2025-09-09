@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -52,6 +53,56 @@
 namespace doris::cloud {
 
 using namespace std::chrono;
+
+int OperationLogRecycleChecker::init() {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn").tag("err", err);
+        return -1;
+    }
+
+    snapshots_.clear();
+    snapshot_indexes_.clear();
+    MetaReader reader(instance_id_);
+    err = reader.get_snapshots(txn.get(), &snapshots_);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get snapshots").tag("err", err);
+        return -1;
+    }
+
+    int64_t read_version = -1;
+    err = txn->get_read_version(&read_version);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get the read version").tag("err", err);
+        return -1;
+    }
+
+    max_versionstamp_ = Versionstamp(read_version, 0);
+    for (size_t i = 0; i < snapshots_.size(); ++i) {
+        auto&& [snapshot, versionstamp] = snapshots_[i];
+        snapshot_indexes_.insert(std::make_pair(versionstamp, i));
+    }
+
+    return 0;
+}
+
+bool OperationLogRecycleChecker::can_recycle(const Versionstamp& log_versionstamp,
+                                             int64_t log_min_timestamp) const {
+    Versionstamp log_min_read_timestamp(log_min_timestamp, 0);
+    if (log_versionstamp > max_versionstamp_) {
+        // Not recycleable.
+        return false;
+    }
+
+    auto it = snapshot_indexes_.lower_bound(log_min_read_timestamp);
+    if (it != snapshot_indexes_.end() && snapshots_[it->second].second < log_versionstamp) {
+        // in [log_min_read_timestmap, log_versionstamp)
+        return false;
+    }
+
+    return true;
+}
 
 // A recycler for operation logs.
 class OperationLogRecycler {
@@ -144,6 +195,9 @@ int OperationLogRecycler::recycle_drop_index_log(const DropIndexLogPB& drop_inde
             return -1;
         }
         std::string recycle_key = recycle_index_key({instance_id_, index_id});
+        LOG_INFO("put recycle index key")
+                .tag("recycle_key", hex(recycle_key))
+                .tag("index_id", index_id);
         kvs_.emplace_back(std::move(recycle_key), std::move(recycle_index_value));
     }
     return 0;
@@ -253,6 +307,21 @@ int OperationLogRecycler::recycle_compaction_log(const CompactionLogPB& compacti
                 .tag("error_code", err);
         return -1;
     }
+
+    int64_t tablet_id = compaction_log.tablet_id();
+    TabletMetaCloudPB tablet_meta;
+    Versionstamp versionstamp;
+    err = meta_reader.get_tablet_meta(tablet_id, &tablet_meta, &versionstamp);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get tablet meta for recycling operation log")
+                .tag("tablet_id", tablet_id)
+                .tag("error_code", err);
+        return -1;
+    }
+    std::string tablet_compact_stats_key =
+            versioned::tablet_compact_stats_key({instance_id_, tablet_id});
+    keys_to_remove_.emplace_back(encode_versioned_key(tablet_compact_stats_key, versionstamp));
+
     for (const RecycleRowsetPB& recycle_rowset_pb : compaction_log.recycle_rowsets()) {
         // recycle rowset meta key
         std::string recycle_rowset_value;
@@ -338,6 +407,23 @@ int OperationLogRecycler::recycle_schema_change_log(const SchemaChangeLogPB& sch
                 .tag("error_code", err);
         return -1;
     }
+
+    int64_t new_tablet_id = schema_change_log.new_tablet_id();
+    TabletMetaCloudPB tablet_meta;
+    Versionstamp versionstamp;
+    err = meta_reader.get_tablet_meta(new_tablet_id, &tablet_meta, &versionstamp);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get tablet meta for recycling operation log")
+                .tag("tablet_id", new_tablet_id)
+                .tag("error_code", err);
+        return -1;
+    }
+    std::string tablet_meta_key = versioned::meta_tablet_key({instance_id_, new_tablet_id});
+    keys_to_remove_.emplace_back(encode_versioned_key(tablet_meta_key, versionstamp));
+    std::string tablet_load_stats_key =
+            versioned::tablet_load_stats_key({instance_id_, new_tablet_id});
+    keys_to_remove_.emplace_back(encode_versioned_key(tablet_load_stats_key, versionstamp));
+
     for (const RecycleRowsetPB& recycle_rowset_pb : schema_change_log.recycle_rowsets()) {
         // recycle rowset meta key
         std::string recycle_rowset_value;
@@ -525,11 +611,18 @@ int InstanceRecycler::recycle_operation_logs() {
                 .tag("recycled_operation_log_data_size", recycled_operation_log_data_size);
     };
 
+    OperationLogRecycleChecker recycle_checker(instance_id_, txn_kv_.get());
+    int init_res = recycle_checker.init();
+    if (init_res != 0) {
+        LOG_WARNING("failed to initialize recycle checker").tag("error_code", init_res);
+        return init_res;
+    }
+
     auto scan_and_recycle_operation_log = [&](const std::string_view& key,
                                               const std::string_view& value) {
         std::string_view log_key(key);
-        Versionstamp versionstamp;
-        if (!decode_versioned_key(&log_key, &versionstamp)) {
+        Versionstamp log_versionstamp;
+        if (!decode_versioned_key(&log_key, &log_versionstamp)) {
             LOG_WARNING("failed to decode versionstamp from operation log key")
                     .tag("key", hex(key));
             return -1;
@@ -545,15 +638,15 @@ int InstanceRecycler::recycle_operation_logs() {
         if (!operation_log.has_min_timestamp()) {
             LOG_WARNING("operation log has not set the min_timestamp")
                     .tag("key", hex(key))
-                    .tag("version", versionstamp.version())
-                    .tag("order", versionstamp.order())
+                    .tag("version", log_versionstamp.version())
+                    .tag("order", log_versionstamp.order())
                     .tag("log", operation_log.ShortDebugString());
+            return 0;
         }
 
-        bool need_recycle = true; // Always recycle operation logs for now
-        if (need_recycle) {
-            AnnotateTag tag("log_key", hex(log_key));
-            int res = recycle_operation_log(versionstamp, std::move(operation_log));
+        if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp())) {
+            AnnotateTag tag("log_key", hex(key));
+            int res = recycle_operation_log(log_versionstamp, std::move(operation_log));
             if (res != 0) {
                 LOG_WARNING("failed to recycle operation log").tag("error_code", res);
                 return res;

@@ -174,7 +174,7 @@ public class StmtExecutor {
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
-    private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
+    private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
     private final StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -303,7 +303,14 @@ public class StmtExecutor {
         // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
-            builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - context.getStartTime()));
+            long executionCosts = currentTimestamp - context.getStartTime();
+            // Execution of parser could happen before StmtExecutor is involved.
+            if (getSummaryProfile().parsedByConnectionProcess) {
+                builder.totalTime(DebugUtil.getPrettyStringMs(
+                        executionCosts + getSummaryProfile().getParseSqlTimeMs()));
+            } else {
+                builder.totalTime(DebugUtil.getPrettyStringMs(executionCosts));
+            }
         }
         String taskState = "RUNNING";
         if (isFinished) {
@@ -747,6 +754,7 @@ public class StmtExecutor {
             getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
             getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
+            getProfile().getSummaryProfile().parsedByConnectionProcess = false;
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }

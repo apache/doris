@@ -56,5 +56,4 @@ suite ("k1ap2spa") {
     sql """set enable_stats=false;"""
     mv_rewrite_success_without_check_chosen("select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;", "k1ap2spa")
     qt_select_mv "select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;"
-
 }

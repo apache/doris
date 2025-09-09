@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFloatLiteral;
@@ -167,10 +168,17 @@ public class FloatLiteral extends NumericLiteralExpr {
             String timeStr = getStringValue();
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
-            if (Double.isInfinite(getValue()) || Double.isNaN(getValue())) {
-                return Double.toString(getValue());
+            if (type == Type.FLOAT) {
+                Float fValue = (float) value;
+                if (fValue.equals(Float.POSITIVE_INFINITY)) {
+                    value = Double.POSITIVE_INFINITY;
+                }
+                if (fValue.equals(Float.NEGATIVE_INFINITY)) {
+                    value = Double.NEGATIVE_INFINITY;
+                }
             }
-            return BigDecimal.valueOf(getValue()).stripTrailingZeros().toPlainString();
+            return FractionalFormat.getFormatStringValue(value, type == Type.DOUBLE ? 16 : 7,
+                    type == Type.DOUBLE ? "%.15E" : "%.6E");
         }
     }
 

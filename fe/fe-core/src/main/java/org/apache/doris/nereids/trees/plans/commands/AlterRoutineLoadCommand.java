@@ -80,6 +80,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .add(JsonFileFormatProperties.PROP_JSON_ROOT)
             .add(CsvFileFormatProperties.PROP_ENCLOSE)
             .add(CsvFileFormatProperties.PROP_ESCAPE)
+            .add(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL)
             .build();
 
     private final LabelNameInfo labelNameInfo;
@@ -296,6 +297,13 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
             analyzedJobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
                     jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
+        }
+
+        if (jobProperties.containsKey(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL)) {
+            boolean emptyFieldAsNull = Boolean.parseBoolean(
+                    jobProperties.get(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL));
+            analyzedJobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
+                    String.valueOf(emptyFieldAsNull));
         }
     }
 

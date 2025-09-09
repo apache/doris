@@ -59,6 +59,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     protected String accessKey = "";
 
     @ConnectorProperty(names = {"oss.hdfs.secret_key", "dlf.secret_key", "dlf.catalog.secret_key", "oss.secret_key"},
+            sensitive = true,
             description = "The secret key of OSS.")
     protected String secretKey = "";
 

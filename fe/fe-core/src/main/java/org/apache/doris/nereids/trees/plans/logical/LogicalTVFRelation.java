@@ -36,6 +36,7 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -45,34 +46,48 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
 
     private final TableValuedFunction function;
     private final ImmutableList<String> qualifier;
+    private final ImmutableList<Slot> operativeSlots;
 
-    public LogicalTVFRelation(RelationId id, TableValuedFunction function) {
+    public LogicalTVFRelation(RelationId id, TableValuedFunction function, ImmutableList<Slot> operativeSlots) {
         super(id, PlanType.LOGICAL_TVF_RELATION);
+        this.operativeSlots = operativeSlots;
         this.function = function;
         qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
     }
 
-    public LogicalTVFRelation(RelationId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
+    public LogicalTVFRelation(RelationId id, TableValuedFunction function, ImmutableList<Slot> operativeSlots,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_TVF_RELATION, groupExpression, logicalProperties);
+        this.operativeSlots = operativeSlots;
         this.function = function;
         qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
     }
 
     @Override
     public LogicalTVFRelation withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTVFRelation(relationId, function, groupExpression, Optional.of(getLogicalProperties()));
+        return new LogicalTVFRelation(relationId, function, operativeSlots,
+                groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalTVFRelation(relationId, function, groupExpression, logicalProperties);
+        return new LogicalTVFRelation(relationId, function, operativeSlots, groupExpression, logicalProperties);
     }
 
     @Override
     public LogicalTVFRelation withRelationId(RelationId relationId) {
-        return new LogicalTVFRelation(relationId, function, Optional.empty(), Optional.empty());
+        return new LogicalTVFRelation(relationId, function, operativeSlots, Optional.empty(),
+                Optional.of(getLogicalProperties()));
+    }
+
+    public LogicalTVFRelation withOperativeSlots(Collection<Slot> operativeSlots) {
+        return new LogicalTVFRelation(relationId, function, Utils.fastToImmutableList(operativeSlots),
+                Optional.empty(), Optional.of(getLogicalProperties()));
+    }
+
+    public List<Slot> getOperativeSlots() {
+        return operativeSlots;
     }
 
     @Override
@@ -87,7 +102,7 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
             return false;
         }
         LogicalTVFRelation that = (LogicalTVFRelation) o;
-        return Objects.equals(function, that.function);
+        return Objects.equals(function, that.function) && Objects.equals(operativeSlots, that.operativeSlots);
     }
 
     @Override

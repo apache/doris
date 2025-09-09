@@ -33,7 +33,6 @@ public class MCProperties extends BaseProperties {
     public static final String ODPS_ENDPOINT = "mc.odps_endpoint";
     public static final String TUNNEL_SDK_ENDPOINT = "mc.tunnel_endpoint";
 
-
     public static final String PROJECT = "mc.default.project";
     public static final String SESSION_TOKEN = "mc.session_token";
 
@@ -74,6 +73,13 @@ public class MCProperties extends BaseProperties {
     public static final String DATETIME_PREDICATE_PUSH_DOWN =
             "mc.datetime_predicate_push_down";
     public static final String DEFAULT_DATETIME_PREDICATE_PUSH_DOWN = "true";
+
+    // The account systems for Alibaba Cloud China and International are different. If the primary account is an
+    // International user, specify ACCOUNT_FORMAT as ACCOUNT_FORMAT_ID. Otherwise, specify ACCOUNT_FORMAT_NAME.
+    public static final String ACCOUNT_FORMAT = "mc.account_format";
+    public static final String ACCOUNT_FORMAT_NAME = "name";
+    public static final String ACCOUNT_FORMAT_ID = "id";
+    public static final String DEFAULT_ACCOUNT_FORMAT = ACCOUNT_FORMAT_NAME;
 
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);

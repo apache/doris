@@ -63,6 +63,7 @@
 #include "vec/olap/block_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_avoid_begin.h"
 
 using ReadSource = TabletReader::ReadSource;
 
@@ -845,4 +846,5 @@ void OlapScanner::_collect_profile_before_close() {
     // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
