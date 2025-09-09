@@ -533,6 +533,12 @@ private:
     // so join this async load thread first
     std::unique_ptr<FileCacheStorage> _storage;
     std::shared_ptr<bvar::LatencyRecorder> _lru_dump_latency_us;
+
+    std::shared_ptr<bvar::Adder<size_t>> _dx_debug_get_or_set_1;
+    std::shared_ptr<bvar::Adder<size_t>> _dx_debug_get_or_set_2;
+    std::shared_ptr<bvar::Adder<size_t>> _dx_debug_get_or_set_3;
+    std::shared_ptr<bvar::Adder<size_t>> _dx_debug_get_or_set_4;
+    std::shared_ptr<bvar::Adder<size_t>> _dx_debug_get_or_set_5;
 };
 
 } // namespace doris::io

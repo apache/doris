@@ -254,6 +254,17 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
         _storage = std::make_unique<FSFileCacheStorage>();
     }
 
+    _dx_debug_get_or_set_1 = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                   "dx_debug_get_or_set_1");
+    _dx_debug_get_or_set_2 = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                   "dx_debug_get_or_set_2");
+    _dx_debug_get_or_set_3 = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                   "dx_debug_get_or_set_3");
+    _dx_debug_get_or_set_4 = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                   "dx_debug_get_or_set_4");
+    _dx_debug_get_or_set_5 = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                   "dx_debug_get_or_set_5");
+
     LOG(INFO) << "file cache path= " << _cache_base_path << " " << cache_settings.to_string();
 }
 
@@ -753,27 +764,32 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
             context.cache_type == FileCacheType::INDEX && iter != _key_to_time.end()) {
             context.cache_type = FileCacheType::TTL;
             context.expiration_time = iter->second;
+            *_dx_debug_get_or_set_5 << 1;
         }
 
         /// Get all blocks which intersect with the given range.
         {
             SCOPED_RAW_TIMER(&stats->get_timer);
             file_blocks = get_impl(hash, context, range, cache_lock);
+            *_dx_debug_get_or_set_1 << 1;
         }
 
         if (file_blocks.empty()) {
             SCOPED_RAW_TIMER(&stats->set_timer);
             file_blocks = split_range_into_cells(hash, context, offset, size,
                                                  FileBlock::State::EMPTY, cache_lock);
+            *_dx_debug_get_or_set_2 << 1;
         } else {
             SCOPED_RAW_TIMER(&stats->set_timer);
             fill_holes_with_empty_file_blocks(file_blocks, hash, context, range, cache_lock);
+            *_dx_debug_get_or_set_3 << 1;
         }
         DCHECK(!file_blocks.empty());
         *_num_read_blocks << file_blocks.size();
         for (auto& block : file_blocks) {
             if (block->state_unsafe() == FileBlock::State::DOWNLOADED) {
                 *_num_hit_blocks << 1;
+                *_dx_debug_get_or_set_4 << 1;
             }
         }
     }

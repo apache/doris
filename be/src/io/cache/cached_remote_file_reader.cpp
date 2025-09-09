@@ -379,11 +379,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         std::string type = "s3";
         DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.change_type", {
             type = dp->param<std::string>("type", "s3");
-            LOG_WARNING("CachedRemoteFileReader.read_at_impl.change_type")
-                    .tag("path", path().native())
-                    .tag("off", offset)
-                    .tag("size", size)
-                    .tag("type", type);
+            // LOG_WARNING("CachedRemoteFileReader.read_at_impl.change_type")
+            //         .tag("path", path().native())
+            //         .tag("off", offset)
+            //         .tag("size", size)
+            //         .tag("type", type);
         });
 
         if (type == "s3") {
@@ -564,9 +564,9 @@ Status CachedRemoteFileReader::_fetch_from_peer_cache_blocks(
     DBUG_EXECUTE_IF("CachedRemoteFileReader::_fetch_from_peer_cache_blocks", {
         host = dp->param<std::string>("host", "127.0.0.1");
         port = dp->param("port", 9060);
-        LOG_WARNING("debug point CachedRemoteFileReader::_fetch_from_peer_cache_blocks")
-                .tag("host", host)
-                .tag("port", port);
+        // LOG_WARNING("debug point CachedRemoteFileReader::_fetch_from_peer_cache_blocks")
+        //         .tag("host", host)
+        //         .tag("port", port);
     });
     auto dns_cache = ExecEnv::GetInstance()->dns_cache();
     if (dns_cache == nullptr) {

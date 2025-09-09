@@ -181,8 +181,8 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
             auto holder = cache->get_or_set(hash, offset, size, ctx);
             for (auto& fb : holder.file_blocks) {
                 g_file_cache_get_by_peer_blocks_num << 1;
-                // LOG(INFO) << "dx debug fb path=" << path << " offset=" << fb->offset()
-                //           << " size=" << fb->range().size();
+                LOG(INFO) << "dx debug fb path=" << path << " offset=" << fb->offset()
+                          << " size=" << fb->range().size();
                 doris::CacheBlock* out = response->add_datas();
                 out->set_block_offset(static_cast<int64_t>(fb->offset()));
                 out->set_block_size(static_cast<int64_t>(fb->range().size()));
@@ -220,14 +220,22 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
             }
         }
     }
+    DBUG_EXECUTE_IF("CloudInternalServiceImpl::fetch_peer_data_slower", {
+        int st_us = dp->param<int>("sleep", 1000);
+        LOG_WARNING("CloudInternalServiceImpl::fetch_peer_data_slower")
+                .tag("sleep", st_us);
+        // sleep us
+        bthread_usleep(st_us);
+    });
+    
     int64_t end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
     g_file_cache_get_by_peer_latency << (end_ts - begin_ts);
     g_file_cache_get_by_peer_success_num << 1;
 
-    // LOG(INFO) << "fetch cache request=" << request->DebugString()
-    //           << ", response=" << response->DebugString();
+    LOG(INFO) << "fetch cache request=" << request->DebugString()
+              << ", response=" << response->DebugString();
 }
 
 #include "common/compile_check_end.h"
