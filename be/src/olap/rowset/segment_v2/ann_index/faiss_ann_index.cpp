@@ -38,7 +38,6 @@
 #include "faiss/MetricType.h"
 #include "faiss/impl/IDSelector.h"
 #include "faiss/impl/io.h"
-#include "faiss/index_factory.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_files.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
