@@ -53,9 +53,9 @@ trinoPluginsPath = "/tmp/trino_connector"
 // empty group will test all group
 testGroups = "nonConcurrent"
 // empty suite will test all suite
-testSuites = ""
+testSuites = "test_compaction_variant_predefine_with_sparse_limit"
 // empty directories will test all directories
-testDirectories = ""
+testDirectories = "variant_p0/predefine"
 
 // this groups will not be executed
 excludeGroups = "p1,p2"
