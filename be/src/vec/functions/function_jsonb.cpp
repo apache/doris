@@ -182,18 +182,16 @@ public:
         auto&& [col_from, col_from_is_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
 
-        if (col_from_is_const) {
-            if (col_from->is_null_at(0)) {
-                auto col_str = ColumnString::create();
-                col_str->insert_default();
-                auto null_map = ColumnUInt8::create(1, 1);
-                auto nullable_col = ColumnNullable::create(std::move(col_str), std::move(null_map));
-                if (input_rows_count > 1) {
-                    block.get_by_position(result).column =
-                            ColumnConst::create(std::move(nullable_col), input_rows_count);
-                } else {
-                    block.get_by_position(result).column = std::move(nullable_col);
-                }
+        if (col_from_is_const && col_from->is_null_at(0)) {
+            auto col_str = ColumnString::create();
+            col_str->insert_default();
+            auto null_map = ColumnUInt8::create(1, 1);
+            auto nullable_col = ColumnNullable::create(std::move(col_str), std::move(null_map));
+            if (input_rows_count > 1) {
+                block.get_by_position(result).column =
+                        ColumnConst::create(std::move(nullable_col), input_rows_count);
+            } else {
+                block.get_by_position(result).column = std::move(nullable_col);
             }
             return Status::OK();
         }
@@ -303,7 +301,8 @@ public:
                 continue;
             }
 
-            const auto& val = col_from_string->get_data_at(i);
+            auto index = index_check_const(i, col_from_is_const);
+            const auto& val = col_from_string->get_data_at(index);
             auto st = jsonb_value.from_json_string(val.data, val.size);
             if (st.ok()) {
                 // insert jsonb format data
