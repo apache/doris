@@ -54,6 +54,7 @@ public:
                                          std::shared_ptr<Dependency>>>
                          le_state_map,
                  int task_idx);
+    ~PipelineTask();
 
     Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
                    QueryContext* query_ctx);
@@ -316,6 +317,8 @@ private:
     std::atomic<bool> _eos = false;
     std::atomic<bool> _wake_up_early = false;
     const std::string _pipeline_name;
+    // PipelineTask maybe hold by TaskQueue
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
