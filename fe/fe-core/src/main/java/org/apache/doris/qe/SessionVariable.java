@@ -3031,7 +3031,8 @@ public class SessionVariable implements Serializable, Writable {
             }
 
         }
-        this.runtimeFilterWaitInfinitely = random.nextBoolean();
+        // test
+        //this.runtimeFilterWaitInfinitely = random.nextBoolean();
 
         // set random 1, 10, 100, 1000, 10000
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
