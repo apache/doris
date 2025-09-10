@@ -201,7 +201,6 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
             })
 
         } finally {
-
         }
     }
 
