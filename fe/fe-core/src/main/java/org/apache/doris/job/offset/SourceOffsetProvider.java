@@ -63,6 +63,6 @@ public interface SourceOffsetProvider {
      * Whether there is more data to consume
      * @return
      */
-    boolean hasMoreData();
+    boolean hasMoreDataToConsume();
 }
 

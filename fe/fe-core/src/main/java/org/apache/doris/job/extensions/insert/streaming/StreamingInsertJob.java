@@ -62,9 +62,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @SerializedName("did")
     private final long dbId;
-    @Getter
-    @SerializedName("st")
-    protected JobStatus status;
     private LoadStatistic loadStatistic = new LoadStatistic();
     @SerializedName("fm")
     private FailMsg failMsg;
@@ -81,6 +78,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private StreamingJobProperties jobProperties;
     StreamingInsertTask runningStreamingtask;
     SourceOffsetProvider offsetProvider;
+
+    private long lastScheduleTaskTimestamp = -1L;
 
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
@@ -141,6 +140,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     protected void fetchMeta() {
         offsetProvider.fetchRemoteMeta();
+    }
+
+    public boolean needScheduleTask() {
+        return (getJobStatus().equals(JobStatus.RUNNING) || getJobStatus().equals(JobStatus.PENDING));
+    }
+
+    // When consumer to EOF, delay schedule task appropriately can avoid too many small transactions.
+    public boolean needDelayScheduleTask() {
+        return System.currentTimeMillis() - lastScheduleTaskTimestamp > jobProperties.getMaxIntervalSecond() * 1000;
+    }
+
+    public boolean hasMoreDataToConsume() {
+        return offsetProvider.hasMoreDataToConsume();
     }
 
     @Override
@@ -249,6 +261,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void replayOnVisible(TransactionState txnState) {
+
 
     }
 }
