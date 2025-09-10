@@ -17,11 +17,15 @@
 
 package org.apache.doris.job.offset;
 
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.offset.s3.S3SourceOffsetProvider;
+
+import lombok.extern.log4j.Log4j2;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Log4j2
 public class SourceOffsetProviderFactory {
     private static final Map<String, Class<? extends SourceOffsetProvider>> map = new ConcurrentHashMap<>();
 
@@ -29,9 +33,16 @@ public class SourceOffsetProviderFactory {
         map.put("s3", S3SourceOffsetProvider.class);
     }
 
-    public static SourceOffsetProvider createSourceOffsetProvider(String sourceType) throws InstantiationException,
-            IllegalAccessException {
-        Class<? extends SourceOffsetProvider> cla = map.get(sourceType.toUpperCase());
-        return cla.newInstance();
+    public static SourceOffsetProvider createSourceOffsetProvider(String sourceType) {
+        try {
+            Class<? extends SourceOffsetProvider> cla = map.get(sourceType.toUpperCase());
+            if (cla == null) {
+                throw new JobException("Unsupported source type: " + sourceType);
+            }
+            return cla.newInstance();
+        } catch (Exception e) {
+            log.error("Failed to create source provider for type: " + sourceType, e);
+            throw new RuntimeException("Failed to create source provider for type: " + sourceType);
+        }
     }
 }

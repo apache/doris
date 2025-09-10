@@ -56,8 +56,13 @@ public class CreateJobCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validate();
         AbstractJob job = createJobInfo.analyzeAndBuildJobInfo(ctx);
         Env.getCurrentEnv().getJobManager().registerJob(job);
+    }
+
+    private void validate() {
+        //todo: stream job need check total limit
     }
 
     @Override

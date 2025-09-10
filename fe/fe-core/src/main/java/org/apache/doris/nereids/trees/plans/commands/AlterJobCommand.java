@@ -66,7 +66,6 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-
         validate();
         AbstractJob job = analyzeAndBuildJobInfo(ctx);
         ctx.getEnv().getJobManager().alterJob(job);

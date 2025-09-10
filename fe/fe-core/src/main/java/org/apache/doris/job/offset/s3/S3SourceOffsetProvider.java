@@ -22,32 +22,48 @@ import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
+    S3Offset currentOffset;
+    String maxRemoteEndFile;
 
     @Override
     public String getSourceType() {
-        return null;
+        return "s3";
     }
 
     @Override
     public Offset getNextOffset() {
+        //todo: listObjects from end file
         return null;
     }
 
     @Override
-    public InsertIntoTableCommand rewriteTvfParamsInCommand(InsertIntoTableCommand command) {
+    public Offset getCurrentOffset() {
+        return currentOffset;
+    }
+
+    @Override
+    public InsertIntoTableCommand rewriteTvfParams(String sql) {
+
+        // will call getNextOffset
+        // rewrite TVF
         return null;
     }
 
     @Override
     public void updateProgress(Offset offset) {
+        this.currentOffset = (S3Offset) offset;
     }
 
     @Override
     public void fetchRemoteMeta() {
+        // list object
     }
 
     @Override
     public boolean hasMoreData() {
+        if (currentOffset.endFile.compareTo(maxRemoteEndFile) < 0) {
+            return true;
+        }
         return false;
     }
 }
