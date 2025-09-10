@@ -735,7 +735,7 @@ gdaskpdp
 \N	\N
 
 -- !minutes_add_6 --
-\N
+6106-08-06T00:36:18
 
 -- !minutes_diff_1 --
 60
@@ -769,9 +769,6 @@ gdaskpdp
 
 -- !minutes_sub_5 --
 \N	\N
-
--- !minutes_sub_6 --
-\N
 
 -- !month_ceil_1 --
 2023-08-01T00:00

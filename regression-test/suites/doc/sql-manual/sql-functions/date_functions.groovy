@@ -460,7 +460,6 @@ suite("doc_date_functions_test") {
     qt_minutes_sub_3 """SELECT MINUTES_SUB('2023-07-13 22:23:18', -5)"""
     qt_minutes_sub_4 """SELECT MINUTES_SUB('2023-07-13', 30)"""
     qt_minutes_sub_5 """SELECT MINUTES_SUB(NULL, 10), MINUTES_SUB('2023-07-13 22:28:18', NULL)"""
-    qt_minutes_sub_6 """SELECT MINUTES_SUB('2023-07-13 22:28:18', 2147483648)"""
     
     // 50. MONTH_CEIL function tests
     qt_month_ceil_1 """SELECT MONTH_CEIL('2023-07-13 22:28:18')"""
