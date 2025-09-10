@@ -143,7 +143,7 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
             for (Expression distinctArgument : agg.getDistinctArguments()) {
                 ColumnStatistic columnStatistic = childStats.findColumnStatistics(distinctArgument);
                 if (columnStatistic == null || columnStatistic.isUnKnown) {
-                    return true;
+                    return false;
                 }
                 if (columnStatistic.ndv >= row * AggregateUtils.MID_CARDINALITY_THRESHOLD) {
                     // If there is a distinct key with high ndv, then do not use multi distinct
@@ -151,6 +151,9 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
                 }
             }
         } else {
+            if (agg.hasSkewHint()) {
+                return false;
+            }
             if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), childStats)) {
                 return true;
             }

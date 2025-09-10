@@ -41,6 +41,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -89,7 +90,8 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         );
     }
 
-    private boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
+    @VisibleForTesting
+    boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
         // count(distinct a,b) cannot use multi_distinct
         if (AggregateUtils.containsCountDistinctMultiExpr(aggregate)) {
             return false;
