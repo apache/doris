@@ -60,6 +60,16 @@ public:
 
     static S3Environment& getInstance();
 
+    static Aws::Client::ClientConfiguration& getClientConfiguration() {
+        // The default constructor of ClientConfiguration will do some http call
+        // such as Aws::Internal::GetEC2MetadataClient and other init operation,
+        // which is unnecessary.
+        // So here we use a static instance, and deep copy every time
+        // to avoid unnecessary operations.
+        static Aws::Client::ClientConfiguration instance;
+        return instance;
+    }
+
     ~S3Environment();
 
 private:

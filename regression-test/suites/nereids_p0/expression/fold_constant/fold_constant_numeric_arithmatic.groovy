@@ -321,6 +321,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT MOD(10.5, -3.2) AS fmod_case_3") //fmod(10.5 % -3.2)
     testFoldConst("SELECT MOD(10.5, 0) AS fmod_case_exception") //undefined (returns NULL or error)
     testFoldConst("SELECT fmod(10.5, 3), fmod(-10.5, 3), fmod(10.5, -3)")
+    testFoldConst("SELECT fmod(10.5, 0) AS fmod_case_1") //fmod(10.5 % 0)
     testFoldConst("SELECT MOD(NULL, 3)") // NULL dividend
     testFoldConst("SELECT MOD(10, NULL)") // NULL divisor
     testFoldConst("SELECT MOD(0, 3)") // Zero dividend

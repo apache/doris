@@ -47,6 +47,7 @@
 #include "util/cpu_info.h"
 
 namespace doris::config {
+#include "common/compile_check_avoid_begin.h"
 
 // Dir of custom config file
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
@@ -1143,6 +1144,8 @@ DEFINE_mBool(enable_file_cache_adaptive_write, "true");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
+DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
+DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
@@ -1352,8 +1355,6 @@ DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
-DEFINE_mInt32(variant_max_sparse_column_statistics_size, "10000");
-
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
@@ -1380,15 +1381,6 @@ DEFINE_String(spill_storage_root_path, "");
 DEFINE_String(spill_storage_limit, "20%");    // 20%
 DEFINE_mInt32(spill_gc_interval_ms, "2000");  // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000"); // 2s
-DEFINE_Int32(spill_io_thread_pool_thread_num, "-1");
-DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        spill_io_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
-DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
@@ -1596,6 +1588,9 @@ DEFINE_mInt32(llm_max_concurrent_requests, "1");
 DEFINE_mInt32(omp_threads_limit, "8");
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
+
+DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
+DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 
 // clang-format off
 #ifdef BE_TEST
@@ -2136,4 +2131,5 @@ std::vector<std::vector<std::string>> get_config_info() {
     return configs;
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::config

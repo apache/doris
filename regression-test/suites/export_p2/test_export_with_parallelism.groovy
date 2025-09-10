@@ -89,11 +89,11 @@ suite("test_export_with_parallelism", "p2") {
 
     def outFilePath = """${bucket}/export/exp_"""
 
-    def test_export = {format, file_suffix, isDelete, parallelism ->
+    def test_export = {format, file_suffix, isDelete, parallelism, whereExpr ->
         def uuid = UUID.randomUUID().toString()
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} TO "s3://${outFilePath}"
+            EXPORT TABLE ${table_export_name}  ${whereExpr}  TO "s3://${outFilePath}"
             PROPERTIES(
                 "label" = "${uuid}",
                 "format" = "${format}",
@@ -144,24 +144,34 @@ suite("test_export_with_parallelism", "p2") {
     }
 
     // parallelism = 2
-    test_export('csv', 'csv', true, 2);
-    test_export('parquet', 'parquet', true, 2);
-    test_export('orc', 'orc', true, 2);
-    test_export('csv_with_names', 'csv', true, 2);
-    test_export('csv_with_names_and_types', 'csv', true, 2);
+    test_export('csv', 'csv', true, 2,"");
+    test_export('parquet', 'parquet', true, 2,"");
+    test_export('orc', 'orc', true, 2,"");
+    test_export('csv_with_names', 'csv', true, 2,"");
+    test_export('csv_with_names_and_types', 'csv', true, 2,"");
 
 
     // parallelism = 3
-    test_export('csv', 'csv', true, 3);
-    test_export('parquet', 'parquet', true, 3);
-    test_export('orc', 'orc', true, 3);
-    test_export('csv_with_names', 'csv', true, 3);
-    test_export('csv_with_names_and_types', 'csv', true, 3);
+    test_export('csv', 'csv', true, 3,"");
+    test_export('parquet', 'parquet', true, 3,"");
+    test_export('orc', 'orc', true, 3,"");
+    test_export('csv_with_names', 'csv', true, 3,"");
+    test_export('csv_with_names_and_types', 'csv', true, 3,"");
 
     // parallelism = 4
-    test_export('csv', 'csv', true, 4);
-    test_export('parquet', 'parquet', true, 4);
-    test_export('orc', 'orc', true, 4);
-    test_export('csv_with_names', 'csv', true, 4);
-    test_export('csv_with_names_and_types', 'csv', true, 4);
+    test_export('csv', 'csv', true, 4,"");
+    test_export('parquet', 'parquet', true, 4,"");
+    test_export('orc', 'orc', true, 4,"");
+    test_export('csv_with_names', 'csv', true, 4,"");
+    test_export('csv_with_names_and_types', 'csv', true, 4,"");
+
+
+    // where ...
+    test_export('parquet', 'parquet', true, 4, " where id > 10 ");
+    test_export('orc', 'orc', true, 5, " where age < 50");
+    test_export('parquet', 'parquet', true, 6,  """ where name != 'ftw-1'  """);
+    test_export('orc', 'orc', true, 7, " where age%2 = 0 ");
+    test_export('parquet', 'parquet', true, 9,  """ where age = 13 """);
+    test_export('orc', 'orc', true, 10, " where id = 13 ");
+
 }

@@ -769,14 +769,40 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
 
+    public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
+    @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
+                description = {"列统计信息收集时，收集占比排名前 HOT_VALUE_COLLECT_COUNT 的值作为hot value",
+                        "When collecting column statistics, collect the top values ranked by their "
+                                + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT."})
+    public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
+
+    public void setHotValueCollectCount(int count) {
+        this.hotValueCollectCount = count;
+    }
+
+    public static int getHotValueCollectCount() {
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getState().isInternal()) {
+                return 0;
+            } else {
+                return ConnectContext.get().getSessionVariable().hotValueCollectCount;
+            }
+        } else {
+            return Integer.parseInt(VariableMgr.getDefaultValue(HOT_VALUE_COLLECT_COUNT));
+        }
+    }
+
     public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
 
     @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
-                description = {"value 在每百行中的最低出现次数",
-                        "The minimum number of occurrences of 'value' per hundred lines"})
-    private double hotValueThreshold = 33; // by percentage
+                description = {"当列中某个特定值的出现次数大于等于（rowCount/ndv）× hotValueThreshold 时，该值即被视为热点值",
+                        "When the occurrence of a value in a column is greater than "
+                                + "hotValueThreshold tmies of average occurences "
+                                + "(occurrences >= hotValueThreshold * rowCount / ndv), "
+                                + "the value is regarded as hot value"})
+    private double hotValueThreshold = 10;
 
-    public void setHotValueThreshold(double threshold) {
+    public void setHotValueThreshold(int threshold) {
         this.hotValueThreshold = threshold;
     }
 
@@ -794,7 +820,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
-    public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
+    public static final String DEFAULT_AI_RESOURCE = "default_ai_resource";
     public static final String HNSW_EF_SEARCH = "hnsw_ef_search";
     public static final String HNSW_CHECK_RELATIVE_DISTANCE = "hnsw_check_relative_distance";
     public static final String HNSW_BOUNDED_QUEUE = "hnsw_bounded_queue";
@@ -803,6 +829,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
                                                             "default_variant_enable_typed_paths_to_sparse";
+
+    public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+                                                            "default_variant_max_sparse_column_statistics_size";
+    public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
+    public static final String AGG_PHASE = "agg_phase";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2455,6 +2486,28 @@ public class SessionVariable implements Serializable, Writable {
             description = {"cast使用严格模式", "Use strict mode for cast"})
     public boolean enableStrictCast = false;
 
+    @VariableMgr.VarAttr(name = MULTI_DISTINCT_STRATEGY, description = {"用于控制在包含多个 DISTINCT 函数的 SQL 查询中所采用的"
+            + "执行策略。默认值为 0，表示由系统自动选择最优策略；设为 1 表示强制使用 MultiDistinct 方式处理；"
+            + "设为 2 表示强制采用 CTE 拆分方式执行。",
+            "Used to control the execution strategy used in SQL queries containing multiple DISTINCT "
+                    + "functions. The default value is 0, which means that the system automatically selects "
+                    + "the optimal strategy; setting it to 1 means forcing the use of MultiDistinct processing;"
+                    + " setting it to 2 means forcing the use of CTE splitting execution"},
+            checker = "checkMultiDistinctStrategy")
+    public int multiDistinctStrategy = 0;
+
+    @VariableMgr.VarAttr(name = AGG_PHASE, description = {"用于控制聚合查询的执行阶段划分策略。默认值为 0，"
+            + "表示由系统自动选择最优执行阶段；设为 1 至 4 之间的值则表示强制指定使用对应 1 至 4 阶段进行聚合计算。",
+            "Controls the execution phase strategy for aggregate queries. The default value is 0,"
+                    + "which means the system automatically selects the optimal execution phase. Setting this value"
+                    + "between 1 and 4 forces the use of phases 1 to 4 for aggregate calculations."},
+            checker = "checkAggPhase")
+    public int aggPhase = 0;
+
+    public void setAggPhase(int phase) {
+        aggPhase = phase;
+    }
+
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
         if (ignoreRuntimeFilterIds.isEmpty()) {
@@ -2816,13 +2869,13 @@ public class SessionVariable implements Serializable, Writable {
     }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
     public int skewRewriteJoinSaltExplodeFactor = 0;
 
-    @VariableMgr.VarAttr(name = DEFAULT_LLM_RESOURCE, needForward = true,
+    @VariableMgr.VarAttr(name = DEFAULT_AI_RESOURCE, needForward = true,
             description = {
-                    "当函数参数未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
-                    "Defines the default LLM resource to be used when no specific LLM resource is specified "
+                    "当函数参数未指定AI Resource时，系统将默认使用此变量定义的 Resource。",
+                    "Defines the default AI resource to be used when no specific AI resource is specified "
                             + "in the function arguments."
             })
-    public String defaultLLMResource = "";
+    public String defaultAIResource = "";
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -2869,6 +2922,13 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public boolean defaultEnableTypedPathsToSparse = false;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            needForward = true,
+            fuzzy = true
+    )
+    public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -4990,6 +5050,28 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkAggPhase(String aggPhaseStr) {
+        try {
+            long aggPhase = Long.parseLong(aggPhaseStr);
+            if (aggPhase < 0 || aggPhase > 4) {
+                throw new InvalidParameterException(AGG_PHASE + " should be between 0 and 4");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(AGG_PHASE + " must be a valid number between 0 and 4");
+        }
+    }
+
+    public void checkMultiDistinctStrategy(String multiDistinctStrategyStr) {
+        try {
+            long aggPhase = Long.parseLong(multiDistinctStrategyStr);
+            if (aggPhase < 0 || aggPhase > 2) {
+                throw new InvalidParameterException(MULTI_DISTINCT_STRATEGY + " should be between 0 and 2");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(MULTI_DISTINCT_STRATEGY + " must be a valid number between 0 and 2");
+        }
+    }
+
     public boolean isEnableInsertGroupCommit() {
         return Config.wait_internal_group_commit_finish
                 || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.ASYNC_MODE
@@ -5250,6 +5332,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantMaxSubcolumnsCount() {
         return defaultVariantMaxSubcolumnsCount;
+    }
+
+    public int getDefaultVariantMaxSparseColumnStatisticsSize() {
+        return defaultVariantMaxSparseColumnStatisticsSize;
     }
 
     public static boolean isFeDebug() {

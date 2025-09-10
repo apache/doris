@@ -11,7 +11,7 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=()
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=()
+----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=()
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashAgg[LOCAL]

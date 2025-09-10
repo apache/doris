@@ -175,7 +175,7 @@ public class StmtExecutor {
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
-    private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
+    private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
     private final StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -202,6 +202,9 @@ public class StmtExecutor {
     private Boolean isForwardedToMaster = null;
     // Flag for execute prepare statement, need to use binary protocol resultset
     private boolean isComStmtExecute = false;
+    // Set to true if there are more stmt need to execute.
+    // Mainly for forward to master, so that master can set the mysql server status correctly.
+    private boolean moreStmtExists = false;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -304,7 +307,14 @@ public class StmtExecutor {
         // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
-            builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - context.getStartTime()));
+            long executionCosts = currentTimestamp - context.getStartTime();
+            // Execution of parser could happen before StmtExecutor is involved.
+            if (getSummaryProfile().parsedByConnectionProcess) {
+                builder.totalTime(DebugUtil.getPrettyStringMs(
+                        executionCosts + getSummaryProfile().getParseSqlTimeMs()));
+            } else {
+                builder.totalTime(DebugUtil.getPrettyStringMs(executionCosts));
+            }
         }
         String taskState = "RUNNING";
         if (isFinished) {
@@ -346,6 +356,14 @@ public class StmtExecutor {
             isForwardedToMaster = shouldForwardToMaster();
         }
         return isForwardedToMaster;
+    }
+
+    public boolean isMoreStmtExists() {
+        return moreStmtExists;
+    }
+
+    public void setMoreStmtExists(boolean moreStmtExists) {
+        this.moreStmtExists = moreStmtExists;
     }
 
     private boolean shouldForwardToMaster() {
@@ -817,6 +835,7 @@ public class StmtExecutor {
             getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
             getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
+            getProfile().getSummaryProfile().parsedByConnectionProcess = false;
             if (MetricRepo.isInit) {
                 MetricRepo.HISTO_PLAN_PARSE_DURATION.update(getProfile().getSummaryProfile().getParseSqlTimeMs());
             }
@@ -1010,6 +1029,7 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
+        masterOpExecutor.setMoreStmtExists(moreStmtExists);
         masterOpExecutor.execute();
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // for nereids command

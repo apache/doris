@@ -1574,6 +1574,50 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def executeQueryByTag(String tag, Object arg) {
+        Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
+        
+        if (tag.contains("hive_docker")) {
+            tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix), (String) arg)
+        } else if (tag.contains("hive_remote")) {
+            tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
+        } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+            tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(),
+                    (String) ("USE ${context.dbName};" + (String) arg))
+        } else if (tag.contains("target_sql")) {
+            tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
+        } else if (tag.contains("master_sql")) {
+            tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (String) arg)
+        } else {
+            tupleResult = JdbcUtils.executeToStringList(context.getConnection(), (String) arg)
+        }
+
+        def (realResults, meta) = tupleResult
+        return [realResults, meta]
+    }
+
+    // test results of two sqls are the same
+    void quickRunTest(String tag, Object arg1, Object arg2) {
+        def (realResults1, meta1) = executeQueryByTag(tag, arg1)
+        Iterator<List<Object>> realResultsIter1 = realResults1.iterator()
+
+        def (realResults2, meta2) = executeQueryByTag(tag, arg2)
+        Iterator<List<Object>> realResultsIter2 = realResults2.iterator()
+
+        String errorMsg = null
+        try {
+            errorMsg = OutputUtils.checkOutput(realResultsIter1.iterator(), realResultsIter2.iterator(),
+                { row -> OutputUtils.toCsvString(row) },
+                { row ->  OutputUtils.toCsvString(row) },
+                "Check tag '${tag}' failed", meta1, meta2)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Check tag '${tag}' failed, sql1:\n${arg1}, sql2:\n${arg2}", t)
+        }
+        if (errorMsg != null) {
+            throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg1}")
+        }
+    }
+
     void quickTest(String tag, String sql, boolean isOrder = false) {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
         if (tag.contains("hive_docker")) {
@@ -1585,6 +1629,19 @@ class Suite implements GroovyInterceptable {
             sql = cleanedSqlStr
         }
         quickRunTest(tag, sql, isOrder)
+    }
+
+    void quickTest(String tag, String sql1, String sql2) {
+        logger.info("Execute tag: ${tag}, sql1: ${sql1}\nsql2: ${sql2}".toString())
+        if (tag.contains("hive_docker")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
+        if (tag.contains("hive_remote")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
+        quickRunTest(tag, sql1, sql2)
     }
 
     void quickExecute(String tag, PreparedStatement stmt) {
@@ -1612,6 +1669,8 @@ class Suite implements GroovyInterceptable {
                 // do nothing
                 return null
             }
+        } else if (name.startsWith("check_sqls_result_equal")) {
+            return quickTest("check_sqls_result_equal", (args as Object[])[0] as String, (args as Object[])[1] as String)
         } else {
             // invoke origin method
             return metaClass.invokeMethod(this, name, args)
