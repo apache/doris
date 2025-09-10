@@ -527,7 +527,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
             offset = pos - cur_ptr;
             found_line_delimiter = _line_reader_ctx->line_delimiter_length();
             if (has_multiple_json_objects(cur_ptr, offset)) {
-                return Status::DataQualityError("Multiple JSON objects in a single line."); 
+                return Status::DataQualityError("Multiple JSON objects in a single line.");
             }
 
             break;
