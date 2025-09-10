@@ -102,25 +102,25 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         makeSureInitialized();
-        long snapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
         if (tableSnapshot.isPresent() || (scanParams.isPresent() && scanParams.get().isTag())) {
             // If a snapshot is specified,
             // use the specified snapshot and the corresponding schema(not the latest
             // schema).
             try {
                 Snapshot snapshot = PaimonUtil.getPaimonSnapshot(paimonTable, tableSnapshot, scanParams);
-                snapshotId = snapshot.id();
+                return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
+                        new PaimonSnapshot(snapshot.id(), snapshot.schemaId(), paimonTable));
             } catch (Exception e) {
                 LOG.warn("Failed to get Paimon snapshot for table {}", paimonTable.name(), e);
                 throw new RuntimeException(
                         "Failed to get Paimon snapshot: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
                         e);
             }
+        } else {
+            // Otherwise, use the latest snapshot and the latest schema.
+            return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+                    .getPaimonSnapshot(this);
         }
-        // Otherwise, use the latest snapshot and the latest schema.
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
-                .getPaimonSnapshot(this, snapshotId);
-
     }
 
     @Override
