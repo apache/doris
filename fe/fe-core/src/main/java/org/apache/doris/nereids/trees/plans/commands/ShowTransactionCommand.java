@@ -92,10 +92,11 @@ public class ShowTransactionCommand extends ShowCommand {
             resultSet = new ShowResultSet(getMetaData(), transactionMgr.getDbTransInfoByLabelMatch(db.getId(), label));
         } else {
             if (!label.isEmpty()) {
-                txnId = transactionMgr.getTransactionId(db.getId(), label);
-                if (txnId == -1) {
+                Long transactionId = transactionMgr.getTransactionId(db.getId(), label);
+                if (transactionId == null) {
                     throw new AnalysisException("transaction with label " + label + " does not exist");
                 }
+                txnId = transactionId;
             }
             resultSet = new ShowResultSet(getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
         }

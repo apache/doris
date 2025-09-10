@@ -43,4 +43,11 @@ suite("test_show_transaction", "p0") {
         assertTrue(res.equals(reslike))
     }
 
+    // show transaction with label not exist
+    test {
+        def not_exist_label = 'label_test_show_transaction_${uuid}_not_exist'
+        sql """ show transaction where label = '${not_exist_label}'  """
+
+        exception """transaction with label ${not_exist_label} does not exist"""
+    }
 }
