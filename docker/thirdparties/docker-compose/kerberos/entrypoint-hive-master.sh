@@ -85,5 +85,10 @@ else
     exit 1
 fi
 hive  -f /usr/local/sql/create_kerberos_hive_table.sql
+if [[ ${enablePaimonHms} == "true" ]]; then
+    echo "Creating Paimon HMS catalog and table"
+    hadoop fs -put /tmp/paimon_data/* /user/hive/warehouse/
+    hive -f /usr/local/sql/create_paimon_hive_table.hql
+fi
 
 exec_success_hook
