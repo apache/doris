@@ -20,8 +20,8 @@ package org.apache.doris.datasource.iceberg.action;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.commands.action.OptimizeAction;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.optimize.OptimizeAction;
 
 import java.util.Map;
 import java.util.Optional;

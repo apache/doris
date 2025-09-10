@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.action;
+package org.apache.doris.nereids.trees.plans.commands.optimize;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
