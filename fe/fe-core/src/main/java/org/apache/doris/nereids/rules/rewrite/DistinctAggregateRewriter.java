@@ -111,7 +111,7 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         // has unknown statistics, split to bottom and top agg
         if (AggregateUtils.hasUnknownStatistics(aggregate.getGroupByExpressions(), aggChildStats)
                 || AggregateUtils.hasUnknownStatistics(dstArgs, aggChildStats)) {
-            return false;
+            return true;
         }
 
         double gbyNdv = aggStats.getRowCount();

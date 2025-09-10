@@ -143,7 +143,7 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
             for (Expression distinctArgument : agg.getDistinctArguments()) {
                 ColumnStatistic columnStatistic = childStats.findColumnStatistics(distinctArgument);
                 if (columnStatistic == null || columnStatistic.isUnKnown) {
-                    return false;
+                    return true;
                 }
                 if (columnStatistic.ndv >= row * AggregateUtils.MID_CARDINALITY_THRESHOLD) {
                     // If there is a distinct key with high ndv, then do not use multi distinct
@@ -152,7 +152,7 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
             }
         } else {
             if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), childStats)) {
-                return false;
+                return true;
             }
             // The joint ndv of Group by key is high, so multi_distinct is not selected;
             if (aggStats.getRowCount() >= row * AggregateUtils.LOW_CARDINALITY_THRESHOLD) {
