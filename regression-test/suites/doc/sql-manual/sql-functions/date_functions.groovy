@@ -45,17 +45,6 @@ suite("doc_date_functions_test") {
     // 时区范围为 [-12:00,14:00],超出此范围返回 NULL
     qt_convert_tz_9 """select CONVERT_TZ('2019-08-01 13:21:03', '+08:00', '+15:00')"""
 
-    // 2. CURDATE function tests
-    // 获取当前的日期
-    qt_curdate_1 """SELECT CURDATE()"""
-
-    // 3. CURRENT_TIMESTAMP function tests
-    // 获取当前时间戳
-    qt_current_timestamp_1 """SELECT CURRENT_TIMESTAMP()"""
-
-    // 4. CURTIME function tests  
-    // 获取当前时间
-    qt_curtime_1 """SELECT CURTIME()"""
 
     // 5. DATE_ADD function tests
     // 添加天数
@@ -345,9 +334,6 @@ suite("doc_date_functions_test") {
     qt_last_day_6 """SELECT LAST_DAY('2023-01-01')"""
     qt_last_day_7 """SELECT LAST_DAY(NULL)"""
     
-    // 33. LOCALTIME function tests
-    qt_localtime_1 """SELECT LOCALTIME()"""
-    qt_localtime_2 """SELECT LOCALTIME(3)"""
     
     // 34. MAKEDATE function tests
     qt_makedate_1 """select makedate(2021, 1), makedate(2021, 32), makedate(2021, 365)"""
@@ -547,8 +533,6 @@ suite("doc_date_functions_test") {
     qt_next_day_5 """SELECT NEXT_DAY(NULL, 'SUN')"""
     qt_next_day_6 """SELECT NEXT_DAY('9999-12-31 12:00:00', 'SUNDAY')"""
     
-    // 59. NOW function tests
-    qt_now_1 """select NOW(),NOW(3),NOW(6)"""
     
     // 60. QUARTER function tests
     qt_quarter_1 """SELECT QUARTER('2025-01-16')"""
@@ -728,7 +712,6 @@ suite("doc_date_functions_test") {
 
     // 82. UNIX_TIMESTAMP function tests
     qt_unix_timestamp_1 """select unix_timestamp('1970-01-01 +08:00')"""
-    qt_unix_timestamp_2 """select unix_timestamp()"""
     qt_unix_timestamp_3 """select unix_timestamp('2007-11-30 10:30:19')"""
     qt_unix_timestamp_4 """select unix_timestamp('2007-11-30 10:30:19 +09:00')"""
     qt_unix_timestamp_5 """select unix_timestamp('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s')"""
@@ -739,8 +722,7 @@ suite("doc_date_functions_test") {
     qt_unix_timestamp_10 """select unix_timestamp(NULL)"""
     qt_unix_timestamp_11 """select unix_timestamp('2038-01-19 11:14:08',null)"""
 
-    // 83. UTC_TIMESTAMP function tests
-    qt_utc_timestamp_1 """SELECT UTC_TIMESTAMP() AS utc_str"""
+
 
     // 84. WEEK_CEIL function tests
     qt_week_ceil_1 """SELECT WEEK_CEIL(cast('2023-07-13 22:28:18' as datetime)) AS result"""
