@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.qe.ResultSet;
 
 import java.util.Map;
 import java.util.Optional;
@@ -47,9 +48,10 @@ public interface OptimizeAction {
      * Execute the optimization action.
      *
      * @param table the table to operate on
+     * @return CommonResultSet if the action returns results, null otherwise
      * @throws UserException if execution fails
      */
-    void execute(TableIf table) throws UserException;
+    ResultSet execute(TableIf table) throws UserException;
 
     /**
      * Check if this action is supported for the given table.

@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.commands.optimize.OptimizeAction;
 import org.apache.doris.nereids.trees.plans.commands.optimize.OptimizeActionFactory;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.Map;
@@ -101,7 +102,14 @@ public class OptimizeTableCommand extends Command implements ForwardWithSync {
             }
 
             action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
-            action.execute(externalTable);
+
+            // Execute action and check for results
+            ResultSet resultSet = action.execute(externalTable);
+
+            // If action returns results, send them to the client
+            if (resultSet != null) {
+                executor.sendResultSet(resultSet);
+            }
 
         } catch (UserException e) {
             throw new DdlException("Failed to execute OPTIMIZE TABLE: " + e.getMessage(), e);

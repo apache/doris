@@ -17,14 +17,16 @@
 
 package org.apache.doris.datasource.iceberg.action;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -114,13 +116,28 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     }
 
     @Override
+    protected List<Column> getResultSchema() {
+        return List.of(
+                new Column("rewritten_data_files_count", Type.INT, false,
+                        "Number of data which were re-written by this command"),
+                new Column("added_data_files_count", Type.INT, false,
+                        "Number of new data files which were written by this command"),
+                new Column("rewritten_bytes_count", Type.INT, false,
+                        "Number of bytes which were written by this command"),
+                new Column("removed_delete_files_count", Type.BIGINT, false,
+                        "Number of delete files removed by this command"));
+    }
+
+    @Override
     protected void validateIcebergAction() throws UserException {
         // TODO: Implement validation logic for rewrite_data_files parameters
     }
 
     @Override
-    public void execute(TableIf table) throws UserException {
-        throw new DdlException("Iceberg rewrite_data_files procedure is not implemented yet");
+    protected List<String> executeAction(TableIf table) throws UserException {
+        // TODO: Implement the logic to rewrite data files in the Iceberg table
+        // For now, just return dummy values
+        return List.of("0", "1", "2", "3");
     }
 
     @Override

@@ -25,6 +25,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -63,7 +64,7 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
     }
 
     @Override
-    public void execute(TableIf table) throws UserException {
+    protected List<String> executeAction(TableIf table) throws UserException {
         throw new DdlException("Iceberg cherrypick_snapshot procedure is not implemented yet");
     }
 

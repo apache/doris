@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands.optimize;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -28,10 +30,16 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ResultSet;
+import org.apache.doris.qe.ResultSetMetaData;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -48,6 +56,9 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
     // Named arguments for parameter validation
     protected final NamedArguments namedArguments = new NamedArguments();
 
+    // ResultSet metadata if the action produces results
+    protected final ResultSetMetaData resultSetMetaData;
+
     protected BaseOptimizeAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
             Optional<Expression> whereCondition) {
@@ -57,10 +68,18 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
         this.whereCondition = whereCondition;
 
         // Add OPTIMIZE TABLE specific allowed arguments
-        namedArguments.addAllowedArgument("action");
+        this.namedArguments.addAllowedArgument("action");
 
         // Register arguments specific to this action
         registerArguments();
+
+        // Initialize ResultSet metadata if the action produces results
+        List<Column> resultSchema = getResultSchema();
+        if (resultSchema == null || resultSchema.isEmpty()) {
+            this.resultSetMetaData = null;
+        } else {
+            this.resultSetMetaData = new CommonResultSet.CommonResultSetMetaData(resultSchema);
+        }
     }
 
     @Override
@@ -81,11 +100,35 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
         validateAction();
     }
 
+    @Override
+    public final ResultSet execute(TableIf table) throws UserException {
+        List<String> resultRow = executeAction(table);
+        if (resultSetMetaData == null || resultRow == null) {
+            return null;
+        }
+        Preconditions.checkState(resultSetMetaData.getColumnCount() == resultRow.size(),
+                "Result row size does not match metadata column count");
+        // the result should be just one row, so we wrap it in a list
+        List<List<String>> resultRows = Lists.newArrayList();
+        resultRows.add(resultRow);
+        return new CommonResultSet(resultSetMetaData, resultRows);
+    }
+
     /**
      * Register arguments specific to this action type.
      * Subclasses should override this method to register their arguments.
      */
     protected abstract void registerArguments();
+
+    /**
+     * Get the result schema if the action produces results.
+     * Subclasses can override this method to provide their result schema.
+     *
+     * @return list of columns representing the result schema
+     */
+    protected List<Column> getResultSchema() {
+        return Lists.newArrayList();
+    }
 
     /**
      * Additional engine-specific validation logic.
@@ -95,6 +138,16 @@ public abstract class BaseOptimizeAction implements OptimizeAction {
     protected void validateAction() throws UserException {
         // Default implementation does nothing
     }
+
+    /**
+     * Execute the action logic.
+     * Subclasses must implement this method to perform the actual action.
+     *
+     * @param table the table to operate on
+     * @return list of result if the action produces results, null otherwise
+     * @throws UserException if execution fails
+     */
+    protected abstract List<String> executeAction(TableIf table) throws UserException;
 
     @Override
     public String getActionType() {

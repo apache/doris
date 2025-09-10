@@ -20,11 +20,13 @@ package org.apache.doris.datasource.iceberg.action;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ArgumentParsers;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -78,8 +80,8 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
     }
 
     @Override
-    public void execute(TableIf table) throws UserException {
-        throw new AnalysisException("Iceberg set_current_snapshot procedure is not implemented yet");
+    protected List<String> executeAction(TableIf table) throws UserException {
+        throw new DdlException("Iceberg set_current_snapshot procedure is not implemented yet");
     }
 
     @Override
