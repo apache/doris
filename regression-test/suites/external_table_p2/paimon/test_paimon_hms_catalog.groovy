@@ -43,10 +43,19 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
         "order_qt_${prefix}" """
             SELECT * FROM external_test_table;
         """
-         sql """set force_jni_scanner=true"""
-         "order_qt_${prefix}" """
+        sql """set force_jni_scanner=true"""
+        "order_qt_${prefix}" """
             SELECT * FROM external_test_table;
         """
+        // 3.1 new features
+        // batch incremental
+        sql """SELECT * FROM external_test_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM external_test_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM external_test_table\$snapshots;"""
     }
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -55,6 +64,7 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
     String extHiveHmsPort = context.config.otherConfigs.get("hive3HmsPort")
     String extHiveHdfsHost = context.config.otherConfigs.get("hive3HdfsPort")
+    String keytab_root_dir = "/keytabs"
 
     /****************OSS*******************/
     String oss_ak = context.config.otherConfigs.get("aliYunAk")
@@ -107,6 +117,27 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     String hdfs_storage_properties = """
       'fs.defaultFS' = 'hdfs://${extHiveHmsHost}:${extHiveHdfsHost}'
     """
+
+    // kerberos
+    String hdfs_kerberos_properties = """
+                "fs.defaultFS" = "hdfs://${extHiveHmsHost}:8520",
+                "hadoop.security.authentication" = "kerberos",           
+                "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
+    """
+    String hms_kerberos_new_prop = """
+                "hive.metastore.uris" = "thrift://${extHiveHmsHost}:9583",
+                "hive.metastore.client.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hive.metastore.client.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
+                "hive.metastore.service.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
+                "hive.metastore.sasl.enabled " = "true",
+                "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
+                                   DEFAULT",
+     """
+
+
     /**************** AWS S3*******************/
     String s3_warehouse = "s3://selectdb-qa-datalake-test-hk/paimon_warehouse"
     String aws_ak = context.config.otherConfigs.get("AWSAK")
@@ -121,17 +152,41 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
         's3.endpoint' = '${aws_endpoint}'
     """
 
+    /**************** GCS *******************/
+    String gcs_warehouse = "gs://selectdb-qa-datalake-test/paimon_warehouse"
+    String gcs_ak = context.config.otherConfigs.get("GCSAk")
+    String gcs_sk = context.config.otherConfigs.get("CCSSk")
+    String gcs_endpoint = context.config.otherConfigs.get("GCSEndpoint")
+    String gcs_warehouse_properties = """
+        'warehouse' = '${gcs_warehouse}',
+    """
+    String gcs_storage_properties = """
+        'gs.access_key' = '${gcs_ak}',
+        'gs.secret_key' = '${gcs_sk}',
+        'gs.endpoint' = '${gcs_endpoint}'
+    """
+    String gcs_storage_s3_properties = """
+        's3.access_key' = '${gcs_ak}',
+        's3.secret_key' = '${gcs_sk}',
+        's3.endpoint' = '${gcs_endpoint}'
+    """
+
     /*--------HMS START -----------*/
-    String paimon_hms_catalog_properties = """
-     'type'='paimon',
-     'paimon.catalog.type'='hms',
+    String paimon_hms_type_prop = """
+        'type'='paimon',
+        'paimon.catalog.type'='hms',
+    """
+    String paimon_hms_catalog_properties = paimon_hms_type_prop + """
      'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
     """
     testQuery(paimon_hms_catalog_properties + hdfs_warehouse_properties + hdfs_storage_properties, "hdfs", "hdfs_db")
+    testQuery(paimon_hms_type_prop + hdfs_warehouse_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "hdfs_kerberos", "hdfs_db")
     testQuery(paimon_hms_catalog_properties + oss_warehouse_properties + oss_storage_properties, "oss", "ali_db")
     testQuery(paimon_hms_catalog_properties + obs_warehouse_properties + obs_storage_properties, "obs", "hw_db")
     testQuery(paimon_hms_catalog_properties + cos_warehouse_properties + cos_storage_properties, "cos", "tx_db")
     testQuery(paimon_hms_catalog_properties + s3_warehouse_properties + s3_storage_properties, "s3", "aws_db")
+    testQuery(paimon_hms_catalog_properties + gcs_warehouse_properties + gcs_storage_properties, "gcs", "gcs_db")
+    testQuery(paimon_hms_catalog_properties + gcs_warehouse_properties + gcs_storage_s3_properties, "gcs_s3", "gcs_db")
 
     String paimon_fs_hdfs_support = """
         'fs.hdfs.support' = 'true',
@@ -148,10 +203,17 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     String paimon_fs_s3_support = """
         'fs.s3.support' = 'true',
     """
+    String paimon_fs_gcs_support = """
+        'fs.gs.support' = 'true',
+    """
     testQuery(paimon_hms_catalog_properties + paimon_fs_hdfs_support + hdfs_warehouse_properties + hdfs_storage_properties, "support_hdfs", "hdfs_db")
+    testQuery(paimon_hms_type_prop + paimon_fs_hdfs_support + hdfs_warehouse_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "support_hdfs_kerberos", "hdfs_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_oss_support + oss_warehouse_properties + oss_storage_properties, "support_oss", "ali_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_obs_support + obs_warehouse_properties + obs_storage_properties, "support_obs", "hw_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_cos_support + cos_warehouse_properties + cos_storage_properties, "support_cos", "tx_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_s3_support + s3_warehouse_properties + s3_storage_properties, "support_s3", "aws_db")
+    testQuery(paimon_hms_catalog_properties + paimon_fs_gcs_support + gcs_warehouse_properties + gcs_storage_properties, "support_gcs", "gcs_db")
+    testQuery(paimon_hms_catalog_properties + paimon_fs_gcs_support + gcs_warehouse_properties + gcs_storage_s3_properties, "support_gcs_s3", "gcs_db")
+
 }
 

@@ -93,21 +93,54 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         sql """ show databases """
         sql """ use ${catalog_oss}.db1 """
         // sql """ show tables """
+        // 3.1 new features
+        // batch incremental
+        sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM all_table\$snapshots;"""
 
         sql """ switch ${catalog_obs} """
         sql """ show databases """
         sql """ use ${catalog_obs}.db1 """
         // sql """ show tables """
+        // batch incremental
+        sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM all_table\$snapshots;"""
 
         sql """ switch ${catalog_cos} """
         sql """ show databases """
         sql """ use ${catalog_cos}.db1 """
         // sql """ show tables """
+        // batch incremental
+        sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM all_table\$snapshots;"""
 
         sql """ switch ${catalog_cosn} """
         sql """ show databases """
         sql """ use ${catalog_cosn}.db1 """
         // sql """ show tables """
+        // batch incremental
+        sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM all_table\$snapshots;"""
 
 
         sql """set force_jni_scanner=false"""
