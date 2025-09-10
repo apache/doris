@@ -30,6 +30,7 @@
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/exprs/virtual_slot_ref.h"
 #include "vector_search_utils.h"
 
@@ -119,8 +120,10 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());
 
-    const float* query_value = predicate->_query_array.get();
-    const size_t query_value_size = predicate->_query_array_size;
+    const vectorized::ColumnFloat32* query_column =
+            assert_cast<const vectorized::ColumnFloat32*>(predicate->_query_array.get());
+    const float* query_value = query_column->get_data().data();
+    const size_t query_value_size = predicate->_query_array->size();
     ASSERT_EQ(query_value_size, 8);
     std::vector<float> query_value_f32;
     for (size_t i = 0; i < query_value_size; ++i) {

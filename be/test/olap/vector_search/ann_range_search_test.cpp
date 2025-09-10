@@ -305,11 +305,12 @@ TEST_F(VectorSearchTest, TestRangeSearchRuntimeInfoToString) {
     runtime_info2.radius = 15.5;
     runtime_info2.metric_type = doris::segment_v2::AnnIndexMetric::L2;
     runtime_info2.dim = 4;
-    runtime_info2.query_value = std::make_unique<float[]>(4);
-    runtime_info2.query_value[0] = 1.0f;
-    runtime_info2.query_value[1] = 2.0f;
-    runtime_info2.query_value[2] = 3.0f;
-    runtime_info2.query_value[3] = 4.0f;
+    auto f32 = ColumnFloat32::create(4);
+    f32->get_data()[0] = 1.0f;
+    f32->get_data()[1] = 2.0f;
+    f32->get_data()[2] = 3.0f;
+    f32->get_data()[3] = 4.0f;
+    runtime_info2.query_value = std::move(f32);
 
     doris::VectorSearchUserParams user_params;
     user_params.hnsw_ef_search = 100;
