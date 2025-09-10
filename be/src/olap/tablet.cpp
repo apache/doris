@@ -121,6 +121,7 @@
 #include "util/work_thread_pool.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
@@ -2184,7 +2185,7 @@ Status Tablet::_read_cooldown_meta(const StorageResource& storage_resource,
     RETURN_IF_ERROR(storage_resource.fs->open_file(remote_meta_path, &tablet_meta_reader));
     auto file_size = tablet_meta_reader->size();
     size_t bytes_read;
-    auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[file_size]);
+    auto buf = make_unique_buffer<uint8_t>(file_size);
     RETURN_IF_ERROR(tablet_meta_reader->read_at(0, {buf.get(), file_size}, &bytes_read));
     RETURN_IF_ERROR(tablet_meta_reader->close());
     if (!tablet_meta_pb->ParseFromArray(buf.get(), cast_set<int>(file_size))) {

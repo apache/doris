@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 #include <string.h>
 
+#include <cstdint>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -28,6 +29,7 @@
 #include "util/block_compression.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/exec/format/parquet/decoder.h"
 #include "vec/exec/format/parquet/level_decoder.h"
 #include "vec/exec/format/parquet/schema_desc.h"
@@ -232,7 +234,7 @@ Status ColumnChunkReader::_decode_dict_page() {
 
     // Prepare dictionary data
     int32_t uncompressed_size = header->uncompressed_page_size;
-    std::unique_ptr<uint8_t[]> dict_data(new uint8_t[uncompressed_size]);
+    auto dict_data = make_unique_buffer<uint8_t>(uncompressed_size);
     if (_block_compress_codec != nullptr) {
         Slice compressed_data;
         RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
@@ -265,7 +267,7 @@ Status ColumnChunkReader::_decode_dict_page() {
 void ColumnChunkReader::_reserve_decompress_buf(size_t size) {
     if (size > _decompress_buf_size) {
         _decompress_buf_size = BitUtil::next_power_of_two(size);
-        _decompress_buf.reset(new uint8_t[_decompress_buf_size]);
+        _decompress_buf = make_unique_buffer<uint8_t>(_decompress_buf_size);
     }
 }
 
