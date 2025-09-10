@@ -22,7 +22,10 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarBinaryType;
 
+import com.google.common.io.BaseEncoding;
+
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -46,6 +49,22 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
         this.byteValues = byteValues;
     }
 
+    /**
+     * Construct VarBinaryLiteral from hex string.
+     */
+    public VarBinaryLiteral(String hex) throws IllegalArgumentException {
+        super(VarBinaryType.INSTANCE);
+        if (hex == null) {
+            throw new IllegalArgumentException("hex is null");
+        }
+        String s = hex.trim();
+        if ((s.length() & 1) == 1) {
+            s = "0" + s;
+        }
+        s = s.toUpperCase(Locale.ROOT);
+        this.byteValues = BaseEncoding.base16().decode(s);
+    }
+
     @Override
     public Object getValue() {
         return byteValues;
@@ -58,8 +77,7 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
 
     @Override
     public String toString() {
-        return new String(byteValues);
-        // return BaseEncoding.base16().encode(byteValues);
+        return BaseEncoding.base16().encode(byteValues);
     }
 
     @Override
@@ -74,9 +92,42 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
     @Override
     public int compareTo(ComparableLiteral other) {
         if (other instanceof VarBinaryLiteral) {
-            return 0;
+            byte[] thisBytes = this.byteValues;
+            byte[] otherBytes = ((VarBinaryLiteral) other).byteValues;
+
+            int minLength = Math.min(thisBytes.length, otherBytes.length);
+            int i = 0;
+            for (i = 0; i < minLength; i++) {
+                if (Byte.toUnsignedInt(thisBytes[i]) < Byte.toUnsignedInt(otherBytes[i])) {
+                    return -1;
+                } else if (Byte.toUnsignedInt(thisBytes[i]) > Byte.toUnsignedInt(otherBytes[i])) {
+                    return 1;
+                }
+            }
+            if (thisBytes.length > otherBytes.length) {
+                if (thisBytes[i] == 0x00) {
+                    return 0;
+                } else {
+                    return 1;
+                }
+            } else if (thisBytes.length < otherBytes.length) {
+                if (otherBytes[i] == 0x00) {
+                    return 0;
+                } else {
+                    return -1;
+                }
+            } else {
+                return 0;
+            }
         }
-        return -1;
+        if (other instanceof NullLiteral) {
+            return 1;
+        }
+        if (other instanceof MaxLiteral) {
+            return -1;
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
     }
 
     @Override

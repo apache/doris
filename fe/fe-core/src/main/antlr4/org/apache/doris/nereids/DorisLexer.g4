@@ -620,10 +620,8 @@ STRING_LITERAL
     ;
 
 VARBINARY_LITERAL
-    : 'X\'' HEXDIGIT* '\''
-    | 'X"' HEXDIGIT* '"'
-    | 'x"' HEXDIGIT* '"'
-    | 'x"' HEXDIGIT* '"'
+    : [Xx]'\'' HEXDIGIT* '\''
+    | [Xx]'"' HEXDIGIT* '"'
     ;
 
 LEADING_STRING

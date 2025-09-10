@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TVarBinaryLiteral;
 
+import com.google.common.io.BaseEncoding;
 import com.google.gson.annotations.SerializedName;
 
 import java.nio.ByteBuffer;
@@ -58,17 +59,22 @@ public class VarBinaryLiteral extends LiteralExpr {
 
     @Override
     protected String toSqlImpl() {
-        return "\"" + getStringValue() + "\"";
+        return toHexLiteral();
     }
 
     @Override
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
-        return "\"" + getStringValue() + "\"";
+        return toHexLiteral();
+    }
+
+    private String toHexLiteral() {
+        String hex = BaseEncoding.base16().encode(value); // upper-case hex
+        return "X'" + hex + "'";
     }
 
     @Override
-    protected void toThrift(TExprNode msg) {
+    public void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.VARBINARY_LITERAL;
         msg.varbinary_literal = new TVarBinaryLiteral(ByteBuffer.wrap(this.value));
     }
@@ -84,49 +90,53 @@ public class VarBinaryLiteral extends LiteralExpr {
     }
 
     @Override
-    public int compareLiteral(LiteralExpr expr) {
-        if (expr instanceof NullLiteral) {
+    public int compareLiteral(LiteralExpr other) {
+        if (other instanceof VarBinaryLiteral) {
+            byte[] thisBytes = this.value;
+            byte[] otherBytes = ((VarBinaryLiteral) other).value;
+
+            int minLength = Math.min(thisBytes.length, otherBytes.length);
+            int i = 0;
+            for (i = 0; i < minLength; i++) {
+                if (Byte.toUnsignedInt(thisBytes[i]) < Byte.toUnsignedInt(otherBytes[i])) {
+                    return -1;
+                } else if (Byte.toUnsignedInt(thisBytes[i]) > Byte.toUnsignedInt(otherBytes[i])) {
+                    return 1;
+                }
+            }
+            if (thisBytes.length > otherBytes.length) {
+                if (thisBytes[i] == 0x00) {
+                    return 0;
+                } else {
+                    return 1;
+                }
+            } else if (thisBytes.length < otherBytes.length) {
+                if (otherBytes[i] == 0x00) {
+                    return 0;
+                } else {
+                    return -1;
+                }
+            } else {
+                return 0;
+            }
+        }
+        if (other instanceof NullLiteral) {
             return 1;
         }
-        byte[] thisBytes = value;
-        byte[] otherBytes = null;
-        thisBytes = getStringValue().getBytes(StandardCharsets.UTF_8);
-        otherBytes = expr.getStringValue().getBytes(StandardCharsets.UTF_8);
-
-        int minLength = Math.min(thisBytes.length, otherBytes.length);
-        int i;
-        for (i = 0; i < minLength; i++) {
-            if (thisBytes[i] < otherBytes[i]) {
-                return -1;
-            } else if (thisBytes[i] > otherBytes[i]) {
-                return 1;
-            }
+        if (other instanceof MaxLiteral) {
+            return -1;
         }
-        if (thisBytes.length > otherBytes.length) {
-            if (thisBytes[i] == 0x00) {
-                return 0;
-            } else {
-                return 1;
-            }
-        } else if (thisBytes.length < otherBytes.length) {
-            if (otherBytes[i] == 0x00) {
-                return 0;
-            } else {
-                return -1;
-            }
-        } else {
-            return 0;
-        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + this.type + ") vs " + other + " (" + ((LiteralExpr) other).type + ")");
     }
 
     @Override
     public String getStringValue() {
-        return new String(value);
-        // return BaseEncoding.base16().encode(value);
+        return new String(value, StandardCharsets.ISO_8859_1);
     }
 
     @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 }

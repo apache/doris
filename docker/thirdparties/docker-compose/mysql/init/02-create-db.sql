@@ -20,3 +20,4 @@ create database DORIS;
 create database Doris;
 create database doris;
 create database show_test_do_not_modify;
+create database test_varbinary_db;

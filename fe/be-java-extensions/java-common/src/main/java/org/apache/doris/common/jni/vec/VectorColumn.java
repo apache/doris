@@ -1807,10 +1807,26 @@ public class VectorColumn {
             case CHAR:
             case VARCHAR:
             case STRING:
-            case BINARY:
-            case VARBINARY:
                 sb.append(getStringWithOffset(i));
                 break;
+            case BINARY:
+            case VARBINARY: {
+                byte[] bytes = getBytesWithOffset(i);
+                sb.append(dumpHex(bytes));
+                sb.append(" ASCII:(");
+                boolean printable = true;
+                for (byte b : bytes) {
+                    if (b < 0x20 || b > 0x7E) {
+                        printable = false;
+                        break;
+                    }
+                }
+                if (printable) {
+                    sb.append(new String(bytes, StandardCharsets.ISO_8859_1));
+                }
+                sb.append(")");
+                break;
+            }
             case ARRAY: {
                 int begin = getArrayEndOffset(i - 1);
                 int end = getArrayEndOffset(i);
@@ -1875,5 +1891,17 @@ public class VectorColumn {
             default:
                 throw new RuntimeException("Unknown type value: " + typeValue);
         }
+    }
+
+    public String dumpHex(byte[] bytes) {
+        char[] hexUpper = "0123456789ABCDEF".toCharArray();
+        StringBuilder sb = new StringBuilder();
+        sb.append("X'");
+        for (byte b : bytes) {
+            int v = b & 0xFF;
+            sb.append(hexUpper[v >>> 4]).append(hexUpper[v & 0x0F]);
+        }
+        sb.append("'");
+        return sb.toString();
     }
 }

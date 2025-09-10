@@ -72,6 +72,8 @@ public:
 
     void insert(const Field& x) override {
         auto value = vectorized::get<const doris::StringView&>(x);
+        LOG(INFO) << "asd value.size() " << value.size() << " " << value.str() << " "
+                  << value.dump_hex();
         insert_data(value.data(), value.size());
     }
 
@@ -155,13 +157,17 @@ public:
         return value_size + sizeof(uint32_t);
     }
 
-    size_t serialize_size_at(size_t row) const override { return _data[row].size(); }
+    size_t serialize_size_at(size_t row) const override {
+        return _data[row].size() + sizeof(uint32_t);
+    }
 
-    MutableColumnPtr convert_to_string_column() const;
+    ColumnPtr convert_to_string_column() const;
 
 private:
     Container _data;
     Arena _arena;
+    // used in convert_to_string_column, maybe need a better way to deal with it
+    mutable ColumnPtr _converted_string_column;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -784,8 +784,8 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
     case PrimitiveType::TYPE_VARBINARY: {
         // TODO, here is maybe not efficient, need optimize later
         const auto& varbinary_col = assert_cast<const ColumnVarbinary&>(*data_column);
-        auto string_column = varbinary_col.convert_to_string_column();
-        const auto& string_col = assert_cast<const ColumnString&>(*string_column);
+        auto string_column_ptr = varbinary_col.convert_to_string_column();
+        const auto& string_col = assert_cast<const ColumnString&>(*string_column_ptr);
         meta_data.emplace_back((long)string_col.get_offsets().data());
         meta_data.emplace_back((long)string_col.get_chars().data());
         break;

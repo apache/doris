@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 
 #include "string_ref.h"
 
@@ -120,6 +121,22 @@ public:
     const char* begin() const& { return data(); }
     const char* end() && = delete;
     const char* end() const& { return data() + size(); }
+
+    std::string dump_hex() const {
+        static const char* kHex = "0123456789ABCDEF";
+        std::string out;
+        out.reserve(size_ * 2 + 3);
+        out.push_back('X');
+        out.push_back('\'');
+        const char* ptr = data();
+        for (uint32_t i = 0; i < size_; ++i) {
+            auto c = static_cast<unsigned char>(ptr[i]);
+            out.push_back(kHex[c >> 4]);
+            out.push_back(kHex[c & 0x0F]);
+        }
+        out.push_back('\'');
+        return out;
+    }
 
 private:
     inline int64_t size_and_prefix_as_int64() const {

@@ -47,6 +47,13 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
 
         qt_select_all_types_multi_block """select count(`int`),count(`varchar`) from all_types_multi_block;"""
 
+
+        sql """use mysql_all_type_test.test_varbinary_db"""
+        qt_desc_varbinary_type """desc test_varbinary;"""
+        qt_select_varbinary_type """select * from test_varbinary order by id;"""
+        qt_select_varbinary_type2 """insert into test_varbinary values(3, X'48656C6C6F20576F726C6421');"""
+        qt_select_varbinary_type3 """select * from test_varbinary order by id;"""
+
         sql """drop catalog if exists mysql_all_type_test """
     }
 }

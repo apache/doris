@@ -39,6 +39,9 @@ MutableColumnPtr ColumnVarbinary::clone_resized(size_t size) const {
             auto value = this->get_data_at(i);
             new_col.insert_data(value.data, value.size);
         }
+        if (size > count) {
+            new_col.insert_many_defaults(size - count);
+        }
     }
     return res;
 }
@@ -159,18 +162,19 @@ void ColumnVarbinary::replace_column_data(const IColumn& rhs, size_t row, size_t
     _data[self_row] = doris::StringView(dst, val.size());
 }
 
-MutableColumnPtr ColumnVarbinary::convert_to_string_column() const {
-    auto res = ColumnString::create();
-    auto& res_data = assert_cast<ColumnString&>(*res).get_chars();
-    auto& res_offsets = assert_cast<ColumnString&>(*res).get_offsets();
+ColumnPtr ColumnVarbinary::convert_to_string_column() const {
+    auto string_column = ColumnString::create();
+    auto& res_data = assert_cast<ColumnString&>(*string_column).get_chars();
+    auto& res_offsets = assert_cast<ColumnString&>(*string_column).get_offsets();
+    res_data.reserve(res_data.size() + byte_size());
     size_t current_offset = 0;
-    for (size_t i = 0; i < _data.size(); ++i) {
-        auto value = _data[i];
+    for (const auto& value : _data) {
         res_data.insert(value.data(), value.data() + value.size());
         current_offset += value.size();
         res_offsets.push_back(current_offset);
     }
-    return res;
+    _converted_string_column = string_column->get_ptr();
+    return _converted_string_column;
 }
 
 #include "common/compile_check_end.h"

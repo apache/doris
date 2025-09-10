@@ -3366,7 +3366,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             throw new ParseException("Invalid varbinary literal format: " + txt);
         }
-        return new VarBinaryLiteral(hexString.getBytes());
+        return new VarBinaryLiteral(hexString);
     }
 
     @Override

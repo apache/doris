@@ -558,6 +558,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.VARIANT);
     }
 
+    public boolean isVarbinaryType() {
+        return isScalarType(PrimitiveType.VARBINARY);
+    }
+
     // only metric types have the following constraint:
     // 1. don't support as key column
     // 2. don't support filter
@@ -2347,31 +2351,5 @@ public abstract class Type {
             return true;
         }
         return false;
-    }
-
-    /**
-     * @return 33 (utf8_general_ci) if type is char varchar hll or bitmap
-     * 63 (binary) others
-     * <p>
-     * https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_character_set.html
-     */
-    public int getMysqlResultSetFieldCharsetIndex() {
-        switch (this.getPrimitiveType()) {
-            case CHAR:
-            case VARCHAR:
-            case HLL:
-            case BITMAP:
-                // Because mysql does not have a large int type, mysql will treat it as hex after exceeding bigint
-            case LARGEINT:
-            case JSONB:
-            case STRING:
-            case VARIANT:
-            case ARRAY:
-            case MAP:
-            case STRUCT:
-                return 33; // utf8_general_ci
-            default:
-                return 63; // binary
-        }
     }
 }
