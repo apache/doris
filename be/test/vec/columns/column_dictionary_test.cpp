@@ -185,7 +185,7 @@ TEST_F(ColumnDictionaryTest, insert_default) {
 */
 TEST_F(ColumnDictionaryTest, clear) {
     auto target_column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
-    tmp_column_dict->insert_many_dict_data(dict_array.data(), dict_array.size());
+    target_column->insert_many_dict_data(dict_array.data(), dict_array.size());
 
     target_column->clear();
     EXPECT_EQ(target_column->size(), 0);
