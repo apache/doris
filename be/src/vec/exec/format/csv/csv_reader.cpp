@@ -686,7 +686,7 @@ Status CsvReader::_validate_line(const Slice& line, bool* success) {
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(line.data, line.size); },
                     [&]() -> std::string {
-                        return "Invalid file encoding. All CSV files must be UTF-8 encoded";
+                        return "Invalid file encoding: all CSV files must be UTF-8 encoded";
                     }));
             return Status::OK();
         }
