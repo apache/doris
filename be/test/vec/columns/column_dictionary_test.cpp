@@ -201,7 +201,7 @@ TEST_F(ColumnDictionaryTest, allocated_bytes) {
     EXPECT_EQ(column_dict_char->allocated_bytes(), column_dict_char->size() * 4);
 }
 TEST_F(ColumnDictionaryTest, has_enough_capacity) {
-    EXPECT_THROW(column_dict_char->has_enough_capacity(ColumnDictI32()), Exception);
+    EXPECT_THROW(column_dict_char->has_enough_capacity(ColumnDictI32(FieldType::OLAP_FIELD_TYPE_VARCHAR)), Exception);
 }
 TEST_F(ColumnDictionaryTest, pop_back) {
     EXPECT_THROW(column_dict_char->pop_back(9), Exception);
