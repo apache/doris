@@ -139,7 +139,8 @@ suite("test_tvf_topn_lazy_mat","external,hive,tvf,external_docker") {
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         //id   | name  | value | active | score 
-        sql """ set enable_topn_lazy_materialization=true; """
+        sql """ set topn_lazy_materialization_threshold=1024; """
+         
         explain {
             sql """ verbose select * from ${tvf_parquet_1} order by id limit 5; """ 
             contains("VMaterializeNode")
@@ -189,7 +190,7 @@ suite("test_tvf_topn_lazy_mat","external,hive,tvf,external_docker") {
 
 
 
-        sql """ set enable_topn_lazy_materialization=false; """
+        sql """ set topn_lazy_materialization_threshold=-1; """
         explain {
             sql """ verbose select * from ${tvf_parquet_1} order by id limit 5; """ 
             notContains ("VMaterializeNode")
