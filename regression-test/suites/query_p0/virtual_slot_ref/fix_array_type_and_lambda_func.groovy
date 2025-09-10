@@ -32,7 +32,9 @@ suite("fix_array_type_and_lambda_func") {
     qt_0 """
         SELECT array_with_constant(int_col, NULL) AS arr1, array_with_constant(int_col, NULL) AS arr2 FROM fix_array_type_and_lambda_func WHERE id = 4
     """
-
+    sql """
+        drop table if exists test_array_filter;
+    """
     sql """
         CREATE TABLE test_array_filter (id INT, arr_col ARRAY<INT>, str_col VARCHAR(20), int_col INT) DISTRIBUTED BY HASH(id) BUCKETS 4 PROPERTIES ("replication_num" = "1");
     """
@@ -42,6 +44,13 @@ suite("fix_array_type_and_lambda_func") {
     """
 
     qt_1 """
-        SELECT array_filter(x -> x > int_col + 5, arr_col) AS expr1, array_filter(x -> x > int_col + 5, arr_col) AS expr2 FROM test_array_filter WHERE array_filter(x -> x > int_col + 5, arr_col) IS NOT NULL;
+        WITH filtered_data AS (
+            SELECT id, 
+                   array_filter(x -> x > int_col + 5, arr_col) AS expr1, 
+                   array_filter(x -> x > int_col + 5, arr_col) AS expr2 
+            FROM test_array_filter 
+            WHERE array_filter(x -> x > int_col + 5, arr_col) IS NOT NULL
+        )
+        SELECT expr1, expr2 FROM filtered_data ORDER BY id;
     """
 }
