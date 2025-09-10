@@ -273,7 +273,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
                                  << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
                 }
-                if (tablet->complete_rowset_segment_warmup(rowset_id, st) == WarmUpState::DONE) {
+                if (tablet->complete_rowset_segment_warmup(rowset_id, st, 1, 0) ==
+                    WarmUpState::DONE) {
                     VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
                                << rowset_id.to_string() << ") completed";
                 }
@@ -304,9 +305,18 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             }
             _engine.file_cache_block_downloader().submit_download_task(download_meta);
 
-            auto download_inverted_index = [&](std::string index_path, uint64_t idx_size) {
+            auto download_inverted_index = [&, tablet](std::string index_path, uint64_t idx_size) {
                 auto storage_resource = rs_meta.remote_storage_resource();
-                auto download_done = [=, rowset_id = rowset_id.to_string()](Status st) {
+                auto download_done = [=, version = rs_meta.version()](Status st) {
+                    DBUG_EXECUTE_IF(
+                            "CloudInternalServiceImpl::warm_up_rowset.download_inverted_idx", {
+                                auto sleep_time = dp->param<int>("sleep", 3);
+                                LOG_INFO(
+                                        "[verbose] block download for rowset={}, inverted index "
+                                        "file={}, sleep={}",
+                                        rowset_id.to_string(), index_path, sleep_time);
+                                std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+                            });
                     if (st.ok()) {
                         g_file_cache_event_driven_warm_up_finished_index_num << 1;
                         g_file_cache_event_driven_warm_up_finished_index_size << idx_size;
@@ -323,14 +333,14 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                             g_file_cache_warm_up_rowset_slow_count << 1;
                             LOG(INFO) << "warm up rowset took " << now_ts - request_ts
                                       << " us, tablet_id: " << tablet_id
-                                      << ", rowset_id: " << rowset_id
+                                      << ", rowset_id: " << rowset_id.to_string()
                                       << ", segment_id: " << segment_id;
                         }
                         if (now_ts - handle_ts > config::warm_up_rowset_slow_log_ms * 1000) {
                             g_file_cache_warm_up_rowset_handle_to_finish_slow_count << 1;
                             LOG(INFO) << "warm up rowset (handle to finish) took "
                                       << now_ts - handle_ts << " us, tablet_id: " << tablet_id
-                                      << ", rowset_id: " << rowset_id
+                                      << ", rowset_id: " << rowset_id.to_string()
                                       << ", segment_id: " << segment_id;
                         }
                     } else {
@@ -338,6 +348,11 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         g_file_cache_event_driven_warm_up_failed_index_size << idx_size;
                         LOG(WARNING) << "download inverted index failed, tablet_id: " << tablet_id
                                      << " rowset_id: " << rowset_id << ", error: " << st;
+                    }
+                    if (tablet->complete_rowset_segment_warmup(rowset_id, st, 0, 1) ==
+                        WarmUpState::DONE) {
+                        VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
+                                   << rowset_id.to_string() << ") completed";
                     }
                     if (wait) {
                         wait->signal();
@@ -358,7 +373,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                 };
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_index_size << idx_size;
-
+                tablet->update_rowset_warmup_state_inverted_idx_num(rowset_id, 1);
                 if (wait) {
                     wait->add_count();
                 }

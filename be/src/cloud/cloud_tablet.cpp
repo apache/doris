@@ -118,6 +118,10 @@ bvar::Adder<uint64_t> g_file_cache_warm_up_segment_complete_num(
         "file_cache_warm_up_segment_complete_num");
 bvar::Adder<uint64_t> g_file_cache_warm_up_segment_failed_num(
         "file_cache_warm_up_segment_failed_num");
+bvar::Adder<uint64_t> g_file_cache_warm_up_inverted_idx_complete_num(
+        "file_cache_warm_up_inverted_idx_complete_num");
+bvar::Adder<uint64_t> g_file_cache_warm_up_inverted_idx_failed_num(
+        "file_cache_warm_up_inverted_idx_failed_num");
 bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_complete_num(
         "file_cache_warm_up_rowset_complete_num");
 bvar::Adder<uint64_t> g_file_cache_warm_up_rowset_triggered_by_job_num(
@@ -443,14 +447,14 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             }
                                             // clang-format off
                                 });
-                                self->complete_rowset_segment_warmup(rowset_meta->rowset_id(), st);
+                                self->complete_rowset_segment_warmup(rowset_meta->rowset_id(), st, 1, 0);
                                 if (!st) {
                                     LOG_WARNING("add rowset warm up error ").error(st);
                                 }
                             }},
                     });
 
-                    auto download_idx_file = [&](const io::Path& idx_path, int64_t idx_size) {
+                    auto download_idx_file = [&, self](const io::Path& idx_path, int64_t idx_size) {
                         io::DownloadFileMeta meta {
                                 .path = idx_path,
                                 .file_size = idx_size,
@@ -460,12 +464,27 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                                 .expiration_time = expiration_time,
                                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                         },
-                                .download_done {[](Status st) {
+                                .download_done {[=](Status st) {
+                                    DBUG_EXECUTE_IF("CloudTablet::add_rowsets.download_idx.callback.block", {
+                                                // clang-format on
+                                                auto sleep_time = dp->param<int>("sleep", 3);
+                                                LOG_INFO(
+                                                        "[verbose] block download for "
+                                                        "rowset={}, inverted_idx_file={}, "
+                                                        "sleep={}",
+                                                        rs->rowset_id().to_string(),
+                                                        idx_path.string(), sleep_time);
+                                                std::this_thread::sleep_for(
+                                                        std::chrono::seconds(sleep_time));
+                                                // clang-format off
+                                    });
+                                    self->complete_rowset_segment_warmup(rowset_meta->rowset_id(), st, 0, 1);
                                     if (!st) {
                                         LOG_WARNING("add rowset warm up error ").error(st);
                                     }
                                 }},
                         };
+                        self->update_rowset_warmup_state_inverted_idx_num_unlocked(rowset_meta->rowset_id(), 1);
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
                         g_file_cache_cloud_tablet_submitted_index_num << 1;
                         g_file_cache_cloud_tablet_submitted_index_size << idx_size;
@@ -1613,6 +1632,19 @@ bool CloudTablet::add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState 
     return add_rowset_warmup_state_unlocked(rowset, state, start_tp);
 }
 
+void CloudTablet::update_rowset_warmup_state_inverted_idx_num(RowsetId rowset_id, int64_t delta) {
+    std::lock_guard wlock(_meta_lock);
+    update_rowset_warmup_state_inverted_idx_num_unlocked(rowset_id, delta);
+}
+
+void CloudTablet::update_rowset_warmup_state_inverted_idx_num_unlocked(RowsetId rowset_id,
+                                                                       int64_t delta) {
+    if (!_rowset_warm_up_states.contains(rowset_id)) {
+        return;
+    }
+    _rowset_warm_up_states[rowset_id].num_inverted_idx += delta;
+}
+
 bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state,
                                                    std::chrono::steady_clock::time_point start_tp) {
     if (_rowset_warm_up_states.contains(rowset.rowset_id())) {
@@ -1628,18 +1660,28 @@ bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, War
     return true;
 }
 
-WarmUpState CloudTablet::complete_rowset_segment_warmup(RowsetId rowset_id, Status status) {
+WarmUpState CloudTablet::complete_rowset_segment_warmup(RowsetId rowset_id, Status status,
+                                                        int64_t segment_num,
+                                                        int64_t inverted_idx_num) {
     std::lock_guard wlock(_meta_lock);
     if (!_rowset_warm_up_states.contains(rowset_id)) {
         return WarmUpState::NONE;
     }
     VLOG_DEBUG << "complete rowset segment warmup for rowset " << rowset_id << ", " << status;
-    g_file_cache_warm_up_segment_complete_num << 1;
-    if (!status.ok()) {
-        g_file_cache_warm_up_segment_failed_num << 1;
+    if (segment_num > 0) {
+        g_file_cache_warm_up_segment_complete_num << segment_num;
+        if (!status.ok()) {
+            g_file_cache_warm_up_segment_failed_num << segment_num;
+        }
     }
-    _rowset_warm_up_states[rowset_id].num_segments--;
-    if (_rowset_warm_up_states[rowset_id].num_segments <= 0) {
+    if (inverted_idx_num > 0) {
+        g_file_cache_warm_up_inverted_idx_complete_num << inverted_idx_num;
+        if (!status.ok()) {
+            g_file_cache_warm_up_inverted_idx_failed_num << inverted_idx_num;
+        }
+    }
+    _rowset_warm_up_states[rowset_id].done(segment_num, inverted_idx_num);
+    if (_rowset_warm_up_states[rowset_id].has_finished()) {
         g_file_cache_warm_up_rowset_complete_num << 1;
         add_warmed_up_rowset(rowset_id);
         auto cost = std::chrono::duration_cast<std::chrono::milliseconds>(
