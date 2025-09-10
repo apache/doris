@@ -17,7 +17,7 @@ PhysicalResultSink
 -- !agg_phase_3 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashAgg[GLOBAL]
+----hashAgg[DISTINCT_GLOBAL]
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]

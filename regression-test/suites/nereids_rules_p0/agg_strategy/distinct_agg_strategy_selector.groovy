@@ -36,7 +36,7 @@ suite("distinct_agg_strategy_selector") {
     qt_should_use_multi_distinct_with_group_by """explain shape plan
     select count(distinct d_20) , count(distinct b_5) from t1000 group by a_1;"""
     sql "drop stats t1000"
-    qt_no_stats_should_use_multi_distinct """explain shape plan
+    qt_no_stats_should_use_cte """explain shape plan
     select count(distinct a_1) , count(distinct b_5) from t1000;"""
     qt_no_stats_should_use_multi_distinct """explain shape plan
     select count(distinct d_20) , count(distinct b_5) from t1000 group by a_1;"""

@@ -79,12 +79,28 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalOlapScan[t1000]
 
--- !no_stats_should_use_multi_distinct --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----PhysicalDistribute[DistributionSpecGather]
-------hashAgg[LOCAL]
---------PhysicalOlapScan[t1000]
+-- !no_stats_should_use_cte --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[t1000]
+--PhysicalResultSink
+----NestedLoopJoin[CROSS_JOIN]
+------hashAgg[DISTINCT_GLOBAL]
+--------PhysicalDistribute[DistributionSpecGather]
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[DISTINCT_GLOBAL]
+--------PhysicalDistribute[DistributionSpecGather]
+----------hashAgg[DISTINCT_LOCAL]
+------------hashAgg[GLOBAL]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------hashAgg[LOCAL]
+------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !no_stats_should_use_multi_distinct --
 PhysicalResultSink
