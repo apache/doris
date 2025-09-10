@@ -59,6 +59,7 @@ statementBase
     | supportedDropStatement            #supportedDropStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
     | supportedKillStatement            #supportedKillStatementAlias
+    | supportedAdminStatement           #supportedAdminStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -500,6 +501,10 @@ unsupportedAdminStatement
     | ADMIN SET ENCRYPTION ROOT KEY PROPERTIES LEFT_PAREN propertyItemList 
         RIGHT_PAREN                                                                 #adminSetEncryptionRootKey
     | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus
+    ;
+
+supportedAdminStatement
+    : ADMIN ROTATE TDE ROOT KEY properties=propertyClause?                          #adminRotateTdeRootKey
     ;
 
 baseTableRef
