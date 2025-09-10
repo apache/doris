@@ -105,7 +105,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             .add(new Column("ErrorMsg", ScalarType.createStringType()))
             .build();
 
-    private static final ShowResultSetMetaData TASK_META_DATA =
+    public static final ShowResultSetMetaData TASK_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("TaskId", ScalarType.createVarchar(80)))
                     .addColumn(new Column("Label", ScalarType.createVarchar(80)))

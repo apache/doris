@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -61,8 +63,13 @@ public class CreateJobCommand extends Command implements ForwardWithSync {
         Env.getCurrentEnv().getJobManager().registerJob(job);
     }
 
-    private void validate() {
-        //todo: stream job need check total limit
+    private void validate() throws JobException {
+        if (createJobInfo.streamingJob()) {
+            int streamingJobCnt = Env.getCurrentEnv().getJobManager().getStreamingJobCnt();
+            if (streamingJobCnt >= Config.max_streaming_job_num) {
+                throw new JobException("Exceed max streaming job num limit " + Config.max_streaming_job_num);
+            }
+        }
     }
 
     @Override

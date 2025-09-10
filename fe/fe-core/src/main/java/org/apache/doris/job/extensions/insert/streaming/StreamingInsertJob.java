@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -30,13 +31,14 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.PauseReason;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
+import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -49,11 +51,12 @@ import org.apache.doris.transaction.TxnStateChangeCallback;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -76,9 +79,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     @SerializedName("jp")
     private StreamingJobProperties jobProperties;
-    StreamingInsertTask runningStreamingtask;
+    @Getter
+    StreamingInsertTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
-
     private long lastScheduleTaskTimestamp = -1L;
 
     public StreamingInsertJob(String jobName,
@@ -101,10 +104,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private String parseTvfType() {
         NereidsParser parser = new NereidsParser();
         InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(getExecuteSql());
-        LogicalPlan logicalQuery = command.getLogicalQuery();
-        logicalQuery.children();
-        //todo: Judging TVF based on plan
-        return "s3";
+        return command.getFirstTvfName();
     }
 
     @Override
@@ -123,19 +123,23 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public boolean isReadyForScheduling(Map<Object, Object> taskContext) {
-        return true;
+        return CollectionUtils.isEmpty(getRunningTasks());
     }
 
     @Override
     public List<StreamingJobSchedulerTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
-        return Collections.emptyList();
+        List<StreamingJobSchedulerTask> newTasks = new ArrayList<>();
+        StreamingJobSchedulerTask streamingJobSchedulerTask = new StreamingJobSchedulerTask(this);
+        newTasks.add(streamingJobSchedulerTask);
+        super.initTasks(newTasks, taskType);
+        return newTasks;
     }
 
     protected StreamingInsertTask createStreamingInsertTask() {
         InsertIntoTableCommand command = offsetProvider.rewriteTvfParams(getExecuteSql());
-        this.runningStreamingtask = new StreamingInsertTask(command,
+        this.runningStreamTask = new StreamingInsertTask(getJobId(), AbstractTask.getNextTaskId(), command,
                 loadStatistic, getCurrentDbName(), offsetProvider.getCurrentOffset(), jobProperties);
-        return this.runningStreamingtask;
+        return this.runningStreamTask;
     }
 
     protected void fetchMeta() {
@@ -157,22 +161,33 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void onTaskFail(StreamingJobSchedulerTask task) throws JobException {
-        if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
-            this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, task.getErrMsg());
-        }
-        // not edit log
+        // Here is the failure of StreamingJobSchedulerTask, no processing is required
+        getRunningTasks().remove(task);
     }
 
     @Override
     public void onTaskSuccess(StreamingJobSchedulerTask task) throws JobException {
-        // not edit log
-        // need to create new stream insert task and throw to task scheduler
+        // Here is the success of StreamingJobSchedulerTask, no processing is required
+        getRunningTasks().remove(task);
+    }
+
+    public void onStreamTaskFail(StreamingInsertTask task) throws JobException {
+        if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+            this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, task.getErrMsg());
+        }
+        updateJobStatus(JobStatus.PAUSED);
+    }
+
+    public void onStreamTaskSuccess(StreamingInsertTask task) {
+        StreamingInsertTask nextTask = createStreamingInsertTask();
+        this.runningStreamTask = nextTask;
+        Env.getCurrentEnv().getJobManager().getStreamingTaskScheduler().registerTask(runningStreamTask);
     }
 
 
     @Override
     public ShowResultSetMetaData getTaskMetaData() {
-        return ShowResultSetMetaData.builder().build();
+        return InsertJob.TASK_META_DATA;
     }
 
     @Override
@@ -210,7 +225,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public List<StreamingJobSchedulerTask> queryTasks() {
-        return new ArrayList<>();
+        if (!getRunningTasks().isEmpty()) {
+            return getRunningTasks();
+        } else {
+            return Arrays.asList(new StreamingJobSchedulerTask(this));
+        }
     }
 
     @Override

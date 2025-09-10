@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -73,6 +74,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     private JobScheduler<T, C> jobScheduler;
 
+    @Getter
     private StreamingTaskScheduler streamingTaskScheduler;
 
     // lock for job
@@ -110,6 +112,21 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      */
     public T getJob(long jobId) {
         return jobMap.get(jobId);
+    }
+
+    /**
+     * get streaming running job
+     *
+     * @return running job
+     */
+    public int getStreamingJobCnt() {
+        int count = 0;
+        for (T job : jobMap.values()) {
+            if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     public void registerJob(T job) throws JobException {

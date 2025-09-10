@@ -19,7 +19,11 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
     S3Offset currentOffset;
@@ -31,7 +35,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public Offset getNextOffset() {
+    public S3Offset getNextOffset() {
         //todo: listObjects from end file
         return null;
     }
@@ -43,10 +47,15 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public InsertIntoTableCommand rewriteTvfParams(String sql) {
+        S3Offset nextOffset = getNextOffset();
+        Map<String, String> props = new HashMap<>();
+        //todo: need to change file list to glob string
+        props.put("uri", nextOffset.getFileLists().toString());
 
-        // will call getNextOffset
-        // rewrite TVF
-        return null;
+        NereidsParser parser = new NereidsParser();
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+        command.rewriteTvfProperties(getSourceType(), props);
+        return command;
     }
 
     @Override

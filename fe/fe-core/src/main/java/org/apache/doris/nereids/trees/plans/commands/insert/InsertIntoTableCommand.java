@@ -38,6 +38,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -79,6 +80,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -533,6 +535,48 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         } else {
             throw new AnalysisException(
                     "the root of plan should be [UnboundTableSink], but it is " + originLogicalQuery.getType());
+        }
+    }
+
+    // todo: add ut
+    public String getFirstTvfName() {
+        return getFirstTvfInPlan(getLogicalQuery());
+    }
+
+    private String getFirstTvfInPlan(LogicalPlan plan) {
+        if (plan instanceof UnboundTVFRelation) {
+            UnboundTVFRelation tvfRelation = (UnboundTVFRelation) plan;
+            return tvfRelation.getFunctionName();
+        }
+
+        for (Plan child : plan.children()) {
+            if (child instanceof LogicalPlan) {
+                return getFirstTvfInPlan((LogicalPlan) child);
+            }
+        }
+        return "";
+    }
+
+    // todo: add ut
+    public void rewriteTvfProperties(String functionName, Map<String, String> props) {
+        rewriteTvfInPlan(originLogicalQuery, functionName, props);
+        if (logicalQuery.isPresent()) {
+            rewriteTvfInPlan(logicalQuery.get(), functionName, props);
+        }
+    }
+
+    private void rewriteTvfInPlan(LogicalPlan plan, String functionName, Map<String, String> props) {
+        if (plan instanceof UnboundTVFRelation) {
+            UnboundTVFRelation tvfRelation = (UnboundTVFRelation) plan;
+            if (functionName.equalsIgnoreCase(tvfRelation.getFunctionName())) {
+                tvfRelation.getProperties().getMap().putAll(props);
+            }
+        }
+
+        for (Plan child : plan.children()) {
+            if (child instanceof LogicalPlan) {
+                rewriteTvfInPlan((LogicalPlan) child, functionName, props);
+            }
         }
     }
 

@@ -60,7 +60,7 @@ public abstract class AbstractTask implements Task {
         taskId = getNextTaskId();
     }
 
-    private static long getNextTaskId() {
+    public static long getNextTaskId() {
         // do not use Env.getNextId(), just generate id without logging
         return System.nanoTime() + RandomUtils.nextInt();
     }

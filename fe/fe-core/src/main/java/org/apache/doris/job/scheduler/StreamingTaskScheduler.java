@@ -106,7 +106,7 @@ public class StreamingTaskScheduler extends MasterDaemon {
             return;
         }
         log.info("prepare to schedule task, task id: {}, job id: {}", task.getTaskId(), task.getJobId());
-        task.runTask();
+        task.execute();
     }
 
     private void scheduleTaskWithDelay(StreamingInsertTask task, long delayMs) {
