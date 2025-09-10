@@ -551,7 +551,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
         for (Plan child : plan.children()) {
             if (child instanceof LogicalPlan) {
-                return getFirstTvfInPlan((LogicalPlan) child);
+                String result = getFirstTvfInPlan((LogicalPlan) child);
+                if (!result.isEmpty()) {
+                    return result;
+                }
             }
         }
         return "";
