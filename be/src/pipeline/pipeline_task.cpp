@@ -75,7 +75,7 @@ PipelineTask::PipelineTask(
           _pipeline_name(_pipeline->name()) {
     _pipeline_task_watcher.start();
 #ifndef BE_TEST
-    _query_mem_tracker = fragment_context->get_query_ctx()->query_mem_tracker();
+    _query_mem_tracker = fragment_context->get_query_ctx()->query_mem_tracker;
 #endif
     _execution_dependencies.push_back(state->get_query_ctx()->get_execution_dependency());
     auto shared_state = _sink->create_shared_state();
@@ -95,7 +95,6 @@ PipelineTask::~PipelineTask() {
     _op_shared_states.clear();
     _sink.reset();
     _operators.clear();
-    _spill_context.reset();
     _block.reset();
     _pipeline.reset();
 }
