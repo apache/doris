@@ -75,14 +75,14 @@ enum TimeUnit {
 };
 
 struct TimeInterval {
-    int64_t year;
-    int64_t month;
-    int64_t day;
-    int64_t hour;
-    int64_t minute;
-    int64_t second;
-    int64_t millisecond;
-    int64_t microsecond;
+    uint64_t year;
+    uint64_t month;
+    uint64_t day;
+    uint64_t hour;
+    uint64_t minute;
+    uint64_t second;
+    uint64_t millisecond;
+    uint64_t microsecond;
     bool is_neg;
 
     TimeInterval()
@@ -96,7 +96,7 @@ struct TimeInterval {
               microsecond(0),
               is_neg(false) {}
 
-    TimeInterval(TimeUnit unit, int64_t count, bool is_neg_param)
+    TimeInterval(TimeUnit unit, uint64_t count, bool is_neg_param)
             : year(0),
               month(0),
               day(0),
