@@ -151,7 +151,20 @@ Status RowsetBuilder::check_tablet_version_count() {
     bool injection = false;
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { injection = true; });
-    auto max_version_config = _tablet->max_version_config();
+    int32_t max_version_config = _tablet->max_version_config();
+    if (injection) {
+        // do not return if injection
+    } else if (!_tablet->exceed_version_limit(max_version_config - 100) ||
+               GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+        return Status::OK();
+    }
+    //trigger compaction
+    auto st = _engine.submit_compaction_task(tablet_sptr(), CompactionType::CUMULATIVE_COMPACTION,
+                                             true);
+    if (!st.ok()) [[unlikely]] {
+        LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id() << " : "
+                     << st;
+    }
     auto version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { version_count = INT_MAX; });
@@ -162,19 +175,6 @@ Status RowsetBuilder::check_tablet_version_count() {
                 "max_tablet_version_num or time_series_max_tablet_version_num in be.conf to a "
                 "larger value.",
                 version_count, max_version_config, _tablet->tablet_id());
-    }
-    // (TODO Refrain) Maybe we can use a configurable param instead of hardcoded values '100'.
-    if (version_count > max_version_config - 100) {
-        // Before compaction run, check memory exceed limit.
-        if (injection || !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
-            //trigger compaction
-            auto st = _engine.submit_compaction_task(tablet_sptr(),
-                                                     CompactionType::CUMULATIVE_COMPACTION, true);
-            if (!st.ok()) [[unlikely]] {
-                LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id()
-                             << " : " << st;
-            }
-        }
     }
     return Status::OK();
 }
