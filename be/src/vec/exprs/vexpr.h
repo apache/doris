@@ -307,6 +307,7 @@ protected:
         return out.str();
     }
 
+    // used in expr name
     std::string get_child_names() {
         std::string res;
         for (auto child : _children) {
@@ -314,6 +315,18 @@ protected:
                 res += ", ";
             }
             res += child->expr_name();
+        }
+        return res;
+    }
+
+    // only for errmsg now
+    std::string get_child_type_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name() + ": " + child->data_type()->get_name();
         }
         return res;
     }

@@ -18,10 +18,10 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -29,14 +29,13 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "runtime/message_body_sink.h"
 #include "util/byte_buffer.h"
 #include "util/slice.h"
+#include "vec/common/custom_allocator.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 struct IOContext;
 
 static inline constexpr size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
@@ -74,7 +73,7 @@ public:
     // called when producer/consumer failed
     virtual void cancel(const std::string& reason) override;
 
-    Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length);
+    Status read_one_message(DorisUniqueBufferPtr<uint8_t>* data, size_t* length);
 
     size_t get_queue_size() { return _buf_queue.size(); }
 
@@ -97,7 +96,7 @@ protected:
 
 private:
     // read the next buffer from _buf_queue
-    Status _read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length);
+    Status _read_next_buffer(DorisUniqueBufferPtr<uint8_t>* data, size_t* length);
 
     Status _append(const ByteBufferPtr& buf, size_t proto_byte_size = 0);
 
@@ -130,5 +129,4 @@ private:
     // the data needs to be completely read before it can be parsed.
     bool _is_chunked_transfer = false;
 };
-} // namespace io
-} // namespace doris
+} // namespace doris::io

@@ -21,6 +21,7 @@
 
 #include "util/slice.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
@@ -33,7 +34,7 @@ protected:
         size_t dict_size = 3;
         size_t dict_data_size = dict_size * _type_length;
 
-        auto dict_data = std::make_unique<uint8_t[]>(dict_data_size);
+        auto dict_data = make_unique_buffer<uint8_t>(dict_data_size);
         const char* values[3] = {"apple ", "banana", "cherry"}; // Dictionary values
         for (int i = 0; i < 3; i++) {
             memcpy(dict_data.get() + i * _type_length, values[i], _type_length);
@@ -202,7 +203,7 @@ TEST_F(FixLengthDictDecoderTest, test_empty_dict) {
     FixLengthDictDecoder empty_decoder;
     empty_decoder.set_type_length(sizeof(int32_t));
 
-    auto dict_data = std::make_unique<uint8_t[]>(0);
+    auto dict_data = make_unique_buffer<uint8_t>(0);
     ASSERT_TRUE(empty_decoder.set_dict(dict_data, 0, 0).ok());
 }
 
