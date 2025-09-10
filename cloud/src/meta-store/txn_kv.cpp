@@ -679,6 +679,12 @@ TxnErrorCode Transaction::commit() {
         versionstamp_fut = fdb_transaction_get_versionstamp(txn_);
     }
 
+    DORIS_CLOUD_DEFER {
+        if (versionstamp_fut) {
+            fdb_future_destroy(versionstamp_fut);
+        }
+    };
+
     if (err == 0) [[likely]] {
         StopWatch sw;
         auto* fut = fdb_transaction_commit(txn_);
@@ -692,9 +698,6 @@ TxnErrorCode Transaction::commit() {
     }
 
     if (err) {
-        if (versionstamp_fut) {
-            fdb_future_destroy(versionstamp_fut);
-        }
         LOG(WARNING) << "fdb commit error, code=" << err << " msg=" << fdb_get_error(err);
         if (fdb_error_is_txn_conflict(err)) {
             g_bvar_txn_kv_commit_conflict_counter << 1;
@@ -710,7 +713,6 @@ TxnErrorCode Transaction::commit() {
         err = fdb_future_get_error(versionstamp_fut);
         if (err) {
             LOG(WARNING) << "get versionstamp error, code=" << err << " msg=" << fdb_get_error(err);
-            fdb_future_destroy(versionstamp_fut);
             return cast_as_txn_code(err);
         }
 
@@ -720,12 +722,10 @@ TxnErrorCode Transaction::commit() {
         if (err) {
             LOG(WARNING) << "get versionstamp key error, code=" << err
                          << " msg=" << fdb_get_error(err);
-            fdb_future_destroy(versionstamp_fut);
             return cast_as_txn_code(err);
         }
 
         versionstamp_result_ = std::string((char*)versionstamp_data, versionstamp_length);
-        fdb_future_destroy(versionstamp_fut);
     }
 
     return TxnErrorCode::TXN_OK;
