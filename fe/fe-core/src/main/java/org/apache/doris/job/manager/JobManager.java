@@ -40,6 +40,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.scheduler.JobScheduler;
+import org.apache.doris.job.scheduler.StreamingTaskScheduler;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -72,6 +73,8 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     private JobScheduler<T, C> jobScheduler;
 
+    private StreamingTaskScheduler streamingTaskScheduler;
+
     // lock for job
     // lock is private and must use after db lock
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
@@ -95,8 +98,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     public void start() {
         jobScheduler = new JobScheduler<T, C>(jobMap);
         jobScheduler.start();
+        streamingTaskScheduler = new StreamingTaskScheduler();
+        streamingTaskScheduler.start();
     }
-
 
     /**
      * get running job

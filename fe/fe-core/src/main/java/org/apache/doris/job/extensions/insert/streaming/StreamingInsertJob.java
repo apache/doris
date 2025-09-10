@@ -42,9 +42,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @SerializedName("did")
     private final long dbId;
-    @Getter
-    @SerializedName("st")
-    protected JobStatus status;
 
     @Getter
     protected PauseReason pauseReason;
@@ -61,6 +58,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("jp")
     private StreamingJobProperties jobProperties;
 
+    private long lastScheduleTaskTimestamp = -1L;
+
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
             String dbName,
@@ -75,7 +74,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.dbId = ConnectContext.get().getCurrentDbId();
         this.jobProperties = jobProperties;
     }
-
 
     @Override
     public void updateJobStatus(JobStatus status) throws JobException {
@@ -127,5 +125,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public boolean needScheduleTask() {
+        return (getJobStatus().equals(JobStatus.RUNNING) || getJobStatus().equals(JobStatus.PENDING));
+    }
+
+    // When consumer to EOF, delay schedule task appropriately can avoid too many small transactions.
+    public boolean needDelayScheduleTask() {
+        return System.currentTimeMillis() - lastScheduleTaskTimestamp > jobProperties.getMaxIntervalSecond() * 1000;
+    }
+
+    public boolean hasMoreDataToConsume() {
+        // TODO: implement this
+        return true;
     }
 }
