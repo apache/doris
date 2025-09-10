@@ -715,7 +715,8 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
                     [&]() -> std::string { return std::string(line.data, line.size); },
                     [&]() -> std::string {
                         fmt::memory_buffer error_msg;
-                        fmt::format_to(error_msg, "Column count mismatch: expected {}, but found {}",
+                        fmt::format_to(error_msg,
+                                       "Column count mismatch: expected {}, but found {}",
                                        _file_slot_descs.size(), _split_values.size());
                         std::string escaped_separator =
                                 std::regex_replace(_value_separator, std::regex("\t"), "\\t");
