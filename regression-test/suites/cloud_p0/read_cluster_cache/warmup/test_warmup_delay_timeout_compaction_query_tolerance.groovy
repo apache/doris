@@ -19,7 +19,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import groovy.json.JsonSlurper
 
-suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
+suite('test_warmup_delay_timeout_compaction_query_tolerance', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -31,8 +31,8 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         'file_cache_background_monitor_interval_ms=1000',
         'warm_up_rowset_slow_log_ms=1',
         'enable_compaction_delay_commit_for_warm_up=true',
-        'warm_up_rowset_sync_wait_min_timeout_ms=20000',
-        'warm_up_rowset_sync_wait_max_timeout_ms=20000',
+        'warm_up_rowset_sync_wait_min_timeout_ms=5000',
+        'warm_up_rowset_sync_wait_max_timeout_ms=5000', // to cause timeout
     ]
     options.enableDebugPoints()
     options.cloudMode = true
@@ -307,7 +307,7 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         logWarmUpRowsetMetrics(clusterName2)
 
         future.get()
-        assert num_finished + 2 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
-        assert 0 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_warm_up_rowset_wait_for_compaction_timeout_num")
+        assert num_finished == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
+        assert 1 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_warm_up_rowset_wait_for_compaction_timeout_num")
     }
 }
