@@ -45,12 +45,13 @@ suite("fix_array_type_and_lambda_func") {
 
     qt_1 """
         WITH filtered_data AS (
-            SELECT id, 
+            SELECT id,
+                   round(id),
                    array_filter(x -> x > int_col + 5, arr_col) AS expr1, 
                    array_filter(x -> x > int_col + 5, arr_col) AS expr2 
             FROM test_array_filter 
-            WHERE array_filter(x -> x > int_col + 5, arr_col) IS NOT NULL
+            WHERE array_filter(x -> x > int_col + 5, arr_col) IS NOT NULL AND round(id) > 1
         )
-        SELECT expr1, expr2 FROM filtered_data ORDER BY id;
+        SELECT expr1, expr2, round(id) FROM filtered_data ORDER BY id;
     """
 }
