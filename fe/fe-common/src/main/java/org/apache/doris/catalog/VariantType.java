@@ -109,7 +109,8 @@ public class VariantType extends ScalarType {
         if (!predefinedFields.isEmpty()) {
             sb.append(predefinedFields.stream()
                                 .map(variantField -> variantField.toSql(depth)).collect(Collectors.joining(",")));
-            if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse) {
+            if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse
+                    && variantMaxSparseColumnStatisticsSize == 10000) {
                 sb.append(">");
                 return sb.toString();
             } else {
