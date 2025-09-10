@@ -379,7 +379,7 @@ Status NewJsonReader::_get_range_params() {
     }
     if (_params.file_attributes.__isset.openx_json_ignore_malformed) {
         _openx_json_ignore_malformed = _params.file_attributes.openx_json_ignore_malformed;
-    }    
+    }
     return Status::OK();
 }
 

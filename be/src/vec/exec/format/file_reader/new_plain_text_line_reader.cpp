@@ -354,7 +354,7 @@ bool NewPlainTextLineReader::has_multiple_json_objects(const uint8_t* cur_ptr, s
     for (const uint8_t* ptr = cur_ptr; ptr < end; ++ptr) {
         uint8_t c = *ptr;
 
-        if (c == '"' && (ptr == cur_ptr || *(ptr-1) != '\\')) {
+        if (c == '"' && (ptr == cur_ptr || *(ptr - 1) != '\\')) {
             if (!in_string) {
                 in_string = true;
                 string_char = c;
@@ -444,8 +444,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     } else {
                         if (offset = output_buf_read_remaining(); offset > 0) {  
                             if (has_multiple_json_objects(cur_ptr, offset)) {
-                                return Status::DataQualityError(
-                                        "Multiple JSON objects in a single line.");  
+                                return Status::DataQualityError("Multiple JSON objects in a single line.");
                             }
                         }
                         // last loop we meet stream end,
