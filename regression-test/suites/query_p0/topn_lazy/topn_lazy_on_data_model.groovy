@@ -35,8 +35,9 @@ suite("topn_lazy_on_data_model") {
         insert into mor values ( 1, 'a', 10),(1,'b', 20);
     """
 
-    qt_shape "explain shape plan select * from mor order by username limit 1"
+    qt_shape_mor_key_not_lazy "explain shape plan select user_id from mor order by username limit 1"
 
+    qt_shape_mor_value_lazy "explain shape plan select age from mor order by username limit 1"
 
     // mow unique key user_id is lazy materialized
     sql """
@@ -57,7 +58,8 @@ suite("topn_lazy_on_data_model") {
         insert into mow values ( 1, 'a', 10),(1,'b', 20);
     """
     
-    qt_shape "explain shape plan select *  from mow order by username limit 1"
+    qt_shape_mow_key_lazy "explain shape plan select user_id  from mow order by username limit 1"
+    qt_shape_mow_value_lazy "explain shape plan select age  from mow order by username limit 1"
 
     // agg key user_id is lazy materialized
     sql """
@@ -66,7 +68,7 @@ suite("topn_lazy_on_data_model") {
         (
         `user_id` LARGEINT NOT NULL,
         `username` VARCHAR(50) NOT NULL,
-        age int REPLACE
+        age int sum
         )
         aggregate KEY(user_id, username)
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
@@ -76,5 +78,11 @@ suite("topn_lazy_on_data_model") {
      insert into agg values ( 1, 'a', 10),(1,'b', 20);
     """
     
-    qt_shape "explain shape plan select *  from agg order by username limit 1"
+    // agg table does not support lazy materialization
+    qt_shape_aggkey_not_lazy "explain shape plan select user_id  from agg order by username limit 1"
+    // agg table does not support lazy materialization
+    qt_shape_aggval_not_lazy "explain shape plan select age  from agg order by username limit 1"
+
+    
+
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.processor.post.materialize;
 
 import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
@@ -119,10 +120,18 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
 
     @Override
     public Optional<MaterializeSource> visitPhysicalOlapScan(PhysicalOlapScan scan, ProbeContext context) {
-        if (scan.getSelectedIndexId() == scan.getTable().getBaseIndexId()) {
-            return visitPhysicalCatalogRelation(scan, context);
+        if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId()) {
+            return Optional.empty();
         }
-        return Optional.empty();
+        // agg table do not support lazy materialize
+        OlapTable table = scan.getTable();
+        if (KeysType.AGG_KEYS.equals(table.getKeysType())) {
+            return Optional.empty();
+        }
+        if (scan.getOperativeSlots().contains(context.slot)) {
+            return Optional.empty();
+        }
+        return Optional.of(new MaterializeSource(scan, context.slot));
     }
 
     @Override
