@@ -74,6 +74,7 @@ public class ShowLoadCommand extends ShowCommand {
             .add("Type").add("EtlInfo").add("TaskInfo").add("ErrorMsg").add("CreateTime")
             .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
             .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets").add("User").add("Comment")
+            .add("FirstErrorMsg")
             .build();
 
     // STREAM_LOAD_TITLE_NAMES copy from org.apache.doris.analysis.org.apache.doris.analysis
@@ -82,6 +83,7 @@ public class ShowLoadCommand extends ShowCommand {
             .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
             .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
             .add("StartTime").add("FinishTime").add("User").add("Comment")
+            .add("FirstErrorMsg")
             .build();
     protected String labelValue;
     protected String stateValue;

@@ -488,6 +488,9 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (attachment.getTrackingUrl() != null) {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
+        if (attachment.getFirstErrorMsg() != null) {
+            loadingStatus.setFirstErrorMsg(attachment.getFirstErrorMsg());
+        }
         commitInfos.addAll(attachment.getCommitInfoList());
         errorTabletInfos.addAll(attachment.getErrorTabletInfos().stream().limit(Config.max_error_tablet_of_broker_load)
                 .collect(Collectors.toList()));
