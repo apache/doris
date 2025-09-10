@@ -26,6 +26,8 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
+import com.google.common.collect.Lists;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -117,7 +119,7 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
     @Override
     protected List<Column> getResultSchema() {
-        return List.of(
+        return Lists.newArrayList(
                 new Column("rewritten_data_files_count", Type.INT, false,
                         "Number of data which were re-written by this command"),
                 new Column("added_data_files_count", Type.INT, false,
@@ -137,7 +139,7 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     protected List<String> executeAction(TableIf table) throws UserException {
         // TODO: Implement the logic to rewrite data files in the Iceberg table
         // For now, just return dummy values
-        return List.of("0", "1", "2", "3");
+        return Lists.newArrayList("0", "1", "2", "3");
     }
 
     @Override

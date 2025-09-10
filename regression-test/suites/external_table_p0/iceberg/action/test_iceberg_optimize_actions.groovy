@@ -99,13 +99,10 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     }
 
     // Test rewrite_data_files action
-    test {
-        sql """
-            OPTIMIZE TABLE ${catalog_name}.${db_name}.${table_name}
-            PROPERTIES("action" = "rewrite_data_files", "target-file-size-bytes" = "134217728")
-        """
-        exception "Iceberg rewrite_data_files procedure is not implemented yet"
-    }
+    qt_test_rewrite_data_files_results """
+        OPTIMIZE TABLE ${catalog_name}.${db_name}.${table_name}
+        PROPERTIES("action" = "rewrite_data_files", "target-file-size-bytes" = "134217728")
+    """
 
 
     // Test validation - missing required property
