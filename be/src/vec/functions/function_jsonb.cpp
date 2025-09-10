@@ -2007,7 +2007,7 @@ public:
 
         JsonbWriter writer;
         struct DocumentBuffer {
-            std::unique_ptr<char[]> ptr;
+            DorisUniqueBufferPtr<char> ptr;
             size_t size = 0;
             size_t capacity = 0;
         };
@@ -2099,7 +2099,7 @@ public:
                 if (writer_output->getSize() > tmp_buffer.capacity) {
                     tmp_buffer.capacity =
                             ((size_t(writer_output->getSize()) + 1024 - 1) / 1024) * 1024;
-                    tmp_buffer.ptr = std::make_unique<char[]>(tmp_buffer.capacity);
+                    tmp_buffer.ptr = make_unique_buffer<char>(tmp_buffer.capacity);
                     DCHECK_LE(writer_output->getSize(), tmp_buffer.capacity);
                 }
 
