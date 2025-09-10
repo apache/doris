@@ -104,7 +104,8 @@ public class MTMVPlanUtil {
                 RuleType.COMPRESSED_MATERIALIZE_SORT,
                 RuleType.ELIMINATE_CONST_JOIN_CONDITION,
                 RuleType.CONSTANT_PROPAGATION,
-                RuleType.ADD_DEFAULT_LIMIT
+                RuleType.ADD_DEFAULT_LIMIT,
+                RuleType.ELIMINATE_GROUP_BY
         );
         ctx.getSessionVariable().setDisableNereidsRules(
                 disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
