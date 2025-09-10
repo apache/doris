@@ -588,6 +588,7 @@ import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminBackupClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
@@ -596,12 +597,15 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetEncryptionRootKeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminShowClusterSnapshotCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminShowClusterSnapshotPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
@@ -7928,6 +7932,41 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAdminCancelRepairTable(DorisParser.AdminCancelRepairTableContext ctx) {
         TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
         return new AdminCancelRepairTableCommand(tableRefInfo);
+    }
+
+    @Override
+    public LogicalPlan visitAdminBackupClusterSnapshot(DorisParser.AdminBackupClusterSnapshotContext ctx) {
+        Map<String, String> properties;
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyClause(ctx.propertyClause());
+        } else {
+            properties = ImmutableMap.of();
+        }
+        return new AdminBackupClusterSnapshotCommand(properties);
+    }
+
+    @Override
+    public LogicalPlan visitAdminSetClusterSnapshot(DorisParser.AdminSetClusterSnapshotContext ctx) {
+        Map<String, String> properties;
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyClause(ctx.propertyClause());
+        } else {
+            properties = ImmutableMap.of();
+        }
+        return new AdminSetClusterSnapshotCommand(properties);
+    }
+
+    @Override
+    public LogicalPlan visitAdminShowClusterSnapshotProperties(
+            DorisParser.AdminShowClusterSnapshotPropertiesContext ctx) {
+        return new AdminShowClusterSnapshotPropertiesCommand();
+    }
+
+    @Override
+    public LogicalPlan visitAdminShowClusterSnapshot(
+            DorisParser.AdminShowClusterSnapshotContext ctx) {
+        boolean full = ctx.FULL() != null;
+        return new AdminShowClusterSnapshotCommand(full);
     }
 
     @Override

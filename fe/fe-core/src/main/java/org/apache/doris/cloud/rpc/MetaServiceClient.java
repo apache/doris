@@ -492,4 +492,29 @@ public class MetaServiceClient {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .createInstance(request);
     }
+
+    public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .alterInstance(request);
+    }
+
+    public Cloud.BeginSnapshotResponse beginSnapshot(Cloud.BeginSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+            .beginSnapshot(request);
+    }
+
+    public Cloud.CommitSnapshotResponse commitSnapshot(Cloud.CommitSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .commitSnapshot(request);
+    }
+
+    public Cloud.AbortSnapshotResponse abortSnapshot(Cloud.AbortSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .abortSnapshot(request);
+    }
+
+    public Cloud.ListSnapshotResponse listSnapshot(Cloud.ListSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .listSnapshot(request);
+    }
 }

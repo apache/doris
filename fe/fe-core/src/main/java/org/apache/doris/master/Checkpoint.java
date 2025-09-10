@@ -45,6 +45,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Checkpoint daemon is running on master node. handle the checkpoint work for palo.
@@ -59,6 +60,7 @@ public class Checkpoint extends MasterDaemon {
     private String imageDir;
     private EditLog editLog;
     private int memoryNotEnoughCount = 0;
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public Checkpoint(EditLog editLog) {
         super("leaderCheckpointer", FeConstants.checkpoint_interval_second * 1000L);
@@ -237,6 +239,16 @@ public class Checkpoint extends MasterDaemon {
             }
         }
 
+        lock.writeLock().lock();
+        try {
+            deleteOldJournalsAndImages(successPushed, otherNodesCount, allFrontends, storage, checkPointVersion);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private void deleteOldJournalsAndImages(int successPushed, int otherNodesCount, List<Frontend> allFrontends,
+            Storage storage, long checkPointVersion) {
         // Delete old journals
         // only do this when the new image succeed in pushing to other nodes
         if (successPushed == otherNodesCount) {
@@ -378,5 +390,9 @@ public class Checkpoint extends MasterDaemon {
             long max = jvmStats.getMem().getHeapMax().getBytes();
             return used * 100 / max;
         }
+    }
+
+    public ReentrantReadWriteLock getLock() {
+        return lock;
     }
 }

@@ -28,6 +28,7 @@ import org.apache.doris.cloud.load.CleanCopyJobScheduler;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.NodeInfoPB;
+import org.apache.doris.cloud.snapshot.CloudSnapshotHandler;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -51,6 +52,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -71,19 +73,23 @@ public class CloudEnv extends Env {
     private boolean enableStorageVault;
 
     private CleanCopyJobScheduler cleanCopyJobScheduler;
+    private CloudSnapshotHandler cloudSnapshotHandler;
 
     private String cloudInstanceId;
+
+    private String clusterSnapshotFile;
 
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cleanCopyJobScheduler = new CleanCopyJobScheduler();
         this.loadManager = ((CloudEnvFactory) EnvFactory.getInstance())
-                                    .createLoadManager(loadJobScheduler, cleanCopyJobScheduler);
+                .createLoadManager(loadJobScheduler, cleanCopyJobScheduler);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
         this.cloudInstanceStatusChecker = new CloudInstanceStatusChecker((CloudSystemInfoService) systemInfo);
         this.cloudTabletRebalancer = new CloudTabletRebalancer((CloudSystemInfoService) systemInfo);
         this.cacheHotspotMgr = new CacheHotspotManager((CloudSystemInfoService) systemInfo);
         this.upgradeMgr = new CloudUpgradeMgr((CloudSystemInfoService) systemInfo);
+        this.cloudSnapshotHandler = CloudSnapshotHandler.getInstance();
     }
 
     public CloudTabletRebalancer getCloudTabletRebalancer() {
@@ -96,6 +102,10 @@ public class CloudEnv extends Env {
 
     public CloudClusterChecker getCloudClusterChecker() {
         return this.cloudClusterCheck;
+    }
+
+    public CloudSnapshotHandler getCloudSnapshotHandler() {
+        return this.cloudSnapshotHandler;
     }
 
     public String getCloudInstanceId() {
@@ -126,6 +136,7 @@ public class CloudEnv extends Env {
                 Config.cloud_unique_id, Config.cluster_id, cloudInstanceId);
 
         super.initialize(args);
+        this.cloudSnapshotHandler.initialize();
     }
 
     @Override
@@ -139,6 +150,7 @@ public class CloudEnv extends Env {
             cacheHotspotMgr.start();
         }
         upgradeMgr.start();
+        cloudSnapshotHandler.start();
     }
 
     @Override
@@ -438,5 +450,25 @@ public class CloudEnv extends Env {
     @Override
     public void modifyFrontendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
         throw new DdlException("Modifying frontend hostname is not supported in cloud mode");
+    }
+
+    @Override
+    public void setClusterSnapshotFile(String clusterSnapshotFile) {
+        this.clusterSnapshotFile = clusterSnapshotFile;
+    }
+
+    @Override
+    protected void checkClusterSnapshot(File dir) {
+        if (this.clusterSnapshotFile != null) {
+            LOG.error("load from cluster snapshot, directory: {} should be empty", dir.getAbsolutePath());
+            System.exit(-1);
+        }
+    }
+
+    @Override
+    protected void cloneClusterSnapshot() throws Exception {
+        if (this.clusterSnapshotFile != null) {
+            this.cloudSnapshotHandler.cloneSnapshot(this.clusterSnapshotFile);
+        }
     }
 }

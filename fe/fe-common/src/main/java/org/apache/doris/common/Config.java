@@ -3600,4 +3600,11 @@ public class Config extends ConfigBase {
         "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
+
+    @ConfField
+    public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
+    @ConfField
+    public static int cloud_snapshot_handler_interval_second = 10;
+    @ConfField(mutable = true)
+    public static long cloud_snapshot_timeout_seconds = 600;
 }
