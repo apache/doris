@@ -280,7 +280,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
                                 table.getId(),
                                 etlJobType, createTime, errMsg,
-                                coordinator.getTrackingUrl(), userIdentity, jobId);
+                                coordinator.getTrackingUrl(),
+                                coordinator.getFirstErrorMsg(),
+                                userIdentity, jobId);
             }
         } catch (MetaNotFoundException e) {
             LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
