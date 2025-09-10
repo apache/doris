@@ -673,6 +673,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private Table getProcessedTable() throws UserException {
         Table baseTable = source.getPaimonTable();
+        Map<String, String> options = baseTable.options();
         if (getScanParams() != null && getQueryTableSnapshot() != null) {
             throw new UserException("Can not specify scan params and table snapshot at same time.");
         }
