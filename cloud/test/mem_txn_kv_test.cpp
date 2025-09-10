@@ -20,7 +20,9 @@
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <memory>
+#include <thread>
 
 #include "common/config.h"
 #include "common/util.h"
@@ -1413,4 +1415,87 @@ TEST(TxnMemKvTest, BatchScan) {
         }
         count += 1;
     }
+}
+
+static void versionstamp_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
+    using namespace doris::cloud;
+    std::string txn_kv_class = dynamic_cast<MemTxnKv*>(txn_kv.get()) != nullptr ? " memkv" : " fdb";
+    std::unique_ptr<Transaction> txn;
+    std::string key_prefix = "versionstamp_test_";
+
+    // Test without enabling versionstamp
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_INVALID_ARGUMENT)
+                << txn_kv_class;
+    }
+
+    // Test with versionstamp enabled but no commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        std::string versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << txn_kv_class;
+    }
+
+    // Test with versionstamp enabled and commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Enable versionstamp and perform versioned operations
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "key1", "value1");
+        txn->atomic_set_ver_value(key_prefix + "key2", "value2");
+
+        // Commit transaction
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << txn_kv_class;
+
+        // Get versionstamp
+        std::string versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_OK) << txn_kv_class;
+        ASSERT_EQ(versionstamp.size(), 10) << txn_kv_class; // Versionstamp should be 10 bytes
+
+        std::cout << txn_kv_class << " Versionstamp: ";
+        for (int i = 0; i < versionstamp.size(); i++) {
+            std::cout << std::hex << (int)(unsigned char)versionstamp[i];
+        }
+        std::cout << std::dec << std::endl;
+    }
+
+    // Test multiple transactions get different versionstamps
+    std::string versionstamp1, versionstamp2;
+    {
+        // First transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx1", "value1");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << txn_kv_class;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp1), TxnErrorCode::TXN_OK) << txn_kv_class;
+
+        // Small delay to ensure different timestamps (mainly for FDB)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        // Second transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx2", "value2");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << txn_kv_class;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp2), TxnErrorCode::TXN_OK) << txn_kv_class;
+    }
+
+    ASSERT_NE(versionstamp1, versionstamp2) << txn_kv_class;
+    ASSERT_LT(versionstamp1, versionstamp2)
+            << txn_kv_class; // Later transaction should have larger versionstamp
+}
+
+TEST(TxnMemKvTest, GetVersionstampTest) {
+    using namespace doris::cloud;
+
+    auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(mem_txn_kv.get(), nullptr);
+
+    versionstamp_test(mem_txn_kv);
+    versionstamp_test(fdb_txn_kv);
 }
