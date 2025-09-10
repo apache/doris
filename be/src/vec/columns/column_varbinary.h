@@ -72,8 +72,6 @@ public:
 
     void insert(const Field& x) override {
         auto value = vectorized::get<const doris::StringView&>(x);
-        LOG(INFO) << "asd value.size() " << value.size() << " " << value.str() << " "
-                  << value.dump_hex();
         insert_data(value.data(), value.size());
     }
 

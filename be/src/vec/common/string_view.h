@@ -97,7 +97,6 @@ public:
     const char* data() const& { return isInline() ? prefix_ : value_.data; }
 
     uint32_t size() const { return size_; }
-    uint32_t capacity() const { return size_; }
     bool empty() const { return size() == 0; }
 
     bool operator==(const StringView& other) const;

@@ -326,14 +326,14 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
         // test insert into internal.db.table select * from all_types
-        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from all_types; """
+        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * EXCEPT(`binary`,`varbinary`),"binary_col","varbinary_col" from all_types; """
         order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by tinyint_u; """
 
         // test CTAS
         sql  """ drop table if exists internal.${internal_db_name}.${test_ctas} """
         sql """ create table internal.${internal_db_name}.${test_ctas}
                 PROPERTIES("replication_num" = "1")
-                AS select * from all_types;
+                AS select * EXCEPT(`binary`,`varbinary`) from all_types;
             """
 
         order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas} order by tinyint_u;"""

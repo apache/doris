@@ -50,12 +50,10 @@ protected:
         for (size_t i = 0; i < n; ++i) {
             s[i] = static_cast<char>(seed + i);
         }
-        std::cout << "seed: " << seed << " s: " << s << std::endl;
         if (n >= 3) {
             s[n / 3] = '\0';
             s[(2 * n) / 3] = '\0';
         }
-        std::cout << "make_bytes: N: " << n << " , " << s.size() << ", " << s << std::endl;
         return s;
     }
 };
@@ -160,8 +158,15 @@ TEST_F(ColumnVarbinaryTest, InsertFromAndRanges) {
 
 TEST_F(ColumnVarbinaryTest, FilterBothModes) {
     auto col = ColumnVarbinary::create();
-    std::vector<std::string> vals = {make_bytes(1, 0x10), make_bytes(2, 0x11), make_bytes(3, 0x12),
-                                     make_bytes(0, 0x00), make_bytes(8, 0x13), make_bytes(5, 0x14)};
+    // Mix inline (small) and non-inline (large > kInlineSize) values
+    std::vector<std::string> vals = {
+            make_bytes(1, 0x10),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 5, 0x91), // non-inline (dropped)
+            make_bytes(3, 0x12),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 7, 0x92), // non-inline
+            make_bytes(0, 0x00),                                  // empty (dropped)
+            make_bytes(doris::StringView::kInlineSize + 9, 0x93)  // non-inline
+    };
     for (auto& v : vals) {
         col->insert_data(v.data(), v.size());
     }
@@ -169,12 +174,11 @@ TEST_F(ColumnVarbinaryTest, FilterBothModes) {
     IColumn::Filter f = {1, 0, 1, 1, 0, 1};
     size_t expected = 4; // number of ones
 
-    // const variant (produces new column)
     const auto& ccol = assert_cast<const ColumnVarbinary&>(*col);
     ColumnPtr filtered = ccol.filter(f, -1);
     const auto& fcol = assert_cast<const ColumnVarbinary&>(*filtered);
     ASSERT_EQ(fcol.size(), expected);
-    std::vector<size_t> kept_idx = {0, 2, 3, 5};
+    std::vector<size_t> kept_idx = {0, 2, 3, 5}; // includes both inline and non-inline
     for (size_t i = 0; i < kept_idx.size(); ++i) {
         auto r = fcol.get_data_at(i);
         const auto& expect = vals[kept_idx[i]];
@@ -182,7 +186,6 @@ TEST_F(ColumnVarbinaryTest, FilterBothModes) {
         ASSERT_EQ(memcmp(r.data, expect.data(), r.size), 0);
     }
 
-    // in-place variant
     auto col_inplace = ColumnVarbinary::create();
     for (auto& v : vals) {
         col_inplace->insert_data(v.data(), v.size());
@@ -200,8 +203,13 @@ TEST_F(ColumnVarbinaryTest, FilterBothModes) {
 
 TEST_F(ColumnVarbinaryTest, Permute) {
     auto col = ColumnVarbinary::create();
-    std::vector<std::string> vals = {make_bytes(1, 0x20), make_bytes(2, 0x21), make_bytes(3, 0x22),
-                                     make_bytes(4, 0x23)};
+    // Include large (non-inline) entries to exercise arena path
+    std::vector<std::string> vals = {
+            make_bytes(1, 0x20),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 3, 0xA0), // non-inline
+            make_bytes(3, 0x22),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 8, 0xA1)  // non-inline
+    };
     for (auto& v : vals) {
         col->insert_data(v.data(), v.size());
     }
@@ -219,7 +227,7 @@ TEST_F(ColumnVarbinaryTest, Permute) {
         ASSERT_EQ(memcmp(r.data, expect.data(), r.size), 0);
     }
 
-    // limit == 0 means full or follow implementation? Use full size to be explicit
+    // full size
     ColumnPtr p2 = col->permute(perm, vals.size());
     const auto& c2 = assert_cast<const ColumnVarbinary&>(*p2);
     ASSERT_EQ(c2.size(), vals.size());
@@ -266,24 +274,32 @@ TEST_F(ColumnVarbinaryTest, CloneResized) {
 
 TEST_F(ColumnVarbinaryTest, ReplaceColumnData) {
     auto col = ColumnVarbinary::create();
-    std::vector<std::string> vals = {make_bytes(2, 0x40), make_bytes(3, 0x41), make_bytes(4, 0x42)};
+    // mix inline and non-inline
+    std::vector<std::string> vals = {
+            make_bytes(2, 0x40),                                  // inline
+            make_bytes(doris::StringView::kInlineSize + 4, 0xB0), // non-inline
+            make_bytes(4, 0x42)                                   // inline
+    };
     for (auto& v : vals) {
         col->insert_data(v.data(), v.size());
     }
 
     auto rhs = ColumnVarbinary::create();
-    std::vector<std::string> rhs_vals = {make_bytes(5, 0x50), make_bytes(1, 0x51)};
+    std::vector<std::string> rhs_vals = {
+            make_bytes(doris::StringView::kInlineSize + 7, 0xC0), // non-inline
+            make_bytes(1, 0x51)                                   // inline
+    };
     for (auto& v : rhs_vals) {
         rhs->insert_data(v.data(), v.size());
     }
 
-    // replace row 0 with rhs[1]
+    // replace row 0 (inline) with rhs[1] (inline) -> stays inline
     col->replace_column_data(*rhs, /*row=*/1, /*self_row=*/0);
     auto r0 = col->get_data_at(0);
     ASSERT_EQ(r0.size, rhs_vals[1].size());
     ASSERT_EQ(memcmp(r0.data, rhs_vals[1].data(), r0.size), 0);
 
-    // replace row 2 with rhs[0]
+    // replace row 2 (inline) with rhs[0] (non-inline)
     col->replace_column_data(*rhs, /*row=*/0, /*self_row=*/2);
     auto r2 = col->get_data_at(2);
     ASSERT_EQ(r2.size, rhs_vals[0].size());
@@ -337,6 +353,125 @@ TEST_F(ColumnVarbinaryTest, ConvertToStringColumn) {
         ASSERT_EQ(r.size, vals[i].size());
         ASSERT_EQ(memcmp(r.data, vals[i].data(), r.size), 0);
     }
+}
+
+TEST_F(ColumnVarbinaryTest, FieldAccessOperatorAndGet) {
+    auto col = ColumnVarbinary::create();
+    std::vector<std::string> vals = {
+            make_bytes(1, 0x11), make_bytes(0, 0x00),
+            make_bytes(doris::StringView::kInlineSize + 6, 0x12)}; // include non-inline
+    for (auto& v : vals) {
+        col->insert_data(v.data(), v.size());
+    }
+
+    for (size_t i = 0; i < vals.size(); ++i) {
+        // operator[]
+        Field f = (*col)[i];
+        auto sv = vectorized::get<const doris::StringView&>(f);
+        ASSERT_EQ(sv.size(), vals[i].size());
+        ASSERT_EQ(memcmp(sv.data(), vals[i].data(), sv.size()), 0);
+        // get(size_t, Field&)
+        Field f2;
+        col->get(i, f2);
+        auto sv2 = vectorized::get<const doris::StringView&>(f2);
+        ASSERT_EQ(sv2.size(), vals[i].size());
+        ASSERT_EQ(memcmp(sv2.data(), vals[i].data(), sv2.size()), 0);
+    }
+}
+
+TEST_F(ColumnVarbinaryTest, InsertField) {
+    auto col = ColumnVarbinary::create();
+    // prepare inline and non-inline fields
+    std::string inline_v = make_bytes(2, 0x21);
+    std::string big_v = make_bytes(doris::StringView::kInlineSize + 10, 0x22);
+
+    Field f_inline = Field::create_field<TYPE_VARBINARY>(
+            doris::StringView(inline_v.data(), inline_v.size()));
+    Field f_big =
+            Field::create_field<TYPE_VARBINARY>(doris::StringView(big_v.data(), big_v.size()));
+
+    col->insert(f_inline);
+    col->insert(f_big);
+
+    ASSERT_EQ(col->size(), 2U);
+    auto r0 = col->get_data_at(0);
+    auto r1 = col->get_data_at(1);
+    ASSERT_EQ(r0.size, inline_v.size());
+    ASSERT_EQ(memcmp(r0.data, inline_v.data(), r0.size), 0);
+    ASSERT_EQ(r1.size, big_v.size());
+    ASSERT_EQ(memcmp(r1.data, big_v.data(), r1.size), 0);
+}
+
+TEST_F(ColumnVarbinaryTest, SerializeValueIntoArenaAndImpl) {
+    auto col = ColumnVarbinary::create();
+    std::string small = make_bytes(3, 0x31);                                 // inline
+    std::string big = make_bytes(doris::StringView::kInlineSize + 12, 0x32); // non-inline
+    col->insert_data(small.data(), small.size());
+    col->insert_data(big.data(), big.size());
+
+    // serialize_value_into_arena (covers serialize_impl indirectly)
+    Arena arena;
+    const char* begin = nullptr;
+    auto sr_inline = col->serialize_value_into_arena(0, arena, begin);
+    ASSERT_EQ(sr_inline.size, small.size() + sizeof(uint32_t));
+    uint32_t len_inline;
+    memcpy(&len_inline, sr_inline.data, sizeof(uint32_t));
+    ASSERT_EQ(len_inline, small.size());
+    ASSERT_EQ(memcmp(sr_inline.data + sizeof(uint32_t), small.data(), small.size()), 0);
+
+    auto sr_big = col->serialize_value_into_arena(1, arena, begin);
+    ASSERT_EQ(sr_big.size, big.size() + sizeof(uint32_t));
+    uint32_t len_big;
+    memcpy(&len_big, sr_big.data, sizeof(uint32_t));
+    ASSERT_EQ(len_big, big.size());
+    ASSERT_EQ(memcmp(sr_big.data + sizeof(uint32_t), big.data(), big.size()), 0);
+
+    // direct serialize_impl
+    char buf[4096];
+    size_t written = col->serialize_impl(buf, 1);
+    ASSERT_EQ(written, big.size() + sizeof(uint32_t));
+    uint32_t len_big2;
+    memcpy(&len_big2, buf, sizeof(uint32_t));
+    ASSERT_EQ(len_big2, big.size());
+    ASSERT_EQ(memcmp(buf + sizeof(uint32_t), big.data(), big.size()), 0);
+}
+
+TEST_F(ColumnVarbinaryTest, AllocatedBytesAndHasEnoughCapacity) {
+    auto dest = ColumnVarbinary::create();
+    // Grow dest to obtain some spare capacity
+    for (int i = 0; i < 64; ++i) {
+        std::string v = make_bytes((i % 5) + 1, 0x40 + i); // mostly inline
+        dest->insert_data(v.data(), v.size());
+    }
+    // Force some non-inline values to ensure arena usage
+    for (int i = 0; i < 3; ++i) {
+        auto big = make_bytes(doris::StringView::kInlineSize + 20 + i, 0x90 + i);
+        dest->insert_data(big.data(), big.size());
+    }
+    // Capture capacity & size
+    size_t cap = dest->get_data().capacity();
+    size_t sz = dest->size();
+    ASSERT_GT(cap, sz);
+
+    // Ensure allocated_bytes >= byte_size()
+    ASSERT_GE(dest->allocated_bytes(), dest->byte_size());
+
+    // Create src_small with size less than free slots (cap - sz)
+    size_t free_slots = cap - sz;
+    auto src_small = ColumnVarbinary::create();
+    for (size_t i = 0; i < free_slots - 1; ++i) { // leave at least 1 slot
+        auto v = make_bytes(1, 0x55);
+        src_small->insert_data(v.data(), v.size());
+    }
+    ASSERT_TRUE(dest->has_enough_capacity(*src_small));
+
+    // src_big exactly fills free slots -> expect false (need strictly greater)
+    auto src_big = ColumnVarbinary::create();
+    for (size_t i = 0; i < free_slots; ++i) {
+        auto v = make_bytes(1, 0x66);
+        src_big->insert_data(v.data(), v.size());
+    }
+    ASSERT_FALSE(dest->has_enough_capacity(*src_big));
 }
 
 } // namespace doris::vectorized

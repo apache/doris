@@ -148,4 +148,102 @@ TEST_F(StringViewTest, OstreamWrite) {
     EXPECT_EQ(::memcmp(out.data(), raw.data(), raw.size()), 0);
 }
 
+TEST_F(StringViewTest, NonInlineEqualityAndCompare) {
+    // Create two large (> kInlineSize) equal strings
+    std::string base_a = make_bytes(24, 0x41); // length 24
+    std::string base_b = base_a;               // identical
+    StringView sva(base_a);
+    StringView svb(base_b);
+    EXPECT_FALSE(sva.isInline());
+    EXPECT_FALSE(svb.isInline());
+    EXPECT_TRUE(sva == svb);
+    EXPECT_EQ(sva.compare(svb), 0);
+    EXPECT_TRUE((sva <=> svb) == std::strong_ordering::equal);
+
+    // Same prefix (first 4 bytes) but differ later (exercise memcmp tail path for outline)
+    std::string diff1 = base_a;
+    std::string diff2 = base_a;
+    diff2[15] ^= 0x01; // change one byte after prefix region
+    StringView svd1(diff1);
+    StringView svd2(diff2);
+    EXPECT_NE(svd1.compare(svd2), 0);
+    EXPECT_NE(svd1 == svd2, true);
+
+    // Prefix decides ordering: modify first byte so prefix_as_int differs
+    std::string p1 = base_a;
+    std::string p2 = base_a;
+    p2[0] = static_cast<char>(p2[0] + 1);
+    StringView svp1(p1), svp2(p2);
+    int cmp = svp1.compare(svp2);
+    EXPECT_LT(cmp, 0);
+    EXPECT_TRUE((svp1 <=> svp2) == std::strong_ordering::less);
+}
+
+TEST_F(StringViewTest, StrConversionInlineAndNonInline) {
+    std::string inl = "abcd"; // inline
+    StringView svi(inl);
+    std::string out_inl = svi.str();
+    EXPECT_EQ(out_inl.size(), inl.size());
+    EXPECT_EQ(out_inl, inl);
+
+    // Non-inline with embedded nulls
+    std::string big = make_bytes(20, 0x50); // ensure > 12
+    big[5] = '\0';
+    big[14] = '\0';
+    StringView svb(big);
+    EXPECT_FALSE(svb.isInline());
+    std::string out_big = svb.str();
+    EXPECT_EQ(out_big.size(), big.size());
+    EXPECT_EQ(::memcmp(out_big.data(), big.data(), big.size()), 0);
+}
+
+TEST_F(StringViewTest, ThreeWayComparisonOrdering) {
+    StringView a("abcd");           // inline
+    StringView b("abce");           // inline > a
+    auto tmp_long = make_bytes(30); // create std::string first (avoid rvalue deleted ctor)
+    StringView c(tmp_long);         // non-inline
+    StringView d(c);                // identical non-inline
+    // a vs b
+    EXPECT_TRUE((a <=> b) == std::strong_ordering::less);
+    EXPECT_TRUE((b <=> a) == std::strong_ordering::greater);
+    // c vs d equal
+    EXPECT_TRUE((c <=> d) == std::strong_ordering::equal);
+    // a (short) vs c (long)
+    auto ord = (a <=> c);
+    int cmp = a.compare(c);
+    if (cmp < 0) {
+        EXPECT_TRUE(ord == std::strong_ordering::less);
+    } else if (cmp > 0) {
+        EXPECT_TRUE(ord == std::strong_ordering::greater);
+    } else {
+        EXPECT_TRUE(ord == std::strong_ordering::equal);
+    }
+}
+
+TEST_F(StringViewTest, DumpHex) {
+    // Empty
+    StringView empty;
+    EXPECT_EQ(empty.dump_hex(), "X''");
+
+    // Inline with known bytes
+    const unsigned char bytes_inline[] = {0x00, 0x01, 0x0A, 0x1F, 0x7F};
+    StringView svi(reinterpret_cast<const char*>(bytes_inline), sizeof(bytes_inline));
+    EXPECT_TRUE(svi.isInline());
+    EXPECT_EQ(svi.dump_hex(), "X'00010A1F7F'");
+
+    // Non-inline, length > 12
+    std::string big = make_bytes(16, 0x20); // bytes 0x20,0x21,...
+    StringView svb(big);
+    EXPECT_FALSE(svb.isInline());
+    // Build expected
+    std::ostringstream oss;
+    oss << "X'";
+    for (unsigned char c : big) {
+        static const char* kHex = "0123456789ABCDEF";
+        oss << kHex[c >> 4] << kHex[c & 0x0F];
+    }
+    oss << "'";
+    EXPECT_EQ(svb.dump_hex(), oss.str());
+}
+
 } // namespace doris
