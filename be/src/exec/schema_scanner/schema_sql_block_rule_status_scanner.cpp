@@ -99,15 +99,11 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
                 _rpc_timeout);
 
         if (!status.ok()) {
-            LOG(WARNING) << "Failed to fetch SQL block rule status from FE " << fe_addr.hostname
-                         << ":" << fe_addr.port << ", errmsg=" << status;
             return status; // Return immediately on any FE failure
         }
 
         Status result_status = Status::create(result.status);
         if (!result_status.ok()) {
-            LOG(WARNING) << "FE " << fe_addr.hostname << ":" << fe_addr.port
-                         << " returned error: " << result_status;
             return result_status; // Return immediately on any FE error
         }
 
@@ -117,13 +113,7 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
         if (result_data.size() > 0) {
             auto col_size = result_data[0].column_value.size();
             if (col_size != _s_sql_block_rule_status_columns.size()) {
-                std::string error_msg =
-                        "SQL block rule status schema mismatch from FE " + fe_addr.hostname + ":" +
-                        std::to_string(fe_addr.port) +
-                        ", expected: " + std::to_string(_s_sql_block_rule_status_columns.size()) +
-                        ", got: " + std::to_string(col_size);
-                LOG(WARNING) << error_msg;
-                return Status::InternalError(error_msg);
+                return Status::InternalError("col size not equal");
             }
         }
 
