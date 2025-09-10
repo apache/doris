@@ -37,6 +37,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/functions/cast/cast_to_decimal.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -486,6 +487,13 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
     }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num,
+                                        BufferWritable& bw) const {
+    auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+    CastToString::push_decimal(data[row_num], scale, bw);
 }
 
 template <PrimitiveType T>

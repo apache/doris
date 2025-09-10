@@ -739,6 +739,39 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
     memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
 }
 
+template <PrimitiveType T>
+void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value,
+                     BufferWritable& bw, int scale) {
+    if constexpr (T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                  T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        CastToString::push_number(value, bw);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        VecDateTimeValue dt = binary_cast<Int64, VecDateTimeValue>(value);
+        CastToString::push_date_or_datetime(dt, bw);
+    } else if constexpr (T == TYPE_DATEV2) {
+        DateV2Value<doris::DateV2ValueType> dt =
+                binary_cast<UInt32, DateV2Value<doris::DateV2ValueType>>(value);
+        CastToString::push_datev2(dt, bw);
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        DateV2Value<doris::DateTimeV2ValueType> dt =
+                binary_cast<UInt64, DateV2Value<doris::DateTimeV2ValueType>>(value);
+        CastToString::push_datetimev2(dt, scale, bw);
+    } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
+        CastToString::push_time(value, scale, bw);
+    } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {
+        CastToString::push_ip(value, bw);
+    } else {
+        static_assert(std::is_same_v<decltype(T), void>, "non-exhaustive visitor!");
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
+                                       BufferWritable& bw) const {
+    auto& data = assert_cast<const ColumnType&>(column).get_data();
+    value_to_string<T>(data[row_num], bw, get_scale());
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberSerDe<TYPE_BOOLEAN>;
 template class DataTypeNumberSerDe<TYPE_TINYINT>;
