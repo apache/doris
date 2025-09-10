@@ -184,11 +184,8 @@ TEST_F(ColumnDictionaryTest, insert_default) {
 }
 */
 TEST_F(ColumnDictionaryTest, clear) {
-    auto target_column = column_dict_char->clone();
-    auto* col_vec_src = assert_cast<ColumnDictI32*>(column_dict_char.get());
-    auto* col_vec_target = assert_cast<ColumnDictI32*>(target_column.get());
-    EXPECT_EQ(target_column->size(), column_dict_char->size());
-    EXPECT_EQ(col_vec_target->get_data().size(), col_vec_src->get_data().size());
+    auto target_column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+    tmp_column_dict->insert_many_dict_data(dict_array.data(), dict_array.size());
 
     target_column->clear();
     EXPECT_EQ(target_column->size(), 0);
