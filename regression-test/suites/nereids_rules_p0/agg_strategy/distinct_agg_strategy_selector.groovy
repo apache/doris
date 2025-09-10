@@ -20,6 +20,7 @@ suite("distinct_agg_strategy_selector") {
     SET ignore_shape_nodes='PhysicalProject';
     set runtime_filter_mode=OFF;
     set enable_parallel_result_sink=false;
+    set be_number_for_test=1;
     """
     multi_sql """
     analyze table t1000 with sync;

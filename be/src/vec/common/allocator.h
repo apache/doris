@@ -232,7 +232,7 @@ public:
     void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0);
 
     // Free memory range.
-    void free(void* buf, size_t size);
+    void free(void* buf, size_t size) const;
 
     void release_unused() { MemoryAllocator::release_unused(); }
 

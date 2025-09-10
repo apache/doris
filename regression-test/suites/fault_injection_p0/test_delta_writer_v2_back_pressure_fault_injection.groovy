@@ -69,20 +69,25 @@ suite("test_delta_writer_v2_back_pressure_fault_injection", "nonConcurrent") {
         file "baseall.txt"
     }
 
+    def r = sql """ show tables """
+    logger.info("${r}")
+
     try {
         GetDebugPoint().enableDebugPointForAllBEs("DeltaWriterV2.write.back_pressure")
-        def thread1 = new Thread({
-            try {
-                def res = sql "insert into test select * from baseall where k1 <= 3"
-                logger.info(res.toString())
-            } catch(Exception e) {
-                logger.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Communications link failure"))
-            } finally {
-                GetDebugPoint().disableDebugPointForAllBEs("DeltaWriterV2.write.back_pressure")
+        def future = thread {
+            connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+                sql """ use regression_test_fault_injection_p0; """
+                try {
+                    def res = sql "insert into test select * from baseall where k1 <= 3"
+                    logger.info(res.toString())
+                } catch(Exception e) {
+                    logger.info(e.getMessage())
+                    if (e.getMessage().contains("Communications link failure") == false) {
+                        throw e
+                    }
+                }
             }
-        })
-        thread1.start()
+        } 
 
         sleep(1000)
 
@@ -97,8 +102,10 @@ suite("test_delta_writer_v2_back_pressure_fault_injection", "nonConcurrent") {
             }
         }
 
+        def result = future.get() // wait thread to finish
     } catch(Exception e) {
         logger.info(e.getMessage())
+        throw e
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("DeltaWriterV2.write.back_pressure")
     }
