@@ -151,11 +151,6 @@ Status RowsetBuilder::check_tablet_version_count() {
     bool injection = false;
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { injection = true; });
-    if (!injection && GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
-        // (TODO Refrain) what error msg should we return ?
-        return Status::Error<FETCH_MEMORY_EXCEEDED>(
-                "check_tablet_version_count failed due to memory shortage");
-    }
     auto max_version_config = _tablet->max_version_config();
     auto version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
@@ -168,14 +163,17 @@ Status RowsetBuilder::check_tablet_version_count() {
                 "larger value.",
                 version_count, max_version_config, _tablet->tablet_id());
     }
-    // (TODO Refrain) Maybe we can use a configurable param instead of hardcoded values '100'
+    // (TODO Refrain) Maybe we can use a configurable param instead of hardcoded values '100'.
     if (version_count > max_version_config - 100) {
-        //trigger compaction
-        auto st = _engine.submit_compaction_task(tablet_sptr(),
-                                                 CompactionType::CUMULATIVE_COMPACTION, true);
-        if (!st.ok()) [[unlikely]] {
-            LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id()
-                         << " : " << st;
+        // Before compaction run, check memory exceed limit.
+        if (injection || !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            //trigger compaction
+            auto st = _engine.submit_compaction_task(tablet_sptr(),
+                                                    CompactionType::CUMULATIVE_COMPACTION, true);
+            if (!st.ok()) [[unlikely]] {
+                LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id()
+                            << " : " << st;
+            }
         }
     }
     return Status::OK();
