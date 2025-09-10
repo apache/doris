@@ -638,6 +638,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(tableRowCount);
         }
+        return computeVirtualColumnStats(olapScan, builder.build());
+    }
+
+    private Statistics computeVirtualColumnStats(OlapScan relation, Statistics stats) {
+        List<NamedExpression> virtualColumns;
+        if (relation instanceof LogicalOlapScan) {
+            virtualColumns = ((LogicalOlapScan) relation).getVirtualColumns();
+        } else if (relation instanceof PhysicalOlapScan) {
+            virtualColumns = ((PhysicalOlapScan) relation).getVirtualColumns();
+        } else {
+            return stats;
+        }
+        if (virtualColumns.isEmpty()) {
+            return stats;
+        }
+        StatisticsBuilder builder = new StatisticsBuilder(stats);
+        for (NamedExpression virtualColumn : virtualColumns) {
+            ColumnStatistic colStats = ExpressionEstimation.estimate(virtualColumn, stats);
+            builder.putColumnStatistics(virtualColumn.toSlot(), colStats);
+        }
         return builder.build();
     }
 
@@ -1316,7 +1336,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     /**
      * computeAggregate
      */
-    private double estimateGroupByRowCount(List<Expression> groupByExpressions, Statistics childStats) {
+    public static double estimateGroupByRowCount(List<Expression> groupByExpressions, Statistics childStats) {
         double rowCount = 1;
         // if there is group-bys, output row count is childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO,
         // o.w. output row count is 1
@@ -1494,12 +1514,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         Float value = unionHotValues.get(entry.getKey());
                         if (value == null) {
                             unionHotValues.put(entry.getKey(),
-                                    (float) (entry.getValue()
-                                            / ColumnStatistic.ONE_HUNDRED * childStats.get(j).getRowCount()));
+                                    (float) (entry.getValue() * childStats.get(j).getRowCount()));
                         } else {
                             unionHotValues.put(entry.getKey(),
-                                    (float) (value + entry.getValue()
-                                            / ColumnStatistic.ONE_HUNDRED * childStats.get(j).getRowCount()));
+                                    (float) (value + entry.getValue() * childStats.get(j).getRowCount()));
                         }
                     }
                 }
@@ -1507,8 +1525,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
             Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
             for (Literal hot : unionHotValues.keySet()) {
-                float ratio = (float) (ColumnStatistic.ONE_HUNDRED * unionHotValues.get(hot) / unionRowCount);
-                if (ratio > SessionVariable.getHotValueThreshold()) {
+                float ratio = (float) (unionHotValues.get(hot) / unionRowCount);
+                if (ratio * colStatsBuilder.getNdv() >= SessionVariable.getHotValueThreshold()) {
                     resultHotValues.put(hot, ratio);
                 }
             }

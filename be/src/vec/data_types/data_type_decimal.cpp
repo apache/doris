@@ -48,7 +48,6 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

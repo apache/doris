@@ -395,8 +395,9 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
 template <typename Data, bool HasLimit>
 class AggregateFunctionCollect
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>,
-                                              true> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
     static constexpr bool ENABLE_ARENA =
             std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_STRING, HasLimit>> ||
             std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_CHAR, HasLimit>> ||

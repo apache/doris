@@ -247,11 +247,11 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
                                         ->get_data()
                                         .data();
-        auto* __restrict null_map = const_cast<uint8_t*>(nullable->get_null_map_data().data());
+        const NullMap& null_map = nullable->get_null_map_data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
-        memset(null_map, 0, rows);
+        nullable->fill_false_to_nullmap(rows);
     } else if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
@@ -283,6 +283,17 @@ inline size_t calculate_false_number(ColumnPtr column) {
         const auto* data = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
         return simd::count_zero_num(reinterpret_cast<const int8_t* __restrict>(data), rows);
     }
+}
+
+template <typename T>
+T read_from_json(const std::string& json_str) {
+    auto memBufferIn = std::make_shared<apache::thrift::transport::TMemoryBuffer>(
+            reinterpret_cast<uint8_t*>(const_cast<char*>(json_str.data())),
+            static_cast<uint32_t>(json_str.size()));
+    auto jsonProtocolIn = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBufferIn);
+    T params;
+    params.read(jsonProtocolIn.get());
+    return params;
 }
 
 } // namespace doris::vectorized

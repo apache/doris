@@ -181,7 +181,7 @@ void QueryContext::_init_resource_context() {
 }
 
 void QueryContext::init_query_task_controller() {
-    _resource_ctx->set_task_controller(QueryTaskController::create(this));
+    _resource_ctx->set_task_controller(QueryTaskController::create(shared_from_this()));
     _resource_ctx->task_controller()->set_task_id(_query_id);
     _resource_ctx->task_controller()->set_fe_addr(current_connect_fe);
     _resource_ctx->task_controller()->set_query_type(_query_options.query_type);
@@ -233,9 +233,6 @@ QueryContext::~QueryContext() {
     obj_pool.clear();
     _merge_controller_handler.reset();
 
-#ifndef BE_TEST
-    _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-#endif
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     // the only one msg shows query's end. any other msg should append to it if need.
     LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);

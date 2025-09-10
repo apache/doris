@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_broker_load_without_filepath", "load_p0") {
+suite("test_broker_load_without_filepath", "load_p0,external") {
     // define a sql table
     def testTable = "tbl_test_broker_load_without_filepath"
 
@@ -54,7 +54,9 @@ suite("test_broker_load_without_filepath", "load_p0") {
     }
 
     def load_from_hdfs_norm = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
-
+        logger.info("test")
+        def f = context.config.otherConfigs.get("hdfsFs")
+        logger.info("${f}")
         test {
             sql """
                         LOAD LABEL ${label} (
@@ -63,14 +65,16 @@ suite("test_broker_load_without_filepath", "load_p0") {
                             COLUMNS TERMINATED BY ","
                             FORMAT as "${format}"
                         )
-                        with BROKER "${brokerName}" (
-                        "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        with HDFS (
+                            "username"="${hdfsUser}",
+                            "password"="${hdfsPasswd}",
+                            "fs.defaultFS"="${f}"
+                        )
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
                         """
-            exception "DATA INFILE must be specified."
+            exception "Property 'uri' is required."
         }
 
     }
@@ -78,10 +82,10 @@ suite("test_broker_load_without_filepath", "load_p0") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
-        def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/broker_load_without_filepath.csv"
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
+        def hdfs_csv_file_path = ""
 
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"

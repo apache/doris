@@ -19,7 +19,6 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
@@ -29,7 +28,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
@@ -149,37 +147,6 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         }
     }
 
-    public static BulkLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
-        // get db id
-        String dbName = stmt.getLabel().getDbName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-        // create job
-        BulkLoadJob bulkLoadJob;
-        try {
-            switch (stmt.getEtlJobType()) {
-                case BROKER:
-                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
-                            stmt.getLabel().getLabelName(), stmt.getBrokerDesc(), stmt.getOrigStmt(),
-                            stmt.getUserInfo());
-                    break;
-                case DELETE:
-                case INSERT:
-                    throw new DdlException("LoadManager only support create broker load job from stmt.");
-                default:
-                    throw new DdlException("Unknown load job type.");
-            }
-            bulkLoadJob.setComment(stmt.getComment());
-            bulkLoadJob.setJobProperties(stmt.getProperties());
-            bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
-            // In the construction method, there may not be table information yet
-            bulkLoadJob.rebuildAuthorizationInfo();
-            return bulkLoadJob;
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        }
-    }
-
     public void checkAndSetDataSourceInfoByNereids(Database db, List<NereidsDataDescription> dataDescriptions,
                                                        ConnectContext ctx) throws Exception {
         // check data source info
@@ -243,18 +210,22 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 .collect(Collectors.toSet());
     }
 
-    @LogException
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
-        Set<String> result = Sets.newHashSet();
-        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        // The database will not be locked in here.
-        // The getTable is a thread-safe method called without read lock of database
-        for (long tableId : fileGroupAggInfo.getAllTableIds()) {
-            Table table = database.getTableOrMetaException(tableId);
-            result.add(table.getName());
+        try {
+            Set<String> result = Sets.newHashSet();
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            // The database will not be locked in here.
+            // The getTable is a thread-safe method called without read lock of database
+            for (long tableId : fileGroupAggInfo.getAllTableIds()) {
+                Table table = database.getTableOrMetaException(tableId);
+                result.add(table.getName());
+            }
+            return result;
+        } catch (Exception e) {
+            LOG.warn(e);
+            throw e;
         }
-        return result;
     }
 
     @Override

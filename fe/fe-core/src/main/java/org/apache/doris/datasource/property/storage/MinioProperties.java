@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
@@ -48,8 +47,60 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"minio.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
             required = false,
+            sensitive = true,
             description = "The secret key of Minio.")
     protected String secretKey = "";
+
+    @Getter
+    @ConnectorProperty(names = {"minio.session_token", "s3.session_token", "session_token"},
+            required = false,
+            sensitive = true,
+            description = "The session token of Minio.")
+    protected String sessionToken = "";
+
+    /**
+     * The maximum number of concurrent connections that can be made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"minio.connection.maximum", "s3.connection.maximum"}, required = false,
+            description = "Maximum number of connections.")
+    protected String maxConnections = "100";
+
+    /**
+     * The timeout (in milliseconds) for requests made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"minio.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
+            description = "Request timeout in seconds.")
+    protected String requestTimeoutS = "10000";
+
+    /**
+     * The timeout (in milliseconds) for establishing a connection to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"minio.connection.timeout", "s3.connection.timeout"}, required = false,
+            description = "Connection timeout in seconds.")
+    protected String connectionTimeoutS = "10000";
+
+    /**
+     * Flag indicating whether to use path-style URLs for the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Setter
+    @Getter
+    @ConnectorProperty(names = {"minio.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    protected String usePathStyle = "false";
+
+    @ConnectorProperty(names = {"minio.force_parsing_by_standard_uri", "force_parsing_by_standard_uri"},
+            required = false,
+            description = "Whether to use path style URL for the storage.")
+    @Setter
+    @Getter
+    protected String forceParsingByStandardUrl = "false";
 
     private static final Set<String> IDENTIFIERS = ImmutableSet.of("minio.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY",
             "access_key", "s3.access_key", "minio.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT");
@@ -61,22 +112,6 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
      */
     protected MinioProperties(Map<String, String> origProps) {
         super(Type.MINIO, origProps);
-    }
-
-    @Override
-    public void initNormalizeAndCheckProps() {
-        super.initNormalizeAndCheckProps();
-        // Check if credentials are provided properly - either both or neither
-        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
-            return;
-        }
-        // Allow anonymous access if both access_key and secret_key are empty
-        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            return;
-        }
-        // If only one is provided, it's an error
-        throw new StoragePropertiesException(
-                        "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {
@@ -93,5 +128,12 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     @Override
     protected Set<Pattern> endpointPatterns() {
         return ImmutableSet.of(Pattern.compile("^(?:https?://)?[a-zA-Z0-9.-]+(?::\\d+)?$"));
+    }
+
+    protected void setEndpointIfPossible() {
+        super.setEndpointIfPossible();
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Property minio.endpoint is required.");
+        }
     }
 }

@@ -18,17 +18,16 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <atomic>
+#include <cstdint>
 
 namespace doris {
 
-constexpr uint32_t LUT_START_YEAR = 1950;
-constexpr uint32_t LUT_END_YEAR = 2030;
+constexpr uint16_t LUT_START_YEAR = 1950;
+constexpr uint16_t LUT_END_YEAR = 2030;
 
-constexpr uint32_t NUM_MONTHS = 12;
-constexpr uint32_t NUM_DAYS = 31;
+constexpr uint8_t NUM_MONTHS = 12;
+constexpr uint8_t NUM_DAYS = 31;
 
 uint32_t year_week(uint16_t yy, uint8_t month, uint8_t day);
 
@@ -39,7 +38,7 @@ inline bool is_leap(uint32_t year) {
     return ((year % 4) == 0) && (year % 100 != 0 || (year % 400) == 0);
 }
 
-uint32_t calc_days_in_year(uint32_t year);
+uint16_t calc_days_in_year(uint32_t year);
 
 uint8_t calc_week(uint16_t yy, uint8_t month, uint8_t day, bool monday_first, bool week_year,
                   bool first_weekday, uint16_t* to_year);

@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <string>
 
+#include "common/cast_set.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_approx_top.h"
 #include "vec/columns/column.h"
@@ -41,6 +42,7 @@
 #include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct AggregateFunctionTopKGenericData {
     using Set = SpaceSaving<StringRef, StringRefHash>;
@@ -52,7 +54,9 @@ template <PrimitiveType T, typename TResult, typename Data>
 class AggregateFunctionApproxTopSum final
         : public IAggregateFunctionDataHelper<Data,
                                               AggregateFunctionApproxTopSum<T, TResult, Data>>,
-          AggregateFunctionApproxTop {
+          AggregateFunctionApproxTop,
+          VarargsExpression,
+          NullableAggregateFunction {
 private:
     using State = AggregateFunctionTopKGenericData;
 
@@ -164,7 +168,7 @@ public:
                 all_serialize_value_into_arena(row_num, _column_names.size(), columns, arena);
         const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                 *columns[_column_names.size() - 1]);
-        set.insert(str_serialized, TResult(column.get_data()[row_num]));
+        set.insert(str_serialized, static_cast<uint64_t>(TResult(column.get_data()[row_num])));
         arena.rollback(str_serialized.size);
     }
 
@@ -216,8 +220,9 @@ public:
             for (size_t i = 0; i < _column_names.size(); i++) {
                 begin = argument_columns[i]->deserialize_and_insert_from_arena(begin);
                 std::string row_str = argument_types[i]->to_string(*argument_columns[i], 0);
-                sub_writer.Key(_column_names[i].data(), _column_names[i].size());
-                sub_writer.String(row_str.data(), row_str.size());
+                sub_writer.Key(_column_names[i].data(),
+                               cast_set<uint32_t>(_column_names[i].size()));
+                sub_writer.String(row_str.data(), cast_set<uint32_t>(row_str.size()));
             }
             sub_writer.Key("sum");
             sub_writer.String(std::to_string(result.count).c_str());
@@ -239,5 +244,5 @@ struct TopSumSimple {
 
 template <PrimitiveType T>
 using AggregateFunctionApproxTopSumSimple = typename TopSumSimple<T>::Function;
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

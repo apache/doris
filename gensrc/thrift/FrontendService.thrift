@@ -383,6 +383,7 @@ struct TMasterOpRequest {
     29: optional TTxnLoadInfo txnLoadInfo
     30: optional TGroupCommitInfo groupCommitInfo
     31: optional binary prepareExecuteBuffer
+    32: optional bool moreResultExists // Server has more result to send
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -420,6 +421,7 @@ struct TMasterOpResult {
     // transaction load
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
+    11: optional i64 affectedRows;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -555,6 +557,7 @@ struct TStreamLoadPutRequest {
     56: optional string group_commit_mode
     57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
+    59: optional bool empty_field_as_null
 
     // For cloud
     1000: optional string cloud_cluster
@@ -850,6 +853,7 @@ struct TSchemaTableRequestParams {
     4: optional string catalog  // use for table specific queries
     5: optional i64 dbId         // used for table specific queries
     6: optional string time_zone // used for DATETIME field
+    7: optional string frontend_conjuncts
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1612,29 +1616,13 @@ struct TPlanNodeRuntimeStatsItem {
     12: optional i32 instance_num
 }
 
-enum TEncryptionAlgorithm {
-    AES256 = 0,
-    SM4 = 1
-}
-
 enum TEncryptionKeyType {
     MASTER_KEY = 0,
     DATA_KEY = 1,
 }
 
 struct TEncryptionKey {
-    1: optional string id
-    2: optional i32 version
-    3: optional string parent_id
-    4: optional i32 parent_version
-    5: optional TEncryptionKeyType type
-    6: optional TEncryptionAlgorithm algorithm
-    7: optional string ciphertext
-    8: optional binary plaintext
-    9: optional string iv
-    10: optional i64 crc
-    11: optional i64 ctime
-    12: optional i64 mtime
+    1: optional binary key_pb;
 }
 
 struct TGetEncryptionKeysRequest {
@@ -1644,6 +1632,16 @@ struct TGetEncryptionKeysRequest {
 struct TGetEncryptionKeysResult {
     1: optional Status.TStatus status
     2: optional list<TEncryptionKey> master_keys
+}
+
+struct TGetTableTDEInfoRequest {
+    1: optional i64 db_id
+    2: optional i64 table_id
+}
+
+struct TGetTableTDEInfoResult {
+    1: optional Status.TStatus status
+    2: optional AgentService.TEncryptionAlgorithm algorithm
 }
 
 service FrontendService {
@@ -1750,4 +1748,6 @@ service FrontendService {
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
 
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
+
+    TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 }

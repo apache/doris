@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -31,6 +33,7 @@ import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
+import org.apache.doris.datasource.paimon.PaimonVendedCredentialsProvider;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -46,7 +49,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
@@ -82,7 +84,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_START_TIMESTAMP = "startTimestamp";
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
-    private static final String DEFAULT_INCREMENTAL_BETWEEN_SCAN_MODE = "auto";
 
     private enum SplitReadType {
         JNI,
@@ -212,15 +213,6 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
-        fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
-                .collect(Collectors.joining(",")));
-        fileDesc.setDbName(((PaimonExternalTable) source.getTargetTable()).getDbName());
-        fileDesc.setPaimonOptions(((PaimonExternalCatalog) source.getCatalog()).getPaimonOptionsMap());
-        fileDesc.setTableName(source.getTargetTable().getName());
-        fileDesc.setCtlId(source.getCatalog().getId());
-        fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
-        fileDesc.setTblId(source.getTargetTable().getId());
-        fileDesc.setLastUpdateTime(source.getTargetTable().getUpdateTime());
         // The hadoop conf should be same with
         // PaimonExternalCatalog.createCatalog()#getConfiguration()
         fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getBackendStorageProperties());
@@ -391,21 +383,16 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @VisibleForTesting
     public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() throws UserException {
-        if (!source.getPaimonTable().options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())) {
-            // an empty table in PaimonSnapshotCacheValue
-            return Collections.emptyList();
-        }
+        Table paimonTable = getProcessedTable();
         int[] projected = desc.getSlots().stream().mapToInt(
-                        slot -> source.getPaimonTable().rowType()
-                                .getFieldNames()
-                                .stream()
-                                .map(String::toLowerCase)
-                                .collect(Collectors.toList())
-                                .indexOf(slot.getColumn().getName()))
+                slot -> paimonTable.rowType()
+                        .getFieldNames()
+                        .stream()
+                        .map(String::toLowerCase)
+                        .collect(Collectors.toList())
+                        .indexOf(slot.getColumn().getName()))
+                .filter(i -> i >= 0)
                 .toArray();
-        Table paimonTable = source.getPaimonTable();
-        Map<String, String> incrReadParams = getIncrReadParams();
-        paimonTable = paimonTable.copy(incrReadParams);
         ReadBuilder readBuilder = paimonTable.newReadBuilder();
         return readBuilder.withFilter(predicates)
                 .withProjection(projected)
@@ -451,7 +438,12 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() {
-        return source.getCatalog().getCatalogProperty().getBackendStorageProperties();
+        PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
+        return PaimonVendedCredentialsProvider.getBackendLocationProperties(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                source.getPaimonTable()
+        );
     }
 
     @Override
@@ -649,7 +641,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             paimonScanParams.put(PAIMON_SCAN_MODE, null);
             if (hasStartSnapshotId && !hasEndSnapshotId) {
                 // Only startSnapshotId is specified
-                paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, params.get(DORIS_START_SNAPSHOT_ID));
+                throw new UserException("endSnapshotId is required when using snapshot-based incremental read");
             } else if (hasStartSnapshotId && hasEndSnapshotId) {
                 // Both start and end snapshot IDs are specified
                 String startSId = params.get(DORIS_START_SNAPSHOT_ID);
@@ -679,5 +671,40 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         return paimonScanParams;
     }
-}
 
+    /**
+     * Processes and returns the appropriate Paimon table object based on scan parameters or table snapshot.
+     * <p>
+     * This method handles different scan modes including incremental reads and system tables,
+     * applying the necessary transformations to the base Paimon table.
+     *
+     * @return processed Paimon table object configured according to scan parameters
+     * @throws UserException when system table configuration is incorrect
+     */
+    private Table getProcessedTable() throws UserException {
+        Table baseTable = source.getPaimonTable();
+        if (getScanParams() != null && getQueryTableSnapshot() != null) {
+            throw new UserException("Can not specify scan params and table snapshot at same time.");
+        }
+        TableScanParams theScanParams = getScanParams();
+        if (theScanParams != null) {
+            if (theScanParams.incrementalRead()) {
+                return baseTable.copy(getIncrReadParams());
+            }
+
+            if (theScanParams.isBranch()) {
+                return PaimonUtil.getTableByBranch(source, baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
+            }
+            if (theScanParams.isTag()) {
+                return PaimonUtil.getTableByTag(baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
+            }
+        }
+
+        TableSnapshot theTableSnapshot = getQueryTableSnapshot();
+        if (theTableSnapshot != null) {
+            return PaimonUtil.getTableBySnapshot(baseTable, theTableSnapshot);
+        }
+
+        return baseTable;
+    }
+}

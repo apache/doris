@@ -40,7 +40,7 @@ suite("test_index_change_after_mv") {
     sql """ INSERT INTO ${tableName} VALUES("steve", 0, 2, "xxx", "xxx") """
 
     sql """ 
-        CREATE MATERIALIZED VIEW ${mvName} AS SELECT name, age, grade FROM ${tableName} WHERE name = "steve" AND age = 0
+        CREATE MATERIALIZED VIEW ${mvName} AS SELECT name as a1, age as a2, grade as a3 FROM ${tableName} WHERE name = "steve" AND age = 0
     """
 
     def getJobState = { tblName ->

@@ -21,12 +21,14 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 #include "common/compile_check_begin.h"
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
@@ -188,9 +190,17 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             continue;
         }
         int64_t tablet_id = rs_meta.tablet_id();
-        auto res = _engine.tablet_mgr().get_tablet(tablet_id);
+        bool local_only = !(request->has_skip_existence_check() && request->skip_existence_check());
+        auto res = _engine.tablet_mgr().get_tablet(tablet_id, /* warmup_data = */ false,
+                                                   /* sync_delete_bitmap = */ true,
+                                                   /* sync_stats = */ nullptr,
+                                                   /* local_only = */ local_only);
         if (!res.has_value()) {
             LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
+            if (res.error().msg().find("local_only=true") != std::string::npos) {
+                res.error().set_code(ErrorCode::TABLE_NOT_FOUND);
+            }
+            res.error().to_protobuf(response->mutable_status());
             continue;
         }
         auto tablet = res.value();
@@ -214,6 +224,12 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         : rs_meta.newest_write_timestamp() + tablet_meta->ttl_seconds();
         if (expiration_time <= UnixSeconds()) {
             expiration_time = 0;
+        }
+
+        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpState::TRIGGERED_BY_JOB)) {
+            LOG(INFO) << "found duplicate warmup task for rowset " << rs_meta.rowset_id()
+                      << ", skip it";
+            continue;
         }
 
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
@@ -248,6 +264,11 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     g_file_cache_event_driven_warm_up_failed_segment_size << segment_size;
                     LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
                                  << " rowset_id: " << rowset_id << ", error: " << st;
+                }
+                if (tablet->complete_rowset_segment_warmup(rs_meta.rowset_id(), st) ==
+                    WarmUpState::DONE) {
+                    VLOG_DEBUG << "warmup rowset " << rs_meta.version() << "(" << rowset_id
+                               << ") completed";
                 }
                 if (wait) {
                     wait->signal();
@@ -342,9 +363,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             // inverted index
             auto schema_ptr = rs_meta.tablet_schema();
             auto idx_version = schema_ptr->get_inverted_index_storage_format();
-            bool has_inverted_index = schema_ptr->has_inverted_index();
 
-            if (has_inverted_index) {
+            if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
                     auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
                     std::unordered_map<int64_t, int64_t> index_size_map;
@@ -416,4 +436,5 @@ void CloudInternalServiceImpl::recycle_cache(google::protobuf::RpcController* co
     }
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

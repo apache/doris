@@ -160,6 +160,7 @@ TEST_F(FunctionCastTest, string_to_date_strict_case_non_strict_mode) {
             {{std::string("24-5-1")}, std::string("2024-05-01")},
             {{std::string("2024-05-01 0:1:2.333")}, std::string("2024-05-01")},
             {{std::string("2024-05-01 0:1:2.")}, std::string("2024-05-01")},
+            {{std::string("2024-05-01:12:12:12")}, std::string("2024-05-01")},
 
             // Compact formats
             {{std::string("20240501 01")}, std::string("2024-05-01")},
@@ -185,6 +186,7 @@ TEST_F(FunctionCastTest, string_to_date_strict_case_non_strict_mode) {
             {{std::string("20120102030405")}, std::string("2012-01-02")},
             {{std::string("120102030405.999")}, Null()},
             {{std::string("2024/05/01")}, std::string("2024-05-01")},
+            {{std::string("2024-05-01:12:12:12.1230")}, std::string("2024-05-01")},
 
             // Invalid formats (should return NULL)
             {{std::string("19991231T235960.5UTC")}, Null()},
@@ -290,6 +292,35 @@ TEST_F(FunctionCastTest, test_from_numeric_to_date) {
                 {{int64_t(20150102030405)}, std::string("2015-01-02")},
         };
         check_function_for_cast<DataTypeDateV2>(input_types, data_set);
+    }
+}
+
+TEST_F(FunctionCastTest, test_from_numeric_to_date_invalid) {
+    // Test casting from Int64
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+        DataSet data_set = {
+                {{int64_t(1)}, Null()},
+                {{int64_t(22)}, Null()},
+                {{int64_t(-222)}, Null()},
+                {{int64_t(7777777)}, Null()},
+                {{int64_t(2015010203040516)}, Null()},
+        };
+        check_function_for_cast<DataTypeDateV2>(input_types, data_set);
+        check_function_for_cast_strict_mode<DataTypeDateV2>(input_types, data_set, "date");
+    }
+    // Test casting from Double
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {
+                {{1.}, Null()},
+                {{22.223}, Null()},
+                {{-222.}, Null()},
+                {{7777777.}, Null()},
+                {{2015010203040516.}, Null()},
+        };
+        check_function_for_cast<DataTypeDateV2>(input_types, data_set);
+        check_function_for_cast_strict_mode<DataTypeDateV2>(input_types, data_set, "date");
     }
 }
 

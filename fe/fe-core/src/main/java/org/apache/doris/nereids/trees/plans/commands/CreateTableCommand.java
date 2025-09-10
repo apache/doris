@@ -17,9 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
@@ -193,9 +191,16 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
 
     void handleFallbackFailedCtas(ConnectContext ctx) {
         try {
-            Env.getCurrentEnv().dropTable(new DropTableStmt(false,
-                    new TableName(createTableInfo.getCtlName(),
-                            createTableInfo.getDbName(), createTableInfo.getTableName()), true));
+            Env.getCurrentEnv().dropTable(
+                    createTableInfo.getCtlName(),
+                    createTableInfo.getDbName(),
+                    createTableInfo.getTableName(),
+                    false,
+                    false,
+                    false,
+                    false,
+                    true
+            );
         } catch (Exception e) {
             // TODO: refactor it with normal error process.
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());

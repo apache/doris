@@ -75,6 +75,15 @@ public:
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
 
+    // the difference between index change compmaction and other compaction.
+    // 1. delete predicate should be kept when input is cumu rowset.
+    // 2. inverted compaction should be skipped.
+    // 3. compute level should not be changed.
+    virtual bool is_index_change_compaction() { return false; }
+
+private:
+    void set_delete_predicate_for_output_rowset();
+
 protected:
     Status merge_input_rowsets();
 
@@ -126,6 +135,7 @@ protected:
 
     bool _is_vertical;
     bool _allow_delete_in_cumu_compaction;
+    bool _enable_vertical_compact_variant_subcolumns;
 
     Version _output_version;
 
@@ -134,6 +144,8 @@ protected:
     TabletSchemaSPtr _cur_tablet_schema;
 
     std::unique_ptr<RuntimeProfile> _profile;
+
+    bool _enable_inverted_index_compaction {false};
 
     RuntimeProfile::Counter* _input_rowsets_data_size_counter = nullptr;
     RuntimeProfile::Counter* _input_rowsets_counter = nullptr;
@@ -179,7 +191,7 @@ protected:
 private:
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info(bool is_ordered_compaction = false);
 
     // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
@@ -204,6 +216,8 @@ public:
 
     int64_t initiator() const;
 
+    int64_t num_input_rowsets() const;
+
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
@@ -217,12 +231,16 @@ protected:
 
     int64_t _expiration = 0;
 
+    virtual Status rebuild_tablet_schema() { return Status::OK(); }
+
 private:
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
 
+    Status set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx);
+
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info();
 
     virtual Status modify_rowsets();
 

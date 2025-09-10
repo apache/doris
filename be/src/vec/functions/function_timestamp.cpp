@@ -48,6 +48,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/int_exp.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -536,31 +537,36 @@ private:
     }
 };
 
+static int64_t trim_timestamp(int64_t timestamp, bool new_version = false) {
+    if (timestamp < 0 || (!new_version && timestamp > INT_MAX)) {
+        return 0;
+    }
+    return timestamp;
+}
+
+static std::pair<Int64, Int64> trim_timestamp(std::pair<Int64, Int64> timestamp,
+                                              bool new_version = false) {
+    if (timestamp.first < 0 || (!new_version && timestamp.first > INT_MAX)) {
+        return {0, 0};
+    }
+    return timestamp;
+}
+
+template <bool NewVersion = false>
 struct UnixTimeStampImpl {
-    static Int32 trim_timestamp(Int64 timestamp) {
-        if (timestamp < 0 || timestamp > INT_MAX) {
-            timestamp = 0;
-        }
-        return (Int32)timestamp;
-    }
-
-    static std::pair<Int32, Int32> trim_timestamp(std::pair<Int64, Int64> timestamp) {
-        if (timestamp.first < 0 || timestamp.first > INT_MAX) {
-            return {0, 0};
-        }
-        return std::make_pair((Int32)timestamp.first, (Int32)timestamp.second);
-    }
-
     static DataTypes get_variadic_argument_types() { return {}; }
 
+    using DataType = std::conditional_t<NewVersion, DataTypeInt64, DataTypeInt32>;
+    using ColumnType = std::conditional_t<NewVersion, ColumnInt64, ColumnInt32>;
+
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
-        return std::make_shared<DataTypeInt32>();
+        return std::make_shared<DataType>();
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
-        auto col_result = ColumnInt32::create();
+        auto col_result = ColumnType::create();
         col_result->resize(1);
         col_result->get_data()[0] = context->state()->timestamp_ms() / 1000;
         auto col_const = ColumnConst::create(std::move(col_result), input_rows_count);
@@ -569,9 +575,16 @@ struct UnixTimeStampImpl {
     }
 };
 
-template <typename DateType>
+template <typename DateType, bool NewVersion = false>
 struct UnixTimeStampDateImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
+
+    using ResultDataType =
+            std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>, DataTypeDecimal64,
+                               std::conditional_t<NewVersion, DataTypeInt64, DataTypeInt32>>;
+    using ResultColumnType =
+            std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>, ColumnDecimal64,
+                               std::conditional_t<NewVersion, ColumnInt64, ColumnInt32>>;
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
         if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
@@ -579,15 +592,15 @@ struct UnixTimeStampDateImpl {
                 UInt32 scale = static_cast<const DataTypeNullable*>(arguments[0].type.get())
                                        ->get_nested_type()
                                        ->get_scale();
-                return make_nullable(std::make_shared<DataTypeDecimal64>(10 + scale, scale));
+                return make_nullable(std::make_shared<ResultDataType>(12 + scale, scale));
             }
             UInt32 scale = arguments[0].type->get_scale();
-            return std::make_shared<DataTypeDecimal64>(10 + scale, scale);
+            return std::make_shared<ResultDataType>(12 + scale, scale);
         } else {
             if (arguments[0].type->is_nullable()) {
-                return make_nullable(std::make_shared<DataTypeInt32>());
+                return make_nullable(std::make_shared<ResultDataType>());
             }
-            return std::make_shared<DataTypeInt32>();
+            return std::make_shared<ResultDataType>();
         }
     }
 
@@ -600,7 +613,7 @@ struct UnixTimeStampDateImpl {
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
             const auto* col_source = assert_cast<const typename DateType::ColumnType*>(col.get());
-            auto col_result = ColumnInt32::create();
+            auto col_result = ResultColumnType::create();
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
 
@@ -609,12 +622,12 @@ struct UnixTimeStampDateImpl {
                 const auto& ts_value = reinterpret_cast<const VecDateTimeValue&>(*source.data);
                 int64_t timestamp {};
                 ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
-                col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                col_result_data[i] = trim_timestamp(timestamp, NewVersion);
             }
             block.replace_by_position(result, std::move(col_result));
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             const auto* col_source = assert_cast<const ColumnDateV2*>(col.get());
-            auto col_result = ColumnInt32::create();
+            auto col_result = ResultColumnType::create();
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
 
@@ -626,7 +639,7 @@ struct UnixTimeStampDateImpl {
                 const auto valid =
                         ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
                 DCHECK(valid);
-                col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                col_result_data[i] = trim_timestamp(timestamp, NewVersion);
             }
             block.replace_by_position(result, std::move(col_result));
         } else { // DatetimeV2
@@ -645,12 +658,11 @@ struct UnixTimeStampDateImpl {
                         ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
                 DCHECK(valid);
 
-                auto [sec, ms] = UnixTimeStampImpl::trim_timestamp(timestamp);
-                auto ms_str = std::to_string(ms).substr(0, scale);
-                if (ms_str.empty()) {
-                    ms_str = "0";
-                }
-                col_result_data[i] = Decimal64::from_int_frac(sec, std::stoll(ms_str), scale).value;
+                auto [sec, ms] = trim_timestamp(timestamp, NewVersion);
+                col_result_data[i] =
+                        Decimal64::from_int_frac(
+                                sec, ms / static_cast<int64_t>(std::pow(10, 6 - scale)), scale)
+                                .value;
             }
             block.replace_by_position(result, std::move(col_result));
         }
@@ -659,18 +671,22 @@ struct UnixTimeStampDateImpl {
     }
 };
 
-template <typename DateType>
-struct UnixTimeStampDatetimeImpl : public UnixTimeStampDateImpl<DateType> {
+template <typename DateType, bool NewVersion = false>
+struct UnixTimeStampDatetimeImpl : public UnixTimeStampDateImpl<DateType, NewVersion> {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 };
 
 // This impl doesn't use default impl to deal null value.
+template <bool NewVersion = false>
 struct UnixTimeStampStrImpl {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
+        if constexpr (NewVersion) {
+            return make_nullable(std::make_shared<DataTypeDecimal64>(18, 6));
+        }
         return make_nullable(std::make_shared<DataTypeDecimal64>(16, 6));
     }
 
@@ -696,6 +712,7 @@ struct UnixTimeStampStrImpl {
             StringRef fmt = col_format->get_data_at(index_check_const(i, format_const));
 
             DateV2Value<DateTimeV2ValueType> ts_value;
+            //FIXME: use new serde to parse the input string
             if (!ts_value.from_date_format_str(fmt.data, fmt.size, source.data, source.size)) {
                 null_map_data[i] = true;
                 continue;
@@ -707,7 +724,7 @@ struct UnixTimeStampStrImpl {
             } else {
                 null_map_data[i] = false;
 
-                auto [sec, ms] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                auto [sec, ms] = trim_timestamp(timestamp, NewVersion);
                 // trailing ms
                 auto ms_str = std::to_string(ms).substr(0, 6);
                 if (ms_str.empty()) {
@@ -730,6 +747,32 @@ class FunctionUnixTimestamp : public IFunction {
 public:
     static constexpr auto name = "unix_timestamp";
     static FunctionPtr create() { return std::make_shared<FunctionUnixTimestamp<Impl>>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return Impl::get_return_type_impl(arguments);
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+    }
+};
+
+template <typename Impl>
+class FunctionUnixTimestampNew : public IFunction {
+public:
+    static constexpr auto name = "unix_timestamp_new";
+    static FunctionPtr create() { return std::make_shared<FunctionUnixTimestampNew<Impl>>(); }
 
     String get_name() const override { return name; }
 
@@ -1415,12 +1458,23 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTruncDatetimeV2WithCommonOrder>();
     factory.register_function<FunctionFromIso8601DateV2>();
 
-    factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
+    factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl<>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateV2>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateTime>>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDateTimeV2>>>();
-    factory.register_function<FunctionUnixTimestamp<UnixTimeStampStrImpl>>();
+    factory.register_function<FunctionUnixTimestamp<UnixTimeStampStrImpl<>>>();
+    factory.register_function<FunctionUnixTimestampNew<UnixTimeStampImpl<true>>>();
+    factory.register_function<
+            FunctionUnixTimestampNew<UnixTimeStampDateImpl<DataTypeDate, true>>>();
+    factory.register_function<
+            FunctionUnixTimestampNew<UnixTimeStampDateImpl<DataTypeDateV2, true>>>();
+    factory.register_function<
+            FunctionUnixTimestampNew<UnixTimeStampDateImpl<DataTypeDateTime, true>>>();
+    factory.register_function<
+            FunctionUnixTimestampNew<UnixTimeStampDateImpl<DataTypeDateTimeV2, true>>>();
+    factory.register_function<FunctionUnixTimestampNew<UnixTimeStampStrImpl<true>>>();
+
     factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, DataTypeDateTime>>();
     factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, DataTypeDate>>();
     factory.register_function<FunctionDateOrDateTimeToDate<LastDayImpl, DataTypeDateV2>>();

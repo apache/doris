@@ -32,8 +32,8 @@ public class IcebergRestPropertiesTest {
     public void testBasicRestProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
-        props.put("iceberg.rest.warehouse", "s3://warehouse/path");
         props.put("iceberg.rest.prefix", "prefix");
+        props.put("warehouse", "s3://warehouse/path");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
         restProps.initNormalizeAndCheckProps();
@@ -90,7 +90,8 @@ public class IcebergRestPropertiesTest {
         Assertions.assertEquals("client_credentials", catalogProps.get(OAuth2Properties.CREDENTIAL));
         Assertions.assertEquals("http://auth.example.com/token", catalogProps.get(OAuth2Properties.OAUTH2_SERVER_URI));
         Assertions.assertEquals("read write", catalogProps.get(OAuth2Properties.SCOPE));
-        Assertions.assertEquals("false", catalogProps.get(OAuth2Properties.TOKEN_REFRESH_ENABLED));
+        Assertions.assertEquals(String.valueOf(OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT),
+                catalogProps.get(OAuth2Properties.TOKEN_REFRESH_ENABLED));
     }
 
     @Test
@@ -209,7 +210,7 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> props2 = new HashMap<>();
         props2.put("iceberg.rest.uri", "http://localhost:8080");
-        props2.put("iceberg.rest.warehouse", "s3://warehouse/path");
+        props2.put("warehouse", "s3://warehouse/path");
         IcebergRestProperties restProps2 = new IcebergRestProperties(props2);
         restProps2.initNormalizeAndCheckProps();
         Assertions.assertEquals("s3://warehouse/path",

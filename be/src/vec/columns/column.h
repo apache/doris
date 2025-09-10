@@ -571,8 +571,8 @@ public:
     // true if column has null element
     virtual bool has_null() const { return false; }
 
-    // true if column has null element [0,size)
-    virtual bool has_null(size_t size) const { return false; }
+    // true if column has null element [begin, end)
+    virtual bool has_null(size_t begin, size_t end) const { return false; }
 
     virtual bool is_exclusive() const { return use_count() == 1; }
 
@@ -651,6 +651,10 @@ public:
     // usage: nested_column.replace_column_null_data(nested_null_map.data())
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
+
+    // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
+    // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join
+    virtual void replace_float_special_values() {}
 
 protected:
     template <typename Derived>

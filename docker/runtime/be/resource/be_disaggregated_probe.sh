@@ -24,12 +24,34 @@ CONFIG_FILE="$DORIS_HOME/be/conf/be.conf"
 DEFAULT_HEARTBEAT_SERVICE_PORT=9050
 DEFAULT_WEBSERVER_PORT=8040
 
+# enable_tls specify use tls connection or not.
+ENABLE_TLS=
+
+# tls_certificate_path specify the client certificate
+TLS_PRIVATE_KEY_PATH=
+
+# tls_certificate_path specify the path of public crt.
+TLS_CERTIFICATE_PATH=
+
+#tls_ca_certificate_path specify the path of root ca.
+TLS_CA_CERTIFICATE_PATH=
+
 function parse_config_file_with_key()
 {
     local key=$1
     local value=`grep "^\s*$key\s*=" $CONFIG_FILE | sed "s|^\s*$key\s*=\s*\(.*\)\s*$|\1|g"`
     echo $value
 }
+
+
+parse_tls_connection_variables()
+{
+    ENABLE_TLS=$(parse_config_file_with_key "enable_tls")
+    TLS_PRIVATE_KEY_PATH=$(parse_config_file_with_key "tls_private_key_path")
+    TLS_CERTIFICATE_PATH=$(parse_config_file_with_key "tls_certificate_path")
+    TLS_CA_CERTIFICATE_PATH=$(parse_config_file_with_key "tls_ca_certificate_path")
+}
+
 
 function alive_probe()
 {
@@ -42,7 +64,22 @@ function alive_probe()
     fi
 }
 
-function ready_probe()
+ready_probe_with_tls()
+{
+    local webserver_port=$(parse_config_file_with_key "webserver_port")
+    webserver_port=${webserver_port:=$DEFAULT_WEBSERVER_PORT}
+    local fqdn=`hostname -f`
+    local url="https://${fqdn}:${webserver_port}/api/health"
+    local res=$(curl --tlsv1.2 --cert $TLS_CERTIFICATE_PATH --cacert $TLS_CA_CERTIFICATE_PATH --key $TLS_PRIVATE_KEY_PATH -s $url)
+    local status=$(jq -r ".status" <<< $res)
+    if [[ "x$status" == "xOK" ]]; then
+        exit 0
+    else
+        exit 1
+    fi
+}
+
+ready_probe_with_no_tls()
 {
     local webserver_port=$(parse_config_file_with_key "webserver_port")
     webserver_port=${webserver_port:=$DEFAULT_WEBSERVER_PORT}
@@ -57,6 +94,16 @@ function ready_probe()
     fi
 }
 
+function ready_probe()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        ready_probe_with_tls
+    else
+        ready_probe_with_no_tls
+    fi
+}
+
+parse_tls_connection_variables
 if [[ "$PROBE_TYPE" == "ready" ]]; then
     ready_probe
 else

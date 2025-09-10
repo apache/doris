@@ -15,26 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
-        if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
-            String catalog_name = "test_paimon_minio"
-            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String table_name = "ts_scale_orc"
-
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String table_name = "ts_scale_orc"
+        for (String propertyPrefix : ["s3", "minio"]) {
+            def catalog_name = "test_paimon_minio_${propertyPrefix}"
             sql """drop catalog if exists ${catalog_name}"""
-
             sql """
-                CREATE CATALOG ${catalog_name} PROPERTIES (
-                        'type' = 'paimon',
-                        'warehouse' = 's3://warehouse/wh',
-                        's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',
-                        's3.access_key' = 'admin',
-                        's3.secret_key' = 'password',
-                        's3.path.style.access' = 'true'
-                );
-            """
+                    CREATE CATALOG ${catalog_name} PROPERTIES (
+                            'type' = 'paimon',
+                            'warehouse' = 's3://warehouse/wh',
+                            '${propertyPrefix}.endpoint' = 'http://${externalEnvIp}:${minio_port}',
+                            '${propertyPrefix}.access_key' = 'admin',
+                            '${propertyPrefix}.secret_key' = 'password',
+                            '${propertyPrefix}.path.style.access' = 'true'
+                    );
+                """
             sql """switch `${catalog_name}`"""
             sql """show databases; """
             sql """use `${catalog_name}`.`flink_paimon`"""
@@ -44,16 +43,16 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
 
             sql """drop catalog if exists ${catalog_name}_with_region"""
             sql """
-                CREATE CATALOG ${catalog_name}_with_region PROPERTIES (
-                        'type' = 'paimon',
-                        'warehouse' = 's3://warehouse/wh',
-                        's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',
-                        's3.access_key' = 'admin',
-                        's3.secret_key' = 'password',
-                        's3.region' = 'us-west-2',
-                        's3.path.style.access' = 'true'
-                );
-            """
+                    CREATE CATALOG ${catalog_name}_with_region PROPERTIES (
+                            'type' = 'paimon',
+                            'warehouse' = 's3://warehouse/wh',
+                            '${propertyPrefix}.endpoint' = 'http://${externalEnvIp}:${minio_port}',
+                            '${propertyPrefix}.access_key' = 'admin',
+                            '${propertyPrefix}.secret_key' = 'password',
+                            '${propertyPrefix}.region' = 'us-west-2',
+                            '${propertyPrefix}.path.style.access' = 'true'
+                    );
+                """
             sql """switch `${catalog_name}_with_region`"""
             sql """show databases; """
             sql """use `${catalog_name}_with_region`.`flink_paimon`"""
@@ -61,6 +60,7 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
             order_qt_region2 """select * from ${table_name} """
             sql """drop catalog if exists ${catalog_name}_with_region"""
         }
+    }
 }
 
 

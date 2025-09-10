@@ -75,7 +75,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
-#include "vec/io/reader_buffer.h"
 #include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
@@ -235,6 +234,13 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         }
     }
     opts.index_file_writer = _index_file_writer;
+
+    if (const auto& index = tablet_schema->ann_index(column); index != nullptr) {
+        opts.ann_index = index;
+        opts.need_ann_index = true;
+        DCHECK(_index_file_writer != nullptr);
+        opts.index_file_writer = _index_file_writer;
+    }
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
@@ -592,7 +598,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     if (config::enable_merge_on_write_correctness_check) {
         _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                    _mow_context->rowset_ids);
+                                                    *_mow_context->rowset_ids);
     }
 
     // read to fill full_block
@@ -730,7 +736,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
 
     if (config::enable_merge_on_write_correctness_check) {
         _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                    _mow_context->rowset_ids);
+                                                    *_mow_context->rowset_ids);
     }
 
     // 6. read according plan to fill full_block
@@ -1195,6 +1201,7 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
+    RETURN_IF_ERROR(_write_ann_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
 
     *index_size = _file_writer->bytes_appended() - index_start;
@@ -1286,6 +1293,13 @@ Status VerticalSegmentWriter::_write_bitmap_index() {
 Status VerticalSegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
+    }
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_write_ann_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_ann_index());
     }
     return Status::OK();
 }

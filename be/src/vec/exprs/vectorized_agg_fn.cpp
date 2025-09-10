@@ -29,6 +29,7 @@
 
 #include "common/config.h"
 #include "common/object_pool.h"
+#include "vec/aggregate_functions/aggregate_function_ai_agg.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -205,6 +206,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                          _fn.name.function_name);
         }
     } else {
+        const bool is_foreach =
+                AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name) ||
+                AggregateFunctionSimpleFactory::is_foreachv2(_fn.name.function_name);
         // Here, only foreachv1 needs special treatment, and v2 can follow the normal code logic.
         if (AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
             _function = AggregateFunctionSimpleFactory::instance().get(
@@ -213,6 +217,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.enable_decimal256 = state->enable_decimal256(),
                      .is_window_function = _is_window_function,
+                     .is_foreach = is_foreach,
                      .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
@@ -220,6 +225,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.enable_decimal256 = state->enable_decimal256(),
                      .is_window_function = _is_window_function,
+                     .is_foreach = is_foreach,
                      .column_names = std::move(column_names)});
         }
     }
@@ -230,6 +236,10 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (!_sort_description.empty()) {
         _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
                                                    _sort_description, state);
+    }
+
+    if (_fn.name.function_name == "ai_agg") {
+        _function->set_query_context(state->get_query_ctx());
     }
 
     // Foreachv2, like foreachv1, does not check the return type,

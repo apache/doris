@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -357,23 +358,40 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
-        String searchStr = first.getValue();
-        String targetStr = second.getValue();
+        String substr = first.getValue();
+        String str = second.getValue();
         int startPos = third.getValue();
-        if (searchStr.isEmpty()) {
-            int byteLength = targetStr.getBytes(StandardCharsets.UTF_8).length;
-            return (startPos >= 1 && startPos <= byteLength)
-                    ? new IntegerLiteral(startPos)
-                    : new IntegerLiteral(startPos == 1 ? 1 : 0);
+
+        // Handle empty substring case
+        if (substr.isEmpty() && str.isEmpty() && startPos == 1) {
+            return new IntegerLiteral(1);
         }
 
-        int strLength = targetStr.codePointCount(0, targetStr.length());
-        if (startPos < 1 || startPos > strLength) {
+        // Check if start position is invalid
+        int strLength = str.codePointCount(0, str.length());
+        if (startPos <= 0 || startPos > strLength) {
             return new IntegerLiteral(0);
         }
-        int offset = targetStr.offsetByCodePoints(0, startPos - 1);
-        int loc = targetStr.indexOf(searchStr, offset);
-        return loc == -1 ? new IntegerLiteral(0) : new IntegerLiteral(targetStr.codePointCount(0, loc) + 1);
+
+        // Handle empty substring case
+        if (substr.isEmpty()) {
+            return new IntegerLiteral(startPos);
+        }
+
+        // Adjust the string based on start position (startPos is 1-indexed)
+        int offset = str.offsetByCodePoints(0, startPos - 1);
+        String adjustedStr = str.substring(offset);
+
+        // Find the match position
+        int matchPos = adjustedStr.indexOf(substr);
+        if (matchPos >= 0) {
+            // Calculate character position (not byte position)
+            int charPos = adjustedStr.codePointCount(0, matchPos);
+            // Return position in the original string (1-indexed)
+            return new IntegerLiteral(startPos + charPos);
+        } else {
+            return new IntegerLiteral(0);
+        }
     }
 
     /**
@@ -1041,5 +1059,59 @@ public class StringArithmetic {
             return castStringLikeLiteral(first, sb.toString());
         }
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
+    }
+
+    /**
+     * Executable arithmetic functions soundex
+     */
+    @ExecFunction(name = "soundex")
+    public static Expression soundex(StringLikeLiteral first) {
+        char[] soundexTable = {
+            'V', '1', '2', '3', 'V', '1', '2', 'N', 'V',
+            '2', '2', '4', '5', '5', 'V', '1', '2', '6',
+            '2', '3', 'V', '1', 'N', '2', 'V', '2'
+        };
+
+        String result = "";
+        if (!first.getValue().isEmpty()) {
+            char preCode = '\0';
+
+            for (int i = 0; i < first.getValue().length(); i++) {
+                char c = first.getValue().charAt(i);
+
+                if (c > 0x7f) {
+                    throw new NotSupportedException("soundex only supports ASCII, but got: " + c);
+                }
+
+                if (!Character.isLetter(c)) {
+                    continue;
+                }
+
+                c = Character.toUpperCase(c);
+                if (result.isEmpty()) {
+                    result += c;
+                    preCode = (soundexTable[c - 'A'] == 'N') ? '\0' : soundexTable[c - 'A'];
+                } else {
+                    char code = soundexTable[c - 'A'];
+                    if (code != 'N') {
+                        if (code != 'V' && code != preCode) {
+                            result += code;
+                            if (result.length() == 4) {
+                                break;
+                            }
+                        }
+                        preCode = code;
+                    }
+                }
+            }
+
+            if (result.length() > 0) {
+                while (result.length() < 4) {
+                    result += '0';
+                }
+            }
+        }
+
+        return castStringLikeLiteral(first, result);
     }
 }

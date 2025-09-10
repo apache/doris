@@ -17,23 +17,30 @@
 
 #include "util/time_lut.h"
 
+#include <cstdint>
+
+#include "common/cast_set.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 TimeLUTImpl::TimeLUTImpl() {
     init_time_lut();
 }
 
 void TimeLUTImpl::init_time_lut() {
-    for (uint32_t y = LUT_START_YEAR; y < LUT_END_YEAR; y++) {
+    for (uint16_t y = LUT_START_YEAR; y < LUT_END_YEAR; y++) {
         uint16_t tmp_year = 0;
         for (uint8_t m = 0; m < NUM_MONTHS; m++) {
             for (uint8_t i = 0; i < NUM_DAYS; i++) {
-                week_table[y - LUT_START_YEAR][m][i] =
-                        calc_week(y, m + 1, i + 1, false, false, true, &tmp_year);
-                week_of_year_table[y - LUT_START_YEAR][m][i] =
-                        calc_week(y, m + 1, i + 1, true, true, false, &tmp_year);
-                year_week_table[y - LUT_START_YEAR][m][i] = year_week(y, m + 1, i + 1);
+                if (!VecDateTimeValue::check_date(y, m + 1, i + 1)) {
+                    // valid date
+                    week_table[y - LUT_START_YEAR][m][i] =
+                            calc_week(y, m + 1, i + 1, false, false, true, &tmp_year);
+                    week_of_year_table[y - LUT_START_YEAR][m][i] =
+                            calc_week(y, m + 1, i + 1, true, true, false, &tmp_year);
+                    year_week_table[y - LUT_START_YEAR][m][i] = year_week(y, m + 1, i + 1);
+                }
             }
         }
     }
@@ -45,7 +52,7 @@ uint8_t calc_week(uint16_t year, uint8_t month, uint8_t day, bool monday_first, 
     uint64_t daynr_first_day = calc_daynr(year, 1, 1);
     uint8_t weekday_first_day = calc_weekday(daynr_first_day, !monday_first);
 
-    int days = 0;
+    uint16_t days = 0; // days in year
     *to_year = year;
 
     // Check weather the first days of this year belongs to last year
@@ -61,12 +68,13 @@ uint8_t calc_week(uint16_t year, uint8_t month, uint8_t day, bool monday_first, 
     }
 
     // How many days since first week
+    DCHECK_LE(day_nr - daynr_first_day, 373);
     if ((first_weekday && weekday_first_day != 0) || (!first_weekday && weekday_first_day > 3)) {
         // days in new year belongs to last year.
-        days = day_nr - (daynr_first_day + (7 - weekday_first_day));
+        days = static_cast<uint16_t>(day_nr - daynr_first_day - (7 - weekday_first_day));
     } else {
         // days in new year belongs to this year.
-        days = day_nr - (daynr_first_day - weekday_first_day);
+        days = static_cast<uint16_t>(day_nr - daynr_first_day + weekday_first_day);
     }
 
     if (week_year && days >= 52 * 7) {
@@ -79,10 +87,10 @@ uint8_t calc_week(uint16_t year, uint8_t month, uint8_t day, bool monday_first, 
         }
     }
 
-    return days / 7 + 1;
+    return static_cast<uint8_t>(days / 7 + 1);
 }
 
-uint32_t calc_days_in_year(uint32_t year) {
+uint16_t calc_days_in_year(uint32_t year) {
     return is_leap(year) ? 366 : 365;
 }
 
@@ -97,5 +105,5 @@ uint32_t year_week(uint16_t yy, uint8_t month, uint8_t day) {
     uint8_t week = calc_week(yy, month, day, false, true, true, &to_year);
     return to_year * 100 + week;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

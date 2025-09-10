@@ -17,9 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.CancelLoadStmt;
-import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -145,58 +142,6 @@ public class LoadManager implements Writable {
             }
 
             loadJob = BulkLoadJob.fromLoadCommand(command, executor, ctx);
-
-            if (twgList != null) {
-                loadJob.settWorkloadGroups(twgList);
-            }
-
-            createLoadJob(loadJob);
-        } finally {
-            writeUnlock();
-        }
-
-        Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);
-
-        // The job must be submitted after edit log.
-        // It guarantees that load job has not been changed before edit log.
-        loadJobScheduler.submitJob(loadJob);
-        return loadJob.getId();
-    }
-
-    /**
-     * This method will be invoked by the broker load(v2) now.
-     */
-    public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException, UserException {
-        List<TPipelineWorkloadGroup> twgList = null;
-        if (Config.enable_workload_group) {
-            try {
-                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
-                        .stream()
-                        .map(e -> e.toThrift())
-                        .collect(Collectors.toList());
-            } catch (Throwable t) {
-                LOG.info("Get workload group failed when create load job,", t);
-                throw t;
-            }
-        }
-
-        Database database = checkDb(stmt.getLabel().getDbName());
-        long dbId = database.getId();
-        LoadJob loadJob;
-        writeLock();
-        try {
-            checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-            if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
-                throw new DdlException("LoadManager only support the broker and spark load.");
-            }
-            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
-                throw new DdlException(
-                        "There are more than " + Config.desired_max_waiting_jobs
-                                + " unfinished load jobs, please retry later. "
-                                + "You can use `SHOW LOAD` to view submitted jobs");
-            }
-
-            loadJob = BulkLoadJob.fromLoadStmt(stmt);
 
             if (twgList != null) {
                 loadJob.settWorkloadGroups(twgList);
@@ -357,82 +302,6 @@ public class LoadManager implements Writable {
                         "Cancel load job [" + loadJob.getId() + "] fail, " + "label=[" + loadJob.getLabel()
                                 +
                                 "] failed msg=" + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Match need cancel loadJob by stmt.
-     **/
-    @VisibleForTesting
-    public static void addNeedCancelLoadJob(CancelLoadStmt stmt, List<LoadJob> loadJobs, List<LoadJob> matchLoadJobs)
-            throws AnalysisException {
-        String label = stmt.getLabel();
-        String state = stmt.getState();
-        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
-                CaseSensibility.LABEL.getCaseSensibility());
-        matchLoadJobs.addAll(
-                loadJobs.stream()
-                .filter(job -> job.getState() != JobState.CANCELLED)
-                .filter(job -> {
-                    if (stmt.getOperator() != null) {
-                        // compound
-                        boolean labelFilter =
-                                label.contains("%") ? matcher.match(job.getLabel())
-                                : job.getLabel().equalsIgnoreCase(label);
-                        boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
-                        return Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
-                            labelFilter || stateFilter;
-                    }
-                    if (StringUtils.isNotEmpty(label)) {
-                        return label.contains("%") ? matcher.match(job.getLabel())
-                            : job.getLabel().equalsIgnoreCase(label);
-                    }
-                    if (StringUtils.isNotEmpty(state)) {
-                        return job.getState().name().equalsIgnoreCase(state);
-                    }
-                    return false;
-                }).collect(Collectors.toList())
-        );
-    }
-
-    /**
-     * Cancel load job by stmt.
-     **/
-    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, AnalysisException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
-        // List of load jobs waiting to be cancelled
-        List<LoadJob> unfinishedLoadJob;
-        readLock();
-        try {
-            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
-            if (labelToLoadJobs == null) {
-                throw new DdlException("Load job does not exist");
-            }
-            List<LoadJob> matchLoadJobs = Lists.newArrayList();
-            addNeedCancelLoadJob(stmt,
-                    labelToLoadJobs.values().stream().flatMap(Collection::stream).collect(Collectors.toList()),
-                    matchLoadJobs);
-            if (matchLoadJobs.isEmpty()) {
-                throw new DdlException("Load job does not exist");
-            }
-            // check state here
-            unfinishedLoadJob =
-                matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
-            if (unfinishedLoadJob.isEmpty()) {
-                throw new DdlException("There is no uncompleted job");
-            }
-        } finally {
-            readUnlock();
-        }
-        for (LoadJob loadJob : unfinishedLoadJob) {
-            try {
-                loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
-            } catch (DdlException e) {
-                throw new DdlException(
-                    "Cancel load job [" + loadJob.getId() + "] fail, " + "label=[" + loadJob.getLabel()
-                        +
-                        "] failed msg=" + e.getMessage());
             }
         }
     }

@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.datasource.credentials.CredentialExtractor;
+import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -36,8 +38,7 @@ public class IcebergVendedCredentialsProviderTest {
 
     @Test
     public void testS3CredentialExtractorWithValidCredentials() {
-        IcebergVendedCredentialsProvider.S3CredentialExtractor extractor =
-                new IcebergVendedCredentialsProvider.S3CredentialExtractor();
+        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
 
         Map<String, String> properties = new HashMap<>();
         properties.put(S3FileIOProperties.ACCESS_KEY_ID, "test-access-key");
@@ -53,8 +54,7 @@ public class IcebergVendedCredentialsProviderTest {
 
     @Test
     public void testS3CredentialExtractorWithPartialCredentials() {
-        IcebergVendedCredentialsProvider.S3CredentialExtractor extractor =
-                new IcebergVendedCredentialsProvider.S3CredentialExtractor();
+        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
 
         Map<String, String> properties = new HashMap<>();
         properties.put(S3FileIOProperties.ACCESS_KEY_ID, "test-access-key");
@@ -70,8 +70,7 @@ public class IcebergVendedCredentialsProviderTest {
 
     @Test
     public void testS3CredentialExtractorWithEmptyProperties() {
-        IcebergVendedCredentialsProvider.S3CredentialExtractor extractor =
-                new IcebergVendedCredentialsProvider.S3CredentialExtractor();
+        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
 
         Map<String, String> credentials = extractor.extractCredentials(new HashMap<>());
         Assertions.assertTrue(credentials.isEmpty());
@@ -82,8 +81,7 @@ public class IcebergVendedCredentialsProviderTest {
 
     @Test
     public void testS3CredentialExtractorWithNonAwsProperties() {
-        IcebergVendedCredentialsProvider.S3CredentialExtractor extractor =
-                new IcebergVendedCredentialsProvider.S3CredentialExtractor();
+        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
 
         Map<String, String> properties = new HashMap<>();
         properties.put("some.other.property", "value");
@@ -134,10 +132,9 @@ public class IcebergVendedCredentialsProviderTest {
         fileIoProperties.put(S3FileIOProperties.ACCESS_KEY_ID, "fileio-access-key");
         fileIoProperties.put(S3FileIOProperties.SECRET_ACCESS_KEY, "fileio-secret-key");
 
-        IcebergVendedCredentialsProvider.CredentialExtractor extractor =
-                new IcebergVendedCredentialsProvider.S3CredentialExtractor();
+        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
 
-        Map<String, String> credentials = IcebergVendedCredentialsProvider
+        Map<String, String> credentials = CredentialUtils
                 .extractCredentialsFromFileIO(fileIoProperties, extractor);
 
         Assertions.assertEquals("fileio-access-key", credentials.get("AWS_ACCESS_KEY"));
@@ -147,8 +144,8 @@ public class IcebergVendedCredentialsProviderTest {
 
     @Test
     public void testCustomCredentialExtractor() {
-        IcebergVendedCredentialsProvider.CredentialExtractor customExtractor =
-                new IcebergVendedCredentialsProvider.CredentialExtractor() {
+        CredentialExtractor customExtractor =
+                new CredentialExtractor() {
                     @Override
                     public Map<String, String> extractCredentials(Map<String, String> properties) {
                         Map<String, String> result = new HashMap<>();
@@ -162,7 +159,7 @@ public class IcebergVendedCredentialsProviderTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("custom.key", "custom-value");
 
-        Map<String, String> credentials = IcebergVendedCredentialsProvider
+        Map<String, String> credentials = CredentialUtils
                 .extractCredentialsFromFileIO(properties, customExtractor);
 
         Assertions.assertEquals("custom-value", credentials.get("CUSTOM_BACKEND_PROPERTY"));

@@ -34,7 +34,7 @@ Status JDBCScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     std::unique_ptr<vectorized::JdbcScanner> scanner = vectorized::JdbcScanner::create_unique(
             state(), this, p._limit, p._tuple_id, p._query_string, p._table_type, p._is_tvf,
             _scanner_profile.get());
-    RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
+    RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
     scanners->push_back(std::move(scanner));
     return Status::OK();
 }

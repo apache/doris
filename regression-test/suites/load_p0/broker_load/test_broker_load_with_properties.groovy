@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_broker_load_with_properties", "load_p0") {
+suite("test_broker_load_with_properties", "load_p0,external") {
     // define a sql table
     def testTable = "tbl_test_load_with_properties"
 
@@ -60,9 +60,10 @@ suite("test_broker_load_with_properties", "load_p0") {
                             FORMAT as "${format}"
                             PROPERTIES ("num_as_string"="true")
                         )
-                        with BROKER "${brokerName}" (
+                        with HDFS (
                         "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        "password"="${hdfsPasswd}",
+                        "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
@@ -74,9 +75,9 @@ suite("test_broker_load_with_properties", "load_p0") {
     }
 
     def check_load_result = {checklabel, testTablex ->
-        max_try_milli_secs = 10000
+        def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             log.info("result: ${result}")
             if(result[0][2] == "FINISHED") {
                 //sql "sync"
@@ -95,9 +96,9 @@ suite("test_broker_load_with_properties", "load_p0") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
         def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/broker_load_with_properties.json"
         //def hdfs_csv_file_path = "hdfs://ip:port/testfile"
 

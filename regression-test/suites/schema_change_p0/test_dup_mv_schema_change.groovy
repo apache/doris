@@ -29,6 +29,7 @@ suite ("test_dup_mv_schema_change") {
     def waitForJob =  (tbName, timeout) -> {
        Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
             String result = getJobState(tbName)
+            log.info("job state: ${result}")
             if (result == "FINISHED") {
                 return true;
             }

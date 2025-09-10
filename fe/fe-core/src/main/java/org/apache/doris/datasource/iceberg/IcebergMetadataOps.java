@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -460,18 +461,32 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                         // use current snapshot
                         Optional.ofNullable(icebergTable.currentSnapshot()).map(Snapshot::snapshotId).orElse(null));
 
-        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+        ManageSnapshots manageSnapshots;
+        try {
+            manageSnapshots = executionAuthenticator.execute(icebergTable::manageSnapshots);
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Failed to create ManageSnapshots for table: " + icebergTable.name()
+                            + ", error message is: {} " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
         String branchName = branchInfo.getBranchName();
         boolean refExists = null != icebergTable.refs().get(branchName);
         boolean create = branchInfo.getCreate();
         boolean replace = branchInfo.getReplace();
         boolean ifNotExists = branchInfo.getIfNotExists();
-
         Runnable safeCreateBranch = () -> {
-            if (snapshotId == null) {
-                manageSnapshots.createBranch(branchName);
-            } else {
-                manageSnapshots.createBranch(branchName, snapshotId);
+            try {
+                executionAuthenticator.execute(() -> {
+                    if (snapshotId == null) {
+                        manageSnapshots.createBranch(branchName);
+                    } else {
+                        manageSnapshots.createBranch(branchName, snapshotId);
+                    }
+                });
+            } catch (Exception e) {
+                throw new RuntimeException(
+                        "Failed to create branch: " + branchName + " in table: " + icebergTable.name()
+                                + ", error message is: {} " + ExceptionUtils.getRootCauseMessage(e), e);
             }
         };
 
@@ -497,7 +512,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
 
         try {
-            executionAuthenticator.execute(() -> manageSnapshots.commit());
+            executionAuthenticator.execute(manageSnapshots::commit);
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace branch: " + branchName + " in table: " + icebergTable.name()
@@ -540,21 +555,23 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         boolean ifNotExists = tagInfo.getIfNotExists();
         boolean refExists = null != icebergTable.refs().get(tagName);
 
-        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
-        if (create && replace && !refExists) {
-            manageSnapshots.createTag(tagName, snapshotId);
-        } else if (replace) {
-            manageSnapshots.replaceTag(tagName, snapshotId);
-        } else {
-            if (refExists && ifNotExists) {
-                return;
-            }
-            manageSnapshots.createTag(tagName, snapshotId);
-        }
 
-        tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
         try {
-            executionAuthenticator.execute(() -> manageSnapshots.commit());
+            executionAuthenticator.execute(() -> {
+                ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                if (create && replace && !refExists) {
+                    manageSnapshots.createTag(tagName, snapshotId);
+                } else if (replace) {
+                    manageSnapshots.replaceTag(tagName, snapshotId);
+                } else {
+                    if (refExists && ifNotExists) {
+                        return;
+                    }
+                    manageSnapshots.createTag(tagName, snapshotId);
+                }
+                tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
+                manageSnapshots.commit();
+            });
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace tag: " + tagName + " in table: " + icebergTable.name()
@@ -570,13 +587,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         SnapshotRef snapshotRef = icebergTable.refs().get(tagName);
 
         if (snapshotRef != null || !ifExists) {
-            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
             try {
-                executionAuthenticator.execute(() -> manageSnapshots.removeTag(tagName).commit());
+                executionAuthenticator.execute(() -> {
+                    ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                    manageSnapshots.removeTag(tagName).commit();
+                });
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop tag: " + tagName + " in table: " + icebergTable.name()
-                        + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + e.getMessage(), e);
             }
         }
     }
@@ -589,13 +608,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         SnapshotRef snapshotRef = icebergTable.refs().get(branchName);
 
         if (snapshotRef != null || !ifExists) {
-            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
             try {
-                executionAuthenticator.execute(() -> manageSnapshots.removeBranch(branchName).commit());
+                executionAuthenticator.execute(() -> {
+                    ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                    manageSnapshots.removeBranch(branchName).commit();
+                });
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop branch: " + branchName + " in table: " + icebergTable.name()
-                        + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + e.getMessage(), e);
             }
         }
     }

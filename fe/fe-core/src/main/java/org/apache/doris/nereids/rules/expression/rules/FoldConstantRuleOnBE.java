@@ -38,8 +38,8 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
@@ -227,7 +227,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
                 || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
-                || expr.getDataType().isIPv6Type()) {
+                || expr.getDataType().isIPv6Type() || expr.getDataType().isJsonType()) {
             return true;
         }
 
@@ -238,7 +238,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
         // Skip those function to avoid incorrect binary data processing during constant folding
         if (expr instanceof FromBase64 || expr instanceof Ipv6StringToNumOrNull
-                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof LLMFunction) {
+                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof AIFunction) {
             return true;
         }
 
@@ -310,6 +310,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
             tQueryOptions.setEnableDecimal256(context.getSessionVariable().isEnableDecimal256());
+            tQueryOptions.setNewVersionUnixTimestamp(true);
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(true);
@@ -418,25 +419,23 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             int num = resultContent.getFloatValueCount();
             for (int i = 0; i < num; ++i) {
                 float value = resultContent.getFloatValue(i);
-                Literal literal = null;
                 if (Float.isNaN(value)) {
-                    literal = new NullLiteral(type);
+                    return Collections.emptyList();
                 } else {
-                    literal = new FloatLiteral(value);
+                    Literal literal = new FloatLiteral(value);
+                    res.add(literal);
                 }
-                res.add(literal);
             }
         } else if (type.isDoubleType()) {
             int num = resultContent.getDoubleValueCount();
             for (int i = 0; i < num; ++i) {
                 double value = resultContent.getDoubleValue(i);
-                Literal literal = null;
                 if (Double.isNaN(value)) {
-                    literal = new NullLiteral(type);
+                    return Collections.emptyList();
                 } else {
-                    literal = new DoubleLiteral(value);
+                    Literal literal = new DoubleLiteral(value);
+                    res.add(literal);
                 }
-                res.add(literal);
             }
         } else if (type.isDecimalV2Type()) {
             int num = resultContent.getBytesValueCount();
@@ -515,8 +514,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             int childCount = resultContent.getChildElementCount();
             List<Literal> allLiterals = new ArrayList<>();
             for (int i = 0; i < childCount; ++i) {
-                allLiterals.addAll(getResultExpression(arrayType.getItemType(),
-                        resultContent.getChildElement(i)));
+                List<Literal> resultExpression = getResultExpression(arrayType.getItemType(),
+                        resultContent.getChildElement(i));
+                // If any child element couldn't fold, stop folding this Array.
+                if (resultExpression.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                allLiterals.addAll(resultExpression);
             }
             int offsetCount = resultContent.getChildOffsetCount();
             if (offsetCount == 1) {
@@ -540,10 +544,19 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             List<Literal> allKeys = new ArrayList<>();
             List<Literal> allValues = new ArrayList<>();
             for (int i = 0; i < childCount; i = i + 2) {
-                allKeys.addAll(getResultExpression(mapType.getKeyType(),
-                        resultContent.getChildElement(i)));
-                allValues.addAll(getResultExpression(mapType.getValueType(),
-                        resultContent.getChildElement(i + 1)));
+                // If any key or value couldn't fold, stop folding this Map.
+                List<Literal> key = getResultExpression(mapType.getKeyType(),
+                        resultContent.getChildElement(i));
+                if (key.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                allKeys.addAll(key);
+                List<Literal> value = getResultExpression(mapType.getValueType(),
+                        resultContent.getChildElement(i + 1));
+                if (value.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                allValues.addAll(value);
             }
             int offsetCount = resultContent.getChildOffsetCount();
             if (offsetCount == 1) {
@@ -568,8 +581,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             int childCount = resultContent.getChildElementCount();
             List<List<Literal>> allFields = new ArrayList<>();
             for (int i = 0; i < childCount; ++i) {
-                allFields.add(getResultExpression(structType.getFields().get(i).getDataType(),
-                        resultContent.getChildElement(i)));
+                List<Literal> resultExpression = getResultExpression(structType.getFields().get(i).getDataType(),
+                        resultContent.getChildElement(i));
+                // If any field couldn't fold, stop folding this Struct.
+                if (resultExpression.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                allFields.add(resultExpression);
             }
             for (int i = 0; i < allFields.get(0).size(); ++i) {
                 List<Literal> fields = new ArrayList<>();

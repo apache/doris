@@ -47,33 +47,33 @@ suite("operative_slots") {
 
     explain {
         sql "physical plan select * from t join[broadcast] vt on t.k = vt.v['k1'];"
-        contains("operativeSlots([k#0, __DORIS_DELETE_SIGN__#3])")
-        contains("operativeSlots([v['k1']#17])")
-        // expect plan
-        //    PhysicalResultSink[311] ( outputExprs=[k#0, v1#1, user_id#4, name#5, v#6] )
-        //    +--PhysicalDistribute[306]@6 ( stats=1, distributionSpec=DistributionSpecGather )
-        //    +--PhysicalProject[301]@6 ( stats=1, projects=[k#0, v1#1, user_id#4, name#5, v#6] )
-        //    +--PhysicalHashJoin[296]@5 ( stats=1, type=INNER_JOIN, hashCondition=[(k#0 = expr_cast(element_at(v, 'k1') as INT)#7)], otherCondition=[], markCondition=[], hint=[broadcast] )
-        //            |--PhysicalProject[280]@2 ( stats=1, projects=[k#0, v1#1] )
-        //            |  +--PhysicalFilter[275]@1 ( stats=1, predicates=(__DORIS_DELETE_SIGN__#2 = 0) )
-        //    |     +--PhysicalOlapScan[t operativeSlots([k#0, __DORIS_DELETE_SIGN__#2])]@0 ( stats=1 )
-        //    +--PhysicalDistribute[291]@4 ( stats=1, distributionSpec=DistributionSpecReplicated )
-        //          +--PhysicalProject[286]@4 ( stats=1, projects=[user_id#4, name#5, v#6, cast(v['k1']#15 as INT) AS `expr_cast(element_at(v, 'k1') as INT)`#7] )
-        //              +--PhysicalOlapScan[vt operativeSlots([v['k1']#15])]@3 ( stats=1 )
+        contains("operativeSlots=[k#0, __DORIS_DELETE_SIGN__#3]")
+        contains(" operativeSlots=[v['k1']")
+        /*
+        PhysicalResultSink[250] ( outputExprs=[k#0, v1#1, v2#2, user_id#5, name#6, v#7] )
+        +--PhysicalProject[246]@6 ( stats=1, projects=[k#0, v1#1, v2#2, user_id#5, name#6, v#7] )
+           +--PhysicalHashJoin[242]@5 ( stats=1, type=INNER_JOIN, hashCondition=[(k#0 = expr_cast(element_at(v, 'k1') as INT)#8)], otherCondition=[], markCondition=[], hint=[broadcast] )
+              |--PhysicalProject[229]@2 ( stats=1, projects=[k#0, v1#1, v2#2] )
+              |  +--PhysicalFilter[225]@1 ( stats=1, predicates=(__DORIS_DELETE_SIGN__#3 = 0) )
+              |     +--PhysicalOlapScan[t]@0 ( stats=1, operativeSlots=[k#0, __DORIS_DELETE_SIGN__#3], virtualColumns=[] )
+              +--PhysicalDistribute[238]@4 ( stats=1, distributionSpec=DistributionSpecReplicated )
+                 +--PhysicalProject[234]@4 ( stats=1, projects=[user_id#5, name#6, v#7, cast(v['k1']#17 as INT) AS `expr_cast(element_at(v, 'k1') as INT)`#8] )
+                    +--PhysicalOlapScan[vt]@3 ( stats=1, operativeSlots=[v['k1']#17], virtualColumns=[] )
+         */
     }
 
     explain {
         sql "physical plan select * from t where v1=0;"
-        contains("operativeSlots([v1#1, __DORIS_DELETE_SIGN__#3]")
+        contains("operativeSlots=[v1#1, __DORIS_DELETE_SIGN__#3]")
     }
 
     explain {
         sql "physical plan select sum(k) from t group by v1;"
-        contains("operativeSlots([k#0, v1#1, __DORIS_DELETE_SIGN__#3])")
+        contains("operativeSlots=[k#0, v1#1, __DORIS_DELETE_SIGN__#3]")
     }
 
     explain {
         sql "physical plan select rank() over (partition by v2 order by v1) from t;"
-        contains("operativeSlots([v1#1, v2#2, __DORIS_DELETE_SIGN__#3])")
+        contains("operativeSlots=[v1#1, v2#2, __DORIS_DELETE_SIGN__#3]")
     }
 }

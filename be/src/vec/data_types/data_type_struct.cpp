@@ -44,7 +44,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -309,19 +308,9 @@ void DataTypeStruct::to_pb_column_meta(PColumnMeta* col_meta) const {
     }
 }
 
-bool DataTypeStruct::text_can_contain_only_valid_utf8() const {
-    return std::all_of(elems.begin(), elems.end(),
-                       [](auto&& elem) { return elem->text_can_contain_only_valid_utf8(); });
-}
-
 bool DataTypeStruct::have_maximum_size_of_value() const {
     return std::all_of(elems.begin(), elems.end(),
                        [](auto&& elem) { return elem->have_maximum_size_of_value(); });
-}
-
-bool DataTypeStruct::is_comparable() const {
-    return std::all_of(elems.begin(), elems.end(),
-                       [](auto&& elem) { return elem->is_comparable(); });
 }
 
 size_t DataTypeStruct::get_size_of_value_in_memory() const {

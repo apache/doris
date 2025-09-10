@@ -24,36 +24,77 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+
 /**
- * Check score function usage in project without proper optimization context.
+ * Check score function usage in project and aggregate without proper optimization context.
  *
  * This rule ensures that score() function is used only in contexts where it can be optimized,
  * requiring WHERE clause with MATCH function, ORDER BY and LIMIT.
  */
-public class CheckScoreUsage extends OneRewriteRuleFactory {
+public class CheckScoreUsage implements RewriteRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(CheckScoreUsage.class);
 
     @Override
-    public Rule build() {
-        return logicalProject(any())
-                .when(project -> hasScoreFunction(project) && !isScoreAlreadyOptimized(project))
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+            logicalProject(any())
+                .when(project -> {
+                    boolean hasScore = hasScoreFunction(project);
+                    boolean isOptimized = isScoreAlreadyOptimized(project);
+                    LOG.debug("Project check - hasScore: " + hasScore + ", isOptimized: " + isOptimized);
+                    return hasScore && !isOptimized;
+                })
                 .then(project -> {
                     throw new AnalysisException(
                             "score() function requires WHERE clause with MATCH function, "
                             + "ORDER BY and LIMIT for optimization");
-                }).toRule(RuleType.CHECK_SCORE_USAGE);
+                }).toRule(RuleType.CHECK_SCORE_USAGE),
+
+            logicalAggregate(any())
+                .when(this::hasScoreInAggregate)
+                .then(agg -> {
+                    throw new AnalysisException(
+                            "score() function cannot be used in aggregate functions. "
+                            + "score() requires WHERE clause with MATCH function, "
+                            + "ORDER BY and LIMIT for optimization");
+                }).toRule(RuleType.CHECK_SCORE_USAGE)
+        );
     }
 
     private boolean hasScoreFunction(LogicalProject<?> project) {
         return project.getProjects().stream()
                 .anyMatch(projection -> {
                     if (projection instanceof Alias) {
-                        return ((Alias) projection).child() instanceof Score;
+                        return containsScoreFunction(((Alias) projection).child());
                     }
                     return false;
                 });
+    }
+
+    private boolean hasScoreInAggregate(LogicalAggregate<?> agg) {
+        boolean hasScoreInOutput = agg.getOutputExpressions().stream()
+                .anyMatch(this::containsScoreFunction);
+
+        boolean hasScoreInGroupBy = agg.getGroupByExpressions().stream()
+                .anyMatch(this::containsScoreFunction);
+
+        return hasScoreInOutput || hasScoreInGroupBy;
+    }
+
+    private boolean containsScoreFunction(Expression expr) {
+        if (expr instanceof Score) {
+            return true;
+        }
+        return expr.children().stream().anyMatch(this::containsScoreFunction);
     }
 
     private boolean isScoreAlreadyOptimized(LogicalProject<?> project) {
@@ -64,7 +105,7 @@ public class CheckScoreUsage extends OneRewriteRuleFactory {
                     .anyMatch(virtualCol -> {
                         if (virtualCol instanceof Alias) {
                             Expression childExpr = ((Alias) virtualCol).child();
-                            return childExpr instanceof Score;
+                            return containsScoreFunction(childExpr);
                         }
                         return false;
                     });

@@ -39,7 +39,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class StatsTestUtil {
-    public static final float HOT_VALUE_PERCENTAGE = 30f;
+    public static final float HOT_VALUE_PERCENTAGE = 0.30f;
     public static StatsTestUtil instance = new StatsTestUtil();
     private static final NereidsParser PARSER = new NereidsParser();
 

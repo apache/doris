@@ -44,6 +44,10 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-service/meta_service.h"
+#include "meta-service/meta_service_schema.h"
+#include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -192,6 +196,18 @@ int Checker::start() {
 
             if (config::enable_mow_job_key_check) {
                 if (int ret = checker->do_mow_job_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
+            if (config::enable_tablet_stats_key_check) {
+                if (int ret = checker->do_tablet_stats_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
+            if (config::enable_restore_job_check) {
+                if (int ret = checker->do_restore_job_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -578,25 +594,33 @@ int InstanceChecker::do_check() {
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to init txn, err=" << err;
+            check_ret = -1;
             return;
         }
 
         TabletIndexPB tablet_index;
         if (get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index) == -1) {
             LOG(WARNING) << "failed to get tablet index, tablet_id= " << rs_meta.tablet_id();
+            check_ret = -1;
             return;
         }
 
         auto tablet_schema_key =
                 meta_schema_key({instance_id_, tablet_index.index_id(), rs_meta.schema_version()});
-        std::string tablet_schema_val;
-        err = txn->get(tablet_schema_key, &tablet_schema_val);
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            // rowset don't have tablet schema key means no index
+        ValueBuf tablet_schema_val;
+        err = cloud::blob_get(txn.get(), tablet_schema_key, &tablet_schema_val);
+
+        if (err != TxnErrorCode::TXN_OK) {
+            check_ret = -1;
+            LOG(WARNING) << "failed to get schema, err=" << err;
             return;
         }
+
         auto* schema = rs_meta.mutable_tablet_schema();
-        schema->ParseFromString(tablet_schema_val);
+        if (!parse_schema_value(tablet_schema_val, schema)) {
+            LOG(WARNING) << "malformed schema value, key=" << hex(tablet_schema_key);
+            return;
+        }
 
         std::vector<std::pair<int64_t, std::string>> index_ids;
         for (const auto& i : rs_meta.tablet_schema().index()) {
@@ -604,8 +628,7 @@ int InstanceChecker::do_check() {
                 index_ids.emplace_back(i.index_id(), i.index_suffix_name());
             }
         }
-        std::string tablet_idx_key = meta_tablet_idx_key({instance_id_, rs_meta.tablet_id()});
-        if (!key_exist(txn_kv_.get(), tablet_idx_key)) {
+        if (!index_ids.empty()) {
             for (int i = 0; i < rs_meta.num_segments(); ++i) {
                 std::vector<std::string> index_path_v;
                 if (rs_meta.tablet_schema().inverted_index_storage_format() ==
@@ -624,16 +647,14 @@ int InstanceChecker::do_check() {
                             inverted_index_path_v2(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i));
                 }
 
-                if (!index_path_v.empty()) {
-                    if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
-                            if (!tablet_files_cache.files.contains(idx_file_path)) {
-                                LOG(INFO) << "loss index file: " << idx_file_path;
-                                return false;
-                            }
-                            return true;
-                        })) {
-                        continue;
-                    }
+                if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
+                        if (!tablet_files_cache.files.contains(idx_file_path)) {
+                            LOG(INFO) << "loss index file: " << idx_file_path;
+                            return false;
+                        }
+                        return true;
+                    })) {
+                    continue;
                 }
                 index_file_loss = true;
                 data_loss = true;
@@ -1319,10 +1340,6 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
                 return -1;
             }
 
-            for (size_t i = 0; i < rs_meta.num_segments(); i++) {
-                rowset_index_cache_v1.segment_ids.insert(i);
-            }
-
             TabletIndexPB tablet_index;
             if (get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index) ==
                 -1) {
@@ -1332,14 +1349,23 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
 
             auto tablet_schema_key = meta_schema_key(
                     {instance_id_, tablet_index.index_id(), rs_meta.schema_version()});
-            std::string tablet_schema_val;
-            err = txn->get(tablet_schema_key, &tablet_schema_val);
-            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                // rowset don't have tablet schema key means no index
-                return 0;
+            ValueBuf tablet_schema_val;
+            err = cloud::blob_get(txn.get(), tablet_schema_key, &tablet_schema_val);
+
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to get schema, err=" << err;
+                return -1;
             }
+
             auto* schema = rs_meta.mutable_tablet_schema();
-            schema->ParseFromString(tablet_schema_val);
+            if (!parse_schema_value(tablet_schema_val, schema)) {
+                LOG(WARNING) << "malformed schema value, key=" << hex(tablet_schema_key);
+                return -1;
+            }
+
+            for (size_t i = 0; i < rs_meta.num_segments(); i++) {
+                rowset_index_cache_v1.segment_ids.insert(i);
+            }
 
             for (const auto& i : rs_meta.tablet_schema().index()) {
                 if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
@@ -1363,7 +1389,7 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
         // Garbage data leak
         // clang-format off
         LOG(WARNING) << "rowset_index_cache_v1.segment_ids don't contains segment_id, rowset should be recycled,"
-                     << " key = " << file_path 
+                     << " key = " << file_path
                      << " segment_id = " << segment_id;
         // clang-format on
         return 1;
@@ -1373,7 +1399,7 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
         // Garbage data leak
         // clang-format off
         LOG(WARNING) << "rowset_index_cache_v1.index_ids don't contains index_id_with_suffix_name,"
-                     << " rowset with inde meta should be recycled, key=" << file_path 
+                     << " rowset with inde meta should be recycled, key=" << file_path
                      << " index_id_with_suffix_name=" << index_id_with_suffix_name;
         // clang-format on
         return 1;
@@ -1742,6 +1768,384 @@ int InstanceChecker::do_mow_job_key_check() {
             }
         }
         begin = it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return 0;
+}
+
+int InstanceChecker::do_tablet_stats_key_check() {
+    int ret = 0;
+
+    int64_t nums_leak = 0;
+    int64_t nums_loss = 0;
+    int64_t nums_scanned = 0;
+    int64_t nums_abnormal = 0;
+
+    std::string begin = meta_tablet_key({instance_id_, 0, 0, 0, 0});
+    std::string end = meta_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
+    // inverted check tablet exists
+    LOG(INFO) << "begin inverted check stats_tablet_key";
+    ret = scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view value) {
+        int ret = check_stats_tablet_key_exists(key, value);
+        nums_scanned++;
+        if (ret == 1) {
+            nums_loss++;
+        }
+        return ret;
+    });
+    if (ret == -1) {
+        LOG(WARNING) << "failed to inverted check if stats tablet key exists";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "stats_tablet_key loss, nums_scanned=" << nums_scanned
+                     << ", nums_loss=" << nums_loss;
+        return 1;
+    }
+    LOG(INFO) << "finish inverted check stats_tablet_key, nums_scanned=" << nums_scanned
+              << ", nums_loss=" << nums_loss;
+
+    begin = stats_tablet_key({instance_id_, 0, 0, 0, 0});
+    end = stats_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
+    nums_scanned = 0;
+    // check tablet exists
+    LOG(INFO) << "begin check stats_tablet_key leaked";
+    ret = scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view value) {
+        int ret = check_stats_tablet_key_leaked(key, value);
+        nums_scanned++;
+        if (ret == 1) {
+            nums_leak++;
+        }
+        return ret;
+    });
+    if (ret == -1) {
+        LOG(WARNING) << "failed to check if stats tablet key exists";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "stats_tablet_key leaked, nums_scanned=" << nums_scanned
+                     << ", nums_leak=" << nums_leak;
+        return 1;
+    }
+    LOG(INFO) << "finish check stats_tablet_key leaked, nums_scanned=" << nums_scanned
+              << ", nums_leak=" << nums_leak;
+
+    begin = stats_tablet_key({instance_id_, 0, 0, 0, 0});
+    end = stats_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
+    nums_scanned = 0;
+    // check if key is normal
+    LOG(INFO) << "begin check stats_tablet_key abnormal";
+    ret = scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view value) {
+        int ret = check_stats_tablet_key(key, value);
+        nums_scanned++;
+        if (ret == 1) {
+            nums_abnormal++;
+        }
+        return ret;
+    });
+    if (ret == -1) {
+        LOG(WARNING) << "failed to check if stats tablet key exists";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "stats_tablet_key abnormal, nums_scanned=" << nums_scanned
+                     << ", nums_abnormal=" << nums_abnormal;
+        return 1;
+    }
+    LOG(INFO) << "finish check stats_tablet_key, nums_scanned=" << nums_scanned
+              << ", nums_abnormal=" << nums_abnormal;
+    return 0;
+}
+
+int InstanceChecker::check_stats_tablet_key_exists(std::string_view key, std::string_view value) {
+    std::string_view k1 = key;
+    k1.remove_prefix(1);
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    decode_key(&k1, &out);
+    // 0x01 "meta" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}
+    auto table_id = std::get<int64_t>(std::get<0>(out[3]));
+    auto index_id = std::get<int64_t>(std::get<0>(out[4]));
+    auto partition_id = std::get<int64_t>(std::get<0>(out[5]));
+    auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
+    std::string tablet_stats_key =
+            stats_tablet_key({instance_id_, table_id, index_id, partition_id, tablet_id});
+    int ret = key_exist(txn_kv_.get(), tablet_stats_key);
+    if (ret == 1) {
+        // clang-format off
+        LOG(WARNING) << "stats tablet key's tablet key loss,"
+                    << " stats tablet key=" << hex(tablet_stats_key)
+                    << " meta tablet key=" << hex(key);
+        // clang-format on
+        return 1;
+    } else if (ret == -1) {
+        LOG(WARNING) << "failed to check key exists, key=" << hex(tablet_stats_key);
+        return -1;
+    }
+    LOG(INFO) << "check stats_tablet_key_exists ok, key=" << hex(key);
+    return 0;
+}
+
+int InstanceChecker::check_stats_tablet_key_leaked(std::string_view key, std::string_view value) {
+    std::string_view k1 = key;
+    k1.remove_prefix(1);
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    decode_key(&k1, &out);
+    // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}
+    auto table_id = std::get<int64_t>(std::get<0>(out[3]));
+    auto index_id = std::get<int64_t>(std::get<0>(out[4]));
+    auto partition_id = std::get<int64_t>(std::get<0>(out[5]));
+    auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
+    std::string tablet_key =
+            meta_tablet_key({instance_id_, table_id, index_id, partition_id, tablet_id});
+    int ret = key_exist(txn_kv_.get(), tablet_key);
+    if (ret == 1) {
+        // clang-format off
+        LOG(WARNING) << "stats tablet key's tablet key leak,"
+                    << " stats tablet key=" << hex(key)
+                    << " meta tablet key=" << hex(tablet_key);
+        // clang-format on
+        return 1;
+    } else if (ret == -1) {
+        LOG(WARNING) << "failed to check key exists, key=" << hex(tablet_key);
+        return -1;
+    }
+    LOG(INFO) << "check stats_tablet_key_leaked ok, key=" << hex(key);
+    return 0;
+}
+
+int InstanceChecker::check_stats_tablet_key(std::string_view key, std::string_view value) {
+    TabletStatsPB tablet_stats_pb;
+    std::string_view k1 = key;
+    k1.remove_prefix(1);
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    decode_key(&k1, &out);
+    // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}
+    auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to recycle tablet ")
+                .tag("tablet id", tablet_id)
+                .tag("instance_id", instance_id_)
+                .tag("reason", "failed to create txn");
+        return -1;
+    }
+    std::string tablet_idx_key = meta_tablet_idx_key({instance_id_, tablet_id});
+    std::string tablet_idx_val;
+    TabletIndexPB tablet_idx;
+    err = txn->get(tablet_idx_key, &tablet_idx_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        // clang-format off
+        LOG(WARNING) << "failed to get tablet index key,"
+                        << " key=" << hex(tablet_idx_key)
+                        << " code=" << err;
+        // clang-format on
+        return -1;
+    }
+    tablet_idx.ParseFromString(tablet_idx_val);
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    internal_get_tablet_stats(code, msg, txn.get(), instance_id_, tablet_idx, tablet_stats_pb);
+    if (code != MetaServiceCode::OK) {
+        // clang-format off
+        LOG(WARNING) << "failed to get tablet stats,"
+                        << " code=" << code 
+                        << " msg=" << msg;
+        // clang-format on
+        return -1;
+    }
+
+    GetRowsetResponse resp;
+    // get rowsets in tablet
+    internal_get_rowset(txn.get(), 0, std::numeric_limits<int64_t>::max() - 1, instance_id_,
+                        tablet_id, code, msg, &resp);
+    if (code != MetaServiceCode::OK) {
+        LOG_WARNING("failed to get rowsets of tablet when check stats tablet key")
+                .tag("tablet id", tablet_id)
+                .tag("msg", msg)
+                .tag("code", code)
+                .tag("instance id", instance_id_);
+        return -1;
+    }
+    int64_t num_rows = 0;
+    int64_t num_rowsets = 0;
+    int64_t num_segments = 0;
+    int64_t total_data_size = 0;
+    for (const auto& rs_meta : resp.rowset_meta()) {
+        num_rows += rs_meta.num_rows();
+        num_rowsets++;
+        num_segments += rs_meta.num_segments();
+        total_data_size += rs_meta.total_disk_size();
+    }
+    int ret = 0;
+    if (tablet_stats_pb.data_size() != total_data_size) {
+        ret = 1;
+        // clang-format off
+        LOG(WARNING) << " tablet_stats_pb's data size is not same with all rowset total data size,"
+                        << " tablet_stats_pb's data size=" << tablet_stats_pb.data_size()
+                        << " all rowset total data size=" << total_data_size
+                        << " stats tablet meta=" << tablet_stats_pb.ShortDebugString();
+        // clang-format on
+    } else if (tablet_stats_pb.num_rows() != num_rows) {
+        ret = 1;
+        // clang-format off
+        LOG(WARNING) << " tablet_stats_pb's num_rows is not same with all rowset total num_rows,"
+                        << " tablet_stats_pb's num_rows=" << tablet_stats_pb.num_rows()
+                        << " all rowset total num_rows=" << num_rows
+                        << " stats tablet meta=" << tablet_stats_pb.ShortDebugString();
+        // clang-format on
+    } else if (tablet_stats_pb.num_rowsets() != num_rowsets) {
+        ret = 1;
+        // clang-format off
+        LOG(WARNING) << " tablet_stats_pb's num_rowsets is not same with all rowset nums,"
+                        << " tablet_stats_pb's num_rowsets=" << tablet_stats_pb.num_rowsets()
+                        << " all rowset nums=" << num_rowsets
+                        << " stats tablet meta=" << tablet_stats_pb.ShortDebugString();
+        // clang-format on
+    } else if (tablet_stats_pb.num_segments() != num_segments) {
+        ret = 1;
+        // clang-format off
+        LOG(WARNING) << " tablet_stats_pb's num_segments is not same with all rowset total num_segments,"
+                        << " tablet_stats_pb's num_segments=" << tablet_stats_pb.num_segments()
+                        << " all rowset total num_segments=" << num_segments
+                        << " stats tablet meta=" << tablet_stats_pb.ShortDebugString();
+        // clang-format on
+    }
+
+    return ret;
+}
+
+int InstanceChecker::scan_and_handle_kv(
+        std::string& start_key, const std::string& end_key,
+        std::function<int(std::string_view, std::string_view)> handle_kv) {
+    std::unique_ptr<Transaction> txn;
+    int ret = 0;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn";
+        return -1;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        err = txn->get(start_key, end_key, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get tablet idx, ret=" << err;
+            return -1;
+        }
+
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+
+            int handle_ret = handle_kv(k, v);
+            if (handle_ret == -1) {
+                return -1;
+            } else {
+                ret = std::max(ret, handle_ret);
+            }
+            if (!it->has_next()) {
+                start_key = k;
+            }
+        }
+        start_key = it->next_begin_key();
+    } while (it->more() && !stopped());
+    return ret;
+}
+
+int InstanceChecker::do_restore_job_check() {
+    int64_t num_prepared = 0;
+    int64_t num_committed = 0;
+    int64_t num_dropped = 0;
+    int64_t num_completed = 0;
+    int64_t num_recycling = 0;
+    int64_t num_cost_many_time = 0;
+    const int64_t COST_MANY_THRESHOLD = 3600;
+
+    using namespace std::chrono;
+    auto start_time = steady_clock::now();
+    DORIS_CLOUD_DEFER {
+        g_bvar_checker_restore_job_prepared_state.put(instance_id_, num_prepared);
+        g_bvar_checker_restore_job_committed_state.put(instance_id_, num_committed);
+        g_bvar_checker_restore_job_dropped_state.put(instance_id_, num_dropped);
+        g_bvar_checker_restore_job_completed_state.put(instance_id_, num_completed);
+        g_bvar_checker_restore_job_recycling_state.put(instance_id_, num_recycling);
+        g_bvar_checker_restore_job_cost_many_time.put(instance_id_, num_cost_many_time);
+        auto cost_ms =
+                duration_cast<std::chrono::milliseconds>(steady_clock::now() - start_time).count();
+        LOG(INFO) << "check instance restore jobs finished, cost=" << cost_ms
+                  << "ms. instance_id=" << instance_id_ << " num_prepared=" << num_prepared
+                  << " num_committed=" << num_committed << " num_dropped=" << num_dropped
+                  << " num_completed=" << num_completed << " num_recycling=" << num_recycling
+                  << " num_cost_many_time=" << num_cost_many_time;
+    };
+
+    LOG_INFO("begin to check restore jobs").tag("instance_id", instance_id_);
+
+    JobRestoreTabletKeyInfo restore_job_key_info0 {instance_id_, 0};
+    JobRestoreTabletKeyInfo restore_job_key_info1 {instance_id_, INT64_MAX};
+    std::string begin;
+    std::string end;
+    job_restore_tablet_key(restore_job_key_info0, &begin);
+    job_restore_tablet_key(restore_job_key_info1, &end);
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            RestoreJobCloudPB restore_job_pb;
+            if (!restore_job_pb.ParseFromArray(v.data(), v.size())) {
+                LOG_WARNING("malformed restore job value").tag("key", hex(k));
+                return -1;
+            }
+
+            switch (restore_job_pb.state()) {
+            case RestoreJobCloudPB::PREPARED:
+                ++num_prepared;
+                break;
+            case RestoreJobCloudPB::COMMITTED:
+                ++num_committed;
+                break;
+            case RestoreJobCloudPB::DROPPED:
+                ++num_dropped;
+                break;
+            case RestoreJobCloudPB::COMPLETED:
+                ++num_completed;
+                break;
+            case RestoreJobCloudPB::RECYCLING:
+                ++num_recycling;
+                break;
+            default:
+                break;
+            }
+
+            int64_t current_time = ::time(nullptr);
+            if ((restore_job_pb.state() == RestoreJobCloudPB::PREPARED ||
+                 restore_job_pb.state() == RestoreJobCloudPB::COMMITTED) &&
+                current_time > restore_job_pb.ctime_s() + COST_MANY_THRESHOLD) {
+                // restore job run more than 1 hour
+                ++num_cost_many_time;
+                LOG_WARNING("restore job cost too many time")
+                        .tag("key", hex(k))
+                        .tag("tablet_id", restore_job_pb.tablet_id())
+                        .tag("state", restore_job_pb.state())
+                        .tag("ctime_s", restore_job_pb.ctime_s())
+                        .tag("mtime_s", restore_job_pb.mtime_s());
+            }
+
+            if (!it->has_next()) {
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
+                break;
+            }
+        }
     } while (it->more() && !stopped());
     return 0;
 }
