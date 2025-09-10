@@ -379,7 +379,7 @@ Status NewJsonReader::_get_range_params() {
     }
     if (_params.file_attributes.__isset.openx_json_ignore_malformed) {
         _openx_json_ignore_malformed = _params.file_attributes.openx_json_ignore_malformed;
-    }
+    }    
     return Status::OK();
 }
 
@@ -1267,15 +1267,6 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
         return Status::OK();
     }
 
-    // (Refrain LOG)
-    std::string json_str(reinterpret_cast<const char*>(_json_str), *size);
-    if (_read_json_by_line) {
-        LOG(INFO) << "read by line : " << json_str;
-    }
-    if (_strip_outer_array) {
-        LOG(INFO) << "read by array : " << json_str;
-    }
-    
     // step2: init json parser iterate.
     if (*size + simdjson::SIMDJSON_PADDING > _padded_size) {
         // For efficiency reasons, simdjson requires a string with a few bytes (simdjson::SIMDJSON_PADDING) at the end.
