@@ -22,11 +22,13 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "common/defer.h"
 #include "common/util.h"
@@ -37,6 +39,7 @@
 #include "meta-store/document_message_get_range.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
@@ -163,12 +166,13 @@ void prepare_and_commit_partition(MetaServiceProxy* service, const std::string& 
 }
 
 void drop_partition(MetaServiceProxy* service, const std::string& cloud_unique_id, int64_t db_id,
-                    int64_t table_id, int64_t partition_id) {
+                    int64_t table_id, int64_t partition_id, int64_t index_id) {
     PartitionRequest request;
     request.set_cloud_unique_id(cloud_unique_id);
     request.set_db_id(db_id);
     request.set_table_id(table_id);
     request.add_partition_ids(partition_id);
+    request.add_index_ids(index_id);
 
     PartitionResponse response;
     brpc::Controller cntl;
@@ -596,8 +600,8 @@ std::string dump_range(TxnKv* txn_kv, std::string_view begin = "", std::string_v
     auto iter = txn_kv->full_range_get(std::string(begin), std::string(end), std::move(opts));
     std::string buffer;
     for (auto&& kv = iter->next(); kv.has_value(); kv = iter->next()) {
-        buffer +=
-                fmt::format("Key: {}, Value: {}\n", escape_hex(kv->first), escape_hex(kv->second));
+        buffer += fmt::format("Key: {}, Value: {}, KeyHex: {}\n", escape_hex(kv->first),
+                              escape_hex(kv->second), hex(kv->first));
     }
     EXPECT_TRUE(iter->is_valid()); // The iterator should still be valid after the next call.
     return buffer;
@@ -1174,9 +1178,358 @@ TEST(RecycleVersionedKeysTest, RecycleRowset_SchemaChangeAndCompaction) {
     });
 }
 
-// TODO: pass this test
+TEST(RecycleVersionedKeysTest, RecycleTabletWithRowsetRefCount) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "recycle_tablet_with_rowset_ref_count_test_instance";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    MOCK_GET_INSTANCE_ID(instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        // prepare index, partition, and tablets
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(
+                meta_service.get(), cloud_unique_id, db_id, table_id, partition_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                              index_id, partition_id, tablet_id));
+    }
+
+    size_t num_rowsets = 4;
+    std::string last_rowset_id;
+    std::shared_ptr<StorageVaultAccessor> accessor = std::make_shared<MockAccessor>();
+    {
+        // insert some rowsets
+        for (size_t i = 0; i < num_rowsets; ++i) {
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
+                                                  fmt::format("label_{}", i), table_id,
+                                                  partition_id, tablet_id, &last_rowset_id));
+            accessor->put_file(rowset_path_prefix(tablet_id, last_rowset_id) + "0.dat",
+                               "test data");
+        }
+    }
+
+    {
+        // Create a rowset reference to the last rowset
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        auto rowset_ref_count_key =
+                versioned::data_rowset_ref_count_key({instance_id, tablet_id, last_rowset_id});
+        txn->atomic_add(rowset_ref_count_key, 1);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // recycle the rowsets
+    config::force_immediate_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::force_immediate_recycle = false;
+    };
+
+    InstanceInfoPB instance_info;
+    ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+    auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
+    RecyclerMetricsContext ctx;
+    ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
+
+    {
+        // check rowset does not exist on s3
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+        ASSERT_TRUE(list_iter->has_next()) << dump_range(txn_kv.get());
+        ASSERT_EQ(list_iter->next().value().path,
+                  rowset_path_prefix(tablet_id, last_rowset_id) + "0.dat");
+        ASSERT_FALSE(list_iter->has_next());
+    }
+
+    {
+        // check the rowset ref count key exists
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string begin_key = versioned::data_rowset_ref_count_key({instance_id, tablet_id, ""});
+        std::string end_key =
+                versioned::data_rowset_ref_count_key({instance_id, tablet_id + 1, ""});
+
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        size_t total_ref_count_keys = 0;
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            int64_t ref_count = 0;
+            ASSERT_TRUE(txn->decode_atomic_int(v, &ref_count));
+            ASSERT_EQ(ref_count, 1);
+            ++total_ref_count_keys;
+        }
+        ASSERT_EQ(total_ref_count_keys, 1);
+    }
+}
+
+// Clone tablet metadata from source tablet to target tablet, sharing the same rowset data
+void clone_tablet(TxnKv* txn_kv, std::string_view instance_id, int64_t source_tablet_id,
+                  int64_t target_tablet_id) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    // 1. Clone tablet meta
+    {
+        std::string source_key = versioned::meta_tablet_key({instance_id, source_tablet_id});
+        std::string target_key = versioned::meta_tablet_key({instance_id, target_tablet_id});
+
+        Versionstamp version;
+        std::string value;
+        ASSERT_EQ(versioned_get(txn.get(), source_key, &version, &value), TxnErrorCode::TXN_OK);
+
+        // Decode and modify tablet meta
+        TabletMetaCloudPB tablet_meta;
+        ASSERT_TRUE(tablet_meta.ParseFromString(value));
+        tablet_meta.set_tablet_id(target_tablet_id);
+
+        // Write to target tablet
+        ASSERT_TRUE(versioned::document_put(txn.get(), target_key, std::move(tablet_meta)));
+    }
+
+    // 2. Clone tablet load stats
+    {
+        std::string source_key = versioned::tablet_load_stats_key({instance_id, source_tablet_id});
+        std::string target_key = versioned::tablet_load_stats_key({instance_id, target_tablet_id});
+
+        Versionstamp version;
+        std::string value;
+        ASSERT_EQ(versioned_get(txn.get(), source_key, &version, &value), TxnErrorCode::TXN_OK);
+
+        // Decode and modify load stats (TabletStatsPB doesn't have set_tablet_id, just copy as is)
+        TabletStatsPB stats;
+        ASSERT_TRUE(stats.ParseFromString(value));
+
+        // Write to target tablet
+        ASSERT_TRUE(versioned::document_put(txn.get(), target_key, std::move(stats)));
+    }
+
+    // 3. Clone tablet compaction stats
+    {
+        std::string source_key =
+                versioned::tablet_compact_stats_key({instance_id, source_tablet_id});
+        std::string target_key =
+                versioned::tablet_compact_stats_key({instance_id, target_tablet_id});
+
+        Versionstamp version;
+        std::string value;
+        ASSERT_EQ(versioned_get(txn.get(), source_key, &version, &value), TxnErrorCode::TXN_OK);
+
+        // Decode stats and write to target tablet
+        TabletStatsPB stats;
+        ASSERT_TRUE(stats.ParseFromString(value));
+
+        ASSERT_TRUE(versioned::document_put(txn.get(), target_key, std::move(stats)));
+    }
+
+    // 4. Clone rowset metas and increment ref counts
+    {
+        // Get all rowset metas for source tablet
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_metas;
+        MetaReader meta_reader(instance_id);
+        ASSERT_EQ(meta_reader.get_load_rowset_metas(txn.get(), source_tablet_id, &rowset_metas),
+                  TxnErrorCode::TXN_OK);
+        for (auto&& [rowset_meta, version] : rowset_metas) {
+            // Create new rowset meta key for target tablet
+            std::string target_rowset_key = versioned::meta_rowset_load_key(
+                    {instance_id, target_tablet_id, rowset_meta.end_version()});
+
+            // Modify rowset meta to point to target tablet
+            RowsetMetaCloudPB target_rowset_meta = rowset_meta;
+            target_rowset_meta.set_tablet_id(target_tablet_id);
+
+            ASSERT_TRUE(versioned::document_put(txn.get(), target_rowset_key,
+                                                std::move(target_rowset_meta)));
+
+            // Increment ref count for shared rowset data
+            std::string ref_count_key = versioned::data_rowset_ref_count_key(
+                    {instance_id, source_tablet_id, rowset_meta.rowset_id_v2()});
+            txn->atomic_add(ref_count_key, 1);
+        }
+    }
+
+    // 5. Handle compaction rowset metas similarly
+    {
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_metas;
+        MetaReader meta_reader(instance_id);
+        ASSERT_EQ(meta_reader.get_compact_rowset_metas(txn.get(), source_tablet_id, &rowset_metas),
+                  TxnErrorCode::TXN_OK);
+        for (auto&& [rowset_meta, version] : rowset_metas) {
+            // Create new rowset meta key for target tablet
+            std::string target_rowset_key = versioned::meta_rowset_load_key(
+                    {instance_id, target_tablet_id, rowset_meta.end_version()});
+
+            // Modify rowset meta to point to target tablet
+            RowsetMetaCloudPB target_rowset_meta = rowset_meta;
+            target_rowset_meta.set_tablet_id(target_tablet_id);
+
+            ASSERT_TRUE(versioned::document_put(txn.get(), target_rowset_key,
+                                                std::move(target_rowset_meta)));
+
+            // Increment ref count for shared rowset data
+            std::string ref_count_key = versioned::data_rowset_ref_count_key(
+                    {instance_id, source_tablet_id, rowset_meta.rowset_id_v2()});
+            txn->atomic_add(ref_count_key, 1);
+        }
+    }
+
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+void recycle_tablet_with_rowset_ref_count_concurrent() {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "recycle_tablet_with_rowset_ref_count_concurrent_test_instance";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    MOCK_GET_INSTANCE_ID(instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4;
+    int64_t source_tablet_id = 5;
+    std::vector<int64_t> clone_tablet_ids = {6, 7, 8, 9, 10}; // 5 cloned tablets
+
+    {
+        // prepare index, partition, and source tablet
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(
+                meta_service.get(), cloud_unique_id, db_id, table_id, partition_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                              index_id, partition_id, source_tablet_id));
+    }
+
+    std::shared_ptr<StorageVaultAccessor> accessor = std::make_shared<MockAccessor>();
+
+    size_t num_rowsets = 4;
+    std::vector<std::string> rowset_ids;
+    {
+        // insert some rowsets to source tablet
+        for (size_t i = 0; i < num_rowsets; ++i) {
+            std::string rowset_id;
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
+                                                  fmt::format("label_{}", i), table_id,
+                                                  partition_id, source_tablet_id, &rowset_id));
+            rowset_ids.push_back(rowset_id);
+            accessor->put_file(rowset_path_prefix(source_tablet_id, rowset_id) + "0.dat",
+                               "mock_data");
+        }
+    }
+
+    {
+        // Clone tablets sharing the same rowset data
+        for (int64_t clone_tablet_id : clone_tablet_ids) {
+            ASSERT_NO_FATAL_FAILURE(
+                    clone_tablet(txn_kv.get(), instance_id, source_tablet_id, clone_tablet_id));
+        }
+    }
+
+    // Verify initial ref counts
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (const std::string& rowset_id : rowset_ids) {
+            std::string source_ref_key = versioned::data_rowset_ref_count_key(
+                    {instance_id, source_tablet_id, rowset_id});
+            std::string source_ref_value;
+            auto rc = txn->get(source_ref_key, &source_ref_value);
+            ASSERT_EQ(rc, TxnErrorCode::TXN_OK);
+
+            int64_t ref_count = 0;
+            ASSERT_TRUE(txn->decode_atomic_int(source_ref_value, &ref_count));
+            ASSERT_EQ(ref_count, 1 + clone_tablet_ids.size());
+        }
+    }
+
+    // Prepare for concurrent recycling
+    config::force_immediate_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::force_immediate_recycle = false;
+    };
+
+    InstanceInfoPB instance_info;
+    ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+
+    // Launch multiple recyclers concurrently
+    std::vector<std::thread> recycler_threads;
+    std::vector<int> recycler_results(6, -1); // Store results from each recycler
+    std::atomic<int> completed_recyclers {0};
+
+    clone_tablet_ids.push_back(source_tablet_id); // Include source tablet for recycling
+    for (size_t i = 0; i < 6; ++i) {
+        recycler_threads.emplace_back([&, i]() {
+            auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
+            RecyclerMetricsContext ctx;
+            int64_t tablet_id = clone_tablet_ids[i];
+            recycler_results[i] = recycler->recycle_tablet(tablet_id, ctx);
+            completed_recyclers.fetch_add(1);
+        });
+    }
+
+    // Wait for all recyclers to complete
+    for (auto& thread : recycler_threads) {
+        thread.join();
+    }
+
+    ASSERT_EQ(completed_recyclers.load(), 6) << "All recyclers should complete";
+
+    bool any_failure = false;
+    for (int result : recycler_results) {
+        if (result != 0) {
+            any_failure = true;
+            break;
+        }
+    }
+    ASSERT_FALSE(any_failure) << "All recyclers should succeed";
+
+    {
+        // Verify all rowset ref count keys are cleaned up
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Check source tablet
+        std::string begin_key =
+                versioned::data_rowset_ref_count_key({instance_id, source_tablet_id, ""});
+        std::string end_key =
+                versioned::data_rowset_ref_count_key({instance_id, source_tablet_id + 1, ""});
+
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        size_t source_ref_count_keys = 0;
+        while (it->has_next()) {
+            it->next(); // Consume the entry
+            ++source_ref_count_keys;
+        }
+        EXPECT_EQ(source_ref_count_keys, 0) << "Source tablet ref count keys should be cleaned up";
+    }
+
+    {
+        // Verify all rowset data objects are cleaned up from accessor
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(source_tablet_id), &list_iter));
+        EXPECT_FALSE(list_iter->has_next()) << "Source tablet data should be cleaned up";
+
+        for (int64_t clone_tablet_id : clone_tablet_ids) {
+            std::unique_ptr<ListIterator> clone_iter;
+            ASSERT_EQ(0,
+                      accessor->list_directory(tablet_path_prefix(clone_tablet_id), &clone_iter));
+            EXPECT_FALSE(clone_iter->has_next())
+                    << "Clone tablet " << clone_tablet_id << " data should be cleaned up";
+        }
+    }
+}
+
+TEST(RecycleVersionedKeysTest, DISABLED_RecycleTabletWithRowsetRefCountConcurrent) {
+    for (size_t times = 0; times < 10; ++times) {
+        ASSERT_NO_FATAL_FAILURE(recycle_tablet_with_rowset_ref_count_concurrent());
+    }
+}
+
 // A test that simulates a drop index operation.
-TEST(RecycleVersionedKeysTest, DISABLED_RecycleIndex) {
+TEST(RecycleVersionedKeysTest, RecycleIndex) {
     auto meta_service = get_meta_service();
     auto txn_kv = meta_service->txn_kv();
     std::string instance_id = "recycle_index_test_instance";
@@ -1226,31 +1579,37 @@ TEST(RecycleVersionedKeysTest, DISABLED_RecycleIndex) {
     }
 
     {
-        // check the rowsets and tablets are recycled
+        // check the rowsets and tablets are recycled, but partition meta still exists
         std::string meta_key = versioned::meta_key_prefix(instance_id);
         std::string meta_key_end = versioned::meta_key_prefix(instance_id + '\x00');
-        ASSERT_EQ(count_range(txn_kv.get(), meta_key, meta_key_end), 0)
+        EXPECT_EQ(count_range(txn_kv.get(), meta_key, meta_key_end), 1)
                 << dump_range(txn_kv.get(), meta_key, meta_key_end);
 
         std::string data_key = versioned::data_key_prefix(instance_id);
         std::string data_key_end = versioned::data_key_prefix(instance_id + '\x00');
-        ASSERT_EQ(count_range(txn_kv.get(), data_key, data_key_end), 0)
+        EXPECT_EQ(count_range(txn_kv.get(), data_key, data_key_end), 0)
                 << dump_range(txn_kv.get(), data_key, data_key_end);
 
         std::string index_key = versioned::index_key_prefix(instance_id);
         std::string index_key_end = versioned::index_key_prefix(instance_id + '\x00');
-        ASSERT_EQ(count_range(txn_kv.get(), index_key, index_key_end), 0)
+        EXPECT_EQ(count_range(txn_kv.get(), index_key, index_key_end), 2) // partition indexes
                 << dump_range(txn_kv.get(), index_key, index_key_end);
 
         std::string stats_key = versioned::stats_key_prefix(instance_id);
         std::string stats_key_end = versioned::stats_key_prefix(instance_id + '\x00');
-        ASSERT_EQ(count_range(txn_kv.get(), stats_key, stats_key_end), 0)
+        EXPECT_EQ(count_range(txn_kv.get(), stats_key, stats_key_end), 0)
                 << dump_range(txn_kv.get(), stats_key, stats_key_end);
+
+        // But the versioned keys still exists
+        std::string version_key = versioned::version_key_prefix(instance_id);
+        std::string version_key_end = versioned::version_key_prefix(instance_id + '\x00');
+        EXPECT_EQ(count_range(txn_kv.get(), version_key, version_key_end), 2)
+                << dump_range(txn_kv.get(), version_key, version_key_end);
     }
 }
 
 // A test that simulates a drop partition operation.
-TEST(RecycleVersionedKeysTest, DISABLED_RecyclePartition) {
+TEST(RecycleVersionedKeysTest, RecyclePartition) {
     auto meta_service = get_meta_service();
     auto txn_kv = meta_service->txn_kv();
     std::string instance_id = "recycle_partition_test_instance";
@@ -1281,12 +1640,17 @@ TEST(RecycleVersionedKeysTest, DISABLED_RecyclePartition) {
 
     {
         // drop partition
-        ASSERT_NO_FATAL_FAILURE(
-                drop_partition(meta_service.get(), cloud_unique_id, db_id, table_id, partition_id));
+        ASSERT_NO_FATAL_FAILURE(drop_partition(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                               partition_id, index_id));
     }
 
     {
         // run recycler to recycle the dropped partition
+        config::force_immediate_recycle = true;
+        DORIS_CLOUD_DEFER {
+            config::force_immediate_recycle = false;
+        };
+
         InstanceInfoPB instance_info;
         ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
         auto recycler = get_instance_recycler(meta_service.get(), instance_info);
@@ -1298,21 +1662,133 @@ TEST(RecycleVersionedKeysTest, DISABLED_RecyclePartition) {
         // check the rowsets and tablets are recycled
         std::string meta_key = versioned::meta_key_prefix(instance_id);
         std::string meta_key_end = versioned::meta_key_prefix(instance_id + '\x00');
-        ASSERT_EQ(count_range(txn_kv.get(), meta_key, meta_key_end), 0) << dump_range(txn_kv.get());
+        EXPECT_EQ(count_range(txn_kv.get(), meta_key, meta_key_end), 2)
+                << dump_range(txn_kv.get(), meta_key, meta_key_end);
 
         std::string data_key = versioned::data_key_prefix(instance_id);
         std::string data_key_end = versioned::data_key_prefix(instance_id + '\x00');
-        ASSERT_EQ(count_range(txn_kv.get(), data_key, data_key_end), 0) << dump_range(txn_kv.get());
+        EXPECT_EQ(count_range(txn_kv.get(), data_key, data_key_end), 0)
+                << dump_range(txn_kv.get(), data_key, data_key_end);
 
         std::string index_key = versioned::index_key_prefix(instance_id);
         std::string index_key_end = versioned::index_key_prefix(instance_id + '\x00');
-        ASSERT_EQ(count_range(txn_kv.get(), index_key, index_key_end), 0)
-                << dump_range(txn_kv.get());
+        EXPECT_EQ(count_range(txn_kv.get(), index_key, index_key_end), 2)
+                << dump_range(txn_kv.get(), index_key, index_key_end);
 
         std::string stats_key = versioned::stats_key_prefix(instance_id);
         std::string stats_key_end = versioned::stats_key_prefix(instance_id + '\x00');
-        ASSERT_EQ(count_range(txn_kv.get(), stats_key, stats_key_end), 0)
-                << dump_range(txn_kv.get());
+        EXPECT_EQ(count_range(txn_kv.get(), stats_key, stats_key_end), 0)
+                << dump_range(txn_kv.get(), stats_key, stats_key_end);
+
+        // Only table version exists
+        std::string version_key = versioned::version_key_prefix(instance_id);
+        std::string version_key_end = versioned::version_key_prefix(instance_id + '\x00');
+        EXPECT_EQ(count_range(txn_kv.get(), version_key, version_key_end), 1)
+                << dump_range(txn_kv.get(), version_key, version_key_end);
+    }
+}
+
+// A test that simulates a drop table operation.
+TEST(RecycleVersionedKeysTest, RecycleTable) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "recycle_table_test_instance";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    MOCK_GET_INSTANCE_ID(instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        // prepare index, partition, and tablets
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(
+                meta_service.get(), cloud_unique_id, db_id, table_id, partition_id, index_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                              index_id, partition_id, tablet_id));
+    }
+
+    size_t num_rowsets = 4;
+    {
+        // insert some rowsets
+        for (size_t i = 0; i < num_rowsets; ++i) {
+            ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), cloud_unique_id, db_id,
+                                                  fmt::format("label_{}", i), table_id,
+                                                  partition_id, tablet_id));
+        }
+    }
+
+    config::force_immediate_recycle = true;
+    DORIS_CLOUD_DEFER {
+        config::force_immediate_recycle = false;
+    };
+
+    {
+        // No thing to recycle before drop table
+        InstanceInfoPB instance_info;
+        ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+        auto recycler = get_instance_recycler(meta_service.get(), instance_info);
+        ASSERT_EQ(recycler->recycle_operation_logs(), 0);
+        ASSERT_EQ(recycler->recycle_indexes(), 0);
+        ASSERT_EQ(recycler->recycle_versions(), 0);
+        ASSERT_EQ(recycler->recycle_orphan_partitions(), 0);
+    }
+
+    ASSERT_NO_FATAL_FAILURE({
+        check_tablet_meta(txn_kv.get(), instance_id, tablet_id);
+        check_partition_resources(txn_kv.get(), instance_id, table_id, index_id, partition_id);
+        check_rowset_meta(txn_kv.get(), instance_id, tablet_id, 2, num_rowsets + 1);
+    });
+
+    {
+        // mark the table as deleted
+        ASSERT_NO_FATAL_FAILURE(
+                drop_index(meta_service.get(), cloud_unique_id, db_id, table_id, index_id));
+    }
+
+    {
+        // Recycle the dropped tables
+        InstanceInfoPB instance_info;
+        ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+        auto recycler = get_instance_recycler(meta_service.get(), instance_info);
+        ASSERT_EQ(recycler->recycle_operation_logs(), 0);
+        ASSERT_EQ(recycler->recycle_indexes(), 0);
+        ASSERT_EQ(recycler->recycle_versions(), 0);
+        ASSERT_EQ(recycler->recycle_orphan_partitions(), 0);
+    }
+
+    {
+        // Assert all datas of the instance are recycled.
+        std::string meta_key = versioned::meta_key_prefix(instance_id);
+        std::string meta_key_end = versioned::meta_key_prefix(instance_id + '\x00');
+        EXPECT_EQ(count_range(txn_kv.get(), meta_key, meta_key_end), 0)
+                << dump_range(txn_kv.get(), meta_key, meta_key_end);
+
+        std::string data_key = versioned::data_key_prefix(instance_id);
+        std::string data_key_end = versioned::data_key_prefix(instance_id + '\x00');
+        EXPECT_EQ(count_range(txn_kv.get(), data_key, data_key_end), 0)
+                << dump_range(txn_kv.get(), data_key, data_key_end);
+
+        std::string index_key = versioned::index_key_prefix(instance_id);
+        std::string index_key_end = versioned::index_key_prefix(instance_id + '\x00');
+        EXPECT_EQ(count_range(txn_kv.get(), index_key, index_key_end), 0)
+                << dump_range(txn_kv.get(), index_key, index_key_end);
+
+        std::string stats_key = versioned::stats_key_prefix(instance_id);
+        std::string stats_key_end = versioned::stats_key_prefix(instance_id + '\x00');
+        EXPECT_EQ(count_range(txn_kv.get(), stats_key, stats_key_end), 0)
+                << dump_range(txn_kv.get(), stats_key, stats_key_end);
+
+        std::string version_key = versioned::version_key_prefix(instance_id);
+        std::string version_key_end = versioned::version_key_prefix(instance_id + '\x00');
+        EXPECT_EQ(count_range(txn_kv.get(), version_key, version_key_end), 0)
+                << dump_range(txn_kv.get(), version_key, version_key_end);
+
+        std::string log_key = versioned::log_key_prefix(instance_id);
+        std::string log_key_end = versioned::log_key_prefix(instance_id + '\x00');
+        EXPECT_EQ(count_range(txn_kv.get(), log_key, log_key_end), 0)
+                << dump_range(txn_kv.get(), log_key, log_key_end);
     }
 }
 

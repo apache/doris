@@ -296,6 +296,9 @@ public:
     // scan and recycle useless partition version kv
     int recycle_versions();
 
+    // scan and recycle the orphan partitions
+    int recycle_orphan_partitions();
+
     // scan and abort timeout txn label
     // returns 0 for success otherwise error
     int abort_timeout_txn();

@@ -44,6 +44,7 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/blob_message.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
@@ -1403,9 +1404,12 @@ int InstanceRecycler::recycle_partitions() {
             std::string index_key = versioned::partition_index_key({instance_id_, partition_id});
             std::string inverted_index_key = versioned::partition_inverted_index_key(
                     {instance_id_, part_pb.db_id(), part_pb.table_id(), partition_id});
+            std::string partition_version_key =
+                    versioned::partition_version_key({instance_id_, partition_id});
             versioned_remove_all(txn.get(), meta_key);
             txn->remove(index_key);
             txn->remove(inverted_index_key);
+            versioned_remove_all(txn.get(), partition_version_key);
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
                 LOG_WARNING("failed to commit txn").tag("err", err);
@@ -1462,6 +1466,9 @@ int InstanceRecycler::recycle_partitions() {
 }
 
 int InstanceRecycler::recycle_versions() {
+    // TODO:
+    // recycle_orphan_partitions();
+
     int64_t num_scanned = 0;
     int64_t num_recycled = 0;
     RecyclerMetricsContext metrics_context(instance_id_, "recycle_versions");
@@ -1553,6 +1560,119 @@ int InstanceRecycler::recycle_versions() {
     }
     // recycle_func and loop_done for scan and recycle
     return scan_and_recycle(version_key_begin, version_key_end, std::move(recycle_func));
+}
+
+int InstanceRecycler::recycle_orphan_partitions() {
+    int64_t num_scanned = 0;
+    int64_t num_recycled = 0;
+    RecyclerMetricsContext metrics_context(instance_id_, "recycle_orphan_partitions");
+
+    LOG_WARNING("begin to recycle orphan table and partition versions")
+            .tag("instance_id", instance_id_);
+
+    auto start_time = steady_clock::now();
+
+    DORIS_CLOUD_DEFER {
+        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        metrics_context.finish_report();
+        LOG_WARNING("recycle orphan table and partition versions finished, cost={}s", cost)
+                .tag("instance_id", instance_id_)
+                .tag("num_scanned", num_scanned)
+                .tag("num_recycled", num_recycled);
+    };
+
+    bool is_empty_table = false;        // whether the table has no indexes
+    bool is_table_kvs_recycled = false; // whether the table related kvs have been recycled
+    int64_t current_table_id = 0;       // current scanning table id
+    auto recycle_func = [&num_scanned, &num_recycled, &metrics_context, &is_empty_table,
+                         &current_table_id, &is_table_kvs_recycled,
+                         this](std::string_view k, std::string_view) {
+        ++num_scanned;
+
+        std::string_view k1(k);
+        int64_t db_id, table_id, partition_id;
+        if (versioned::decode_partition_inverted_index_key(&k1, &db_id, &table_id, &partition_id) !=
+            0) {
+            LOG(WARNING) << "malformed partition inverted index key " << hex(k);
+            return -1;
+        } else if (table_id != current_table_id) {
+            current_table_id = table_id;
+            is_table_kvs_recycled = false;
+            MetaReader meta_reader(instance_id_, txn_kv_.get());
+            TxnErrorCode err = meta_reader.has_no_indexes(db_id, table_id, &is_empty_table);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to check whether table has no indexes, db_id=" << db_id
+                             << " table_id=" << table_id << " err=" << err;
+                return -1;
+            }
+        }
+
+        if (!is_empty_table) {
+            // table is not empty, skip recycle
+            return 0;
+        }
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            return -1;
+        }
+
+        // 1. Remove all partition related kvs
+        std::string partition_meta_key =
+                versioned::meta_partition_key({instance_id_, partition_id});
+        std::string partition_index_key =
+                versioned::partition_index_key({instance_id_, partition_id});
+        std::string partition_inverted_key = versioned::partition_inverted_index_key(
+                {instance_id_, db_id, table_id, partition_id});
+        std::string partition_version_key =
+                versioned::partition_version_key({instance_id_, partition_id});
+        txn->remove(partition_index_key);
+        txn->remove(partition_inverted_key);
+        versioned_remove_all(txn.get(), partition_meta_key);
+        versioned_remove_all(txn.get(), partition_version_key);
+        LOG(WARNING) << "remove partition related kvs, partition_id=" << partition_id
+                     << " table_id=" << table_id << " db_id=" << db_id
+                     << " partition_meta_key=" << hex(partition_meta_key)
+                     << " partition_version_key=" << hex(partition_version_key);
+
+        if (!is_table_kvs_recycled) {
+            is_table_kvs_recycled = true;
+
+            // 2. Remove the table version kv of this table
+            std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
+            versioned_remove_all(txn.get(), table_version_key);
+            LOG(WARNING) << "remove table version kv " << hex(table_version_key);
+            // 3. Remove mow delete bitmap update lock and tablet job lock
+            std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id_, table_id, -1});
+            txn->remove(lock_key);
+            LOG(WARNING) << "remove delete bitmap update lock kv " << hex(lock_key);
+            std::string tablet_job_key_begin = mow_tablet_job_key({instance_id_, table_id, 0});
+            std::string tablet_job_key_end =
+                    mow_tablet_job_key({instance_id_, table_id, INT64_MAX});
+            txn->remove(tablet_job_key_begin, tablet_job_key_end);
+            LOG(WARNING) << "remove mow tablet job kv, begin=" << hex(tablet_job_key_begin)
+                         << " end=" << hex(tablet_job_key_end) << " db_id=" << db_id
+                         << " table_id=" << table_id;
+        }
+
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            return -1;
+        }
+        metrics_context.total_recycled_num = ++num_recycled;
+        metrics_context.report();
+        return 0;
+    };
+
+    // if (config::enable_recycler_stats_metrics) {
+    //     scan_and_statistics_versions();
+    // }
+    // recycle_func and loop_done for scan and recycle
+    return scan_and_recycle(
+            versioned::partition_inverted_index_key({instance_id_, 0, 0, 0}),
+            versioned::partition_inverted_index_key({instance_id_, INT64_MAX, 0, 0}),
+            std::move(recycle_func));
 }
 
 int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
@@ -2559,28 +2679,35 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
                 .tag("reason", "failed to create txn");
         ret = -1;
     }
-    GetRowsetResponse resp;
-    std::string msg;
-    MetaServiceCode code = MetaServiceCode::OK;
-    // get rowsets in tablet
-    internal_get_rowset(txn.get(), 0, std::numeric_limits<int64_t>::max() - 1, instance_id_,
-                        tablet_id, code, msg, &resp);
-    if (code != MetaServiceCode::OK) {
+
+    // Read the last version of load and compact rowsets, the previous rowsets will be recycled
+    // by the related operation logs.
+    std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> load_rowset_metas;
+    std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> compact_rowset_metas;
+    MetaReader meta_reader(instance_id_);
+    TxnErrorCode err = meta_reader.get_load_rowset_metas(txn.get(), tablet_id, &load_rowset_metas);
+    if (err == TxnErrorCode::TXN_OK) {
+        err = meta_reader.get_compact_rowset_metas(txn.get(), tablet_id, &compact_rowset_metas);
+    }
+    if (err != TxnErrorCode::TXN_OK) {
         LOG_WARNING("failed to get rowsets of tablet when recycle tablet")
                 .tag("tablet id", tablet_id)
-                .tag("msg", msg)
-                .tag("code", code)
+                .tag("err", err)
                 .tag("instance id", instance_id_);
         ret = -1;
     }
-    TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
+
+    LOG_INFO("recycle versioned tablet get {} load rowsets and {} compact rowsets",
+             load_rowset_metas.size(), compact_rowset_metas.size())
+            .tag("instance_id", instance_id_)
+            .tag("tablet_id", tablet_id);
 
     SyncExecutor<int> concurrent_delete_executor(
             _thread_pool_group.s3_producer_pool,
             fmt::format("delete tablet {} s3 rowset", tablet_id),
             [](const int& ret) { return ret != 0; });
 
-    for (const auto& rs_meta : resp.rowset_meta()) {
+    auto update_rowset_stats = [&](const RowsetMetaCloudPB& rs_meta) {
         recycle_rowsets_number += 1;
         recycle_segments_number += rs_meta.num_segments();
         recycle_rowsets_data_size += rs_meta.data_disk_size();
@@ -2590,11 +2717,25 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
         max_rowset_creation_time = std::max(max_rowset_creation_time, rs_meta.creation_time());
         min_rowset_expiration_time = std::min(min_rowset_expiration_time, rs_meta.txn_expiration());
         max_rowset_expiration_time = std::max(max_rowset_expiration_time, rs_meta.txn_expiration());
+    };
 
-        concurrent_delete_executor.add([tablet_id, rs_meta_pb = rs_meta, this]() {
-            std::string rowset_key =
-                    meta_rowset_key({instance_id_, tablet_id, rs_meta_pb.end_version()});
-            return recycle_rowset_meta_and_data(rowset_key, rs_meta_pb);
+    for (const auto& [rs_meta, versionstamp] : load_rowset_metas) {
+        update_rowset_stats(rs_meta);
+        concurrent_delete_executor.add([tablet_id, versionstamp, rs_meta_pb = rs_meta, this]() {
+            std::string rowset_key = versioned::meta_rowset_load_key(
+                    {instance_id_, tablet_id, rs_meta_pb.end_version()});
+            return recycle_rowset_meta_and_data(encode_versioned_key(rowset_key, versionstamp),
+                                                rs_meta_pb);
+        });
+    }
+
+    for (const auto& [rs_meta, versionstamp] : compact_rowset_metas) {
+        update_rowset_stats(rs_meta);
+        concurrent_delete_executor.add([tablet_id, versionstamp, rs_meta_pb = rs_meta, this]() {
+            std::string rowset_key = versioned::meta_rowset_compact_key(
+                    {instance_id_, tablet_id, rs_meta_pb.end_version()});
+            return recycle_rowset_meta_and_data(encode_versioned_key(rowset_key, versionstamp),
+                                                rs_meta_pb);
         });
     }
 
@@ -2708,7 +2849,7 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
 
     std::string versioned_idx_key = versioned::tablet_index_key({instance_id_, tablet_id});
     std::string tablet_index_val;
-    TxnErrorCode err = txn->get(versioned_idx_key, &tablet_index_val);
+    err = txn->get(versioned_idx_key, &tablet_index_val);
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
         LOG_WARNING("failed to get tablet index kv")
                 .tag("instance_id", instance_id_)
