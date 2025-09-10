@@ -596,6 +596,17 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new LessThan(bigIntSlot, new BigIntLiteral(13L)));
         assertRewrite(new LessThanEqual(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
                 new LessThanEqual(bigIntSlot, new BigIntLiteral(12L)));
+
+        // big int and literal near no loss bound
+        double noLossBound = 9007199254740992.0;
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-noLossBound)),
+                new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-noLossBound)));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-9007199254740991.0)),
+                new EqualTo(bigIntSlot, new BigIntLiteral(-9007199254740991L)));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(9007199254740991.0)),
+                new EqualTo(bigIntSlot, new BigIntLiteral(9007199254740991L)));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(noLossBound)),
+                new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(noLossBound)));
     }
 
     @Test

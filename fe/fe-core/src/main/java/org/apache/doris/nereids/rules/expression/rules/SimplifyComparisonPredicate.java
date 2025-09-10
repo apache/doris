@@ -80,6 +80,9 @@ import java.util.Optional;
 public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory {
     public static SimplifyComparisonPredicate INSTANCE = new SimplifyComparisonPredicate();
 
+    private static final long MAX_LONG_CAST_DOUBLE_NO_LOSS = 1L << 53;
+    private static final long MIN_LONG_CAST_DOUBLE_NO_LOSS = -MAX_LONG_CAST_DOUBLE_NO_LOSS;
+
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
@@ -460,6 +463,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         if (literal.compareTo(new BigDecimal(Long.MIN_VALUE)) >= 0
                 && literal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0) {
             literal = literal.stripTrailingZeros();
+            Optional<BigDecimal> roundLiteralOpt = Optional.empty();
             if (literal.scale() > 0) {
                 if (comparisonPredicate instanceof EqualTo) {
                     // TODO: the ideal way is to return an If expr like:
@@ -473,21 +477,23 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                     return BooleanLiteral.of(false);
                 } else if (comparisonPredicate instanceof GreaterThan
                         || comparisonPredicate instanceof LessThanEqual) {
-                    return TypeCoercionUtils
-                            .processComparisonPredicate((ComparisonPredicate) comparisonPredicate
-                                    .withChildren(left, convertDecimalToIntegerLikeLiteral(
-                                            literal.setScale(0, RoundingMode.FLOOR))));
+                    roundLiteralOpt = Optional.of(literal.setScale(0, RoundingMode.FLOOR));
                 } else if (comparisonPredicate instanceof LessThan
                         || comparisonPredicate instanceof GreaterThanEqual) {
-                    return TypeCoercionUtils
-                            .processComparisonPredicate((ComparisonPredicate) comparisonPredicate
-                                    .withChildren(left, convertDecimalToIntegerLikeLiteral(
-                                            literal.setScale(0, RoundingMode.CEILING))));
+                    roundLiteralOpt = Optional.of(literal.setScale(0, RoundingMode.CEILING));
                 }
             } else {
-                return TypeCoercionUtils
-                        .processComparisonPredicate((ComparisonPredicate) comparisonPredicate
-                                .withChildren(left, convertDecimalToIntegerLikeLiteral(literal)));
+                roundLiteralOpt = Optional.of(literal);
+            }
+            if (roundLiteralOpt.isPresent()) {
+                boolean isCastFloatLike = comparisonPredicate.right().getDataType().isFloatLikeType();
+                Optional<IntegerLikeLiteral> integerLikeLiteralOpt
+                        = convertDecimalToIntegerLikeLiteral(roundLiteralOpt.get(), isCastFloatLike);
+                if (integerLikeLiteralOpt.isPresent()) {
+                    return TypeCoercionUtils
+                            .processComparisonPredicate((ComparisonPredicate) comparisonPredicate
+                                    .withChildren(left, integerLikeLiteralOpt.get()));
+                }
             }
         }
         return comparisonPredicate;
@@ -615,20 +621,30 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         return Optional.empty();
     }
 
-    private static IntegerLikeLiteral convertDecimalToIntegerLikeLiteral(BigDecimal decimal) {
+    private static Optional<IntegerLikeLiteral> convertDecimalToIntegerLikeLiteral(BigDecimal decimal,
+            boolean isCastFloatLike) {
         Preconditions.checkArgument(decimal.scale() <= 0
                 && decimal.compareTo(new BigDecimal(Long.MIN_VALUE)) >= 0
                 && decimal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0,
                 "decimal literal must have 0 scale and in range [Long.MIN_VALUE, Long.MAX_VALUE]");
         long val = decimal.longValue();
         if (val >= Byte.MIN_VALUE && val <= Byte.MAX_VALUE) {
-            return new TinyIntLiteral((byte) val);
+            return Optional.of(new TinyIntLiteral((byte) val));
         } else if (val >= Short.MIN_VALUE && val <= Short.MAX_VALUE) {
-            return new SmallIntLiteral((short) val);
+            return Optional.of(new SmallIntLiteral((short) val));
         } else if (val >= Integer.MIN_VALUE && val <= Integer.MAX_VALUE) {
-            return new IntegerLiteral((int) val);
+            return Optional.of(new IntegerLiteral((int) val));
+        } else if (!isCastFloatLike
+                || (val > MIN_LONG_CAST_DOUBLE_NO_LOSS && val < MAX_LONG_CAST_DOUBLE_NO_LOSS)) {
+            // for decimal, all long value can convert to decimal without loss of precision
+            // for float/double, only [-2^53, 2^53] can convert to long without loss of precision,
+            // but here need to exclude the boundary value, because
+            // cast(2^53 as double) = cast(2^53 + 1 as double) = 2^53 = MAX_LONG_CAST_DOUBLE_NO_LOSS,
+            // so for cast(c_bigint as double) = 2^53, we can't simplify it to c_bigint = 2^53,
+            // c_bigint can be 2^53 + 1. The same for -2^53
+            return Optional.of(new BigIntLiteral(val));
         } else {
-            return new BigIntLiteral(val);
+            return Optional.empty();
         }
     }
 
