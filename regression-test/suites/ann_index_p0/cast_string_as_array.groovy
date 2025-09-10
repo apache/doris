@@ -50,7 +50,7 @@ suite("cast_string_as_array") {
     test {
         sql "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast(' [1, 2 , 3 ] ' as array<float>)) limit 3;"
 
-        exception "Ann topn query vector cannot be NULL"
+        exception "Ann query vector cannot be NULL"
     }
     
     // Success: nested cast(string->string->array<float>) should also work
@@ -67,7 +67,7 @@ suite("cast_string_as_array") {
     // runtime of ANN topn. So here we will get null directly...
     test {
         sql "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast(NULL as array<float>)) limit 1;"
-        exception "Ann topn expr constant must be ArrayLiteral or CAST to array"
+        exception "Constant must be ArrayLiteral or CAST to array"
     }
     
         
