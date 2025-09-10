@@ -71,8 +71,10 @@ protected:
     }
 
     // Helper method to create a footer column with path info
-    void add_footer_column_with_path(int32_t parent_unique_id, const std::string& path) {
+    void add_footer_column_with_path(int32_t parent_unique_id, const std::string& path,
+                                     uint32_t column_id = 0) {
         auto* column_meta = _footer->add_columns();
+        column_meta->set_column_id(column_id);
         column_meta->set_unique_id(100 + _footer->columns_size());
 
         auto* path_info = column_meta->mutable_column_path_info();
@@ -202,19 +204,26 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSubColumn) {
 
 TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSparseColumn) {
     // Setup footer with sparse column
-    add_footer_column_with_path(1, "sparse_col.__DORIS_VARIANT_SPARSE__");
+    add_footer_column_with_path(-1, "sparse_col");
+    add_footer_column_with_path(1, "sparse_col.__DORIS_VARIANT_SPARSE__", 1);
 
     // Create variant sparse column
+    TabletColumn parent_column = create_variant_column(1, "variant_col", -1, "sparse_col");
     TabletColumn sparse_column = create_variant_column(2, "variant_col.__DORIS_VARIANT_SPARSE__", 1,
                                                        "sparse_col.__DORIS_VARIANT_SPARSE__");
+    _tablet_schema->append_column(parent_column);
     _tablet_schema->append_column(sparse_column);
 
-    std::vector<uint32_t> column_ids = {0};
+    std::vector<uint32_t> column_ids = {0, 1};
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create block with map column (sparse column)
     vectorized::Block block;
     auto map_column = create_map_column();
+    auto string_column = vectorized::ColumnString::create();
+    // add parant column to block
+    block.insert({std::move(string_column), std::make_shared<vectorized::DataTypeString>(),
+                  "variant_column"});
     block.insert({std::move(map_column),
                   std::make_shared<vectorized::DataTypeMap>(
                           std::make_shared<vectorized::DataTypeString>(),
@@ -225,7 +234,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSparseColumn) {
     EXPECT_TRUE(status.ok());
 
     // Check that variant statistics were updated
-    auto& column_meta = _footer->columns(0);
+    auto& column_meta = _footer->columns(1);
     EXPECT_TRUE(column_meta.has_variant_statistics());
 }
 
@@ -275,10 +284,15 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMissingPathInFooter)
 }
 
 TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMultipleColumns) {
+    // parent column
+    add_footer_column_with_path(-1, "variant");
+    TabletColumn parent_column = create_variant_column(1, "variant", -1, "variant");
+    _tablet_schema->append_column(parent_column);
+
     // Setup footer with multiple columns
-    add_footer_column_with_path(1, "sub1");
-    add_footer_column_with_path(1, "sub2.__DORIS_VARIANT_SPARSE__");
-    add_footer_column_with_path(2, "another_sub");
+    add_footer_column_with_path(1, "sub1", 1);
+    add_footer_column_with_path(1, "sub2.__DORIS_VARIANT_SPARSE__", 2);
+    add_footer_column_with_path(2, "another_sub", 3);
 
     // Create multiple variant columns
     TabletColumn sub1 = create_variant_column(2, "variant.sub1", 1, "sub1");
@@ -290,12 +304,17 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMultipleColumns) {
     _tablet_schema->append_column(sparse);
     _tablet_schema->append_column(sub2);
 
-    std::vector<uint32_t> column_ids = {0, 1, 2};
+    std::vector<uint32_t> column_ids = {0, 1, 2, 3};
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create block with multiple columns
     vectorized::Block block;
 
+    // parent column
+    auto string_column = vectorized::ColumnString::create();
+    string_column->insert_data("test", 4);
+    block.insert({std::move(string_column), std::make_shared<vectorized::DataTypeString>(),
+                  "variant_column"});
     auto nullable_col1 = create_nullable_column({false, true, false}, {"a", "", "c"});
     block.insert({std::move(nullable_col1),
                   std::make_shared<vectorized::DataTypeNullable>(
@@ -320,9 +339,9 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMultipleColumns) {
     EXPECT_TRUE(status.ok());
 
     // Check that statistics were updated for sub columns
-    EXPECT_EQ(_footer->columns(0).none_null_size(), 2);        // sub1: 2 non-null
-    EXPECT_TRUE(_footer->columns(1).has_variant_statistics()); // sparse column
-    EXPECT_EQ(_footer->columns(2).none_null_size(), 1);        // another_sub: 2 non-null
+    EXPECT_EQ(_footer->columns(1).none_null_size(), 2);        // sub1: 2 non-null
+    EXPECT_TRUE(_footer->columns(2).has_variant_statistics()); // sparse column
+    EXPECT_EQ(_footer->columns(3).none_null_size(), 1);        // another_sub: 2 non-null
 }
 
 TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithEmptyBlock) {

@@ -889,7 +889,9 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
 
         // In input rowsets, some rowsets may have statistics values exceeding the maximum limit,
         // which leads to inaccurate statistics
-        if (stats.size() > config::variant_max_sparse_column_statistics_size) {
+        if (stats.size() > output->tablet_schema()
+                                   ->column_by_uid(uid)
+                                   .variant_max_sparse_column_statistics_size()) {
             // When there is only one segment, we can ensure that the size of each path in output stats is accurate
             if (output->num_segments() == 1) {
                 for (const auto& [path, size] : stats) {
@@ -1014,7 +1016,8 @@ void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
             VLOG_DEBUG << "append typed column " << subpath;
         } else if (find_data_types == path_to_data_types.end() || find_data_types->second.empty() ||
                    sparse_paths.find(std::string(subpath)) != sparse_paths.end() ||
-                   sparse_paths.size() >= config::variant_max_sparse_column_statistics_size) {
+                   sparse_paths.size() >=
+                           parent_column->variant_max_sparse_column_statistics_size()) {
             TabletColumn subcolumn;
             subcolumn.set_name(column_name);
             subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
@@ -1111,7 +1114,8 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 
 // Calculate statistics about variant data paths from the encoded sparse column
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
-                             segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                             segment_v2::VariantStatisticsPB* stats,
+                             size_t max_sparse_column_statistics_size, size_t row_pos,
                              size_t num_rows) {
     // Cast input column to ColumnMap type since sparse column is stored as a map
     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
@@ -1136,19 +1140,17 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
             }
             // If path doesn't exist and we haven't hit the max statistics size limit,
             // add it with count 1
-            else if (count_map.size() < config::variant_max_sparse_column_statistics_size) {
+            else if (count_map.size() < max_sparse_column_statistics_size) {
                 count_map.emplace(sparse_path, 1);
             }
         }
     }
 
-    if (stats->sparse_column_non_null_size().size() >
-        config::variant_max_sparse_column_statistics_size) {
+    if (stats->sparse_column_non_null_size().size() > max_sparse_column_statistics_size) {
         throw doris::Exception(
                 ErrorCode::INTERNAL_ERROR,
                 "Sparse column non null size: {} is greater than max statistics size: {}",
-                stats->sparse_column_non_null_size().size(),
-                config::variant_max_sparse_column_statistics_size);
+                stats->sparse_column_non_null_size().size(), max_sparse_column_statistics_size);
     }
 }
 
