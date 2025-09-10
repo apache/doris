@@ -292,7 +292,7 @@ else
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
-	BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
+	    BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
         CLEAN=0
@@ -543,6 +543,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/avro-scanner")
     modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
+    modules+=("be-java-extensions/java-udf-hive-date-format")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
@@ -853,6 +854,19 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/task_executor_simulator" "${DORIS_OUTPUT}/be/lib/"/
     fi
 
+    cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
+    copy_common_files "${DORIS_OUTPUT}/be/"
+    mkdir -p "${DORIS_OUTPUT}/be/log"
+    mkdir -p "${DORIS_OUTPUT}/be/log/pipe_tracing"
+    mkdir -p "${DORIS_OUTPUT}/be/storage"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
+fi
+
+if [[ "${OUTPUT_BE_BINARY}" -eq 1 || "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     extensions_modules=("java-udf")
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hadoop-hudi-scanner")
@@ -863,6 +877,7 @@ EOF
     extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
     extensions_modules+=("iceberg-metadata-scanner")
+    extensions_modules+=("java-udf-hive-date-format")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -910,17 +925,6 @@ EOF
         cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
         cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
     fi
-
-    cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
-    copy_common_files "${DORIS_OUTPUT}/be/"
-    mkdir -p "${DORIS_OUTPUT}/be/log"
-    mkdir -p "${DORIS_OUTPUT}/be/log/pipe_tracing"
-    mkdir -p "${DORIS_OUTPUT}/be/storage"
-    mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
-    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
-    mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
-    mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
-    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

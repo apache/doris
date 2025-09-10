@@ -32,6 +32,7 @@ under the License.
         <module>lakesoul-scanner</module>
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
+        <module>java-udf-hive-date-format</module>
     </modules>
 
     <parent>
