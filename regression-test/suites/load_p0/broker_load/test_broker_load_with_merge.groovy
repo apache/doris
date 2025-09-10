@@ -26,7 +26,7 @@ suite("test_broker_load_with_merge", "load_p0,external") {
                 `k2` DATE NOT NULL,
                 `k3` INT(11) NOT NULL,
                 `k4` INT(11) NOT NULL,
-                `v5` BIGINT DEFAULT "0"
+                `v5` BIGINT NULL DEFAULT "0"
             ) ENGINE=OLAP
             UNIQUE KEY(`k1`)
             COMMENT 'OLAP'
