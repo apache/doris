@@ -48,8 +48,6 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.CoreOptions;
-import org.apache.paimon.CoreOptions.StartupMode;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
@@ -88,7 +86,6 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -102,22 +99,6 @@ public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
     private static final Pattern DIGITAL_REGEX = Pattern.compile("\\d+");
-
-    private static final List<ConfigOption<?>> PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS = Arrays.asList(
-            CoreOptions.SCAN_SNAPSHOT_ID,
-            CoreOptions.SCAN_TAG_NAME,
-            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS,
-            CoreOptions.INCREMENTAL_BETWEEN_TIMESTAMP,
-            CoreOptions.INCREMENTAL_BETWEEN,
-            CoreOptions.INCREMENTAL_TO_AUTO_TAG);
-
-    private static final List<ConfigOption<?>> PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS = Arrays.asList(
-            CoreOptions.SCAN_TIMESTAMP_MILLIS,
-            CoreOptions.SCAN_TIMESTAMP,
-            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS,
-            CoreOptions.INCREMENTAL_BETWEEN_TIMESTAMP,
-            CoreOptions.INCREMENTAL_BETWEEN,
-            CoreOptions.INCREMENTAL_TO_AUTO_TAG);
 
     public static List<InternalRow> read(
             Table table, @Nullable int[] projection, @Nullable Predicate predicate,
@@ -510,100 +491,6 @@ public class PaimonUtil {
     }
 
     /**
-     * Builds a snapshot-specific table for time travel queries.
-     *
-     * @param baseTable the base Paimon table to copy configuration from
-     * @param tableSnapshot the snapshot specification (type + value)
-     * @return a Table instance configured for the specified time travel query
-     * @throws UserException if snapshot configuration is invalid
-     */
-    public static Table getTableBySnapshot(Table baseTable, TableSnapshot tableSnapshot)
-            throws UserException {
-        final String value = tableSnapshot.getValue();
-        final TableSnapshot.VersionType type = tableSnapshot.getType();
-        final boolean isDigital = DIGITAL_REGEX.matcher(value).matches();
-
-        switch (type) {
-            case TIME:
-                return isDigital
-                        ? getTableBySnapshotTimestampMillis(baseTable, value)
-                        : getTableBySnapshotTime(baseTable, value);
-
-            case VERSION:
-                if (isDigital) {
-                    return getTableBySnapshotId(baseTable, value);
-                }
-                return getTableByTag(baseTable, value);
-
-            default:
-                throw new UserException(String.format("Unsupported version type: %s", type));
-        }
-    }
-
-    /**
-     * Builds a table configured to read from a specific snapshot ID.
-     *
-     * @param baseTable the base Paimon table to copy configuration from
-     * @param snapshotId the snapshot ID as a string
-     * @return a Table instance configured to read from the specified snapshot ID
-     */
-    private static Table getTableBySnapshotId(Table baseTable, String snapshotId) {
-        Map<String, String> options = new HashMap<>(
-                PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
-
-        // For Paimon FROM_SNAPSHOT startup mode, must set only one key in:
-        // [scan_tag_name, scan_watermark, scan_snapshot_id]
-        options.put(CoreOptions.SCAN_TAG_NAME.key(), null);
-        options.put(CoreOptions.SCAN_WATERMARK.key(), null);
-        options.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId);
-        options.putAll(excludePaimonConflictOptions(PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS));
-
-        return baseTable.copy(options);
-    }
-
-    /**
-     * Builds a table configured to read from a specific timestamp.
-     *
-     * @param baseTable the base Paimon table to copy configuration from
-     * @param timestampStr the timestamp as a string
-     * @return a Table instance configured to read from the specified timestamp
-     */
-    private static Table getTableBySnapshotTime(Table baseTable, String timestampStr) {
-        Map<String, String> options = new HashMap<>(
-                PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
-
-        // For Paimon FROM_TIMESTAMP startup mode, must set only one key in:
-        // [scan_timestamp, scan_timestamp_millis]
-        options.put(CoreOptions.SCAN_MODE.key(), StartupMode.FROM_TIMESTAMP.toString());
-        options.put(CoreOptions.SCAN_TIMESTAMP.key(), timestampStr);
-        options.put(CoreOptions.SCAN_TIMESTAMP_MILLIS.key(), null);
-        options.putAll(excludePaimonConflictOptions(PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS));
-
-        return baseTable.copy(options);
-    }
-
-    /**
-     * Builds a table configured to read from a specific timestamp in milliseconds.
-     *
-     * @param baseTable the base Paimon table to copy configuration from
-     * @param timestampStr the timestamp in milliseconds as a string
-     * @return a Table instance configured to read from the specified timestamp
-     */
-    private static Table getTableBySnapshotTimestampMillis(Table baseTable, String timestampStr) {
-        Map<String, String> options = new HashMap<>(
-                PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
-
-        // For Paimon FROM_TIMESTAMP startup mode, must set only one key in:
-        // [scan_timestamp, scan_timestamp_millis]
-        options.put(CoreOptions.SCAN_MODE.key(), StartupMode.FROM_TIMESTAMP.toString());
-        options.put(CoreOptions.SCAN_TIMESTAMP.key(), null);
-        options.put(CoreOptions.SCAN_TIMESTAMP_MILLIS.key(), timestampStr);
-        options.putAll(excludePaimonConflictOptions(PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS));
-
-        return baseTable.copy(options);
-    }
-
-    /**
      * Extracts the reference name (branch or tag name) from table scan parameters.
      *
      * @param scanParams the scan parameters containing reference name information
@@ -624,7 +511,6 @@ public class PaimonUtil {
         }
     }
 
-
     /**
      * Builds a branch-specific table for time travel queries.
      *
@@ -643,32 +529,6 @@ public class PaimonUtil {
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
         ExternalTable externalTable = (ExternalTable) source.getTargetTable();
         return catalog.getPaimonTable(externalTable.getOrBuildNameMapping(), branchName, null);
-    }
-
-    /**
-     * Builds a tag-specific table for time travel queries.
-     *
-     * @param baseTable the base Paimon table to copy configuration from
-     * @param tagName the tag name
-     * @return a Table instance configured to read from the specified tag
-     * @throws UserException if tag does not exist
-     */
-    public static Table getTableByTag(Table baseTable, String tagName) throws UserException {
-        if (!checkTagsExists(baseTable, tagName)) {
-            throw new UserException(String.format("Tag '%s' does not exist", tagName));
-        }
-
-        Map<String, String> options = new HashMap<>(
-                PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
-
-        // For Paimon FROM_SNAPSHOT startup mode, must set only one key in:
-        // [scan_tag_name, scan_watermark, scan_snapshot_id]
-        options.put(CoreOptions.SCAN_TAG_NAME.key(), tagName);
-        options.put(CoreOptions.SCAN_WATERMARK.key(), null);
-        options.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), null);
-        options.putAll(excludePaimonConflictOptions(PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS));
-
-        return baseTable.copy(options);
     }
 
     // get snapshot info from query like 'for version/time as of' or '@tag'
@@ -718,7 +578,7 @@ public class PaimonUtil {
         }
         Snapshot snapshot = table.snapshotManager().earlierOrEqualTimeMills(timestampMillis);
         if (snapshot == null) {
-            throw new UserException("can't find snapshot older than : " + timestamp);
+            throw new UserException("can't find snapshot older than : " + timestampMillis);
         }
         return snapshot;
     }
@@ -738,36 +598,6 @@ public class PaimonUtil {
             throws UserException {
         Optional<Tag> tag = table.tagManager().get(tagName);
         return tag.orElseThrow(() -> new UserException("can't find snapshot by tag: " + tagName));
-    }
-
-    /**
-     * Creates a map of conflicting Paimon options with null values for exclusion.
-     *
-     * @param illegalOptions the list of ConfigOptions that should be set to null
-     * @return a HashMap containing the illegal options as keys with null values
-     */
-    public static Map<String, String> excludePaimonConflictOptions(List<ConfigOption<?>> illegalOptions) {
-        return illegalOptions.stream()
-                .collect(HashMap::new,
-                        (m, option) -> m.put(option.key(), null),
-                        HashMap::putAll);
-    }
-
-    /**
-     * Checks if a tag exists in the given table.
-     *
-     * @param baseTable the Paimon table
-     * @param tagName the tag name to check
-     * @return true if tag exists, false otherwise
-     * @throws UserException if table is not a FileStoreTable
-     */
-    public static boolean checkTagsExists(Table baseTable, String tagName) throws UserException {
-        if (!(baseTable instanceof FileStoreTable)) {
-            throw new UserException("Table type should be FileStoreTable but got: " + baseTable.getClass().getName());
-        }
-
-        final FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
-        return fileStoreTable.tagManager().tagExists(tagName);
     }
 
     /**
