@@ -26,14 +26,20 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IPv4Type;
+import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
@@ -57,6 +63,11 @@ public class ToJson extends ScalarFunction
             FunctionSignature.ret(JsonType.INSTANCE).args(FloatType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(DoubleType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(JsonType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(JsonType.INSTANCE).args(DateV2Type.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(IPv4Type.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(IPv6Type.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(TimeV2Type.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(StringType.INSTANCE));
 
     /**
@@ -84,6 +95,13 @@ public class ToJson extends ScalarFunction
     public List<FunctionSignature> getSignatures() {
         DataType firstChildType = child(0).getDataType();
         if (firstChildType.isStructType() || firstChildType.isArrayType()) {
+            return ImmutableList.of(FunctionSignature.ret(JsonType.INSTANCE).args(firstChildType));
+        }
+        if (firstChildType.isMapType()) {
+            MapType mapType = (MapType) firstChildType;
+            if (!mapType.getKeyType().isStringLikeType()) {
+                throw new IllegalArgumentException("to_json only support map with string-like key type");
+            }
             return ImmutableList.of(FunctionSignature.ret(JsonType.INSTANCE).args(firstChildType));
         } else {
             return SIGNATURES;

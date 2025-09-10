@@ -639,5 +639,49 @@ Status DataTypeMapSerDe::from_string_strict_mode(StringRef& str, IColumn& column
     return _from_string<true>(str, column, options);
 }
 
+Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                   JsonbWriter& writer) const {
+    const auto& map_column = assert_cast<const ColumnMap&>(from_column);
+    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+
+    const IColumn& keys_column = map_column.get_keys();
+    const IColumn& values_column = map_column.get_values();
+
+    DCHECK(keys_column.is_nullable());
+    DCHECK(values_column.is_nullable());
+
+    const auto* key_string_column = check_and_get_column<ColumnString>(
+            assert_cast<const ColumnNullable&>(keys_column).get_nested_column());
+
+    if (key_string_column == nullptr) {
+        return Status::InternalError("Cast to Jsonb failed, map key is not string type");
+    }
+
+    if (!writer.writeStartObject()) {
+        return Status::InternalError("writeStartObject failed");
+    }
+    for (size_t i = offset; i < next_offset; ++i) {
+        auto key_str = key_string_column->get_data_at(i);
+        // check key size
+        if (key_str.size > std::numeric_limits<uint8_t>::max()) {
+            return Status::InternalError("key size exceeds max limit {} ", key_str.to_string());
+        }
+        // write key
+        if (!writer.writeKey(key_str.data, (uint8_t)key_str.size)) {
+            return Status::InternalError("writeKey failed : {}", key_str.to_string());
+        }
+        // write value
+        RETURN_IF_ERROR(value_serde->serialize_column_to_jsonb(values_column, i, writer));
+    }
+
+    if (!writer.writeEndObject()) {
+        return Status::InternalError("writeEndObject failed");
+    }
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris
