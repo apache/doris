@@ -119,6 +119,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.AtomicDouble;
 import com.google.gson.Gson;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -160,6 +161,7 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> VIEW_DEPENDENCY_COLUMN_TO_INDEX;
     private static final ImmutableMap<String, Integer> ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -237,6 +239,13 @@ public class MetadataGenerator {
             asyncMviewStatusBuilder.put(asyncMviewStatusBuilderColList.get(i).getName().toLowerCase(), i);
         }
         ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX = asyncMviewStatusBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> activityAsyncMviewBuilder = new ImmutableMap.Builder();
+        List<Column> activityAsyncMviewBuilderColList = SchemaTable.TABLE_MAP.get("activity_async_mview").getFullSchema();
+        for (int i = 0; i < activityAsyncMviewBuilderColList.size(); i++) {
+            activityAsyncMviewBuilder.put(activityAsyncMviewBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX = activityAsyncMviewBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -350,6 +359,9 @@ public class MetadataGenerator {
             case VIEW_DEPENDENCY1:
                 result = asyncMviewStatusMetadataResult(schemaTableParams);
                 columnIndex = ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
+            case VIEW_DEPENDENCY2:
+                result = activityAsyncMviewMetadataResult(schemaTableParams);
+                columnIndex = ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX;
             default:
                 return errorResult("invalid schema table name.");
         }
@@ -726,8 +738,6 @@ public class MetadataGenerator {
         Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
         for (DatabaseIf<? extends TableIf> db : allDbs) {
             String dbName = db.getFullName();
             if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "ASYNC_MVIEW_SCHEMA", dbName)) {
@@ -737,6 +747,7 @@ public class MetadataGenerator {
             for (TableIf table : tables) {
                 if (table instanceof MTMV) {
                     MTMV mtmv = (MTMV) table;
+                    // todo: check auth
                     String tableName = table.getName();
                     if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
                         continue;
@@ -806,7 +817,59 @@ public class MetadataGenerator {
                     // DEFINITION
                     trow.addToColumnValue(new TCell().setStringVal(mtmv.getQuerySql()));
                     // PROPERTIES
-                    trow.addToColumnValue(new TCell().setStringVal(mtmv.getMvProperties().toString()));
+                    trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mtmv.getMvProperties())));
+                    dataBatch.add(trow);
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult activityAsyncMviewMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> mviewIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_ID");
+        List<Expression> mviewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts,
+                "ASYNC_MVIEW_SCHEMA");
+        List<Expression> mviewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_NAME");
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "ASYNC_MVIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
+            for (TableIf table : tables) {
+                if (table instanceof MTMV) {
+                    MTMV mtmv = (MTMV) table;
+                    // todo: check auth
+                    String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
+                        continue;
+                    }
+                    long tableId = table.getId();
+                    if (FrontendConjunctsUtils.isFiltered(mviewIdConjuncts, "ASYNC_MVIEW_ID", tableId)) {
+                        continue;
+                    }
+                    TRow trow = new TRow();
+                    // ASYNC_MVIEW_ID
+                    trow.addToColumnValue(new TCell().setLongVal(tableId));
+                    // ASYNC_MVIEW_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                    // ASYNC_MVIEW_SCHEMA
+                    trow.addToColumnValue(new TCell().setStringVal(dbName));
+                    // ASYNC_MVIEW_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(tableName));
+
                     dataBatch.add(trow);
                 }
             }
