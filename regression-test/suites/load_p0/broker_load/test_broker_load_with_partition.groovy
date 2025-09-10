@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_broker_load_with_partition", "load_p0") {
+suite("test_broker_load_with_partition", "load_p0,external") {
     // define a sql table
     def testTable = "tbl_test_broker_load_with_partition"
 
@@ -64,6 +64,8 @@ suite("test_broker_load_with_partition", "load_p0") {
     }
 
     def load_from_hdfs_partition = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
+        def fs = context.config.otherConfigs.get("hdfsFs")
+
         def result1= sql """
                         LOAD LABEL ${label} (
                             DATA INFILE("${hdfsFilePath}")
@@ -72,9 +74,11 @@ suite("test_broker_load_with_partition", "load_p0") {
                             COLUMNS TERMINATED BY ","
                             FORMAT as "${format}"
                         )
-                        with BROKER "${brokerName}" (
-                        "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        with HDFS (
+                            "username"="${hdfsUser}",
+                            "password"="${hdfsPasswd}",
+                            "fs.defaultFS"="${fs}"
+                        )
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
@@ -86,6 +90,8 @@ suite("test_broker_load_with_partition", "load_p0") {
     }
 
     def load_from_hdfs_tmp_partition = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
+        def fs = context.config.otherConfigs.get("hdfsFs")
+        
         def result1= sql """
                         LOAD LABEL ${label} (
                             DATA INFILE("${hdfsFilePath}")
@@ -94,9 +100,11 @@ suite("test_broker_load_with_partition", "load_p0") {
                             COLUMNS TERMINATED BY ","
                             FORMAT as "${format}"
                         )
-                        with BROKER "${brokerName}" (
-                        "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        with HDFS (
+                            "username"="${hdfsUser}",
+                            "password"="${hdfsPasswd}",
+                            "fs.defaultFS"="${fs}"
+                        )
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
@@ -174,3 +182,4 @@ suite("test_broker_load_with_partition", "load_p0") {
         }
     }
 }
+
