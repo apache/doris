@@ -308,7 +308,10 @@ public:
     bool add_rowset_warmup_state(
             const RowsetMeta& rowset, WarmUpState state,
             std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
-    WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status);
+    void update_rowset_warmup_state_inverted_idx_num(RowsetId rowset_id, int64_t delta);
+    void update_rowset_warmup_state_inverted_idx_num_unlocked(RowsetId rowset_id, int64_t delta);
+    WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status,
+                                               int64_t segment_num, int64_t inverted_idx_num);
 
     bool is_rowset_warmed_up(const RowsetId& rowset_id) const {
         std::shared_lock rlock(_warmed_up_rowsets_mutex);
@@ -400,8 +403,21 @@ private:
     // for warm up states management
     struct RowsetWarmUpInfo {
         WarmUpState state;
-        int64_t num_segments;
+        int64_t num_segments = 0;
+        int64_t num_inverted_idx = 0;
+        int64_t num_segments_warmed_up = 0;
+        int64_t num_inverted_idx_warmed_up = 0;
         std::chrono::steady_clock::time_point start_tp;
+
+        void done(int64_t num_segments, int64_t num_inverted_idx) {
+            num_segments_warmed_up += num_segments;
+            num_inverted_idx_warmed_up += num_inverted_idx;
+        }
+
+        bool has_finished() const {
+            return (num_segments_warmed_up >= num_segments) &&
+                   (num_inverted_idx_warmed_up >= num_inverted_idx);
+        }
     };
     std::unordered_map<RowsetId, RowsetWarmUpInfo> _rowset_warm_up_states;
 
