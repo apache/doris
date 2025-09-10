@@ -21,18 +21,12 @@
 
 namespace doris::vectorized {
 
-using FunctionAddSecondsV2 = FunctionDateOrDateTimeComputation<AddSecondsImpl<TYPE_DATEV2>>;
-using FunctionAddMinutesV2 = FunctionDateOrDateTimeComputation<AddMinutesImpl<TYPE_DATEV2>>;
-using FunctionAddHoursV2 = FunctionDateOrDateTimeComputation<AddHoursImpl<TYPE_DATEV2>>;
 using FunctionAddDaysV2 = FunctionDateOrDateTimeComputation<AddDaysImpl<TYPE_DATEV2>>;
 using FunctionAddWeeksV2 = FunctionDateOrDateTimeComputation<AddWeeksImpl<TYPE_DATEV2>>;
 using FunctionAddMonthsV2 = FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_DATEV2>>;
 using FunctionAddQuartersV2 = FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_DATEV2>>;
 using FunctionAddYearsV2 = FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_DATEV2>>;
 
-using FunctionSubSecondsV2 = FunctionDateOrDateTimeComputation<SubtractSecondsImpl<TYPE_DATEV2>>;
-using FunctionSubMinutesV2 = FunctionDateOrDateTimeComputation<SubtractMinutesImpl<TYPE_DATEV2>>;
-using FunctionSubHoursV2 = FunctionDateOrDateTimeComputation<SubtractHoursImpl<TYPE_DATEV2>>;
 using FunctionSubDaysV2 = FunctionDateOrDateTimeComputation<SubtractDaysImpl<TYPE_DATEV2>>;
 using FunctionSubWeeksV2 = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<TYPE_DATEV2>>;
 using FunctionSubMonthsV2 = FunctionDateOrDateTimeComputation<SubtractMonthsImpl<TYPE_DATEV2>>;
@@ -106,9 +100,6 @@ using FunctionDatetimeV2ToWeekTwoArgs =
         FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<TYPE_DATETIMEV2>>;
 
 void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionAddSecondsV2>();
-    factory.register_function<FunctionAddMinutesV2>();
-    factory.register_function<FunctionAddHoursV2>();
     factory.register_function<FunctionAddDaysV2>();
     factory.register_function<FunctionAddWeeksV2>();
     factory.register_function<FunctionAddMonthsV2>();
@@ -126,9 +117,6 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionDatetimeV2AddYears>();
     factory.register_function<FunctionDatetimeV2AddQuarters>();
 
-    factory.register_function<FunctionSubSecondsV2>();
-    factory.register_function<FunctionSubMinutesV2>();
-    factory.register_function<FunctionSubHoursV2>();
     factory.register_function<FunctionSubDaysV2>();
     factory.register_function<FunctionSubMonthsV2>();
     factory.register_function<FunctionSubYearsV2>();
