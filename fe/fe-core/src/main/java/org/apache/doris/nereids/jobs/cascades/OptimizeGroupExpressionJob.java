@@ -83,6 +83,11 @@ public class OptimizeGroupExpressionJob extends Job {
     }
 
     private List<Rule> getJoinRules() {
+        if (context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
+                .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize) {
+            System.out.println("Disable join reorder");
+            // throw new RuntimeException("memoMaxGroupExpressionSize");
+        }
         boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isDisableJoinReorder()
                 || context.getCascadesContext().isLeadingDisableJoinReorder()

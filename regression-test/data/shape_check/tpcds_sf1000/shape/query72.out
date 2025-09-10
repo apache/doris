@@ -52,3 +52,7 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[warehouse]
 
+
+
+ group expression count exceeds memo_max_group_expression_size(10000)
+

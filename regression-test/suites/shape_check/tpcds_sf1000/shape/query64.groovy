@@ -155,7 +155,7 @@ order by cs1.product_name
        ,cs1.s1
        ,cs2.s1"""
     qt_ds_shape_64 '''
-    explain shape plan
+    explain physical plan
     with cs_ui as
  (select cs_item_sk
         ,sum(cs_ext_list_price) as sale,sum(cr_refunded_cash+cr_reversed_charge+cr_store_credit) as refund
