@@ -253,8 +253,11 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
         MutableColumnPtr column = _root_reader->column->get_ptr();
         // container_variant.add_sub_column({}, std::move(column), _root_reader->type);
         DCHECK(column->size() == nrows);
-        container =
-                ColumnVariant::create(max_subcolumns_count, _root_reader->type, std::move(column));
+        auto nullable_column = make_nullable(column->get_ptr());
+        auto type = make_nullable(_root_reader->type);
+        // make sure the root type is nullable
+        container = ColumnVariant::create(max_subcolumns_count, type,
+                                          nullable_column->assume_mutable());
     } else {
         DataTypePtr root_type = std::make_shared<vectorized::DataTypeNothing>();
         auto column = vectorized::ColumnNothing::create(nrows);
@@ -484,6 +487,26 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(
             ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
             auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
             dst_null_map.insert_range_from(*fake_nullable_column, 0, nrows);
+        }
+    }
+    // root column nullmap need to be reset, for example, the src_null_map is from the whole
+    // variant column, but the root column rows should reset to null when empty
+    ColumnVariant* variant = nullptr;
+    if (dst->is_nullable()) {
+        variant = &assert_cast<ColumnVariant&>(
+                assert_cast<ColumnNullable&>(*dst).get_nested_column());
+    } else {
+        variant = &assert_cast<ColumnVariant&>(*dst);
+    }
+    if (_path.get_parts().empty()) {
+        // update nullmap for root column, since the original nullmap is from the whole variant column
+        auto& dst_map_data =
+                assert_cast<ColumnNullable&>(*variant->get_root()).get_null_map_column().get_data();
+        for (size_t i = 0; i < variant->get_root()->size(); ++i) {
+            StringRef ref = variant->get_root()->get_data_at(i);
+            if (ref.size == 0) {
+                dst_map_data[i] = 1; // mark null when root jsonb is empty
+            }
         }
     }
     return Status::OK();
