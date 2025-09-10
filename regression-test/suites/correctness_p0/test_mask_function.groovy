@@ -97,6 +97,10 @@ suite("test_mask_function") {
         exception "Argument at index 3 for function mask must be constant"
     }
 
+    sql """
+         set enable_fold_constant_by_be=true;
+    """
+
     test {
         sql """ select mask_last_n("12345", -100); """
         exception "function mask_last_n only accept non-negative input for 2nd argument but got -100"
