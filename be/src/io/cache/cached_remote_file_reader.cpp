@@ -151,6 +151,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     ReadStatistics stats;
     stats.bytes_read += bytes_req;
     auto defer_func = [&](int*) {
+        if (config::print_stack_when_cache_miss) {
+            if (io_ctx->file_cache_stats == nullptr && !stats.hit_cache) {
+                LOG_INFO("[verbose] {}", Status::InternalError<true>("not hit cache"));
+            }
+        }
         if (io_ctx->file_cache_stats && !is_dryrun) {
             // update stats in io_ctx, for query profile
             _update_stats(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);
