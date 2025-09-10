@@ -36,6 +36,6 @@ public class ScalarTypeTest {
         Assert.assertEquals(scalarType.getPrimitiveType(), scalarType2.getPrimitiveType());
         Assert.assertEquals(scalarType.getVariantMaxSubcolumnsCount(), 0);
         Assert.assertEquals(scalarType.getVariantEnableTypedPathsToSparse(), false);
-        Assert.assertEquals(scalarType.getVariantMaxSparseColumnStatisticsSize(), 10000);
+        Assert.assertEquals(scalarType.getVariantMaxSparseColumnStatisticsSize(), 0);
     }
 }
