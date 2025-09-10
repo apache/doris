@@ -357,7 +357,7 @@ public:
     std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
 
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
-        std::atomic_store_explicit(&_visible_version, visible_version, std::memory_order_relaxed);
+        _visible_version.store(visible_version);
     }
 
     bool should_fetch_from_peer();

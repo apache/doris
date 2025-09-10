@@ -43,6 +43,18 @@ public:
         return std::atomic_load_explicit(&_ptr, order);
     }
 
+    bool compare_exchange_strong(std::shared_ptr<T>& expected, std::shared_ptr<T> desired,
+                                 std::memory_order success = std::memory_order_seq_cst,
+                                 std::memory_order failure = std::memory_order_seq_cst) noexcept {
+        return std::atomic_compare_exchange_strong_explicit(&_ptr, &expected, desired, success,
+                                                            failure);
+    }
+
+    void exchange(std::shared_ptr<T> desired,
+                  std::memory_order order = std::memory_order_seq_cst) noexcept {
+        std::atomic_exchange_explicit(&_ptr, desired, order);
+    }
+
 private:
     mutable std::shared_ptr<T> _ptr;
 };

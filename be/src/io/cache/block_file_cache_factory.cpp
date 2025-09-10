@@ -157,6 +157,7 @@ FileCacheFactory::get_query_context_holders(const TUniqueId& query_id) {
 }
 
 std::string FileCacheFactory::clear_file_caches(bool sync) {
+#ifndef USE_LIBCPP
     std::vector<std::string> results(_caches.size());
 
     std::for_each(std::execution::par, _caches.begin(), _caches.end(), [&](const auto& cache) {
@@ -170,6 +171,10 @@ std::string FileCacheFactory::clear_file_caches(bool sync) {
         ss << result << "\n";
     }
     return ss.str();
+#else
+    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                    "libc++ do not support FileCacheFactory::clear_file_caches");
+#endif
 }
 
 std::vector<std::string> FileCacheFactory::get_base_paths() {
