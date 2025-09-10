@@ -37,7 +37,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
 
     @Override
     public void run() throws JobException {
-        switch (streamingInsertJob.getStatus()) {
+        switch (streamingInsertJob.getJobStatus()) {
             case PENDING:
                 streamingInsertJob.createStreamingInsertTask();
                 streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
