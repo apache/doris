@@ -686,12 +686,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             changeTableState(dbId, tableId, OlapTableState.NORMAL);
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
 
-            this.jobState = JobState.FINISHED;
-            this.finishedTimeMs = System.currentTimeMillis();
             // Write edit log with table's write lock held, to avoid adding partitions before writing edit log,
             // else it will try to transform index in newly added partition while replaying and result in failure.
             Env.getCurrentEnv().getEditLog().logAlterJob(this);
+
             pruneMeta();
+            // set job state to FINISHED after edit log is written, otherwise follower may see old data
+            // after schema change finished.
+            this.jobState = JobState.FINISHED;
+            this.finishedTimeMs = System.currentTimeMillis();
         } finally {
             tbl.writeUnlock();
         }
