@@ -64,7 +64,9 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
 
     @Override
     public Expression visitGroupPlan(GroupPlan groupPlan, ExpressionReplaceContext context) {
-        LOG.error("ExpressionLineageReplacer should not meet groupPlan, plan is {}", groupPlan.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ExpressionLineageReplacer should not meet groupPlan, plan is {}", groupPlan.toString());
+        }
         return null;
     }
 
