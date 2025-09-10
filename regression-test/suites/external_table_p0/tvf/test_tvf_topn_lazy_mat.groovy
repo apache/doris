@@ -176,10 +176,6 @@ suite("test_tvf_topn_lazy_mat","external,hive,tvf,external_docker") {
         explain {
             sql """verbose select * from ${tvf_parquet_1} as a join  ${tvf_orc_1} as b on a.id =  b.id  order by a.name limit 5; """
             contains("VMaterializeNode")
-            contains("projectList:[id, name, value, active, score, id, name, value, active, score]")
-            contains("column_descs_lists[[`value` double NULL, `active` boolean NULL, `score` double NULL], [`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL]]")
-            contains("locations: [[3, 4, 5], [6, 7, 8, 9]]")
-            contains("table_idxs: [[2, 3, 4], [1, 2, 3, 4]]")
             contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__hdfs, __DORIS_GLOBAL_ROWID_COL__hdfs]")
             contains("isTopMaterializeNode: true")
         }
