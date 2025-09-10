@@ -1430,6 +1430,46 @@ Status CloudCompactionMixin::modify_rowsets() {
     return Status::OK();
 }
 
+Status CloudCompactionMixin::set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx) {
+    // Set storage resource from input rowsets by iterating backwards to find the first rowset
+    // with non-empty resource_id. This handles two scenarios:
+    // 1. Hole rowsets compaction: Multiple hole rowsets may lack storage resource.
+    //    Example: [0-1, 2-2, 3-3, 4-4, 5-5] where 2-5 are hole rowsets.
+    //    If 0-1 lacks resource_id, then 2-5 also lack resource_id.
+    // 2. Schema change: New tablet may have later version empty rowsets without resource_id,
+    //    but middle rowsets get resource_id after historical rowsets are converted.
+    //    We iterate backwards to find the most recent rowset with valid resource_id.
+
+    for (const auto& rowset : std::ranges::reverse_view(_input_rowsets)) {
+        const auto& resource_id = rowset->rowset_meta()->resource_id();
+
+        if (!resource_id.empty()) {
+            ctx.storage_resource = *DORIS_TRY(rowset->rowset_meta()->remote_storage_resource());
+            return Status::OK();
+        }
+
+        // Validate that non-empty rowsets (num_segments > 0) must have valid resource_id
+        // Only hole rowsets or empty rowsets are allowed to have empty resource_id
+        if (rowset->num_segments() > 0) {
+            auto error_msg = fmt::format(
+                    "Non-empty rowset must have valid resource_id. "
+                    "rowset_id={}, version=[{}-{}], is_hole_rowset={}, num_segments={}, "
+                    "tablet_id={}, table_id={}",
+                    rowset->rowset_id().to_string(), rowset->start_version(), rowset->end_version(),
+                    rowset->is_hole_rowset(), rowset->num_segments(), _tablet->tablet_id(),
+                    _tablet->table_id());
+
+#ifndef BE_TEST
+            DCHECK(false) << error_msg;
+#endif
+
+            return Status::InternalError<false>(error_msg);
+        }
+    }
+
+    return Status::OK();
+}
+
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
     if (config::inverted_index_compaction_enable &&
@@ -1440,33 +1480,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     }
 
     // Use the storage resource of the previous rowset.
-    // There are two scenarios where rowsets may not have a storage resource:
-    // 1. When multiple hole rowsets doing compaction, those rowsets may not have a storage resource.
-    //    case: [0-1, 2-2, 3-3, 4-4, 5-5], 2-5 are hole rowsets.
-    //    0-1 currently doesn't have a resource_id, so 2-5 also have no resource_id.
-    // 2. During schema change, new tablet may have some later version empty rowsets without resource_id,
-    //    but middle rowsets get resource_id after historical rowsets are converted.
-    //    We need to iterate backwards to find a rowset with non-empty resource_id.
-    for (const auto& rowset : std::ranges::reverse_view(_input_rowsets)) {
-        if (!rowset->rowset_meta()->resource_id().empty()) {
-            ctx.storage_resource = *DORIS_TRY(rowset->rowset_meta()->remote_storage_resource());
-            break;
-        } else {
-            DCHECK(rowset->is_hole_rowset() || rowset->end_version() == 1)
-                    << "Non-hole rowset with version != [0-1] must have non-empty resource_id"
-                    << ", rowset_id=" << rowset->rowset_id() << ", version=["
-                    << rowset->start_version() << "-" << rowset->end_version() << "]"
-                    << ", is_hole_rowset=" << rowset->is_hole_rowset()
-                    << ", tablet_id=" << _tablet->tablet_id();
-            if (!rowset->is_hole_rowset() && rowset->end_version() != 1) {
-                return Status::InternalError<false>(
-                        "Non-hole rowset with version != [0-1] must have non-empty resource_id"
-                        ", rowset_id={}, version=[{}-{}], is_hole_rowset={}, tablet_id={}",
-                        rowset->rowset_id().to_string(), rowset->start_version(),
-                        rowset->end_version(), rowset->is_hole_rowset(), _tablet->tablet_id());
-            }
-        }
-    }
+    RETURN_IF_ERROR(set_storage_resource_from_input_rowsets(ctx));
 
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
