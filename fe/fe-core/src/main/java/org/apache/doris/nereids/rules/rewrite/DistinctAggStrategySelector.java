@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector.DistinctSelectorContext;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
@@ -117,8 +118,25 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
     }
 
     private boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> agg) {
-        if (AggregateUtils.containsCountDistinctMultiExpr(agg)) {
+        boolean mustUseCte = AggregateUtils.containsCountDistinctMultiExpr(agg);
+        boolean mustUseMulti = agg.getSourceRepeat().isPresent();
+        if (mustUseCte && mustUseMulti) {
+            throw new AnalysisException(
+                    "Unsupported query: GROUPING SETS/ROLLUP/CUBE cannot be used with a combination of "
+                    + "multi-column COUNT(DISTINCT) and other COUNT(DISTINCT) expressions.\n\n"
+                    + "Unsupported scenarios:\n"
+                    + "• COUNT(DISTINCT a, b) with COUNT(DISTINCT a) + GROUPING\n"
+                    + "• COUNT(DISTINCT a, b) with COUNT(DISTINCT a, c) + GROUPING\n\n"
+                    + "Supported scenarios:\n"
+                    + "• Single COUNT(DISTINCT a, b) + GROUPING\n"
+                    + "• Multiple COUNT(DISTINCT single_column) + "
+                    + "GROUPING (e.g., COUNT(DISTINCT a), COUNT(DISTINCT b))");
+        }
+        if (mustUseCte) {
             return false;
+        }
+        if (mustUseMulti) {
+            return true;
         }
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null) {
