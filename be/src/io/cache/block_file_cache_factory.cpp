@@ -177,7 +177,6 @@ std::string FileCacheFactory::clear_file_caches(bool sync) {
         ss << result << "\n";
     }
     return ss.str();
-
 }
 
 std::vector<std::string> FileCacheFactory::get_base_paths() {
