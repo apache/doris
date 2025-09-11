@@ -597,16 +597,29 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         assertRewrite(new LessThanEqual(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(12.3f)),
                 new LessThanEqual(bigIntSlot, new BigIntLiteral(12L)));
 
-        // big int and literal near no loss bound
-        double noLossBound = 9007199254740992.0;
-        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-noLossBound)),
-                new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-noLossBound)));
+        // int and float literal near no loss bound
+        // in fact, shouldn't have cast(c_int as float) cmp float literal, it will convert to cast(c_int as double) cmp double literal
+        // but we still test 'cast(c_int as float) cmp float literal' here for more robustness
+        float noLossBoundF = 16777216.0f; // 2^24
+        assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(-noLossBoundF)),
+                new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(-noLossBoundF)));
+        assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(-16777215.0f)),
+                new EqualTo(intSlot, new IntegerLiteral(-16777215)));
+        assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(16777215.0f)),
+                new EqualTo(intSlot, new IntegerLiteral(16777215)));
+        assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(noLossBoundF)),
+                new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(noLossBoundF)));
+
+        // big int and double literal near no loss bound
+        double noLossBoundD = 9007199254740992.0;
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-noLossBoundD)),
+                new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-noLossBoundD)));
         assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(-9007199254740991.0)),
                 new EqualTo(bigIntSlot, new BigIntLiteral(-9007199254740991L)));
         assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(9007199254740991.0)),
                 new EqualTo(bigIntSlot, new BigIntLiteral(9007199254740991L)));
-        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(noLossBound)),
-                new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(noLossBound)));
+        assertRewrite(new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(noLossBoundD)),
+                new EqualTo(new Cast(bigIntSlot, DoubleType.INSTANCE), new DoubleLiteral(noLossBoundD)));
     }
 
     @Test

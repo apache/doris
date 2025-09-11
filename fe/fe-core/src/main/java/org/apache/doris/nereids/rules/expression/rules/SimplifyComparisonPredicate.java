@@ -80,8 +80,10 @@ import java.util.Optional;
 public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory {
     public static SimplifyComparisonPredicate INSTANCE = new SimplifyComparisonPredicate();
 
-    private static final long MAX_LONG_CAST_DOUBLE_NO_LOSS = 1L << 53;
-    private static final long MIN_LONG_CAST_DOUBLE_NO_LOSS = -MAX_LONG_CAST_DOUBLE_NO_LOSS;
+    private static final int MAX_CONTINUE_INT_TO_FLOAT_NO_LOSS = 1 << 24;
+    private static final int MIN_CONTINUE_INT_TO_FLOAT_NO_LOSS = -MAX_CONTINUE_INT_TO_FLOAT_NO_LOSS;
+    private static final long MAX_CONTINUE_LONG_TO_DOUBLE_NO_LOSS = 1L << 53;
+    private static final long MIN_CONTINUE_LONG_TO_DOUBLE_NO_LOSS = -MAX_CONTINUE_LONG_TO_DOUBLE_NO_LOSS;
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
@@ -486,9 +488,9 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                 roundLiteralOpt = Optional.of(literal);
             }
             if (roundLiteralOpt.isPresent()) {
-                boolean isCastFloatLike = comparisonPredicate.right().getDataType().isFloatLikeType();
+                DataType castDataType = comparisonPredicate.left().getDataType();
                 Optional<IntegerLikeLiteral> integerLikeLiteralOpt
-                        = convertDecimalToIntegerLikeLiteral(roundLiteralOpt.get(), isCastFloatLike);
+                        = convertDecimalToIntegerLikeLiteral(roundLiteralOpt.get(), castDataType);
                 if (integerLikeLiteralOpt.isPresent()) {
                     return TypeCoercionUtils
                             .processComparisonPredicate((ComparisonPredicate) comparisonPredicate
@@ -622,7 +624,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
     }
 
     private static Optional<IntegerLikeLiteral> convertDecimalToIntegerLikeLiteral(BigDecimal decimal,
-            boolean isCastFloatLike) {
+            DataType castDataType) {
         Preconditions.checkArgument(decimal.scale() <= 0
                 && decimal.compareTo(new BigDecimal(Long.MIN_VALUE)) >= 0
                 && decimal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0,
@@ -633,18 +635,32 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         } else if (val >= Short.MIN_VALUE && val <= Short.MAX_VALUE) {
             return Optional.of(new SmallIntLiteral((short) val));
         } else if (val >= Integer.MIN_VALUE && val <= Integer.MAX_VALUE) {
-            return Optional.of(new IntegerLiteral((int) val));
-        } else if (!isCastFloatLike
-                || (val > MIN_LONG_CAST_DOUBLE_NO_LOSS && val < MAX_LONG_CAST_DOUBLE_NO_LOSS)) {
-            // for decimal, all long value can convert to decimal without loss of precision
-            // for float/double, only [-2^53, 2^53] can convert to long without loss of precision,
-            // but here need to exclude the boundary value, because
-            // cast(2^53 as double) = cast(2^53 + 1 as double) = 2^53 = MAX_LONG_CAST_DOUBLE_NO_LOSS,
-            // so for cast(c_bigint as double) = 2^53, we can't simplify it to c_bigint = 2^53,
-            // c_bigint can be 2^53 + 1. The same for -2^53
-            return Optional.of(new BigIntLiteral(val));
+            // in fact, type convert shouldn't have `cast(integer like as float) cmp float literal`,
+            // it should convert to `cast(integer like as double) cmp double literal`.
+            // but we still process it to be more robust
+            if (castDataType.isFloatType()
+                    && (val <= MIN_CONTINUE_INT_TO_FLOAT_NO_LOSS || val >= MAX_CONTINUE_INT_TO_FLOAT_NO_LOSS)) {
+                // for float, only [-2^24, 2^24] can convert to int without loss of precision,
+                // but here need to exclude the boundary value, because
+                // cast(2^24 as float) = cast(2^24 + 1 as float) = 2^24 = MAX_CONTINUE_INT_TO_FLOAT_NO_LOSS,
+                // so for cast(c_int as float) = 2^24, we can't simplify it to c_int = 2^24,
+                // c_int can be 2^24 + 1. The same for -2^24
+                return Optional.empty();
+            } else {
+                return Optional.of(new IntegerLiteral((int) val));
+            }
         } else {
-            return Optional.empty();
+            if (castDataType.isDoubleType()
+                    && (val <= MIN_CONTINUE_LONG_TO_DOUBLE_NO_LOSS || val >= MAX_CONTINUE_LONG_TO_DOUBLE_NO_LOSS)) {
+                // for double, only [-2^53, 2^53] can convert to long without loss of precision,
+                // but here need to exclude the boundary value, because
+                // cast(2^53 as double) = cast(2^53 + 1 as double) = 2^53 = MAX_CONTINUE_LONG_TO_DOUBLE_NO_LOSS,
+                // so for cast(c_bigint as double) = 2^53, we can't simplify it to c_bigint = 2^53,
+                // c_bigint can be 2^53 + 1. The same for -2^53
+                return Optional.empty();
+            } else {
+                return Optional.of(new BigIntLiteral(val));
+            }
         }
     }
 
