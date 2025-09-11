@@ -929,6 +929,7 @@ TEST_F(BlockFileCacheTest, init) {
         ]
         )");
     config::enable_file_cache_query_limit = true;
+    config::file_cache_query_limit_enable_evict_from_other_queue = true;
     std::vector<CachePath> cache_paths;
     EXPECT_TRUE(parse_conf_cache_paths(string, cache_paths));
     EXPECT_EQ(cache_paths.size(), 2);
