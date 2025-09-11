@@ -265,24 +265,28 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
     MutableColumnPtr upper_column = data_type->create_column();
     for (const auto& bucket : buckets) {
         // String type is different, it has to pass in length
-        if constexpr (std::is_same_v<T, std::string>) {
-            lower_column->insert_data(bucket.lower.c_str(), bucket.lower.length());
-            upper_column->insert_data(bucket.upper.c_str(), bucket.upper.length());
-        } else {
+        // if it is string type , directly use string value
+        if constexpr (!std::is_same_v<T, std::string>) {
             lower_column->insert_data(reinterpret_cast<const char*>(&bucket.lower), 0);
             upper_column->insert_data(reinterpret_cast<const char*>(&bucket.upper), 0);
         }
     }
     size_t row_num = 0;
     for (const auto& bucket : buckets) {
-        std::string lower_str = data_type->to_string(*lower_column, row_num);
-        std::string upper_str = data_type->to_string(*upper_column, row_num);
-        ++row_num;
-        lower_val.SetString(lower_str.data(), static_cast<rapidjson::SizeType>(lower_str.size()),
-                            allocator);
-        upper_val.SetString(upper_str.data(), static_cast<rapidjson::SizeType>(upper_str.size()),
-                            allocator);
-
+        if constexpr (std::is_same_v<T, std::string>) {
+            lower_val.SetString(bucket.lower.data(),
+                                static_cast<rapidjson::SizeType>(bucket.lower.size()), allocator);
+            upper_val.SetString(bucket.upper.data(),
+                                static_cast<rapidjson::SizeType>(bucket.upper.size()), allocator);
+        } else {
+            std::string lower_str = data_type->to_string(*lower_column, row_num);
+            std::string upper_str = data_type->to_string(*upper_column, row_num);
+            ++row_num;
+            lower_val.SetString(lower_str.data(),
+                                static_cast<rapidjson::SizeType>(lower_str.size()), allocator);
+            upper_val.SetString(upper_str.data(),
+                                static_cast<rapidjson::SizeType>(upper_str.size()), allocator);
+        }
         rapidjson::Value bucket_json(rapidjson::kObjectType);
         bucket_json.AddMember("lower", lower_val, allocator);
         bucket_json.AddMember("upper", upper_val, allocator);
