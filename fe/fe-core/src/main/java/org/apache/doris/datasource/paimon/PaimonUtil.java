@@ -578,7 +578,15 @@ public class PaimonUtil {
         }
         Snapshot snapshot = table.snapshotManager().earlierOrEqualTimeMills(timestampMillis);
         if (snapshot == null) {
-            throw new UserException("can't find snapshot earlier or equal  timestamp millis : " + timestampMillis);
+            Snapshot earliestSnapshot = table.snapshotManager().earliestSnapshot();
+            throw new UserException(
+                    String.format(
+                            "There is currently no snapshot earlier than or equal to timestamp [%s], "
+                                    + "the earliest snapshot's timestamp is [%s]",
+                            timestampMillis,
+                            earliestSnapshot == null
+                                    ? "null"
+                                    : String.valueOf(earliestSnapshot.timeMillis())));
         }
         return snapshot;
     }
