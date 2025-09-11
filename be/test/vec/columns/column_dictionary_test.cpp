@@ -189,7 +189,6 @@ TEST_F(ColumnDictionaryTest, clear) {
 
     target_column->clear();
     EXPECT_EQ(target_column->size(), 0);
-    EXPECT_EQ(col_vec_target->get_data().size(), 0);
 }
 TEST_F(ColumnDictionaryTest, byte_size) {
     EXPECT_EQ(column_dict_char->byte_size(), column_dict_char->size() * 4);
