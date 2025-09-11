@@ -652,6 +652,10 @@ public:
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
+    // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
+    // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join
+    virtual void replace_float_special_values() {}
+
 protected:
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {

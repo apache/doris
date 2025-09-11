@@ -297,11 +297,14 @@ int64_t Compaction::get_avg_segment_rows() {
     const auto& meta = _tablet->tablet_meta();
     if (meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         int64_t compaction_goal_size_mbytes = meta->time_series_compaction_goal_size_mbytes();
-        return (compaction_goal_size_mbytes * 1024 * 1024 * 2) /
-               (_input_rowsets_data_size / (_input_row_num + 1) + 1);
+        // The output segment rows should be less than total input rows
+        return std::min((compaction_goal_size_mbytes * 1024 * 1024 * 2) /
+                                (_input_rowsets_data_size / (_input_row_num + 1) + 1),
+                        _input_row_num + 1);
     }
-    return config::vertical_compaction_max_segment_size /
-           (_input_rowsets_data_size / (_input_row_num + 1) + 1);
+    return std::min(config::vertical_compaction_max_segment_size /
+                            (_input_rowsets_data_size / (_input_row_num + 1) + 1),
+                    _input_row_num + 1);
 }
 
 CompactionMixin::CompactionMixin(StorageEngine& engine, TabletSharedPtr tablet,
@@ -1348,6 +1351,7 @@ Status CompactionMixin::modify_rowsets() {
     }
     DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset",
                     { tablet()->delete_expired_stale_rowset(); });
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 
@@ -1547,6 +1551,46 @@ Status CloudCompactionMixin::modify_rowsets() {
     return Status::OK();
 }
 
+Status CloudCompactionMixin::set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx) {
+    // Set storage resource from input rowsets by iterating backwards to find the first rowset
+    // with non-empty resource_id. This handles two scenarios:
+    // 1. Hole rowsets compaction: Multiple hole rowsets may lack storage resource.
+    //    Example: [0-1, 2-2, 3-3, 4-4, 5-5] where 2-5 are hole rowsets.
+    //    If 0-1 lacks resource_id, then 2-5 also lack resource_id.
+    // 2. Schema change: New tablet may have later version empty rowsets without resource_id,
+    //    but middle rowsets get resource_id after historical rowsets are converted.
+    //    We iterate backwards to find the most recent rowset with valid resource_id.
+
+    for (const auto& rowset : std::ranges::reverse_view(_input_rowsets)) {
+        const auto& resource_id = rowset->rowset_meta()->resource_id();
+
+        if (!resource_id.empty()) {
+            ctx.storage_resource = *DORIS_TRY(rowset->rowset_meta()->remote_storage_resource());
+            return Status::OK();
+        }
+
+        // Validate that non-empty rowsets (num_segments > 0) must have valid resource_id
+        // Only hole rowsets or empty rowsets are allowed to have empty resource_id
+        if (rowset->num_segments() > 0) {
+            auto error_msg = fmt::format(
+                    "Non-empty rowset must have valid resource_id. "
+                    "rowset_id={}, version=[{}-{}], is_hole_rowset={}, num_segments={}, "
+                    "tablet_id={}, table_id={}",
+                    rowset->rowset_id().to_string(), rowset->start_version(), rowset->end_version(),
+                    rowset->is_hole_rowset(), rowset->num_segments(), _tablet->tablet_id(),
+                    _tablet->table_id());
+
+#ifndef BE_TEST
+            DCHECK(false) << error_msg;
+#endif
+
+            return Status::InternalError<false>(error_msg);
+        }
+    }
+
+    return Status::OK();
+}
+
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
     if (_enable_inverted_index_compaction && (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -1555,17 +1599,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
         construct_index_compaction_columns(ctx);
     }
 
-    // Use the storage resource of the previous rowset
-    // when multiple hole rowsets doing compaction, those rowsets may not have a storage resource.
-    // case:
-    // [0-1, 2-2, 3-3, 4-4, 5-5], 2-5 are hole rowsets.
-    //  0-1 current doesn't have a resource_id, so 2-5 also have no resource_id.
-    // Because there is no data to write, so we can skip setting the storage resource.
-    if (!_input_rowsets.back()->is_hole_rowset() ||
-        !_input_rowsets.back()->rowset_meta()->resource_id().empty()) {
-        ctx.storage_resource =
-                *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
-    }
+    // Use the storage resource of the previous rowset.
+    RETURN_IF_ERROR(set_storage_resource_from_input_rowsets(ctx));
 
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive

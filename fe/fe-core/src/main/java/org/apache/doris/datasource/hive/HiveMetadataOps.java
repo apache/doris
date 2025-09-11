@@ -34,7 +34,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -237,8 +237,8 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
             }
             Map<String, String> properties = catalog.getProperties();
-            if (properties.containsKey(HMSProperties.HIVE_METASTORE_TYPE)
-                    && properties.get(HMSProperties.HIVE_METASTORE_TYPE).equals(HMSProperties.DLF_TYPE)) {
+            if (properties.containsKey(HMSBaseProperties.HIVE_METASTORE_TYPE)
+                    && properties.get(HMSBaseProperties.HIVE_METASTORE_TYPE).equals(HMSBaseProperties.DLF_TYPE)) {
                 for (Column column : createTableInfo.getColumns()) {
                     if (column.hasDefaultValue()) {
                         throw new UserException("Default values are not supported with `DLF` catalog.");
@@ -352,8 +352,8 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
             }
             Map<String, String> properties = catalog.getProperties();
-            if (properties.containsKey(HMSProperties.HIVE_METASTORE_TYPE)
-                    && properties.get(HMSProperties.HIVE_METASTORE_TYPE).equals(HMSProperties.DLF_TYPE)) {
+            if (properties.containsKey(HMSBaseProperties.HIVE_METASTORE_TYPE)
+                    && properties.get(HMSBaseProperties.HIVE_METASTORE_TYPE).equals(HMSBaseProperties.DLF_TYPE)) {
                 for (Column column : stmt.getColumns()) {
                     if (column.hasDefaultValue()) {
                         throw new UserException("Default values are not supported with `DLF` catalog.");

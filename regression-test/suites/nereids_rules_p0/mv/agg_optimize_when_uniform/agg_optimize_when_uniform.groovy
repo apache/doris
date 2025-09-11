@@ -18,6 +18,7 @@
 suite("agg_optimize_when_uniform") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
         set enable_agg_state=true;

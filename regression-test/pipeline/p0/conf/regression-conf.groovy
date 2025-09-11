@@ -80,6 +80,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0," +
     "workload_manager_p1," +
     "plsql_p0," + // plsql is not developped any more, add by sk
+    "variant_p0/nested," +
+    "variant_p0/nested/sql," +
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"

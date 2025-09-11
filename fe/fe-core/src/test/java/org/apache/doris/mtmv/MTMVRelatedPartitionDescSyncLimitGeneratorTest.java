@@ -20,7 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -67,7 +67,7 @@ public class MTMVRelatedPartitionDescSyncLimitGeneratorTest {
     @Test
     public void testGetNowTruncSubSec() throws AnalysisException {
         MTMVRelatedPartitionDescSyncLimitGenerator generator = new MTMVRelatedPartitionDescSyncLimitGenerator();
-        DateTimeLiteral dateTimeLiteral = new DateTimeLiteral("2020-02-03 20:10:10");
+        DateTimeV2Literal dateTimeLiteral = new DateTimeV2Literal("2020-02-03 20:10:10");
         new Expectations() {
             {
                 dateTimeAcquire.now();

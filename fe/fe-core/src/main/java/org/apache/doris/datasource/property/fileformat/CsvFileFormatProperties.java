@@ -67,6 +67,8 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     public static final String PROP_ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
+    public static final String PROP_EMPTY_FIELD_AS_NULL = "empty_field_as_null";
+
     private String headerType = "";
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
@@ -75,6 +77,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     private byte enclose;
     private byte escape;
     private boolean enableTextValidateUTF8 = true;
+    private boolean emptyFieldAsNull;
 
     public CsvFileFormatProperties(String formatName) {
         super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
@@ -149,6 +152,9 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                 enableTextValidateUTF8 = Boolean.parseBoolean(validateUtf8);
             }
 
+            emptyFieldAsNull = Boolean.valueOf(getOrDefault(formatProperties,
+                    PROP_EMPTY_FIELD_AS_NULL, "false", isRemoveOriginProperty))
+                    .booleanValue();
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -185,6 +191,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
         fileTextScanRangeParams.setEnclose(this.enclose);
         fileTextScanRangeParams.setEscape(this.escape);
+        fileTextScanRangeParams.setEmptyFieldAsNull(this.emptyFieldAsNull);
         fileAttributes.setTextParams(fileTextScanRangeParams);
         fileAttributes.setHeaderType(headerType);
         fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
@@ -219,5 +226,9 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     public byte getEscape() {
         return escape;
+    }
+
+    public boolean getEmptyFieldAsNull() {
+        return emptyFieldAsNull;
     }
 }

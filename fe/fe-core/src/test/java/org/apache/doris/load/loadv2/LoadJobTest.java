@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -29,6 +28,7 @@ import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.thrift.TUniqueId;
@@ -57,7 +57,7 @@ public class LoadJobTest {
     @Test
     public void testSetJobPropertiesWithErrorTimeout() {
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, "abc");
+        jobProperties.put(LoadCommand.TIMEOUT_PROPERTY, "abc");
         LoadJob loadJob = new BrokerLoadJob();
         try {
             loadJob.setJobProperties(jobProperties);
@@ -70,10 +70,10 @@ public class LoadJobTest {
     @Test
     public void testSetJobProperties() {
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, "1000");
-        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, "0.1");
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, "1024");
-        jobProperties.put(LoadStmt.STRICT_MODE, "True");
+        jobProperties.put(LoadCommand.TIMEOUT_PROPERTY, "1000");
+        jobProperties.put(LoadCommand.MAX_FILTER_RATIO_PROPERTY, "0.1");
+        jobProperties.put(LoadCommand.EXEC_MEM_LIMIT, "1024");
+        jobProperties.put(LoadCommand.STRICT_MODE, "True");
 
         LoadJob loadJob = new BrokerLoadJob();
         try {

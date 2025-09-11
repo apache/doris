@@ -76,7 +76,7 @@ public class Interval extends Expression implements UnaryExpression, AlwaysNotNu
     public enum TimeUnit {
         YEAR("YEAR", false, 800),
         MONTH("MONTH", false, 700),
-        QUARTER("QUARTER", false, 600),
+        QUARTER("QUARTER", false, 600), //TODO: need really support quarter
         WEEK("WEEK", false, 500),
         DAY("DAY", false, 400),
         HOUR("HOUR", true, 300),

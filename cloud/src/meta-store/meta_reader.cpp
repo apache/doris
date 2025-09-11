@@ -24,6 +24,7 @@
 
 #include "common/logging.h"
 #include "common/util.h"
+#include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/document_message_get_range.h"
 #include "meta-store/keys.h"
@@ -754,7 +755,7 @@ TxnErrorCode MetaReader::get_tablet_indexes(
 }
 
 TxnErrorCode MetaReader::get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
-                                                      bool snapshot) {
+                                                      int64_t* partition_version, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";
     if (!txn_kv_) {
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
@@ -764,11 +765,13 @@ TxnErrorCode MetaReader::get_partition_pending_txn_id(int64_t partition_id, int6
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
-    return get_partition_pending_txn_id(txn.get(), partition_id, first_txn_id, snapshot);
+    return get_partition_pending_txn_id(txn.get(), partition_id, first_txn_id, partition_version,
+                                        snapshot);
 }
 
 TxnErrorCode MetaReader::get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
-                                                      int64_t* first_txn_id, bool snapshot) {
+                                                      int64_t* first_txn_id,
+                                                      int64_t* partition_version, bool snapshot) {
     // Initialize to -1 to indicate no pending transactions
     *first_txn_id = -1;
 
@@ -787,6 +790,7 @@ TxnErrorCode MetaReader::get_partition_pending_txn_id(Transaction* txn, int64_t 
     if (version_pb.pending_txn_ids_size() > 0) {
         *first_txn_id = version_pb.pending_txn_ids(0);
     }
+    *partition_version = version_pb.version();
 
     return TxnErrorCode::TXN_OK;
 }
@@ -899,6 +903,59 @@ TxnErrorCode MetaReader::is_partition_exists(Transaction* txn, int64_t partition
     }
     min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
     return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_snapshots(
+        Transaction* txn, std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots) {
+    std::string snapshot_key = versioned::snapshot_full_key({instance_id_});
+    std::string snapshot_start_key = encode_versioned_key(snapshot_key, Versionstamp::min());
+    std::string snapshot_end_key = encode_versioned_key(snapshot_key, Versionstamp::max());
+
+    FullRangeGetOptions range_options;
+    range_options.prefetch = true;
+    auto it = txn->full_range_get(snapshot_start_key, snapshot_end_key, range_options);
+    for (auto&& kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+        auto&& [key, snapshot_value] = *kvp;
+
+        Versionstamp version;
+        std::string_view key_view(key);
+        if (decode_tailing_versionstamp_end(&key_view) ||
+            decode_tailing_versionstamp(&key_view, &version)) {
+            LOG_WARNING("failed to decode versionstamp from snapshot full key")
+                    .tag("instance_id", instance_id_)
+                    .tag("key", hex(key));
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+
+        SnapshotPB snapshot;
+        if (!snapshot.ParseFromArray(snapshot_value.data(), snapshot_value.size())) {
+            LOG_ERROR("Failed to parse SnapshotPB")
+                    .tag("instance_id", instance_id_)
+                    .tag("key", hex(key));
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+
+        snapshots->emplace_back(std::move(snapshot), version);
+    }
+
+    if (!it->is_valid()) {
+        LOG_ERROR("failed to get snapshots")
+                .tag("instance_id", instance_id_)
+                .tag("error_code", it->error_code());
+        return it->error_code();
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_snapshots(
+        std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_snapshots(txn.get(), snapshots);
 }
 
 } // namespace doris::cloud

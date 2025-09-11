@@ -124,7 +124,7 @@ public class ColumnStatistic {
         this.hotValues = hotValues;
     }
 
-    public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
+    public static ColumnStatistic fromResultRowList(List<ResultRow> resultRows) {
         ColumnStatistic columnStatistic = ColumnStatistic.UNKNOWN;
         for (ResultRow resultRow : resultRows) {
             String partId = resultRow.get(6);
@@ -137,8 +137,12 @@ public class ColumnStatistic {
         return columnStatistic;
     }
 
-    // TODO: use thrift
-    public static ColumnStatistic fromResultRow(ResultRow row) {
+    /**
+     * this function is used by analyze job and cbo job.
+     *
+     *
+     */
+    public static ColumnStatistic fromResultRow(ResultRow row, boolean showAnalyzeResult) {
         double count = Double.parseDouble(row.get(7));
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
@@ -199,8 +203,20 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
         }
         columnStatisticBuilder.setUpdatedTime(row.get(13));
-        columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType()));
+        if (showAnalyzeResult) {
+            columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(), 0));
+        } else {
+            if (ndv > 0) {
+                columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(),
+                        1 / ndv));
+            }
+        }
         return columnStatisticBuilder.build();
+    }
+
+    // TODO: use thrift
+    public static ColumnStatistic fromResultRow(ResultRow row) {
+        return fromResultRow(row, false);
     }
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {

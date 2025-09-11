@@ -231,13 +231,12 @@ SyntaxError:
 -- !select4_3 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------NestedLoopJoin[RIGHT_OUTER_JOIN](c3 > 500)
---------NestedLoopJoin[LEFT_OUTER_JOIN](c1 < 200)(c1 > 500)
-----------PhysicalOlapScan[t1]
-----------filter((t2.c2 > 500))
-------------PhysicalOlapScan[t2]
---------PhysicalOlapScan[t3]
+----NestedLoopJoin[RIGHT_OUTER_JOIN](c3 > 500)
+------NestedLoopJoin[LEFT_OUTER_JOIN](c1 < 200)(c1 > 500)
+--------PhysicalOlapScan[t1]
+--------filter((t2.c2 > 500))
+----------PhysicalOlapScan[t2]
+------PhysicalOlapScan[t3]
 
 Hint log:
 Used: leading(t1 t2 t3 )

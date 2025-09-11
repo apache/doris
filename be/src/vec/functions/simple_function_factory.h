@@ -82,6 +82,7 @@ void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
+void register_function_uniform(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
 void register_function_uuid_transforms(SimpleFunctionFactory& factory);
@@ -116,9 +117,10 @@ void register_function_compress(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
-void register_function_llm(SimpleFunctionFactory& factory);
+void register_function_ai(SimpleFunctionFactory& factory);
 void register_function_score(SimpleFunctionFactory& factory);
 void register_function_variant_type(SimpleFunctionFactory& factory);
+void register_function_soundex(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
 void register_function_throw_exception(SimpleFunctionFactory& factory);
@@ -300,6 +302,7 @@ public:
             register_function_like(instance);
             register_function_regexp(instance);
             register_function_random(instance);
+            register_function_uniform(instance);
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);
             register_function_uuid_transforms(instance);
@@ -334,8 +337,9 @@ public:
             register_function_compress(instance);
             register_function_dict_get(instance);
             register_function_dict_get_many(instance);
-            register_function_llm(instance);
+            register_function_ai(instance);
             register_function_score(instance);
+            register_function_soundex(instance);
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
             register_function_throw_exception(instance);
 #endif
