@@ -255,10 +255,10 @@ public class StatementContext implements Closeable {
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null
-                && connectContext.queryId() != null
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
             this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity(), connectContext.queryId());
+                    connectContext.getCurrentUserIdentity());
             if (originStatement != null) {
                 this.sqlCacheContext.setOriginSql(originStatement.originStmt);
             }
