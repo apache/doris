@@ -245,6 +245,8 @@ public:
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const;
 
+    virtual bool is_string_type() const { return false; }
+
     // All types can override this function
     // When this function is called, column should be of the corresponding type
     // everytime call this, should insert new cell to the end of column
