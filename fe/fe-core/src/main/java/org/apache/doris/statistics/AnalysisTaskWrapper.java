@@ -83,7 +83,6 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
                     if (MetricRepo.isInit) {
                         MetricRepo.COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK.increase(1L);
                     }
-                    task.job.taskFailed(task, Util.getRootCauseMessage(except));
                 }
             }
         }
