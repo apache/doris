@@ -722,13 +722,13 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
                                 std::regex_replace(_value_separator, std::regex("\t"), "\\t");
                         std::string escaped_delimiter =
                                 std::regex_replace(_line_delimiter, std::regex("\n"), "\\n");
-                        fmt::format_to(error_msg, " (sep:{}, delim:{}", escaped_separator,
+                        fmt::format_to(error_msg, " (sep:{} delim:{}", escaped_separator,
                                        escaped_delimiter);
                         if (_enclose != 0) {
-                            fmt::format_to(error_msg, ", encl:{}", _enclose);
+                            fmt::format_to(error_msg, " encl:{}", _enclose);
                         }
                         if (_escape != 0) {
-                            fmt::format_to(error_msg, ", esc:{}", _escape);
+                            fmt::format_to(error_msg, " esc:{}", _escape);
                         }
                         fmt::format_to(error_msg, ")");
                         return fmt::to_string(error_msg);
