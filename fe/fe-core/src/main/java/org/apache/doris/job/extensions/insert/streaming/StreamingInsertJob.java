@@ -37,6 +37,7 @@ import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -66,7 +67,7 @@ import java.util.Map;
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback {
     private final long dbId;
-    private LoadStatistic loadStatistic = new LoadStatistic();
+    private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     @SerializedName("fm")
     private FailMsg failMsg;
     @Getter
@@ -142,7 +143,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         Offset nextOffset = offsetProvider.getNextOffset();
         InsertIntoTableCommand command = offsetProvider.rewriteTvfParams(nextOffset);
         this.runningStreamTask = new StreamingInsertTask(getJobId(), AbstractTask.getNextTaskId(), command,
-                loadStatistic, getCurrentDbName(), nextOffset, jobProperties);
+                getCurrentDbName(), offsetProvider.getCurrentOffset(), jobProperties);
         return this.runningStreamTask;
     }
 
@@ -188,6 +189,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         Env.getCurrentEnv().getJobManager().getStreamingTaskScheduler().registerTask(runningStreamTask);
     }
 
+    private void updateJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment) {
+        this.jobStatistic.setScannedRows(this.jobStatistic.getScannedRows() + attachment.getScannedRows());
+        this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + attachment.getLoadBytes());
+        this.jobStatistic.setFileNumber(this.jobStatistic.getFileNumber() + attachment.getFileNumber());
+        this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileSize());
+        offsetProvider.updateOffset(attachment.getOffset());
+    }
 
     @Override
     public ShowResultSetMetaData getTaskMetaData() {
@@ -217,7 +225,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(
-                loadStatistic == null ? FeConstants.null_string : loadStatistic.toJson()));
+                jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
         trow.addToColumnValue(new TCell().setStringVal(failMsg == null ? FeConstants.null_string : failMsg.getMsg()));
         return trow;
     }
@@ -249,7 +257,20 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
-
+        ArrayList<Long> taskIds = new ArrayList<>();
+        taskIds.add(runningStreamTask.getTaskId());
+        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIds);
+        if (loadJobs.size() != 1) {
+            throw new TransactionException("load job not found, insert job id is " + runningStreamTask.getTaskId());
+        }
+        LoadJob loadJob = loadJobs.get(0);
+        LoadStatistic loadStatistic = loadJob.getLoadStatistic();
+        txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
+                    loadStatistic.getScannedRows(),
+                    loadStatistic.getLoadBytes(),
+                    loadStatistic.getFileNumber(),
+                    loadStatistic.getTotalFileSizeB(),
+                    runningStreamTask.getOffset()));
     }
 
     @Override
@@ -259,12 +280,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
-
+        Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
+        StreamingTaskTxnCommitAttachment attachment =
+                (StreamingTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
+        updateJobStatisticAndOffset(attachment);
     }
 
     @Override
     public void replayOnCommitted(TransactionState txnState) {
-
+        Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
+        StreamingTaskTxnCommitAttachment attachment =
+                (StreamingTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
+        updateJobStatisticAndOffset(attachment);
     }
 
     @Override

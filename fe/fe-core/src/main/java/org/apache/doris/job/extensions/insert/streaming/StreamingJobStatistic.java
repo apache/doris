@@ -15,34 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.offset.s3;
+package org.apache.doris.job.extensions.insert.streaming;
 
-import org.apache.doris.job.offset.Offset;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import lombok.Getter;
 import lombok.Setter;
 
-import java.util.List;
+public class StreamingJobStatistic {
+    @Getter
+    @Setter
+    private long scannedRows;
+    @Getter
+    @Setter
+    private long loadBytes;
+    @Getter
+    @Setter
+    private long fileNumber;
+    @Getter
+    @Setter
+    private long fileSize;
 
-@Getter
-@Setter
-public class S3Offset implements Offset {
-    String startFile;
-    String endFile;
-    List<String> fileLists;
-
-    @Override
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
-    }
-
-    @Override
-    public String toString() {
-        return "S3Offset: ["
-                + "startFile=" + startFile
-                + ", endFile=" + endFile
-                + ", fileLists=" + fileLists
-                + "]";
     }
 }
