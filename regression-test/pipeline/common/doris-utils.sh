@@ -127,7 +127,13 @@ function start_doris_fe() {
         JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
         export JAVA_HOME
     fi
-    # export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
+    if [[ ! -f /usr/local/jacoco/lib/jacocoagent.jar ]]; then
+        rm -rf /usr/local/jacoco/ && mkdir -p /usr/local/jacoco/
+        wget -c -t3 -q "${JACOCO_DOWNLOAD_URL:-https://qa-build-hk.oss-cn-hongkong.aliyuncs.com/tools/jacoco-0.8.13.zip}"
+        if ! command -v unzip >/dev/null; then sudo apt update && sudo apt install -y unzip; fi
+        unzip -o jacoco-0.8.13.zip -d /usr/local/jacoco/
+    fi
+    export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
     "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
 
     if ! mysql --version >/dev/null; then sudo apt update && sudo apt install -y mysql-client; fi
@@ -330,7 +336,7 @@ function install_fdb() {
     wget -c -t3 -q https://github.com/apple/foundationdb/releases/download/7.1.23/foundationdb-server_7.1.23-1_amd64.deb
     sudo dpkg -i foundationdb-clients_7.1.23-1_amd64.deb foundationdb-server_7.1.23-1_amd64.deb
     # /usr/lib/foundationdb/fdbmonitor --daemonize
-    # fdbcli --exec 'configure new single ssd'
+    fdbcli --exec 'configure storage_migration_type=aggressive; configure ssd'
     if fdbcli --exec 'status'; then
         echo "INFO: foundationdb installed."
     else

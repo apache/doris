@@ -37,6 +37,10 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
@@ -58,14 +62,17 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -1196,5 +1203,48 @@ public class NereidsParserTest extends ParserTestBase {
         parsePlan("SELECT 1 from ( select 2 as a1 ) t1 join ( select 2 as a2 ) as t2 on x -> x + 1 = t1.a1")
                 .assertThrowsExactly(ParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testCtasWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+        CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
+        Assertions.assertTrue(createTableCommand.getCtasQuery().isPresent());
+    }
+
+    @Test
+    public void testCreateViewWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testCreateMvWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE MATERIALIZED VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateMaterializedViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testDropTemporaryTable() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        Map<String, Boolean> mustTemporaryResult = ImmutableMap.of(
+                "DROP TEMPORARY TABLE t1", true,
+                "DROP TABLE t1", false);
+        for (Map.Entry<String, Boolean> entry : mustTemporaryResult.entrySet()) {
+            LogicalPlan logicalPlan = parser.parseSingle(entry.getKey());
+            Assertions.assertInstanceOf(DropTableCommand.class, logicalPlan);
+            DropTableCommand dropTableCommand = (DropTableCommand) logicalPlan;
+            Field mustTemporary = DropTableCommand.class.getDeclaredField("mustTemporary");
+            mustTemporary.setAccessible(true);
+            Object value = mustTemporary.get(dropTableCommand);
+            Assertions.assertEquals(entry.getValue(), (boolean) value);
+        }
     }
 }

@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -401,7 +402,7 @@ public class TypeCoercionUtils {
         if (type.isDateLikeType()) {
             return BigIntType.INSTANCE;
         }
-        if (type.isStringLikeType() || type.isHllType() || type.isTimeType()) {
+        if (type.isStringLikeType() || type.isHllType() || type.isTimeType() || type.isJsonType()) {
             return DoubleType.INSTANCE;
         }
         throw new AnalysisException("Cannot cast from " + type + " to numeric type.");
@@ -619,7 +620,7 @@ public class TypeCoercionUtils {
             } else if (dataType.isDateTimeType() && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, false).orElse(null);
             } else if (dataType.isDateV2Type() && DateTimeChecker.isValidDateTime(value)) {
-                Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value);
+                Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
                     ret = parseResult.get();
                 } else {
@@ -630,7 +631,7 @@ public class TypeCoercionUtils {
                     }
                 }
             } else if (dataType.isDateType() && DateTimeChecker.isValidDateTime(value)) {
-                ret = DateLiteral.parseDateLiteral(value).orElse(null);
+                ret = DateLiteral.parseDateLiteral(value, false).orElse(null);
             }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
@@ -917,48 +918,24 @@ public class TypeCoercionUtils {
      * process timestamp arithmetic type coercion.
      */
     public static Expression processTimestampArithmetic(TimestampArithmetic timestampArithmetic) {
-        // check
         timestampArithmetic.checkLegalityBeforeTypeCoercion();
 
+        String name = timestampArithmetic.getFuncName().toLowerCase();
+        List<Expression> children = timestampArithmetic.children();
         Expression left = timestampArithmetic.left();
         Expression right = timestampArithmetic.right();
-        // left
-        DataType leftType = left.getDataType();
 
-        if (!leftType.isDateLikeType()) {
-            if (Config.enable_date_conversion && canCastTo(leftType, DateTimeV2Type.SYSTEM_DEFAULT)) {
-                leftType = DateTimeV2Type.SYSTEM_DEFAULT;
-            } else if (canCastTo(leftType, DateTimeType.INSTANCE)) {
-                leftType = DateTimeType.INSTANCE;
-            } else {
-                throw new AnalysisException("Operand '" + left.toSql()
-                        + "' of timestamp arithmetic expression '" + timestampArithmetic.toSql() + "' returns type '"
-                        + left.getDataType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
-            }
-        }
-        if (leftType.isDateType() && timestampArithmetic.getTimeUnit().isDateTimeUnit()) {
-            leftType = DateTimeType.INSTANCE;
-        }
-        if (leftType.isDateV2Type() && timestampArithmetic.getTimeUnit().isDateTimeUnit()) {
-            leftType = DateTimeV2Type.SYSTEM_DEFAULT;
-        }
-        if (!left.getDataType().isDateLikeType() && !left.getDataType().isNullType()) {
-            checkCanCastTo(left.getDataType(), leftType);
-            left = castIfNotSameType(left, leftType);
-        }
+        // get right signature by normal function resolution
+        FunctionBuilder functionBuilder = Env.getCurrentEnv().getFunctionRegistry().findFunctionBuilder(name,
+                children);
+        Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair = functionBuilder.build(name,
+                children);
+        FunctionSignature signature = targetExpressionPair.second.getSignature();
+        DataType leftType = signature.getArgType(0);
+        DataType rightType = signature.getArgType(1);
 
-        // right
-        if (!(right.getDataType() instanceof PrimitiveType)) {
-            throw new AnalysisException("the second argument must be a scalar type. but it is " + right.toSql());
-        }
-        if (!right.getDataType().isIntegerType()) {
-            if (!ScalarType.canCastTo((ScalarType) right.getDataType().toCatalogDataType(), Type.INT)) {
-                throw new AnalysisException("Operand '" + right.toSql()
-                        + "' of timestamp arithmetic expression '" + timestampArithmetic.toSql() + "' returns type '"
-                        + right.getDataType() + "' which is incompatible with expected type 'INT'.");
-            }
-            right = castIfNotSameType(right, IntegerType.INSTANCE);
-        }
+        left = castIfNotSameType(left, leftType);
+        right = castIfNotSameType(right, rightType);
 
         return timestampArithmetic.withChildren(left, right);
     }

@@ -21,8 +21,7 @@ suite("mv_with_date_trunc") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    // Virtual column will make mv rewrite fail, so we disable the rule
-    sql """set disable_nereids_rules='PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN';"""
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
     drop table if exists lineitem
@@ -65,6 +64,7 @@ suite("mv_with_date_trunc") {
     insert into lineitem
     values
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 00:00:00.999999', '2023-01-01 00:00:00.999999', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-16', '2023-01-01 00:00:00.999999', '2023-01-01 00:00:00.999999', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 02:01:45', '2023-01-01 02:01:45', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 03:02:43', '2023-01-01 03:02:43', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-04-01', '2023-04-01 05:03:42', '2023-04-01 05:03:42', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
@@ -1138,7 +1138,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1")
+    async_mv_rewrite_success_without_check_chosen(db, mv2_1, query2_1, "mv2_1")
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
@@ -1407,20 +1407,20 @@ suite("mv_with_date_trunc") {
     create_async_partition_mv(db, "mv4_0", """
     select
     l_shipmode,
-    date_trunc(l_shipdate, 'day') as day_trunc,
+    date_trunc(l_shipdate, 'month') as day_trunc,
     count(*)
     from
     lineitem
     group by
     l_shipmode,
-    date_trunc(l_shipdate, 'day');
+    date_trunc(l_shipdate, 'month');
     """, "(day_trunc)")
 
 
     create_async_partition_mv(db, "mv4_1", """
     select
     l_shipmode,
-    date_trunc(l_shipdate, 'day') as day_trunc
+    date_trunc(l_shipdate, 'month') as day_trunc
     from
     lineitem;
     """, "(day_trunc)")
@@ -1436,20 +1436,20 @@ suite("mv_with_date_trunc") {
     def query4_0 = """
     select
     l_shipmode,
-    date_trunc(l_shipdate, 'day') as day_trunc,
+    date_trunc(l_shipdate, 'month') as day_trunc,
     count(*)
     from
     lineitem
     where l_shipdate >= '2023-01-01' and l_shipdate < '2023-05-01'
     group by
     l_shipmode,
-    date_trunc(l_shipdate, 'day');
+    date_trunc(l_shipdate, 'month');
     """
     result = sql """show table stats lineitem"""
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    mv_rewrite_success(query4_0, "mv4_0", is_partition_statistics_ready(db, ["lineitem", "mv4_0"]))
+    mv_rewrite_any_success(query4_0, ["mv4_0", "mv4_1"], is_partition_statistics_ready(db, ["lineitem", "mv4_0", "mv4_1"]))
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
@@ -1457,7 +1457,7 @@ suite("mv_with_date_trunc") {
     def query4_1 = """
     select
     l_shipmode,
-    date_trunc(l_shipdate, 'day') as day_trunc
+    date_trunc(l_shipdate, 'month') as day_trunc
     from
     lineitem
     where l_shipdate >= '2023-01-01' and l_shipdate < '2023-05-01';

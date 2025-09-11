@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type_struct.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 } // namespace doris
 
@@ -402,7 +403,8 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
     size_t start_offset = string_offsets[origin_offsets_size - 1];
     string_offsets.resize(origin_offsets_size + num_rows);
     for (size_t i = 0; i < num_rows; ++i) {
-        string_offsets[origin_offsets_size + i] = offsets[i] + start_offset;
+        string_offsets[origin_offsets_size + i] =
+                static_cast<unsigned int>(offsets[i] + start_offset);
     }
     return Status::OK();
 }
@@ -451,8 +453,9 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
 
     RETURN_IF_ERROR(_fill_column(address, key_column, key_type,
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
-    return _fill_column(address, value_column, value_type,
-                        map_offsets[origin_size + num_rows - 1] - start_offset);
+    RETURN_IF_ERROR(_fill_column(address, value_column, value_type,
+                                 map_offsets[origin_size + num_rows - 1] - start_offset));
+    return map.deduplicate_keys();
 }
 
 Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
@@ -861,4 +864,5 @@ void JniConnector::_collect_profile_before_close() {
         }
     }
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

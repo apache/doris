@@ -17,6 +17,7 @@
 
 #include "gtest/gtest.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_extract_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_merge_iterator.h"
@@ -44,6 +45,7 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
     column_pb->set_is_nullable(is_nullable);
     if (column_type == "VARIANT") {
         column_pb->set_variant_max_subcolumns_count(variant_max_subcolumns_count);
+        column_pb->set_variant_max_sparse_column_statistics_size(10000);
     }
 }
 
@@ -54,6 +56,45 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
 //     tablet_index->set_index_type(IndexType::INVERTED);
 //     tablet_index->add_col_unique_id(col_unique_id);
 // }
+
+// MockColumnReaderCache class for testing
+class MockColumnReaderCache : public segment_v2::ColumnReaderCache {
+public:
+    MockColumnReaderCache(const SegmentFooterPB& footer, const io::FileReaderSPtr& file_reader,
+                          const std::shared_ptr<TabletSchema>& tablet_schema)
+            : ColumnReaderCache(nullptr),
+              _footer(footer),
+              _file_reader(file_reader),
+              _tablet_schema(tablet_schema) {}
+
+    Status get_path_column_reader(
+            uint32_t col_uid, vectorized::PathInData relative_path,
+            std::shared_ptr<segment_v2::ColumnReader>* column_reader, OlapReaderStatistics* stats,
+            const SubcolumnColumnMetaInfo::Node* node_hint = nullptr) override {
+        DCHECK(node_hint != nullptr);
+        // Use node_hint's footer_ordinal to locate the specific ColumnMeta
+        int32_t footer_ordinal = node_hint->data.footer_ordinal;
+        if (footer_ordinal < 0 || footer_ordinal >= _footer.columns_size()) {
+            *column_reader = nullptr;
+            return Status::OK();
+        }
+
+        // Create ColumnReaderOptions
+        ColumnReaderOptions opts;
+        opts.kept_in_memory = false;
+        opts.be_exec_version = BeExecVersionManager::get_newest_version();
+        opts.tablet_schema = _tablet_schema;
+
+        // Use ColumnReader::create to generate the corresponding ColumnReader
+        return segment_v2::ColumnReader::create(opts, _footer.columns(footer_ordinal),
+                                                _footer.num_rows(), _file_reader, column_reader);
+    }
+
+private:
+    const SegmentFooterPB& _footer;
+    const io::FileReaderSPtr& _file_reader;
+    const std::shared_ptr<TabletSchema>& _tablet_schema;
+};
 
 class VariantColumnWriterReaderTest : public testing::Test {
 public:
@@ -95,7 +136,7 @@ public:
     VariantColumnWriterReaderTest() = default;
     ~VariantColumnWriterReaderTest() override = default;
 
-private:
+protected:
     TabletSchemaSPtr _tablet_schema = nullptr;
     StorageEngine* _engine_ref = nullptr;
     std::unique_ptr<DataDir> _data_dir = nullptr;
@@ -236,19 +277,21 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     EXPECT_TRUE(st.ok()) << st.msg();
     ColumnReaderOptions read_opts;
     read_opts.tablet_schema = _tablet_schema;
-    std::unique_ptr<ColumnReader> column_reader;
+    std::shared_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
+
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
 
     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
     EXPECT_TRUE(variant_column_reader != nullptr);
 
-    auto subcolumn_reader = variant_column_reader->get_reader_by_path(PathInData("key0"));
-    EXPECT_TRUE(subcolumn_reader != nullptr);
-    subcolumn_reader = variant_column_reader->get_reader_by_path(PathInData("key1"));
-    EXPECT_TRUE(subcolumn_reader != nullptr);
-    subcolumn_reader = variant_column_reader->get_reader_by_path(PathInData("key2"));
-    EXPECT_TRUE(subcolumn_reader != nullptr);
+    auto subcolumn_meta = variant_column_reader->get_subcolumn_meta_by_path(PathInData("key0"));
+    EXPECT_TRUE(subcolumn_meta != nullptr);
+    subcolumn_meta = variant_column_reader->get_subcolumn_meta_by_path(PathInData("key1"));
+    EXPECT_TRUE(subcolumn_meta != nullptr);
+    subcolumn_meta = variant_column_reader->get_subcolumn_meta_by_path(PathInData("key2"));
+    EXPECT_TRUE(subcolumn_meta != nullptr);
     EXPECT_TRUE(variant_column_reader->exist_in_sparse_column(PathInData("key3")));
     EXPECT_TRUE(variant_column_reader->exist_in_sparse_column(PathInData("key4")));
     EXPECT_TRUE(variant_column_reader->exist_in_sparse_column(PathInData("key5")));
@@ -273,7 +316,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     TabletColumn parent_column = _tablet_schema->column(0);
     StorageReadOptions storage_read_opts;
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<HierarchicalDataIterator*>(it.get()) != nullptr);
     ColumnIteratorOptions column_iter_opts;
@@ -294,25 +338,26 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // seek_to_first for HierarchicalDataIterator no need to implement
     {
         auto iter = assert_cast<HierarchicalDataIterator*>(it.get());
-        std::unique_ptr<ColumnReader> column_reader1;
+        std::shared_ptr<ColumnReader> column_reader1;
         st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader1);
         EXPECT_TRUE(st.ok()) << st.msg();
         std::cout << "hier:" << iter->get_current_ordinal() << std::endl;
         //  now we can find exist
-        auto exist_node = std::make_unique<SubcolumnColumnReaders::Node>(
-                SubcolumnColumnReaders::Node::Kind::SCALAR);
+        auto exist_node = std::make_unique<SubcolumnColumnMetaInfo::Node>(
+                SubcolumnColumnMetaInfo::Node::Kind::SCALAR);
         exist_node->path = PathInData("key0");
-        Status sts = iter->add_stream(exist_node.get());
+        OlapReaderStatistics stats;
+        Status sts = iter->add_stream(0, exist_node.get(), &column_reader_cache, &stats);
         EXPECT_TRUE(sts.ok());
         auto jsonb_type = std::make_shared<DataTypeJsonb>();
         // if node path is emtpy we will meet error
         auto variant_column_reader1 = assert_cast<VariantColumnReader*>(column_reader1.get());
         EXPECT_TRUE(variant_column_reader1 != nullptr);
-        auto r = variant_column_reader1->get_subcolumn_readers()->get_leaves()[1];
+        auto r = variant_column_reader1->get_subcolumns_meta_info()->get_leaves()[1];
         r->path = PathInData("");
         // if we clear the parts manually, we will meet error, but it can be handled, and should not happen
         r->path.parts.clear();
-        sts = iter->add_stream(r.get());
+        sts = iter->add_stream(0, r.get(), &column_reader_cache, &stats);
         EXPECT_FALSE(sts.ok());
     }
 
@@ -364,7 +409,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         subcolumn_in_sparse.set_is_nullable(true);
 
         ColumnIteratorUPtr it;
-        st = variant_column_reader->new_iterator(&it, &subcolumn_in_sparse, &storage_read_opts);
+        st = variant_column_reader->new_iterator(&it, &subcolumn_in_sparse, &storage_read_opts,
+                                                 &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(assert_cast<SparseColumnExtractIterator*>(it.get()) != nullptr);
         st = it->init(column_iter_opts);
@@ -413,7 +459,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
             subcolumn.set_is_nullable(true);
 
             ColumnIteratorUPtr it;
-            st = variant_column_reader->new_iterator(&it, &subcolumn, &storage_read_opts);
+            st = variant_column_reader->new_iterator(&it, &subcolumn, &storage_read_opts,
+                                                     &column_reader_cache);
             EXPECT_TRUE(st.ok()) << st.msg();
             std::cout << "key " << key << std::endl;
             EXPECT_TRUE(dynamic_cast<FileColumnIterator*>(it.get()) != nullptr);
@@ -451,26 +498,28 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".key10"));
     subcolumn.set_is_nullable(true);
     ColumnIteratorUPtr it1;
-    st = variant_column_reader->new_iterator(&it1, &subcolumn, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it1, &subcolumn, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it1.get()) != nullptr);
 
     // 13. check statistics size == limit
     auto& variant_stats = variant_column_reader->_statistics;
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() <
-                config::variant_max_sparse_column_statistics_size);
-    auto limit = config::variant_max_sparse_column_statistics_size -
+                variant_column_reader->_variant_sparse_column_statistics_size);
+    auto limit = variant_column_reader->_variant_sparse_column_statistics_size -
                  variant_stats->sparse_column_non_null_size.size();
     for (int i = 0; i < limit; ++i) {
         std::string key = parent_column.name_lower_case() + ".key10" + std::to_string(i);
         variant_stats->sparse_column_non_null_size[key] = 10000;
     }
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() ==
-                config::variant_max_sparse_column_statistics_size);
+                variant_column_reader->_variant_sparse_column_statistics_size);
     EXPECT_TRUE(variant_column_reader->is_exceeded_sparse_column_limit());
 
     ColumnIteratorUPtr it2;
-    st = variant_column_reader->new_iterator(&it2, &subcolumn, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it2, &subcolumn, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<HierarchicalDataIterator*>(it2.get()) != nullptr);
     st = it2->init(column_iter_opts);
@@ -520,7 +569,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     check_leaf_reader();
     // 15. check compaction root reader
     ColumnIteratorUPtr it3;
-    st = variant_column_reader->new_iterator(&it3, &parent_column, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it3, &parent_column, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<VariantRootColumnIterator*>(it3.get()) != nullptr);
     st = it3->init(column_iter_opts);
@@ -550,7 +600,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // 16. check compacton sparse column
     TabletColumn sparse_column = schema_util::create_sparse_column(parent_column);
     ColumnIteratorUPtr it4;
-    st = variant_column_reader->new_iterator(&it4, &sparse_column, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it4, &sparse_column, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<SparseColumnMergeIterator*>(it4.get()) != nullptr);
     st = it4->init(column_iter_opts);
@@ -619,7 +670,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     subcolumn.set_name(parent_column.name_lower_case() + ".key10");
     subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".key10"));
     ColumnIteratorUPtr it5;
-    st = variant_column_reader->new_iterator(&it5, &subcolumn, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it5, &subcolumn, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<SparseColumnExtractIterator*>(it5.get()) != nullptr);
 
@@ -668,7 +720,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     ColumnIteratorUPtr it6;
     subcolumn.set_name(parent_column.name_lower_case() + ".key3");
     subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".key3"));
-    st = variant_column_reader->new_iterator(&it6, &subcolumn, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it6, &subcolumn, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<SparseColumnExtractIterator*>(it6.get()) != nullptr);
 
@@ -676,7 +729,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     subcolumn.set_name(parent_column.name_lower_case() + ".key10");
     subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".key10"));
     ColumnIteratorUPtr it7;
-    st = variant_column_reader->new_iterator(&it7, &subcolumn, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it7, &subcolumn, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it7.get()) != nullptr);
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
@@ -764,7 +818,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     EXPECT_TRUE(st.ok()) << st.msg();
     ColumnReaderOptions read_opts;
     read_opts.tablet_schema = _tablet_schema;
-    std::unique_ptr<ColumnReader> column_reader;
+    std::shared_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
@@ -780,12 +834,15 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         EXPECT_EQ(path_with_size[path], size);
     }
 
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+
     // 9. check root
     ColumnIteratorUPtr it;
     TabletColumn parent_column = _tablet_schema->column(0);
     StorageReadOptions storage_read_opts;
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<HierarchicalDataIterator*>(it.get()) != nullptr);
     ColumnIteratorOptions column_iter_opts;
@@ -833,7 +890,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         subcolumn_in_nested.set_is_nullable(true);
 
         ColumnIteratorUPtr it1;
-        st = variant_column_reader->new_iterator(&it1, &subcolumn_in_nested, &storage_read_opts);
+        st = variant_column_reader->new_iterator(&it1, &subcolumn_in_nested, &storage_read_opts,
+                                                 &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(assert_cast<HierarchicalDataIterator*>(it1.get()) != nullptr);
         st = it1->init(column_iter_opts);
@@ -1057,7 +1115,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     EXPECT_TRUE(st.ok()) << st.msg();
     ColumnReaderOptions read_opts;
     read_opts.tablet_schema = _tablet_schema;
-    std::unique_ptr<ColumnReader> column_reader;
+    std::shared_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
@@ -1073,12 +1131,15 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
         EXPECT_EQ(path_with_size[path], size);
     }
 
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+
     // 9. check root
     ColumnIteratorUPtr it;
     TabletColumn parent_column = _tablet_schema->column(0);
     StorageReadOptions storage_read_opts;
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<HierarchicalDataIterator*>(it.get()) != nullptr);
     ColumnIteratorOptions column_iter_opts;
@@ -1647,7 +1708,7 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
 
     ColumnReaderOptions reader_opts;
     reader_opts.tablet_schema = _tablet_schema;
-    std::unique_ptr<ColumnReader> reader;
+    std::shared_ptr<ColumnReader> reader;
     st = ColumnReader::create(reader_opts, footer, 0, 1000, file_reader, &reader);
     EXPECT_TRUE(st.ok()) << st.msg();
     auto variant_column_reader = assert_cast<VariantColumnReader*>(reader.get());
@@ -1673,10 +1734,12 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
     // 9. test get_metadata_size with null statistics
     EXPECT_GT(variant_reader->get_metadata_size(), 0);
 
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+
     // 10. test hierarchical reader with empty statistics
     ColumnIteratorUPtr iterator;
     StorageReadOptions read_opts;
-    st = variant_reader->new_iterator(&iterator, &column, &read_opts);
+    st = variant_reader->new_iterator(&iterator, &column, &read_opts, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(iterator != nullptr);
 }
@@ -1786,7 +1849,7 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
 
     ColumnReaderOptions reader_opts;
     reader_opts.tablet_schema = _tablet_schema;
-    std::unique_ptr<ColumnReader> reader;
+    std::shared_ptr<ColumnReader> reader;
     st = ColumnReader::create(reader_opts, footer, 0, 1000, file_reader, &reader);
     EXPECT_TRUE(st.ok()) << st.msg();
     auto variant_column_reader = assert_cast<VariantColumnReader*>(reader.get());
@@ -1812,10 +1875,12 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
     // 9. test get_metadata_size with null statistics
     EXPECT_GT(variant_reader->get_metadata_size(), 0);
 
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+
     // 10. test hierarchical reader with empty statistics
     ColumnIteratorUPtr iterator;
     StorageReadOptions read_opts;
-    st = variant_reader->new_iterator(&iterator, &column, &read_opts);
+    st = variant_reader->new_iterator(&iterator, &column, &read_opts, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(iterator != nullptr);
 }
@@ -1940,14 +2005,14 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     ColumnReaderOptions read_opts;
 
     read_opts.tablet_schema = _tablet_schema;
-    std::unique_ptr<ColumnReader> column_reader;
+    std::shared_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
     EXPECT_TRUE(variant_column_reader != nullptr);
     // test read situation for compaction with should flat all sub column
-    EXPECT_FALSE(variant_column_reader->get_subcolumn_readers()->empty());
+    EXPECT_FALSE(variant_column_reader->get_subcolumns_meta_info()->empty());
 
     // create a nested column array<struct> which not exists in subcolumn
     TabletColumn struct_column;
@@ -1985,8 +2050,11 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     storageReadOptions.io_ctx.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
 
     ColumnIteratorUPtr nested_column_iter;
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+
     st = variant_column_reader->_new_iterator_with_flat_leaves(&nested_column_iter, target_column,
-                                                               &storageReadOptions, false, false);
+                                                               &storageReadOptions, false, false,
+                                                               &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     // check iter for read_by_rowids, next_batch
     auto nested_iter = assert_cast<DefaultNestedColumnIterator*>(nested_column_iter.get());
@@ -2014,7 +2082,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     {
         ColumnIteratorUPtr nested_column_iter11;
         st = variant_column_reader->_new_iterator_with_flat_leaves(
-                &nested_column_iter11, target_column, &storageReadOptions, false, false);
+                &nested_column_iter11, target_column, &storageReadOptions, false, false,
+                &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         st = nested_column_iter11->init(nested_column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -2058,7 +2127,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
 
     ColumnIteratorUPtr nested_column_iter1;
     st = variant_column_reader->_new_iterator_with_flat_leaves(&nested_column_iter1, target_column,
-                                                               &storageReadOptions, false, false);
+                                                               &storageReadOptions, false, false,
+                                                               &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     // check iter for read_by_rowids, next_batch
     // dst is array<nullable(string)>
@@ -2076,7 +2146,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
         // make read by nested_iter1 directly
         ColumnIteratorUPtr nested_column_iter11;
         st = variant_column_reader->_new_iterator_with_flat_leaves(
-                &nested_column_iter11, target_column, &storageReadOptions, false, false);
+                &nested_column_iter11, target_column, &storageReadOptions, false, false,
+                &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         st = nested_column_iter11->init(nested_column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -2107,22 +2178,24 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
     EXPECT_TRUE(st.ok()) << st.msg();
     ColumnReaderOptions read_opts;
 
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+
     read_opts.tablet_schema = _tablet_schema;
-    std::unique_ptr<ColumnReader> column_reader;
+    std::shared_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
     EXPECT_TRUE(variant_column_reader != nullptr);
     // test read situation for compaction with should flat all sub column
-    EXPECT_FALSE(variant_column_reader->get_subcolumn_readers()->empty());
+    EXPECT_FALSE(variant_column_reader->get_subcolumns_meta_info()->empty());
 
     StorageReadOptions storageReadOptions;
     storageReadOptions.io_ctx.reader_type = ReaderType::READER_QUERY;
 
     ColumnIteratorUPtr nested_column_iter;
     st = variant_column_reader->new_iterator(&nested_column_iter, &_tablet_schema->column(0),
-                                             &storageReadOptions);
+                                             &storageReadOptions, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     // this is nested column root
     auto* nested_iter = assert_cast<HierarchicalDataIterator*>(nested_column_iter.get());
@@ -2133,7 +2206,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
     column_iter_opts.file_reader = file_reader.get();
     st = nested_iter->init(column_iter_opts);
     EXPECT_TRUE(st.ok()) << st.msg();
-    // fill with nullable columnObject target
+    // fill with nullable ColumnVariant target
     MutableColumnPtr new_column_object1 = ColumnVariant::create(3);
     MutableColumnPtr null_object =
             ColumnNullable::create(new_column_object1->assume_mutable(), ColumnUInt8::create());
@@ -2145,7 +2218,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(stats.bytes_read > 0);
     {
-        // fill with nullable columnObject target
+        // fill with nullable ColumnVariant target
         MutableColumnPtr new_column_object12 = ColumnVariant::create(3);
         MutableColumnPtr null_object12 = ColumnNullable::create(
                 new_column_object12->assume_mutable(), ColumnUInt8::create());
@@ -2170,14 +2243,14 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
         target_column.set_path_info(path);
 
         st = variant_column_reader->new_iterator(&nested_column_iter1, &target_column,
-                                                 &storageReadOptions);
+                                                 &storageReadOptions, &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         // this is nested column root
         auto* nested_iter2 = assert_cast<HierarchicalDataIterator*>(nested_column_iter1.get());
         EXPECT_TRUE(nested_iter2 != nullptr);
         st = nested_iter2->init(column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
-        // fill with nullable columnObject target
+        // fill with nullable ColumnVariant target
         MutableColumnPtr new_column_object2 = ColumnVariant::create(3);
         MutableColumnPtr null_object2 =
                 ColumnNullable::create(new_column_object2->assume_mutable(), ColumnUInt8::create());
@@ -2202,7 +2275,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
         target_column.set_path_info(path);
 
         st = variant_column_reader->new_iterator(&nested_column_iter1, &target_column,
-                                                 &storageReadOptions);
+                                                 &storageReadOptions, &column_reader_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         // this is nested column root
         auto* nested_iter2 = assert_cast<HierarchicalDataIterator*>(nested_column_iter1.get());
@@ -2225,7 +2298,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
         PathWithColumnAndType second = {relative_path, second_column->get_ptr(), second_data_type};
         nested_subcolumns[parent_path].emplace_back(second);
         // test _process_with_nested_column with different type
-        // init container which is ColumnObject
+        // init container which is ColumnVariant
         MutableColumnPtr nested_column_object = ColumnVariant::create(3);
         auto& container_variant = assert_cast<ColumnVariant&>(*nested_column_object);
         st = nested_iter2->_process_nested_columns(container_variant, nested_subcolumns, n);
@@ -2262,21 +2335,23 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter_nullable) {
     ColumnReaderOptions read_opts;
 
     read_opts.tablet_schema = _tablet_schema;
-    std::unique_ptr<ColumnReader> column_reader;
+    std::shared_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
     EXPECT_TRUE(variant_column_reader != nullptr);
     // test read situation for compaction with should flat all sub column
-    EXPECT_FALSE(variant_column_reader->get_subcolumn_readers()->empty());
+    EXPECT_FALSE(variant_column_reader->get_subcolumns_meta_info()->empty());
 
     StorageReadOptions storageReadOptions;
     storageReadOptions.io_ctx.reader_type = ReaderType::READER_QUERY;
 
     ColumnIteratorUPtr nested_column_iter;
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+
     st = variant_column_reader->new_iterator(&nested_column_iter, &_tablet_schema->column(0),
-                                             &storageReadOptions);
+                                             &storageReadOptions, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     // this is nested column root
     auto* nested_iter = assert_cast<HierarchicalDataIterator*>(nested_column_iter.get());
@@ -2287,7 +2362,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter_nullable) {
     column_iter_opts.file_reader = file_reader.get();
     st = nested_iter->init(column_iter_opts);
     EXPECT_TRUE(st.ok()) << st.msg();
-    // fill with nullable columnObject target
+    // fill with nullable ColumnVariant target
     MutableColumnPtr new_column_object1 = ColumnVariant::create(3);
     MutableColumnPtr null_object =
             ColumnNullable::create(new_column_object1->assume_mutable(), ColumnUInt8::create());
@@ -2416,17 +2491,19 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     EXPECT_TRUE(st.ok()) << st.msg();
     ColumnReaderOptions read_opts;
     read_opts.tablet_schema = _tablet_schema;
-    std::unique_ptr<ColumnReader> column_reader;
+    std::shared_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
+
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
 
     auto* variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
     EXPECT_TRUE(variant_column_reader != nullptr);
 
-    const auto* subcolumn_reader = variant_column_reader->get_reader_by_path(PathInData("b"));
-    EXPECT_TRUE(subcolumn_reader != nullptr);
-    subcolumn_reader = variant_column_reader->get_reader_by_path(PathInData("b.c"));
-    EXPECT_TRUE(subcolumn_reader != nullptr);
+    const auto* subcolumn_meta = variant_column_reader->get_subcolumn_meta_by_path(PathInData("b"));
+    EXPECT_TRUE(subcolumn_meta != nullptr);
+    subcolumn_meta = variant_column_reader->get_subcolumn_meta_by_path(PathInData("b.c"));
+    EXPECT_TRUE(subcolumn_meta != nullptr);
 
     TabletColumn parent_column = _tablet_schema->column(0);
     StorageReadOptions storage_read_opts;
@@ -2443,13 +2520,15 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     _tablet_schema->append_column(subcolumn);
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     ColumnIteratorUPtr hierarchical_it;
-    st = variant_column_reader->new_iterator(&hierarchical_it, &subcolumn, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&hierarchical_it, &subcolumn, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(dynamic_cast<HierarchicalDataIterator*>(hierarchical_it.get()) != nullptr);
 
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_CHECKSUM;
     ColumnIteratorUPtr it;
-    st = variant_column_reader->new_iterator(&it, &subcolumn, &storage_read_opts);
+    st = variant_column_reader->new_iterator(&it, &subcolumn, &storage_read_opts,
+                                             &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(dynamic_cast<FileColumnIterator*>(it.get()) != nullptr);
     ColumnIteratorOptions column_iter_opts;

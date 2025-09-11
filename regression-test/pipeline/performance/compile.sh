@@ -58,8 +58,7 @@ merge_pr_to_target_branch_latest() {
     git checkout "${target_branch}"
     git reset --hard origin/"${target_branch}"
     git pull origin "${target_branch}"
-    git submodule update --init be/src/clucene
-    git submodule update --init be/src/apache-orc
+    git submodule update --init --recursive --depth 1
     local target_branch_commit_id
     target_branch_commit_id=$(git rev-parse HEAD)
     git config user.email "ci@selectdb.com"
@@ -81,7 +80,7 @@ if [[ "${target_branch}" == "master" ]]; then
     docker_image="apache/doris:build-env-ldb-toolchain-latest"
 elif [[ "${target_branch}" == "branch-3.1" ]]; then
     REMOTE_CCACHE='/mnt/remote_ccache_master'
-    docker_image="apache/doris:build-env-ldb-toolchain-0.19-latest"
+    docker_image="apache/doris:build-env-for-3.1-0.19"
 elif [[ "${target_branch}" == "branch-3.0" ]]; then
     REMOTE_CCACHE='/mnt/remote_ccache_master'
     docker_image="apache/doris:build-env-for-3.0-0.19"

@@ -48,6 +48,7 @@
 #include "common/configbase.h"
 #include "common/logging.h"
 #include "common/string_util.h"
+#include "meta-service/meta_service_helper.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -63,7 +64,7 @@ namespace doris::cloud {
         auto st = parse_json_message(unresolved_path, body, &req);                              \
         if (!st.ok()) {                                                                         \
             std::string msg = "parse http request '" + unresolved_path + "': " + st.ToString(); \
-            LOG_WARNING(msg).tag("body", body);                                                 \
+            LOG_WARNING(msg).tag("body", encryt_sk(body));                                      \
             return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);                   \
         }                                                                                       \
     } while (0)
@@ -86,7 +87,7 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     if (!st.ok()) {
         std::string msg = "failed to strictly parse http request for '" + unresolved_path +
                           "' error: " + st.ToString();
-        LOG_WARNING(msg).tag("body", body);
+        LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));
 
         // ignore unknown fields
         google::protobuf::util::JsonParseOptions json_parse_options;
@@ -201,6 +202,7 @@ static HttpResponse process_alter_cluster(MetaServiceImpl* service, brpc::Contro
             {"decommission_node", AlterClusterRequest::DECOMMISSION_NODE},
             {"set_cluster_status", AlterClusterRequest::SET_CLUSTER_STATUS},
             {"notify_decommissioned", AlterClusterRequest::NOTIFY_DECOMMISSIONED},
+            {"alter_vcluster_info", AlterClusterRequest::ALTER_VCLUSTER_INFO},
     };
 
     auto& path = ctrl->http_request().unresolved_path();
@@ -680,6 +682,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"decommission_node", process_alter_cluster},
             {"set_cluster_status", process_alter_cluster},
             {"notify_decommissioned", process_alter_cluster},
+            {"alter_vcluster_info", process_alter_cluster},
             {"v1/add_cluster", process_alter_cluster},
             {"v1/drop_cluster", process_alter_cluster},
             {"v1/rename_cluster", process_alter_cluster},
@@ -689,6 +692,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/drop_node", process_alter_cluster},
             {"v1/decommission_node", process_alter_cluster},
             {"v1/set_cluster_status", process_alter_cluster},
+            {"v1/alter_vcluster_info", process_alter_cluster},
             // for alter instance
             {"create_instance", process_create_instance},
             {"drop_instance", process_alter_instance},
@@ -773,6 +777,8 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     LOG(INFO) << "rpc from " << cntl->remote_side()
               << " request: " << cntl->http_request().uri().path();
     std::string http_request = format_http_request(cntl);
+    std::string http_request_for_log = encryt_sk(http_request);
+    http_request_for_log = hide_ak(http_request_for_log);
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");
@@ -783,7 +789,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
         cntl->response_attachment().append(body);
         cntl->response_attachment().append("\n");
         LOG(WARNING) << "failed to handle http from " << cntl->remote_side()
-                     << " request: " << http_request << " msg: " << body;
+                     << " request: " << http_request_for_log << " msg: " << body;
         return;
     }
 
@@ -803,7 +809,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     int ret = cntl->http_response().status_code();
     LOG(INFO) << (ret == 200 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
               << cntl->remote_side() << " request=\n"
-              << http_request << "\n ret=" << ret << " msg=" << msg;
+              << http_request_for_log << "\n ret=" << ret << " msg=" << msg;
 }
 
 } // namespace doris::cloud

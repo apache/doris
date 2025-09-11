@@ -39,6 +39,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/compaction.h"
@@ -354,7 +355,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                             download_idx_file(idx_path, index_size_map[index->index_id()]);
                         }
                     } else {
-                        if (schema_ptr->has_inverted_index()) {
+                        if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                             auto&& inverted_index_info =
                                     rowset_meta->inverted_index_file_info(seg_id);
                             int64_t idx_size = 0;
@@ -503,9 +504,9 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
                     stale_rowsets.push_back(rs_it->second);
-                    LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
-                              << " rowset_id=" << rs_it->second->rowset_id().to_string()
-                              << " version=" << rs_it->first.to_string();
+                    VLOG_DEBUG << "erase stale rowset, tablet_id=" << tablet_id()
+                               << " rowset_id=" << rs_it->second->rowset_id().to_string()
+                               << " version=" << rs_it->first.to_string();
                     _stale_rs_version_map.erase(rs_it);
                 } else {
                     LOG(WARNING) << "cannot find stale rowset " << v_ts->version() << " in tablet "
@@ -701,7 +702,6 @@ std::vector<RecycledRowsets> CloudTablet::recycle_cached_data(
 
 void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segments,
                                           int64_t num_rows, int64_t data_size) {
-    _approximate_num_rowsets.store(num_rowsets, std::memory_order_relaxed);
     _approximate_num_segments.store(num_segments, std::memory_order_relaxed);
     _approximate_num_rows.store(num_rows, std::memory_order_relaxed);
     _approximate_data_size.store(data_size, std::memory_order_relaxed);
@@ -712,10 +712,16 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
         if (v.second < cp) {
             continue;
         }
-
         cumu_num_deltas += r->is_segments_overlapping() ? r->num_segments() : 1;
         ++cumu_num_rowsets;
     }
+    // num_rowsets may be less than the size of _rs_version_map when there are some hole rowsets
+    // in the version map, so we use the max value to ensure that the approximate number
+    // of rowsets is at least the size of _rs_version_map.
+    // Note that this is not the exact number of rowsets, but an approximate number.
+    int64_t approximate_num_rowsets =
+            std::max(num_rowsets, static_cast<int64_t>(_rs_version_map.size()));
+    _approximate_num_rowsets.store(approximate_num_rowsets, std::memory_order_relaxed);
     _approximate_cumu_num_rowsets.store(cumu_num_rowsets, std::memory_order_relaxed);
     _approximate_cumu_num_deltas.store(cumu_num_deltas, std::memory_order_relaxed);
 }
@@ -728,6 +734,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.index_id = index_id();
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
@@ -769,6 +776,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
+    context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
 
     auto storage_resource = rowset.rowset_meta()->remote_storage_resource();
     if (!storage_resource) {
@@ -973,6 +981,82 @@ void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
                  << ", origin: " << _cumulative_point.load();
 }
 
+Status CloudTablet::check_rowset_schema_for_build_index(std::vector<TColumn>& columns,
+                                                        int schema_version) {
+    std::map<std::string, TabletColumn> fe_col_map;
+    for (int i = 0; i < columns.size(); i++) {
+        fe_col_map[columns[i].column_name] = TabletColumn(columns[i]);
+    }
+
+    std::shared_lock rlock(_meta_lock);
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first == 0) {
+            continue;
+        }
+
+        if (rs->tablet_schema()->schema_version() >= schema_version) {
+            continue;
+        }
+
+        for (auto rs_col : rs->tablet_schema()->columns()) {
+            auto find_ret = fe_col_map.find(rs_col->name());
+            if (find_ret == fe_col_map.end()) {
+                return Status::InternalError(
+                        "check rowset meta failed:rowset's col is dropped in FE.");
+            }
+
+            if (rs_col->unique_id() != find_ret->second.unique_id()) {
+                return Status::InternalError("check rowset meta failed:col id not match.");
+            }
+
+            if (rs_col->type() != find_ret->second.type()) {
+                return Status::InternalError("check rowset meta failed:col type not match.");
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(int schema_version,
+                                                                    bool& is_base_rowset) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudTablet::pick_a_rowset_for_index_change",
+                                      Result<RowsetSharedPtr>(nullptr));
+    RowsetSharedPtr ret_rowset = nullptr;
+    std::shared_lock rlock(_meta_lock);
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first == 0) {
+            continue;
+        }
+        if (rs->num_rows() == 0) {
+            VLOG_DEBUG << "[index_change]find empty rs, index change may "
+                          "failed, id="
+                       << rs->rowset_id().to_string();
+        }
+
+        if (rs->tablet_schema()->schema_version() >= schema_version) {
+            VLOG_DEBUG << "[index_change] skip rowset " << rs->tablet_schema()->schema_version()
+                       << "," << schema_version;
+            continue;
+        }
+
+        if (ret_rowset == nullptr) {
+            ret_rowset = rs;
+            continue;
+        }
+
+        if (rs->start_version() > ret_rowset->start_version()) {
+            ret_rowset = rs;
+        }
+    }
+
+    if (ret_rowset != nullptr) {
+        is_base_rowset = ret_rowset->version().first < _cumulative_point;
+    }
+
+    return ret_rowset;
+}
+
 std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {
@@ -1027,7 +1111,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     }
 
     RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
-                                             next_visible_version));
+                                             next_visible_version, rowset));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
@@ -1058,7 +1142,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
 Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                              DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                             int64_t next_visible_version) {
+                                             int64_t next_visible_version, RowsetSharedPtr rowset) {
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
@@ -1072,10 +1156,16 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
     // lock_id != -1 means this is in an explict txn
     bool is_explicit_txn = (lock_id != -1);
     auto ms_lock_id = !is_explicit_txn ? txn_id : lock_id;
-
-    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
-                                                            new_delete_bitmap.get(), txn_id,
-                                                            is_explicit_txn, next_visible_version));
+    std::optional<StorageResource> storage_resource;
+    auto storage_resource_result = rowset->rowset_meta()->remote_storage_resource();
+    if (storage_resource_result) {
+        storage_resource = *storage_resource_result.value();
+    }
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
+            *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(), new_delete_bitmap.get(),
+            rowset->rowset_id().to_string(), storage_resource,
+            config::delete_bitmap_store_write_version, txn_id, is_explicit_txn,
+            next_visible_version));
     return Status::OK();
 }
 
@@ -1195,14 +1285,48 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     int64_t t5 = MonotonicMicros();
 
     // 3. store delete bitmap
-    auto st = _engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
-                                                      output_rowset_delete_bitmap.get());
+    DeleteBitmapPtr delete_bitmap_v2 = nullptr;
+    auto delete_bitmap_size = output_rowset_delete_bitmap->delete_bitmap.size();
+    auto store_version = config::delete_bitmap_store_write_version;
+    if (store_version == 2 || store_version == 3) {
+        delete_bitmap_v2 = std::make_shared<DeleteBitmap>(*output_rowset_delete_bitmap);
+        std::vector<std::pair<RowsetId, int64_t>> retained_rowsets_to_seg_num;
+        {
+            std::shared_lock rlock(get_header_lock());
+            for (const auto& [rowset_version, rowset_ptr] : rowset_map()) {
+                if (rowset_version.second < output_rowset->start_version()) {
+                    retained_rowsets_to_seg_num.emplace_back(
+                            std::make_pair(rowset_ptr->rowset_id(), rowset_ptr->num_segments()));
+                }
+            }
+        }
+        if (config::enable_agg_delta_delete_bitmap_for_store_v2) {
+            tablet_meta()->delete_bitmap().subset_and_agg(
+                    retained_rowsets_to_seg_num, output_rowset->start_version(),
+                    output_rowset->end_version(), delete_bitmap_v2.get());
+        } else {
+            tablet_meta()->delete_bitmap().subset(
+                    retained_rowsets_to_seg_num, output_rowset->start_version(),
+                    output_rowset->end_version(), delete_bitmap_v2.get());
+        }
+    }
+    std::optional<StorageResource> storage_resource;
+    auto storage_resource_result = output_rowset->rowset_meta()->remote_storage_resource();
+    if (storage_resource_result) {
+        storage_resource = *storage_resource_result.value();
+    }
+    auto st = _engine.meta_mgr().update_delete_bitmap(
+            *this, -1, initiator, output_rowset_delete_bitmap.get(), delete_bitmap_v2.get(),
+            output_rowset->rowset_id().to_string(), storage_resource, store_version);
     int64_t t6 = MonotonicMicros();
     LOG(INFO) << "calc_delete_bitmap_for_compaction, tablet_id=" << tablet_id()
               << ", get lock cost " << (t2 - t1) << " us, sync rowsets cost " << (t3 - t2)
               << " us, calc delete bitmap cost " << (t4 - t3) << " us, check rowid conversion cost "
               << (t5 - t4) << " us, store delete bitmap cost " << (t6 - t5)
-              << " us, st=" << st.to_string();
+              << " us, st=" << st.to_string() << ". store_version=" << store_version
+              << ", calculated delete bitmap size=" << delete_bitmap_size
+              << ", update delete bitmap size="
+              << output_rowset_delete_bitmap->delete_bitmap.size();
     return st;
 }
 

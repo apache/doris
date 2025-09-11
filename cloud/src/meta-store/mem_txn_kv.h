@@ -23,7 +23,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -63,6 +62,12 @@ public:
     size_t total_kvs() const {
         std::lock_guard<std::mutex> l(lock_);
         return mem_kv_.size();
+    }
+
+    void update_commit_version(int64_t version) {
+        std::lock_guard<std::mutex> l(lock_);
+        committed_version_ = std::max(committed_version_, version);
+        read_version_ = std::max(committed_version_, read_version_);
     }
 
     int64_t get_bytes_ {};
@@ -222,7 +227,7 @@ public:
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
     TxnErrorCode batch_scan(std::vector<std::optional<std::pair<std::string, std::string>>>* res,
-                            const std::vector<std::string>& keys,
+                            const std::vector<std::pair<std::string, std::string>>& ranges,
                             const BatchGetOptions& opts = BatchGetOptions()) override;
 
     size_t approximate_bytes() const override { return approximate_bytes_; }
@@ -238,6 +243,10 @@ public:
     size_t put_bytes() const override { return put_bytes_; }
 
     size_t get_bytes() const override { return get_bytes_; }
+
+    void enable_get_versionstamp() override;
+
+    TxnErrorCode get_versionstamp(std::string* versionstamp) override;
 
 private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
@@ -266,6 +275,9 @@ private:
     size_t delete_bytes_ {0};
     size_t put_bytes_ {0};
     size_t get_bytes_ {0};
+
+    bool versionstamp_enabled_ {false};
+    std::string versionstamp_result_;
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {

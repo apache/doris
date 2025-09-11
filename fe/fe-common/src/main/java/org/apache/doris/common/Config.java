@@ -1285,6 +1285,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static String[] force_skip_journal_ids = {};
 
+    @ConfField(description = {"当回放 editlog 时遇到特定操作类型的异常导致 FE 无法启动时，可以配置需要忽略的 editlog 操作类型枚举值，"
+            + "从而跳过这些异常，让 replay 线程可以继续回放其他日志",
+        "When replaying editlog encounters exceptions with specific operation types that prevent FE from starting, "
+            + "you can configure the editlog operation type enum values to be ignored, "
+            + "thereby skipping these exceptions and allowing the replay thread to continue replaying other logs"})
+    public static short[] skip_operation_types_on_replay_exception =  {-1, -1};
+
     /**
      * Decide how often to check dynamic partition
      */
@@ -1708,6 +1715,12 @@ public class Config extends ConfigBase {
         "Whether to enable cloud restore job."}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cloud_restore_job = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "存算分离恢复过程中，一次 create tablets rpc 创建的 tablet 数量上限，默认值为256个",
+        "During the cloud restore job, the maximum number of tablets created by one "
+            + "create tablets RPC, 256 by default."})
+    public static int cloud_restore_create_tablet_batch_size = 256;
+
     /**
      * Control the default max num of the instance for a user.
      */
@@ -2055,36 +2068,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int be_exec_version = max_be_exec_version;
-
-    /*
-     * mtmv is still under dev, remove this config when it is graduate.
-     */
-    @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_mtmv = false;
-
-    /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_running_mtmv_scheduler_task_num = 100;
-
-    /* Max pending task num keep in pending poll, otherwise it reject the task submit*/
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_pending_mtmv_scheduler_task_num = 100;
-
-    /* Remove the completed mtmv job after this expired time. */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static long scheduler_mtmv_job_expired = 24 * 60 * 60L; // 1day
-
-    /* Remove the finished mtmv task after this expired time. */
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
-
-    @Deprecated
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean keep_scheduler_mtmv_task_when_job_deleted = false;
 
     /**
      * If set to true, query on external table will prefer to assign to compute node.
@@ -2539,7 +2522,7 @@ public class Config extends ConfigBase {
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
      * we may delete the DecimalV2 and DateV1 types in the future.
-     * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
+     * At this stage, we use 'disable_decimalv2' and 'disable_datev1'
      * to determine whether these two types take effect.
      */
     @ConfField(mutable = true)
@@ -3035,6 +3018,13 @@ public class Config extends ConfigBase {
     public static String inverted_index_storage_format = "V2";
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "是否为新分区启用倒排索引 V2 存储格式。启用后，新创建的分区将使用 V2 格式，而不管表的原始格式如何。",
+            "Enable V2 storage format for inverted indexes in new partitions. When enabled, newly created partitions "
+                    + "will use V2 format regardless of the table's original format."
+    })
+    public static boolean enable_new_partition_inverted_index_v2_format = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
                     + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
             "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
@@ -3400,6 +3390,14 @@ public class Config extends ConfigBase {
             + "public-private/public/private/direct/random-be and empty string" })
     public static String streamload_redirect_policy = "";
 
+    @ConfField(mutable = true, description = {
+            "存算分离模式下是否启用group commit的streamload BE转发功能。"
+                    + "解决LB随机转发导致group commit攒批失效的问题，通过BE二次转发确保同表请求到达同一BE节点。",
+            "Whether to enable group commit streamload BE forward feature in cloud mode. "
+                    + "Solves the issue where LB random forwarding breaks group commit batching "
+                    + "by implementing BE-level forwarding to ensure same-table requests reach the same BE node." })
+    public static boolean enable_group_commit_streamload_be_forward = false;
+
     @ConfField(description = {"存算分离模式下建表是否检查残留recycler key, 默认true",
         "create table in cloud mode, check recycler key remained, default true"})
     public static boolean check_create_table_recycle_key_remained = true;
@@ -3572,4 +3570,34 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static long create_partition_wait_seconds = 300;
+
+    @ConfField(mutable = true, description = {
+        "KMS 主密钥的 ID，用于生成和加密数据密钥",
+        "The ID of the master key in KMS, used for generating and encrypting data keys"
+    })
+    public static String doris_tde_key_id = "";
+
+    @ConfField(mutable = true, description = {
+        "KMS 服务的访问地址（endpoint），需与密钥所在的 region 匹配",
+        "The endpoint of the KMS service, should match the region of the key"
+    })
+    public static String doris_tde_key_endpoint = "";
+
+    @ConfField(mutable = true, description = {
+        "KMS 密钥所属的区域，用于 SDK 调用时的区域配置",
+        "The region where the KMS key is located, used for SDK configuration"
+    })
+    public static String doris_tde_key_region = "";
+
+    @ConfField(mutable = true, description = {
+        "TDE（透明数据加密）的密钥提供方，目前支持 aws_kms",
+        "The key provider for TDE (Transparent Data Encryption), currently supports aws_kms"
+    })
+    public static String doris_tde_key_provider = "";
+
+    @ConfField(mutable = true, description = {
+        "数据加密所使用的算法，默认 AES256，后续可能置空由 KMS 自动决定",
+        "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
+    })
+    public static String doris_tde_algorithm = "PLAINTEXT";
 }

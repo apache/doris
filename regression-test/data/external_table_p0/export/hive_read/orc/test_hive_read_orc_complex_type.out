@@ -33,7 +33,7 @@
 1	doris1	{"a":100, "b":111}
 2	doris2	{"a":200, "b":222}
 3	doris3	{"a":null, "b":333, "c":399, "d":399999999999999}
-4	doris4	{null:null, null:null}
+4	doris4	{null:null}
 5	doris5	{"b":null}
 6	\N	\N
 7	doris7	\N
@@ -42,7 +42,7 @@
 1	doris1	{"a":"100", "b":"111"}
 2	doris2	{"a":"200", "b":"222"}
 3	doris3	{"a":null, "b":"333", "c":"399", "d":"399999999999999"}
-4	doris4	{null:null, null:null}
+4	doris4	{null:null}
 5	doris5	{"b":null}
 6	\N	\N
 7	doris7	\N
@@ -94,7 +94,7 @@
 5	doris_5	{"user_id":5, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":5, "sex":5, "bool_col":1, "int_col":5, "bigint_col":5, "largeint_col":5, "float_col":5.5, "double_col":5.5, "char_col":"char5_1234", "decimal_col":5.000000000}
 6	doris_6	{"user_id":6, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":6, "sex":6, "bool_col":1, "int_col":6, "bigint_col":6, "largeint_col":6, "float_col":6.6, "double_col":6.6, "char_col":"char6_1234", "decimal_col":6.000000000}
 7	doris_7	{"user_id":7, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":7, "sex":7, "bool_col":1, "int_col":7, "bigint_col":7, "largeint_col":7, "float_col":7.7, "double_col":7.7, "char_col":"char7_1234", "decimal_col":7.000000000}
-8	doris_8	{"user_id":8, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":8, "sex":8, "bool_col":1, "int_col":8, "bigint_col":8, "largeint_col":8, "float_col":8.8, "double_col":8.8, "char_col":"char8_1234", "decimal_col":8.000000000}
+8	doris_8	{"user_id":8, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":8, "sex":8, "bool_col":1, "int_col":8, "bigint_col":8, "largeint_col":8, "float_col":8.8, "double_col":8.800000000000001, "char_col":"char8_1234", "decimal_col":8.000000000}
 9	doris_9	{"user_id":9, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":9, "sex":9, "bool_col":1, "int_col":9, "bigint_col":9, "largeint_col":9, "float_col":9.9, "double_col":9.9, "char_col":"char9_1234", "decimal_col":9.000000000}
 10	doris_10	{"user_id":10, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":null, "age":null, "sex":null, "bool_col":null, "int_col":null, "bigint_col":null, "largeint_col":null, "float_col":null, "double_col":null, "char_col":null, "decimal_col":null}
 
@@ -106,7 +106,7 @@
 5	doris_5	{"user_id":5, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":5, "sex":5, "bool_col":1, "int_col":5, "bigint_col":5, "largeint_col":"5", "float_col":5.5, "double_col":5.5, "char_col":"char5_1234", "decimal_col":5.000000000}
 6	doris_6	{"user_id":6, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":6, "sex":6, "bool_col":1, "int_col":6, "bigint_col":6, "largeint_col":"6", "float_col":6.6, "double_col":6.6, "char_col":"char6_1234", "decimal_col":6.000000000}
 7	doris_7	{"user_id":7, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":7, "sex":7, "bool_col":1, "int_col":7, "bigint_col":7, "largeint_col":"7", "float_col":7.7, "double_col":7.7, "char_col":"char7_1234", "decimal_col":7.000000000}
-8	doris_8	{"user_id":8, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":8, "sex":8, "bool_col":1, "int_col":8, "bigint_col":8, "largeint_col":"8", "float_col":8.8, "double_col":8.8, "char_col":"char8_1234", "decimal_col":8.000000000}
+8	doris_8	{"user_id":8, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":8, "sex":8, "bool_col":1, "int_col":8, "bigint_col":8, "largeint_col":"8", "float_col":8.8, "double_col":8.800000000000001, "char_col":"char8_1234", "decimal_col":8.000000000}
 9	doris_9	{"user_id":9, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":9, "sex":9, "bool_col":1, "int_col":9, "bigint_col":9, "largeint_col":"9", "float_col":9.9, "double_col":9.9, "char_col":"char9_1234", "decimal_col":9.000000000}
 10	doris_10	{"user_id":10, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":null, "age":null, "sex":null, "bool_col":null, "int_col":null, "bigint_col":null, "largeint_col":null, "float_col":null, "double_col":null, "char_col":null, "decimal_col":null}
 
@@ -156,7 +156,7 @@
 1	doris1	{"a":100, "b":111}
 2	doris2	{"a":200, "b":222}
 3	doris3	{"a":null, "b":333, "c":399, "d":399999999999999}
-4	doris4	{null:null, null:null}
+4	doris4	{null:null}
 5	doris5	{"b":null}
 6	\N	\N
 7	doris7	\N
@@ -165,7 +165,7 @@
 1	doris1	{"a":"100", "b":"111"}
 2	doris2	{"a":"200", "b":"222"}
 3	doris3	{"a":null, "b":"333", "c":"399", "d":"399999999999999"}
-4	doris4	{null:null, null:null}
+4	doris4	{null:null}
 5	doris5	{"b":null}
 6	\N	\N
 7	doris7	\N
@@ -217,7 +217,7 @@
 5	doris_5	{"user_id":5, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":5, "sex":5, "bool_col":1, "int_col":5, "bigint_col":5, "largeint_col":5, "float_col":5.5, "double_col":5.5, "char_col":"char5_1234", "decimal_col":5.000000000}
 6	doris_6	{"user_id":6, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":6, "sex":6, "bool_col":1, "int_col":6, "bigint_col":6, "largeint_col":6, "float_col":6.6, "double_col":6.6, "char_col":"char6_1234", "decimal_col":6.000000000}
 7	doris_7	{"user_id":7, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":7, "sex":7, "bool_col":1, "int_col":7, "bigint_col":7, "largeint_col":7, "float_col":7.7, "double_col":7.7, "char_col":"char7_1234", "decimal_col":7.000000000}
-8	doris_8	{"user_id":8, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":8, "sex":8, "bool_col":1, "int_col":8, "bigint_col":8, "largeint_col":8, "float_col":8.8, "double_col":8.8, "char_col":"char8_1234", "decimal_col":8.000000000}
+8	doris_8	{"user_id":8, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":8, "sex":8, "bool_col":1, "int_col":8, "bigint_col":8, "largeint_col":8, "float_col":8.8, "double_col":8.800000000000001, "char_col":"char8_1234", "decimal_col":8.000000000}
 9	doris_9	{"user_id":9, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":"Beijing", "age":9, "sex":9, "bool_col":1, "int_col":9, "bigint_col":9, "largeint_col":9, "float_col":9.9, "double_col":9.9, "char_col":"char9_1234", "decimal_col":9.000000000}
 10	doris_10	{"user_id":10, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00", "city":null, "age":null, "sex":null, "bool_col":null, "int_col":null, "bigint_col":null, "largeint_col":null, "float_col":null, "double_col":null, "char_col":null, "decimal_col":null}
 
@@ -229,7 +229,7 @@
 5	doris_5	{"user_id":5, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":5, "sex":5, "bool_col":1, "int_col":5, "bigint_col":5, "largeint_col":"5", "float_col":5.5, "double_col":5.5, "char_col":"char5_1234", "decimal_col":5.000000000}
 6	doris_6	{"user_id":6, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":6, "sex":6, "bool_col":1, "int_col":6, "bigint_col":6, "largeint_col":"6", "float_col":6.6, "double_col":6.6, "char_col":"char6_1234", "decimal_col":6.000000000}
 7	doris_7	{"user_id":7, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":7, "sex":7, "bool_col":1, "int_col":7, "bigint_col":7, "largeint_col":"7", "float_col":7.7, "double_col":7.7, "char_col":"char7_1234", "decimal_col":7.000000000}
-8	doris_8	{"user_id":8, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":8, "sex":8, "bool_col":1, "int_col":8, "bigint_col":8, "largeint_col":"8", "float_col":8.8, "double_col":8.8, "char_col":"char8_1234", "decimal_col":8.000000000}
+8	doris_8	{"user_id":8, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":8, "sex":8, "bool_col":1, "int_col":8, "bigint_col":8, "largeint_col":"8", "float_col":8.8, "double_col":8.800000000000001, "char_col":"char8_1234", "decimal_col":8.000000000}
 9	doris_9	{"user_id":9, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":"Beijing", "age":9, "sex":9, "bool_col":1, "int_col":9, "bigint_col":9, "largeint_col":"9", "float_col":9.9, "double_col":9.9, "char_col":"char9_1234", "decimal_col":9.000000000}
 10	doris_10	{"user_id":10, "date":"2017-10-01", "datetime":"2017-10-01 00:00:00.000000", "city":null, "age":null, "sex":null, "bool_col":null, "int_col":null, "bigint_col":null, "largeint_col":null, "float_col":null, "double_col":null, "char_col":null, "decimal_col":null}
 

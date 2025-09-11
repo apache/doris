@@ -924,12 +924,27 @@ Status ArrayColumnWriter::init() {
                                                       _opts.inverted_indexes[0]));
         }
     }
+    if (_opts.need_ann_index) {
+        auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        if (writer != nullptr) {
+            _ann_index_writer = std::make_unique<AnnIndexColumnWriter>(_opts.index_file_writer,
+                                                                       _opts.ann_index);
+            RETURN_IF_ERROR(_ann_index_writer->init());
+        }
+    }
     return Status::OK();
 }
 
 Status ArrayColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
         return _inverted_index_builder->finish();
+    }
+    return Status::OK();
+}
+
+Status ArrayColumnWriter::write_ann_index() {
+    if (_opts.need_ann_index) {
+        return _ann_index_writer->finish();
     }
     return Status::OK();
 }
@@ -957,6 +972,21 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
             RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
                     _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+        }
+    }
+
+    if (_opts.need_ann_index) {
+        auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        // now only support nested type is scala
+        if (writer != nullptr) {
+            //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
+            RETURN_IF_ERROR(_ann_index_writer->add_array_values(
+                    _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
+                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+        } else {
+            return Status::NotSupported(
+                    "Ann index can only be build on array with scalar type. but got {} as nested",
+                    _item_writer->get_field()->type());
         }
     }
 

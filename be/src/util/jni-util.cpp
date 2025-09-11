@@ -22,11 +22,9 @@
 #include <jni.h>
 #include <jni_md.h>
 
-#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
-#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -34,6 +32,7 @@
 #include <vector>
 
 #include "absl/strings/substitute.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
@@ -42,7 +41,7 @@
 using std::string;
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 namespace {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
@@ -146,7 +145,7 @@ const std::string GetKerb5ConfPath() {
         JavaVMInitArgs vm_args;
         vm_args.version = JNI_VERSION_1_8;
         vm_args.options = jvm_options.get();
-        vm_args.nOptions = options.size();
+        vm_args.nOptions = cast_set<int>(options.size());
         // Set it to JNI_FALSE because JNI_TRUE will let JVM ignore the max size config.
         vm_args.ignoreUnrecognized = JNI_FALSE;
 
@@ -660,5 +659,5 @@ Status JniUtil::Init() {
     DorisMetrics::instance()->init_jvm_metrics(env);
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

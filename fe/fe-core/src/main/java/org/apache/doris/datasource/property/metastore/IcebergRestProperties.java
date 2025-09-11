@@ -100,7 +100,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @ConnectorProperty(names = {"iceberg.rest.oauth2.token-refresh-enabled"},
             required = false,
             description = "Enable oauth2 token refresh for the iceberg rest catalog service.")
-    private String icebergRestOauth2TokenRefreshEnabled = "false";
+    private String icebergRestOauth2TokenRefreshEnabled = String.valueOf(
+            OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT);
 
     @ConnectorProperty(names = {"iceberg.rest.vended-credentials-enabled"},
             required = false,

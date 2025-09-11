@@ -427,11 +427,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         filterKeyColStatsBuilder.setNdv(ndv);
 
         // compute selectivity
-        double matchedHotValueRatio = matchedHotValues.values().stream().mapToDouble(x -> x).sum()
-                / ColumnStatistic.ONE_HUNDRED;
+        double matchedHotValueRatio = matchedHotValues.values().stream().mapToDouble(x -> x).sum();
         double nonHotValueRatio = 1.0 - matchedHotValueRatio
-                - missMatchedHotValues.values().stream().mapToDouble(x -> x).sum()
-                / ColumnStatistic.ONE_HUNDRED;
+                - missMatchedHotValues.values().stream().mapToDouble(x -> x).sum();
 
         if (matchedHotValues.isEmpty()) {
             selectivity = nonHotValueRatio * selectivity;
@@ -524,21 +522,23 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     private ColumnStatistic convertDateColStatsToStringColStats(ColumnStatistic colStats,
             Map<DateLiteral, StringLiteral> literalMap) {
-        if (colStats.minExpr == null && colStats.maxExpr == null) {
-            // when sel=0, minExpr and maxExpr are both null
-            return colStats;
-        }
-        Preconditions.checkArgument(colStats.minExpr instanceof DateLiteral
-                        && colStats.maxExpr instanceof DateLiteral,
-                "cannot convert colStats back to stringType %s", colStats.toString());
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-        StringLiteral newMinLiteral = new StringLiteral(colStats.maxExpr.toString());
-        return builder.setMaxExpr(newMinLiteral)
-                .setMaxExpr(literalMap.get(colStats.maxExpr))
-                .setMaxValue(StringLikeLiteral.getDouble(colStats.maxExpr.toString()))
-                .setMinExpr(literalMap.get(colStats.minExpr))
-                .setMinValue(StringLikeLiteral.getDouble(colStats.minExpr.getStringValue()))
-                .build();
+        if (colStats.minExpr != null) {
+            builder.setMinExpr(literalMap.get(colStats.minExpr))
+                    .setMinValue(StringLikeLiteral.getDouble(colStats.minExpr.getStringValue()));
+        } else {
+            builder.setMinExpr(null)
+                    .setMinValue(Double.NEGATIVE_INFINITY);
+        }
+
+        if (colStats.maxExpr != null) {
+            builder.setMaxExpr(literalMap.get(colStats.maxExpr))
+                    .setMaxValue(StringLikeLiteral.getDouble(colStats.maxExpr.toString()));
+        } else {
+            builder.setMaxExpr(null)
+                    .setMaxValue(Double.POSITIVE_INFINITY);
+        }
+        return builder.build();
     }
 
     private Optional<ColumnStatistic> tryConvertStringColStatsToDateColStats(ColumnStatistic colStats,
@@ -619,7 +619,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                                 // stats-derive may be applied before type coercion. so we need to try to catch
                                 // comparison exception. for example: boolean compare with int
                                 if (((ComparableLiteral) hot).compareTo((ComparableLiteral) constHand) == 0) {
-                                    selectivity = statsForLeft.getHotValues().get(hot) / ColumnStatistic.ONE_HUNDRED;
+                                    selectivity = statsForLeft.getHotValues().get(hot);
                                     break;
                                 }
                             } catch (Exception e) {
@@ -791,14 +791,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         Math.min(StatsMathUtil.divide(newCompareExprStats.ndv, compareExprStats.ndv), 1));
             } else {
                 double nonHotRatio = 1
-                        - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum()
-                        / ColumnStatistic.ONE_HUNDRED;
+                        - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
                 if (nonHotRatio > 0) {
                     double nonHotSel = nonHotRatio
                             * (newCompareExprStats.ndv - newCompareExprStats.getHotValues().size())
                             / (compareExprStats.ndv - compareExprStats.getHotValues().size());
-                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum()
-                            / ColumnStatistic.ONE_HUNDRED;
+                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
                     selectivity = nonHotSel + hotSel;
                 } else {
                     selectivity = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();

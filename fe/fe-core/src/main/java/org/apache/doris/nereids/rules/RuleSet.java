@@ -43,6 +43,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyScanRul
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
@@ -86,6 +87,9 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
+import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
@@ -201,6 +205,9 @@ public class RuleSet {
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
             .add(new AggregateStrategies())
+            .add(SplitAggWithoutDistinct.INSTANCE)
+            .add(SplitAggMultiPhase.INSTANCE)
+            .add(SplitAggMultiPhaseWithoutGbyKey.INSTANCE)
             .add(new LogicalUnionToPhysicalUnion())
             .add(new LogicalExceptToPhysicalExcept())
             .add(new LogicalIntersectToPhysicalIntersect())
@@ -245,7 +252,7 @@ public class RuleSet {
             .addAll(OTHER_REORDER_RULES)
             .build();
 
-    public static final List<Rule> MATERIALIZED_VIEW_RULES = planRuleFactories()
+    public static final List<Rule> MATERIALIZED_VIEW_IN_CBO_RULES = planRuleFactories()
             .add(MaterializedViewProjectJoinRule.INSTANCE)
             .add(MaterializedViewFilterJoinRule.INSTANCE)
             .add(MaterializedViewFilterProjectJoinRule.INSTANCE)
@@ -261,6 +268,11 @@ public class RuleSet {
             .add(MaterializedViewProjectFilterScanRule.INSTANCE)
             .add(MaterializedViewAggregateOnNoneAggregateRule.INSTANCE)
             .add(MaterializedViewOnlyScanRule.INSTANCE)
+            .build();
+
+    public static final List<Rule> MATERIALIZED_VIEW_IN_RBO_RULES = planRuleFactories()
+            .addAll(MATERIALIZED_VIEW_IN_CBO_RULES)
+            .add(MaterializedViewProjectFilterProjectJoinRule.INSTANCE)
             .build();
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
@@ -287,8 +299,8 @@ public class RuleSet {
         return IMPLEMENTATION_RULES;
     }
 
-    public List<Rule> getMaterializedViewRules() {
-        return MATERIALIZED_VIEW_RULES;
+    public List<Rule> getMaterializedViewInRBORules() {
+        return MATERIALIZED_VIEW_IN_RBO_RULES;
     }
 
     public static RuleFactories planRuleFactories() {

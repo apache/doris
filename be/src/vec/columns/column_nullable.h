@@ -20,12 +20,6 @@
 
 #pragma once
 
-#include <functional>
-#include <string>
-#include <type_traits>
-#include <utility>
-#include <vector>
-
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/olap_common.h"
@@ -49,69 +43,6 @@ class ColumnSorter;
 using NullMap = ColumnUInt8::Container;
 using ConstNullMapPtr = const NullMap*;
 
-/// use this to avoid directly access null_map forgetting modify _need_update_has_null. see more in inner comments
-class NullMapProvider {
-public:
-    NullMapProvider() = default;
-    NullMapProvider(MutableColumnPtr&& null_map) : _null_map(std::move(null_map)) {}
-    void reset_null_map(MutableColumnPtr&& null_map) { _null_map = std::move(null_map); }
-
-    // return the column that represents the byte map. if want use null_map, just call this.
-    const ColumnPtr& get_null_map_column_ptr() const { return _null_map; }
-    // for functions getting nullmap, we assume it will modify it. so set `_need_update_has_null` to true. if you know it wouldn't,
-    // call with arg false. but for the ops which will set _has_null themselves, call `update_has_null()`
-    MutableColumnPtr get_null_map_column_ptr(bool may_change = true) {
-        if (may_change) {
-            _need_update_has_null = true;
-        }
-        return _null_map->assume_mutable();
-    }
-    ColumnUInt8::WrappedPtr& get_null_map(bool may_change = true) {
-        if (may_change) {
-            _need_update_has_null = true;
-        }
-        return _null_map;
-    }
-
-    ColumnUInt8& get_null_map_column(bool may_change = true) {
-        if (may_change) {
-            _need_update_has_null = true;
-        }
-        return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
-    }
-    const ColumnUInt8& get_null_map_column() const {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
-    }
-
-    NullMap& get_null_map_data(bool may_change = true) {
-        return get_null_map_column(may_change).get_data();
-    }
-    const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
-
-    void clear_null_map() { assert_cast<ColumnUInt8*>(_null_map.get())->clear(); }
-
-    void update_has_null(bool new_value) {
-        _has_null = new_value;
-        _need_update_has_null = false;
-    }
-
-protected:
-    /**
-    * Here we have three variables which serve for `has_null()` judgement. If we have known the nullity of object, no need
-    *  to check through the `null_map` to get the answer until the next time we modify it. Here `_has_null` is just the answer
-    *  we cached. `_need_update_has_null` indicates there's modification or not since we got `_has_null()` last time. So in 
-    *  `_has_null()` we can check the two vars to know if there's need to update `has_null` or not.
-    * If you just want QUERY BUT NOT MODIFY, make sure the caller is const. There will be no perf overhead for const overload.
-    *  Otherwise, this class, as the base class, will make it no possible to directly visit `null_map` forgetting to change the
-    *  protected flags. Just call the interface is ok.
-    */
-    bool _need_update_has_null = true;
-    bool _has_null = true;
-
-private:
-    IColumn::WrappedPtr _null_map;
-};
-
 /// Class that specifies nullable columns. A nullable column represents
 /// a column, which may have any type, provided with the possibility of
 /// storing NULL values. For this purpose, a ColumnNullable object stores
@@ -121,7 +52,7 @@ private:
 /// over a bitmap because columns are usually stored on disk as compressed
 /// files. In this regard, using a bitmap instead of a byte map would
 /// greatly complicate the implementation with little to no benefits.
-class ColumnNullable final : public COWHelper<IColumn, ColumnNullable>, public NullMapProvider {
+class ColumnNullable final : public COWHelper<IColumn, ColumnNullable> {
 private:
     friend class COWHelper<IColumn, ColumnNullable>;
 
@@ -138,26 +69,28 @@ public:
                                       null_map_->assume_mutable());
     }
 
-    template <typename... Args, typename = std::enable_if_t<IsMutableColumns<Args...>::value>>
-    static MutablePtr create(Args&&... args) {
+    template <typename... Args>
+    static MutablePtr create(Args&&... args)
+        requires IsMutableColumns<Args...>::value
+    {
         return Base::create(std::forward<Args>(args)...);
     }
 
     void sanity_check() const override {
-        if (nested_column->size() != get_null_map_data().size()) {
+        if (_nested_column->size() != get_null_map_data().size()) {
             throw doris::Exception(
                     ErrorCode::INTERNAL_ERROR,
                     "Size of nested column {} with size {} is not equal to size of null map {}",
-                    nested_column->get_name(), nested_column->size(), get_null_map_data().size());
+                    _nested_column->get_name(), _nested_column->size(), get_null_map_data().size());
         }
-        nested_column->sanity_check();
+        _nested_column->sanity_check();
     }
 
     void shrink_padding_chars() override;
 
-    bool is_variable_length() const override { return nested_column->is_variable_length(); }
+    bool is_variable_length() const override { return _nested_column->is_variable_length(); }
 
-    std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
+    std::string get_name() const override { return "Nullable(" + _nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override {
         return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(get_null_map_column())
@@ -170,13 +103,13 @@ public:
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
-        return is_null_at(n) ? false : nested_column->get_bool(n);
+        return is_null_at(n) ? false : _nested_column->get_bool(n);
     }
     // column must be nullable(uint8)
     bool get_bool_inline(size_t n) const {
         return is_null_at(n) ? false
                              : assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
-                                       nested_column.get())
+                                       _nested_column.get())
                                        ->get_bool(n);
     }
     StringRef get_data_at(size_t n) const override;
@@ -219,34 +152,25 @@ public:
     void insert_from_with_type(const IColumn& src, size_t n) {
         const auto& src_concrete =
                 assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(src);
-        assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(nested_column.get())
+        assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(_nested_column.get())
                 ->insert_from(src_concrete.get_nested_column(), n);
-        auto is_null = src_concrete.get_null_map_data()[n];
-        if (is_null) {
-            get_null_map_data().push_back(1);
-            _has_null = true;
-            _need_update_has_null = false;
-        } else {
-            _push_false_to_nullmap(1);
-        }
+        _null_map->insert_from(src_concrete.get_null_map_column(), n);
     }
 
-    void insert_range_from_not_nullable(const IColumn& src, size_t start, size_t length);
-
     void insert_many_fix_len_data(const char* pos, size_t num) override {
-        _push_false_to_nullmap(num);
+        push_false_to_nullmap(num);
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
         DCHECK(pos);
-        _push_false_to_nullmap(num);
+        push_false_to_nullmap(num);
         get_nested_column().insert_many_raw_data(pos, num);
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t data_num, uint32_t dict_num) override {
-        _push_false_to_nullmap(data_num);
+        push_false_to_nullmap(data_num);
         get_nested_column().insert_many_dict_data(data_array, start_index, dict, data_num,
                                                   dict_num);
     }
@@ -256,7 +180,7 @@ public:
         if (UNLIKELY(num == 0)) {
             return;
         }
-        _push_false_to_nullmap(num);
+        push_false_to_nullmap(num);
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
@@ -264,20 +188,16 @@ public:
     void insert_default() override {
         get_nested_column().insert_default();
         get_null_map_data().push_back(1);
-        _has_null = true;
-        _need_update_has_null = false;
     }
 
     void insert_many_defaults(size_t length) override {
         get_nested_column().insert_many_defaults(length);
         get_null_map_data().resize_fill(get_null_map_data().size() + length, 1);
-        _has_null = true;
-        _need_update_has_null = false;
     }
 
     void insert_not_null_elements(size_t num) {
         get_nested_column().insert_many_defaults(num);
-        _push_false_to_nullmap(num);
+        push_false_to_nullmap(num);
     }
 
     void pop_back(size_t n) override;
@@ -313,18 +233,18 @@ public:
                                   const uint8_t* __restrict null_data) const override;
 
     ColumnPtr convert_column_if_overflow() override {
-        nested_column = nested_column->convert_column_if_overflow();
+        _nested_column = _nested_column->convert_column_if_overflow();
         return get_ptr();
     }
 
     void for_each_subcolumn(ColumnCallback callback) override {
-        callback(nested_column);
-        callback(get_null_map());
+        callback(_nested_column);
+        callback(_null_map);
     }
 
     bool structure_equals(const IColumn& rhs) const override {
         if (const auto* rhs_nullable = typeid_cast<const ColumnNullable*>(&rhs)) {
-            return nested_column->structure_equals(*rhs_nullable->nested_column);
+            return _nested_column->structure_equals(*rhs_nullable->_nested_column);
         }
         return false;
     }
@@ -334,27 +254,26 @@ public:
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
 
     bool is_exclusive() const override {
-        return IColumn::is_exclusive() && nested_column->is_exclusive() &&
+        return IColumn::is_exclusive() && _nested_column->is_exclusive() &&
                get_null_map_column().is_exclusive();
     }
 
-    bool only_null() const override { return size() == 1 && is_null_at(0); }
+    bool only_null() const override;
 
     // used in schema change
-    void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)nested_column) = other; }
+    void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }
 
     /// Return the column that represents values.
-    IColumn& get_nested_column() { return *nested_column; }
-    const IColumn& get_nested_column() const { return *nested_column; }
+    IColumn& get_nested_column() { return *_nested_column; }
+    const IColumn& get_nested_column() const { return *_nested_column; }
 
-    const ColumnPtr& get_nested_column_ptr() const { return nested_column; }
+    const ColumnPtr& get_nested_column_ptr() const { return _nested_column; }
 
-    MutableColumnPtr get_nested_column_ptr() { return nested_column->assume_mutable(); }
+    MutableColumnPtr get_nested_column_ptr() { return _nested_column->assume_mutable(); }
 
     void clear() override {
-        clear_null_map();
-        nested_column->clear();
-        _has_null = false;
+        _null_map->clear();
+        _nested_column->clear();
     }
 
     /// Apply the null byte map of a specified nullable column onto the
@@ -369,14 +288,9 @@ public:
     /// Check that size of null map equals to size of nested column.
     void check_consistency() const;
 
-    bool has_null() const override {
-        if (UNLIKELY(_need_update_has_null)) {
-            const_cast<ColumnNullable*>(this)->_update_has_null();
-        }
-        return _has_null;
-    }
+    bool has_null(size_t begin, size_t end) const override;
 
-    bool has_null(size_t size) const override;
+    bool has_null() const override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
@@ -386,12 +300,14 @@ public:
                                                   self_row);
 
         if (!nullable_rhs.is_null_at(row)) {
-            nested_column->replace_column_data(*nullable_rhs.nested_column, row, self_row);
+            _nested_column->replace_column_data(*nullable_rhs._nested_column, row, self_row);
         }
     }
 
+    void replace_float_special_values() override { _nested_column->replace_float_special_values(); }
+
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
-        nested_column = get_nested_column().convert_to_predicate_column_if_dictionary();
+        _nested_column = get_nested_column().convert_to_predicate_column_if_dictionary();
         return get_ptr();
     }
 
@@ -437,11 +353,11 @@ public:
                      EqualRange& range, bool last_column) const override;
 
     void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) override {
-        nested_column->set_rowset_segment_id(rowset_segment_id);
+        _nested_column->set_rowset_segment_id(rowset_segment_id);
     }
 
     std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
-        return nested_column->get_rowset_segment_id();
+        return _nested_column->get_rowset_segment_id();
     }
 
     void finalize() override { get_nested_column().finalize(); }
@@ -455,19 +371,35 @@ public:
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override {
         return sizeof(NullMap::value_type) +
-               (is_null_at(row) ? 0 : nested_column->serialize_size_at(row));
+               (is_null_at(row) ? 0 : _nested_column->serialize_size_at(row));
+    }
+
+    // return the column that represents the byte map. if want use null_map, just call this.
+    const ColumnPtr& get_null_map_column_ptr() const { return _null_map; }
+    const ColumnUInt8& get_null_map_column() const {
+        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
+    }
+    const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
+
+    MutableColumnPtr get_null_map_column_ptr() { return _null_map->assume_mutable(); }
+    ColumnUInt8& get_null_map_column() {
+        return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
+    }
+    NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
+
+    // push not null value wouldn't change the nullity. no need to update _has_null
+    void push_false_to_nullmap(size_t num) { get_null_map_column().insert_many_vals(0, num); }
+    void fill_false_to_nullmap(size_t num) {
+        _null_map->clear();
+        get_null_map_column().insert_many_vals(0, num);
     }
 
 private:
-    void _update_has_null();
-
     template <bool negative>
     void apply_null_map_impl(const ColumnUInt8& map);
 
-    // push not null value wouldn't change the nullity. no need to update _has_null
-    void _push_false_to_nullmap(size_t num) { get_null_map_column(false).insert_many_vals(0, num); }
-
-    WrappedPtr nested_column;
+    WrappedPtr _nested_column;
+    WrappedPtr _null_map;
 };
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);

@@ -275,6 +275,74 @@ TEST(TxnKvTest, AtomicAddTest) {
     ASSERT_EQ(*(int64_t*)val.data(), 60);
 }
 
+TEST(TxnKvTest, GetVersionstampTest) {
+    std::unique_ptr<Transaction> txn;
+    std::string key_prefix = "versionstamp_test_";
+
+    // Test without enabling versionstamp
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_INVALID_ARGUMENT);
+    }
+
+    // Test with versionstamp enabled but no commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        std::string versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // Test with versionstamp enabled and commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Enable versionstamp and perform versioned operations
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "key1", "value1");
+        txn->atomic_set_ver_value(key_prefix + "key2", "value2");
+
+        // Commit transaction
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Get versionstamp
+        std::string versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp.size(), 10); // Versionstamp should be 10 bytes
+
+        std::cout << "Versionstamp: ";
+        for (int i = 0; i < versionstamp.size(); i++) {
+            std::cout << std::hex << (int)(unsigned char)versionstamp[i];
+        }
+        std::cout << std::dec << std::endl;
+    }
+
+    // Test multiple transactions get different versionstamps
+    std::string versionstamp1, versionstamp2;
+    {
+        // First transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx1", "value1");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp1), TxnErrorCode::TXN_OK);
+
+        // Small delay to ensure different timestamps
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        // Second transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx2", "value2");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp2), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_NE(versionstamp1, versionstamp2);
+    ASSERT_LT(versionstamp1, versionstamp2); // Later transaction should have larger versionstamp
+}
+
 TEST(TxnKvTest, CompatibleGetTest) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     doris::TabletSchemaCloudPB schema;
@@ -1441,16 +1509,21 @@ TEST(TxnKvTest, BatchScan) {
                     true,
                     {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
                      "BatchScan_different_key"},
-                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                    {"BatchScan_prefix1_sub2", "BatchScan_prefix2_sub1", "BatchScan_prefix3",
                      "BatchScan_different_key"},
             },
             {
                     true,
                     {"BatchScan_prefix1_", "BatchScan_prefix2_"},
-                    {"BatchScan_prefix1", "BatchScan_prefix2"},
+                    {"BatchScan_prefix1_sub2", "BatchScan_prefix2_sub1"},
             },
-    };
+            {
+                    true,
+                    {"BatchScan_prefix4"},
+                    {std::nullopt},
+            }};
 
+    size_t count = 0;
     for (auto& tc : test_cases) {
         auto ret = txn_kv->create_txn(&txn);
         ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
@@ -1463,14 +1536,54 @@ TEST(TxnKvTest, BatchScan) {
         ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
         ASSERT_EQ(results.size(), tc.scan_keys.size());
 
+        count += 1;
         for (size_t i = 0; i < results.size(); ++i) {
             if (tc.expected_keys[i].has_value()) {
                 ASSERT_TRUE(results[i].has_value());
                 std::string& key = results[i].value().first;
-                ASSERT_EQ(key, tc.expected_keys[i]);
+                ASSERT_EQ(key, tc.expected_keys[i]) << tc.scan_keys[i] << ", tc: " << count;
             } else {
-                ASSERT_FALSE(results[i].has_value());
+                ASSERT_FALSE(results[i].has_value()) << tc.scan_keys[i] << ", tc: " << count;
             }
         }
     }
+}
+
+TEST(TxnKvTest, ReportConflictingRange) {
+    config::enable_logging_conflict_keys = true;
+
+    constexpr std::string_view key_prefix = "txn_kv_test__report_conflicting_range";
+    std::string key = std::string(key_prefix) + std::to_string(time(nullptr));
+
+    {
+        // 1. write a common key
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, "value0");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // 2. two txns, conflicting writes
+    std::unique_ptr<Transaction> txn1, txn2;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn_kv->create_txn(&txn2), TxnErrorCode::TXN_OK);
+
+    std::string val1, val2;
+    ASSERT_EQ(txn1->get(key, &val1), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn2->get(key, &val2), TxnErrorCode::TXN_OK);
+
+    txn1->put(key, "value1");
+    txn2->put(key, "value2");
+
+    ASSERT_EQ(txn1->commit(), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_CONFLICT);
+
+    // 3. get the conflicting ranges.
+    std::vector<std::pair<std::string, std::string>> values;
+    ASSERT_EQ(reinterpret_cast<fdb::Transaction*>(txn2.get())->get_conflicting_range(&values),
+              TxnErrorCode::TXN_OK);
+    ASSERT_EQ(values.size(), 2);
+    ASSERT_EQ(values[0].first, key);
+    ASSERT_EQ(values[1].second, "0");
+    ASSERT_TRUE(values[1].first.starts_with(key));
 }

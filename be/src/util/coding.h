@@ -21,7 +21,7 @@
 #include "vec/common/endian.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // TODO(zc): add encode big endian later when we need it
 // use big endian when we have order requirement.
 // little endian is more efficient when we use X86 CPU, so
@@ -118,7 +118,7 @@ inline uint8_t* encode_varint64(uint8_t* dst, uint64_t v) {
         // Fetch low seven bits from current v, and the eight bit is marked as compression mark.
         // v | B is optimised from (v & (B-1)) | B, because result is assigned to uint8_t and other bits
         // is cleared by implicit conversion.
-        *(dst++) = v | B;
+        *(dst++) = uint8_t(v | B);
         v >>= 7;
     }
     *(dst++) = static_cast<unsigned char>(v);
@@ -158,7 +158,7 @@ void put_varint64(T* dst, uint64_t v) {
 
 template <typename T>
 void put_length_prefixed_slice(T* dst, const Slice& value) {
-    put_varint32(dst, value.get_size());
+    put_varint32(dst, uint32_t(value.get_size()));
     dst->append(value.get_data(), value.get_size());
 }
 
@@ -174,7 +174,7 @@ void put_varint64_varint32(T* dst, uint64_t v1, uint32_t v2) {
 // on success, return true and advance `input` past the parsed value.
 // on failure, return false and `input` is not modified.
 inline bool get_varint32(Slice* input, uint32_t* val) {
-    const uint8_t* p = (const uint8_t*)input->data;
+    const auto* p = (const uint8_t*)input->data;
     const uint8_t* limit = p + input->size;
     const uint8_t* q = decode_varint32_ptr(p, limit, val);
     if (q == nullptr) {
@@ -189,7 +189,7 @@ inline bool get_varint32(Slice* input, uint32_t* val) {
 // on success, return true and advance `input` past the parsed value.
 // on failure, return false and `input` is not modified.
 inline bool get_varint64(Slice* input, uint64_t* val) {
-    const uint8_t* p = (const uint8_t*)input->data;
+    const auto* p = (const uint8_t*)input->data;
     const uint8_t* limit = p + input->size;
     const uint8_t* q = decode_varint64_ptr(p, limit, val);
     if (q == nullptr) {
@@ -213,5 +213,5 @@ inline bool get_length_prefixed_slice(Slice* input, Slice* val) {
         return false;
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

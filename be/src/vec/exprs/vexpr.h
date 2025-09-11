@@ -31,6 +31,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
@@ -45,6 +48,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/function.h"
 
@@ -56,9 +60,14 @@ class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
 
+namespace segment_v2 {
+class IndexIterator;
+class ColumnIterator;
+struct AnnRangeSearchRuntime;
+}; // namespace segment_v2
+
 namespace vectorized {
 #include "common/compile_check_begin.h"
-
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
         return Status::OK();              \
@@ -121,6 +130,8 @@ public:
     }
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
+    // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
+    [[nodiscard]] virtual bool is_blockable() const { return false; }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
     virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
@@ -147,6 +158,8 @@ public:
     virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope);
 
     DataTypePtr& data_type() { return _data_type; }
+
+    const DataTypePtr& data_type() const { return _data_type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
@@ -268,6 +281,26 @@ public:
         }
     }
 
+#ifdef BE_TEST
+    void set_node_type(TExprNodeType::type node_type) { _node_type = node_type; }
+#endif
+    virtual Status evaluate_ann_range_search(
+            const segment_v2::AnnRangeSearchRuntime& runtime,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
+
+    // Prepare the runtime for ANN range search.
+    // AnnRangeSearchRuntime is used to store the runtime information of ann range search.
+    // suitable_for_ann_index is used to indicate whether the current expr can be used for ANN range search.
+    // If suitable_for_ann_index is false, the we will do exhausted search.
+    virtual void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                          segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+                                          bool& suitable_for_ann_index);
+
+    bool has_been_executed();
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
@@ -276,6 +309,7 @@ protected:
         return out.str();
     }
 
+    // used in expr name
     std::string get_child_names() {
         std::string res;
         for (auto child : _children) {
@@ -283,6 +317,18 @@ protected:
                 res += ", ";
             }
             res += child->expr_name();
+        }
+        return res;
+    }
+
+    // only for errmsg now
+    std::string get_child_type_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name() + ": " + child->data_type()->get_name();
         }
         return res;
     }
@@ -336,6 +382,8 @@ protected:
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
     bool _enable_inverted_index_query = true;
+
+    bool _has_been_executed = false;
 };
 
 } // namespace vectorized

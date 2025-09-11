@@ -234,18 +234,10 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpill) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     ASSERT_EQ(inner_sink_local_state->_get_hash_table_size(), 0);
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-
-    while (local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
 
     ASSERT_FALSE(dep->is_blocked_by());
 
@@ -304,16 +296,11 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillAndEmptyEOS) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     ASSERT_EQ(inner_sink_local_state->_get_hash_table_size(), 0);
 
     block.clear_column_data();
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-    ASSERT_FALSE(local_state->_spill_dependency->is_blocked_by());
     ASSERT_FALSE(dep->is_blocked_by());
 
     st = sink_operator->close(_helper.runtime_state.get(), st);
@@ -371,10 +358,6 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     auto* spill_write_rows_counter = local_state->custom_profile()->get_counter("SpillWriteRows");
     ASSERT_TRUE(spill_write_rows_counter != nullptr);
     ASSERT_EQ(spill_write_rows_counter->value(), 4);
@@ -391,14 +374,9 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    while (local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
     block.clear_column_data();
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-    ASSERT_FALSE(local_state->_spill_dependency->is_blocked_by());
     ASSERT_FALSE(dep->is_blocked_by());
 
     st = sink_operator->close(_helper.runtime_state.get(), st);
@@ -453,15 +431,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpilError) {
 
     SpillableDebugPointHelper dp_helper("fault_inject::spill_stream::spill_block");
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
-    ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
-
-    while (local_state->_spill_dependency->is_blocked_by()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    std::cout << "profile: " << _helper.operator_profile->pretty_print() << std::endl;
-
-    ASSERT_FALSE(dp_helper.get_spill_status().ok()) << "spilll status should be failed";
+    ASSERT_FALSE(st.ok()) << "spilll status should be failed";
 }
 
 } // namespace doris::pipeline

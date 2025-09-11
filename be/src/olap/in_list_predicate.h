@@ -135,10 +135,6 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
-    }
-
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -280,8 +276,10 @@ public:
             return true;
         }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return get_zone_map_value<Type, T>(statistic.first->cell_ptr()) <= _max_value &&
-                   get_zone_map_value<Type, T>(statistic.second->cell_ptr()) >= _min_value;
+            return Compare::less_equal(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
+                                       _max_value) &&
+                   Compare::greater_equal(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
+                                          _min_value);
         } else {
             return true;
         }
@@ -303,8 +301,10 @@ public:
             return false;
         }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return get_zone_map_value<Type, T>(statistic.first->cell_ptr()) > _max_value ||
-                   get_zone_map_value<Type, T>(statistic.second->cell_ptr()) < _min_value;
+            return Compare::greater(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
+                                    _max_value) ||
+                   Compare::less(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
+                                 _min_value);
         } else {
             return false;
         }
@@ -402,8 +402,7 @@ private:
         return new_size;
     }
 
-    template <typename LeftT, typename RightT>
-    bool _operator(const LeftT& lhs, const RightT& rhs) const {
+    bool _operator(const bool& lhs, const bool& rhs) const {
         if constexpr (PT == PredicateType::IN_LIST) {
             return lhs != rhs;
         } else {
@@ -565,10 +564,10 @@ private:
     }
 
     void _update_min_max(const T& value) {
-        if (value > _max_value) {
+        if (Compare::greater(value, _max_value)) {
             _max_value = value;
         }
-        if (value < _min_value) {
+        if (Compare::less(value, _min_value)) {
             _min_value = value;
         }
     }

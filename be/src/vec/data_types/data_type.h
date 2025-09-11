@@ -25,13 +25,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <boost/core/noncopyable.hpp>
 #include <memory>
 #include <string>
 #include <type_traits>
 #include <vector>
 
-#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
@@ -40,7 +38,6 @@
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
@@ -142,45 +139,6 @@ public:
     /// Checks that two instances belong to the same type
     virtual bool equals(const IDataType& rhs) const = 0;
 
-    /** The data type is dependent on parameters and at least one of them is another type.
-      * Examples: Tuple(T1, T2), Nullable(T). But FixedString(N) is not.
-      */
-    virtual bool have_subtypes() const = 0;
-
-    /** In text formats that render "pretty" tables,
-      *  is it better to align value right in table cell.
-      * Examples: numbers, even nullable.
-      */
-    virtual bool should_align_right_in_pretty_formats() const { return false; }
-
-    /** Does formatted value in any text format can contain anything but valid UTF8 sequences.
-      * Example: String (because it can contain arbitrary bytes).
-      * Counterexamples: numbers, Date, DateTime.
-      * For Enum, it depends.
-      */
-    virtual bool text_can_contain_only_valid_utf8() const { return false; }
-
-    /** Is it possible to compare for less/greater, to calculate min/max?
-      * Not necessarily totally comparable. For example, floats are comparable despite the fact that NaNs compares to nothing.
-      * The same for nullable of comparable types: they are comparable (but not totally-comparable).
-      */
-    virtual bool is_comparable() const { return false; }
-
-    /** Numbers, Enums, Date, DateTime. Not nullable.
-      */
-    virtual bool is_value_represented_by_number() const { return false; }
-
-    /** Values are unambiguously identified by contents of contiguous memory region,
-      *  that can be obtained by IColumn::get_data_at method.
-      * Examples: numbers, Date, DateTime, String, FixedString,
-      *  and Arrays of numbers, Date, DateTime, FixedString, Enum, but not String.
-      *  (because Array(String) values became ambiguous if you concatenate Strings).
-      * Counterexamples: Nullable, Tuple.
-      */
-    virtual bool is_value_unambiguously_represented_in_contiguous_memory_region() const {
-        return false;
-    }
-
     /** Example: numbers, Date, DateTime, FixedString, Enum... Nullable and Tuple of such types.
       * Counterexamples: String, Array.
       * It's Ok to return false for AggregateFunction despite the fact that some of them have fixed size state.
@@ -195,11 +153,6 @@ public:
 
     /* the data type create from type_null, NULL literal*/
     virtual bool is_null_literal() const { return false; }
-
-    virtual bool low_cardinality() const { return false; }
-
-    /// Strings, Numbers, Date, DateTime, Nullable
-    virtual bool can_be_inside_low_cardinality() const { return false; }
 
     virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                                       int be_exec_version) const = 0;

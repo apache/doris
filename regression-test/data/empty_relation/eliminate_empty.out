@@ -10,7 +10,7 @@ PhysicalResultSink
 -- !explain_union_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[nation]
 
@@ -38,7 +38,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
 
@@ -77,7 +77,7 @@ PhysicalResultSink
 -- !null_explain_union_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[nation]
 
@@ -105,7 +105,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
 

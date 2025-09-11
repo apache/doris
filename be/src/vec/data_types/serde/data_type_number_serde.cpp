@@ -21,6 +21,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
@@ -30,6 +31,7 @@
 #include "vec/core/types.h"
 #include "vec/functions/cast/cast_to_basic_number_common.h"
 #include "vec/functions/cast/cast_to_boolean.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -176,11 +178,9 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     if constexpr (T == TYPE_IPV6) {
         std::string hex = int128_to_string(data);
         bw.write(hex.data(), hex.size());
-    } else if constexpr (T == TYPE_FLOAT) {
-        // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
-        char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = to_buffer(data, MAX_FLOAT_STR_LENGTH + 2, buf);
-        bw.write(buf, len);
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        auto str = CastToString::from_number(data);
+        bw.write(str.data(), str.size());
     } else if constexpr (is_int_or_bool(T) ||
                          std::numeric_limits<
                                  typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
@@ -339,10 +339,6 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     } else {
-        if (jsonb_value->isString()) {
-            RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
-            return Status::OK();
-        }
         typename PrimitiveTypeTraits<T>::ColumnItemType to;
         auto cast_to_basic_number = [&]() {
             if constexpr (T == TYPE_BOOLEAN) {
@@ -360,6 +356,56 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
         }
         auto& data = assert_cast<ColumnType&>(column).get_data();
         data.push_back(to);
+        return Status::OK();
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
+        ColumnNullable& column_to, const ColumnString& col_from_json,
+        CastParameters& castParms) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    } else {
+        const size_t size = col_from_json.size();
+        const bool is_strict = castParms.is_strict;
+
+        auto& null_map = column_to.get_null_map_data();
+        auto& data = assert_cast<ColumnType&>(column_to.get_nested_column()).get_data();
+
+        null_map.resize_fill(size, false);
+        data.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            const auto& val = col_from_json.get_data_at(i);
+            auto* jsonb_value = handle_jsonb_value(val);
+            if (!jsonb_value) {
+                null_map[i] = true;
+                continue;
+            }
+
+            typename PrimitiveTypeTraits<T>::ColumnItemType to;
+            auto cast_to_basic_number = [&]() {
+                if constexpr (T == TYPE_BOOLEAN) {
+                    return JsonbCast::cast_from_json_to_boolean(jsonb_value, to, castParms);
+                } else if constexpr (is_int(T)) {
+                    return JsonbCast::cast_from_json_to_int(jsonb_value, to, castParms);
+                } else if constexpr (is_float_or_double(T)) {
+                    return JsonbCast::cast_from_json_to_float(jsonb_value, to, castParms);
+                } else {
+                    return false;
+                }
+            };
+            if (!cast_to_basic_number()) {
+                if (is_strict) {
+                    return JsonbCast::report_error(jsonb_value, T);
+                } else {
+                    null_map[i] = true;
+                    continue;
+                }
+            }
+            data[i] = to;
+        }
         return Status::OK();
     }
 }

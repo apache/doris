@@ -52,6 +52,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static const char* FIELD_SCROLL_ID = "_scroll_id";
 static const char* FIELD_HITS = "hits";
@@ -201,7 +202,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             std::chrono::system_clock::time_point tp;
             // time_zone suffix pattern
             // Z/+08:00/-04:30
-            RE2 time_zone_pattern(R"([+-]\d{2}:\d{2}|Z)");
+            RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
             bool ok = false;
             std::string fmt;
             re2::StringPiece value;
@@ -456,7 +457,7 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
         }
 
         if (col.IsNumber()) {
-            val = col.GetInt();
+            val = static_cast<typename PrimitiveTypeTraits<T>::ColumnItemType>(col.GetInt());
             return Status::OK();
         }
 
@@ -761,7 +762,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             }
 
             if (col.IsNumber()) {
-                int8_t val = col.GetInt();
+                int8_t val = static_cast<int8_t>(col.GetInt());
                 col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 break;
             }
@@ -812,7 +813,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                         val = col.GetString();
                     }
                 }
-                data.parse_from_str(val.data(), val.length());
+                data.parse_from_str(val.data(), static_cast<int32_t>(val.length()));
             }
             col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
             break;
@@ -864,5 +865,5 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     *line_eof = false;
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

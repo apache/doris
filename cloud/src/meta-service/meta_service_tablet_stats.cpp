@@ -179,16 +179,17 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
     }
 }
 
-void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
+void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg,
+                                         MetaReader& meta_reader, Transaction* txn,
                                          const std::string& instance_id,
                                          const TabletIndexPB& tablet_idx, TabletStatsPB& stats,
                                          bool snapshot) {
     int64_t tablet_id = tablet_idx.tablet_id();
-    std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+    Versionstamp versionstamp;
 
     // Try to read existing versioned tablet stats
-    Versionstamp versionstamp;
-    TxnErrorCode err = versioned::document_get(txn, stats_key, &stats, &versionstamp, snapshot);
+    TxnErrorCode err =
+            meta_reader.get_tablet_load_stats(txn, tablet_id, &stats, &versionstamp, snapshot);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // If versioned stats doesn't exist, read from single version
         internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, stats, snapshot);

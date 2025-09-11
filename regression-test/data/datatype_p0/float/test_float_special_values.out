@@ -6,560 +6,560 @@
 \N
 
 -- !select_1 --
-1	inf	inf
-2	inf	-inf
-3	inf	nan
-4	inf	0.0
-5	inf	0.0
-6	inf	123.456
-7	inf	-123.456
-8	-inf	inf
-9	-inf	-inf
-10	-inf	nan
-11	-inf	0.0
-12	-inf	0.0
-13	-inf	123.456
-14	-inf	-123.456
-15	0.0	inf
-16	0.0	-inf
-17	0.0	inf
-18	0.0	-inf
-19	123.456	inf
-20	123.456	-inf
-21	-123.456	inf
-22	-123.456	-inf
-23	nan	inf
-24	nan	-inf
+1	Infinity	Infinity
+2	Infinity	-Infinity
+3	Infinity	NaN
+4	Infinity	0.0
+5	Infinity	0.0
+6	Infinity	123.456
+7	Infinity	-123.456
+8	-Infinity	Infinity
+9	-Infinity	-Infinity
+10	-Infinity	NaN
+11	-Infinity	0.0
+12	-Infinity	0.0
+13	-Infinity	123.456
+14	-Infinity	-123.456
+15	0.0	Infinity
+16	0.0	-Infinity
+17	0.0	Infinity
+18	0.0	-Infinity
+19	123.456	Infinity
+20	123.456	-Infinity
+21	-123.456	Infinity
+22	-123.456	-Infinity
+23	NaN	Infinity
+24	NaN	-Infinity
 25	123.456	123.456
 
 -- !select_inf_add1 --
-1	inf	inf	inf
-2	inf	-inf	-nan
-3	inf	nan	nan
-4	inf	0.0	inf
-5	inf	0.0	inf
-6	inf	123.456	inf
-7	inf	-123.456	inf
-8	-inf	inf	-nan
-9	-inf	-inf	-inf
-10	-inf	nan	nan
-11	-inf	0.0	-inf
-12	-inf	0.0	-inf
-13	-inf	123.456	-inf
-14	-inf	-123.456	-inf
-15	0.0	inf	inf
-16	0.0	-inf	-inf
-17	0.0	inf	inf
-18	0.0	-inf	-inf
-19	123.456	inf	inf
-20	123.456	-inf	-inf
-21	-123.456	inf	inf
-22	-123.456	-inf	-inf
-23	nan	inf	nan
-24	nan	-inf	nan
-25	123.456	123.456	246.91200256347656
+1	Infinity	Infinity	Infinity
+2	Infinity	-Infinity	NaN
+3	Infinity	NaN	NaN
+4	Infinity	0.0	Infinity
+5	Infinity	0.0	Infinity
+6	Infinity	123.456	Infinity
+7	Infinity	-123.456	Infinity
+8	-Infinity	Infinity	NaN
+9	-Infinity	-Infinity	-Infinity
+10	-Infinity	NaN	NaN
+11	-Infinity	0.0	-Infinity
+12	-Infinity	0.0	-Infinity
+13	-Infinity	123.456	-Infinity
+14	-Infinity	-123.456	-Infinity
+15	0.0	Infinity	Infinity
+16	0.0	-Infinity	-Infinity
+17	0.0	Infinity	Infinity
+18	0.0	-Infinity	-Infinity
+19	123.456	Infinity	Infinity
+20	123.456	-Infinity	-Infinity
+21	-123.456	Infinity	Infinity
+22	-123.456	-Infinity	-Infinity
+23	NaN	Infinity	NaN
+24	NaN	-Infinity	NaN
+25	123.456	123.456	246.9120025634766
 
 -- !select_inf_sub1 --
-1	inf	inf	-nan
-2	inf	-inf	inf
-3	inf	nan	nan
-4	inf	0.0	inf
-5	inf	0.0	inf
-6	inf	123.456	inf
-7	inf	-123.456	inf
-8	-inf	inf	-inf
-9	-inf	-inf	-nan
-10	-inf	nan	nan
-11	-inf	0.0	-inf
-12	-inf	0.0	-inf
-13	-inf	123.456	-inf
-14	-inf	-123.456	-inf
-15	0.0	inf	-inf
-16	0.0	-inf	inf
-17	0.0	inf	-inf
-18	0.0	-inf	inf
-19	123.456	inf	-inf
-20	123.456	-inf	inf
-21	-123.456	inf	-inf
-22	-123.456	-inf	inf
-23	nan	inf	nan
-24	nan	-inf	nan
-25	123.456	123.456	0.0
+1	Infinity	Infinity	NaN
+2	Infinity	-Infinity	Infinity
+3	Infinity	NaN	NaN
+4	Infinity	0.0	Infinity
+5	Infinity	0.0	Infinity
+6	Infinity	123.456	Infinity
+7	Infinity	-123.456	Infinity
+8	-Infinity	Infinity	-Infinity
+9	-Infinity	-Infinity	NaN
+10	-Infinity	NaN	NaN
+11	-Infinity	0.0	-Infinity
+12	-Infinity	0.0	-Infinity
+13	-Infinity	123.456	-Infinity
+14	-Infinity	-123.456	-Infinity
+15	0.0	Infinity	-Infinity
+16	0.0	-Infinity	Infinity
+17	0.0	Infinity	-Infinity
+18	0.0	-Infinity	Infinity
+19	123.456	Infinity	-Infinity
+20	123.456	-Infinity	Infinity
+21	-123.456	Infinity	-Infinity
+22	-123.456	-Infinity	Infinity
+23	NaN	Infinity	NaN
+24	NaN	-Infinity	NaN
+25	123.456	123.456	0
 
 -- !select_inf_multi1 --
-1	inf	inf	inf
-2	inf	-inf	-inf
-3	inf	nan	nan
-4	inf	0.0	-nan
-5	inf	0.0	-nan
-6	inf	123.456	inf
-7	inf	-123.456	-inf
-8	-inf	inf	-inf
-9	-inf	-inf	inf
-10	-inf	nan	nan
-11	-inf	0.0	-nan
-12	-inf	0.0	-nan
-13	-inf	123.456	-inf
-14	-inf	-123.456	inf
-15	0.0	inf	-nan
-16	0.0	-inf	-nan
-17	0.0	inf	-nan
-18	0.0	-inf	-nan
-19	123.456	inf	inf
-20	123.456	-inf	-inf
-21	-123.456	inf	-inf
-22	-123.456	-inf	inf
-23	nan	inf	nan
-24	nan	-inf	nan
-25	123.456	123.456	15241.384252476564
+1	Infinity	Infinity	Infinity
+2	Infinity	-Infinity	-Infinity
+3	Infinity	NaN	NaN
+4	Infinity	0.0	NaN
+5	Infinity	0.0	NaN
+6	Infinity	123.456	Infinity
+7	Infinity	-123.456	-Infinity
+8	-Infinity	Infinity	-Infinity
+9	-Infinity	-Infinity	Infinity
+10	-Infinity	NaN	NaN
+11	-Infinity	0.0	NaN
+12	-Infinity	0.0	NaN
+13	-Infinity	123.456	-Infinity
+14	-Infinity	-123.456	Infinity
+15	0.0	Infinity	NaN
+16	0.0	-Infinity	NaN
+17	0.0	Infinity	NaN
+18	0.0	-Infinity	NaN
+19	123.456	Infinity	Infinity
+20	123.456	-Infinity	-Infinity
+21	-123.456	Infinity	-Infinity
+22	-123.456	-Infinity	Infinity
+23	NaN	Infinity	NaN
+24	NaN	-Infinity	NaN
+25	123.456	123.456	15241.38425247656
 
 -- !select_inf_div1 --
-1	inf	inf	-nan
-2	inf	-inf	-nan
-3	inf	nan	nan
-4	inf	0.0	\N
-5	inf	0.0	\N
-6	inf	123.456	inf
-7	inf	-123.456	-inf
-8	-inf	inf	-nan
-9	-inf	-inf	-nan
-10	-inf	nan	nan
-11	-inf	0.0	\N
-12	-inf	0.0	\N
-13	-inf	123.456	-inf
-14	-inf	-123.456	inf
-15	0.0	inf	0.0
-16	0.0	-inf	-0.0
-17	0.0	inf	0.0
-18	0.0	-inf	-0.0
-19	123.456	inf	0.0
-20	123.456	-inf	-0.0
-21	-123.456	inf	-0.0
-22	-123.456	-inf	0.0
-23	nan	inf	nan
-24	nan	-inf	nan
-25	123.456	123.456	1.0
+1	Infinity	Infinity	NaN
+2	Infinity	-Infinity	NaN
+3	Infinity	NaN	NaN
+4	Infinity	0.0	\N
+5	Infinity	0.0	\N
+6	Infinity	123.456	Infinity
+7	Infinity	-123.456	-Infinity
+8	-Infinity	Infinity	NaN
+9	-Infinity	-Infinity	NaN
+10	-Infinity	NaN	NaN
+11	-Infinity	0.0	\N
+12	-Infinity	0.0	\N
+13	-Infinity	123.456	-Infinity
+14	-Infinity	-123.456	Infinity
+15	0.0	Infinity	0
+16	0.0	-Infinity	-0
+17	0.0	Infinity	0
+18	0.0	-Infinity	-0
+19	123.456	Infinity	0
+20	123.456	-Infinity	-0
+21	-123.456	Infinity	-0
+22	-123.456	-Infinity	0
+23	NaN	Infinity	NaN
+24	NaN	-Infinity	NaN
+25	123.456	123.456	1
 
 -- !select_inf_mod1 --
-1	inf	inf	-nan
-2	inf	-inf	-nan
-3	inf	nan	nan
-4	inf	0.0	\N
-5	inf	0.0	\N
-6	inf	123.456	-nan
-7	inf	-123.456	-nan
-8	-inf	inf	-nan
-9	-inf	-inf	-nan
-10	-inf	nan	nan
-11	-inf	0.0	\N
-12	-inf	0.0	\N
-13	-inf	123.456	-nan
-14	-inf	-123.456	-nan
-15	0.0	inf	0.0
-16	0.0	-inf	0.0
-17	0.0	inf	0.0
-18	0.0	-inf	0.0
-19	123.456	inf	123.456
-20	123.456	-inf	123.456
-21	-123.456	inf	-123.456
-22	-123.456	-inf	-123.456
-23	nan	inf	nan
-24	nan	-inf	nan
+1	Infinity	Infinity	NaN
+2	Infinity	-Infinity	NaN
+3	Infinity	NaN	NaN
+4	Infinity	0.0	\N
+5	Infinity	0.0	\N
+6	Infinity	123.456	NaN
+7	Infinity	-123.456	NaN
+8	-Infinity	Infinity	NaN
+9	-Infinity	-Infinity	NaN
+10	-Infinity	NaN	NaN
+11	-Infinity	0.0	\N
+12	-Infinity	0.0	\N
+13	-Infinity	123.456	NaN
+14	-Infinity	-123.456	NaN
+15	0.0	Infinity	0.0
+16	0.0	-Infinity	0.0
+17	0.0	Infinity	0.0
+18	0.0	-Infinity	0.0
+19	123.456	Infinity	123.456
+20	123.456	-Infinity	123.456
+21	-123.456	Infinity	-123.456
+22	-123.456	-Infinity	-123.456
+23	NaN	Infinity	NaN
+24	NaN	-Infinity	NaN
 25	123.456	123.456	0.0
 
 -- !select_inf_cmp1 --
-1	inf	inf	false
-2	inf	-inf	true
-3	inf	nan	false
-4	inf	0.0	true
-5	inf	0.0	true
-6	inf	123.456	true
-7	inf	-123.456	true
-8	-inf	inf	false
-9	-inf	-inf	false
-10	-inf	nan	false
-11	-inf	0.0	false
-12	-inf	0.0	false
-13	-inf	123.456	false
-14	-inf	-123.456	false
-15	0.0	inf	false
-16	0.0	-inf	true
-17	0.0	inf	false
-18	0.0	-inf	true
-19	123.456	inf	false
-20	123.456	-inf	true
-21	-123.456	inf	false
-22	-123.456	-inf	true
-23	nan	inf	false
-24	nan	-inf	false
+1	Infinity	Infinity	false
+2	Infinity	-Infinity	true
+3	Infinity	NaN	false
+4	Infinity	0.0	true
+5	Infinity	0.0	true
+6	Infinity	123.456	true
+7	Infinity	-123.456	true
+8	-Infinity	Infinity	false
+9	-Infinity	-Infinity	false
+10	-Infinity	NaN	false
+11	-Infinity	0.0	false
+12	-Infinity	0.0	false
+13	-Infinity	123.456	false
+14	-Infinity	-123.456	false
+15	0.0	Infinity	false
+16	0.0	-Infinity	true
+17	0.0	Infinity	false
+18	0.0	-Infinity	true
+19	123.456	Infinity	false
+20	123.456	-Infinity	true
+21	-123.456	Infinity	false
+22	-123.456	-Infinity	true
+23	NaN	Infinity	true
+24	NaN	-Infinity	true
 25	123.456	123.456	false
 
 -- !select_inf_cmp2 --
-1	inf	inf	true
-2	inf	-inf	true
-3	inf	nan	false
-4	inf	0.0	true
-5	inf	0.0	true
-6	inf	123.456	true
-7	inf	-123.456	true
-8	-inf	inf	false
-9	-inf	-inf	true
-10	-inf	nan	false
-11	-inf	0.0	false
-12	-inf	0.0	false
-13	-inf	123.456	false
-14	-inf	-123.456	false
-15	0.0	inf	false
-16	0.0	-inf	true
-17	0.0	inf	false
-18	0.0	-inf	true
-19	123.456	inf	false
-20	123.456	-inf	true
-21	-123.456	inf	false
-22	-123.456	-inf	true
-23	nan	inf	false
-24	nan	-inf	false
+1	Infinity	Infinity	true
+2	Infinity	-Infinity	true
+3	Infinity	NaN	false
+4	Infinity	0.0	true
+5	Infinity	0.0	true
+6	Infinity	123.456	true
+7	Infinity	-123.456	true
+8	-Infinity	Infinity	false
+9	-Infinity	-Infinity	true
+10	-Infinity	NaN	false
+11	-Infinity	0.0	false
+12	-Infinity	0.0	false
+13	-Infinity	123.456	false
+14	-Infinity	-123.456	false
+15	0.0	Infinity	false
+16	0.0	-Infinity	true
+17	0.0	Infinity	false
+18	0.0	-Infinity	true
+19	123.456	Infinity	false
+20	123.456	-Infinity	true
+21	-123.456	Infinity	false
+22	-123.456	-Infinity	true
+23	NaN	Infinity	true
+24	NaN	-Infinity	true
 25	123.456	123.456	true
 
 -- !select_inf_cmp3 --
-1	inf	inf	false
-2	inf	-inf	false
-3	inf	nan	false
-4	inf	0.0	false
-5	inf	0.0	false
-6	inf	123.456	false
-7	inf	-123.456	false
-8	-inf	inf	true
-9	-inf	-inf	false
-10	-inf	nan	false
-11	-inf	0.0	true
-12	-inf	0.0	true
-13	-inf	123.456	true
-14	-inf	-123.456	true
-15	0.0	inf	true
-16	0.0	-inf	false
-17	0.0	inf	true
-18	0.0	-inf	false
-19	123.456	inf	true
-20	123.456	-inf	false
-21	-123.456	inf	true
-22	-123.456	-inf	false
-23	nan	inf	false
-24	nan	-inf	false
+1	Infinity	Infinity	false
+2	Infinity	-Infinity	false
+3	Infinity	NaN	true
+4	Infinity	0.0	false
+5	Infinity	0.0	false
+6	Infinity	123.456	false
+7	Infinity	-123.456	false
+8	-Infinity	Infinity	true
+9	-Infinity	-Infinity	false
+10	-Infinity	NaN	true
+11	-Infinity	0.0	true
+12	-Infinity	0.0	true
+13	-Infinity	123.456	true
+14	-Infinity	-123.456	true
+15	0.0	Infinity	true
+16	0.0	-Infinity	false
+17	0.0	Infinity	true
+18	0.0	-Infinity	false
+19	123.456	Infinity	true
+20	123.456	-Infinity	false
+21	-123.456	Infinity	true
+22	-123.456	-Infinity	false
+23	NaN	Infinity	false
+24	NaN	-Infinity	false
 25	123.456	123.456	false
 
 -- !select_inf_cmp4 --
-1	inf	inf	true
-2	inf	-inf	false
-3	inf	nan	false
-4	inf	0.0	false
-5	inf	0.0	false
-6	inf	123.456	false
-7	inf	-123.456	false
-8	-inf	inf	true
-9	-inf	-inf	true
-10	-inf	nan	false
-11	-inf	0.0	true
-12	-inf	0.0	true
-13	-inf	123.456	true
-14	-inf	-123.456	true
-15	0.0	inf	true
-16	0.0	-inf	false
-17	0.0	inf	true
-18	0.0	-inf	false
-19	123.456	inf	true
-20	123.456	-inf	false
-21	-123.456	inf	true
-22	-123.456	-inf	false
-23	nan	inf	false
-24	nan	-inf	false
+1	Infinity	Infinity	true
+2	Infinity	-Infinity	false
+3	Infinity	NaN	true
+4	Infinity	0.0	false
+5	Infinity	0.0	false
+6	Infinity	123.456	false
+7	Infinity	-123.456	false
+8	-Infinity	Infinity	true
+9	-Infinity	-Infinity	true
+10	-Infinity	NaN	true
+11	-Infinity	0.0	true
+12	-Infinity	0.0	true
+13	-Infinity	123.456	true
+14	-Infinity	-123.456	true
+15	0.0	Infinity	true
+16	0.0	-Infinity	false
+17	0.0	Infinity	true
+18	0.0	-Infinity	false
+19	123.456	Infinity	true
+20	123.456	-Infinity	false
+21	-123.456	Infinity	true
+22	-123.456	-Infinity	false
+23	NaN	Infinity	false
+24	NaN	-Infinity	false
 25	123.456	123.456	true
 
 -- !select_inf_cmp5 --
-1	inf	inf	true
-2	inf	-inf	false
-3	inf	nan	false
-4	inf	0.0	false
-5	inf	0.0	false
-6	inf	123.456	false
-7	inf	-123.456	false
-8	-inf	inf	false
-9	-inf	-inf	true
-10	-inf	nan	false
-11	-inf	0.0	false
-12	-inf	0.0	false
-13	-inf	123.456	false
-14	-inf	-123.456	false
-15	0.0	inf	false
-16	0.0	-inf	false
-17	0.0	inf	false
-18	0.0	-inf	false
-19	123.456	inf	false
-20	123.456	-inf	false
-21	-123.456	inf	false
-22	-123.456	-inf	false
-23	nan	inf	false
-24	nan	-inf	false
+1	Infinity	Infinity	true
+2	Infinity	-Infinity	false
+3	Infinity	NaN	false
+4	Infinity	0.0	false
+5	Infinity	0.0	false
+6	Infinity	123.456	false
+7	Infinity	-123.456	false
+8	-Infinity	Infinity	false
+9	-Infinity	-Infinity	true
+10	-Infinity	NaN	false
+11	-Infinity	0.0	false
+12	-Infinity	0.0	false
+13	-Infinity	123.456	false
+14	-Infinity	-123.456	false
+15	0.0	Infinity	false
+16	0.0	-Infinity	false
+17	0.0	Infinity	false
+18	0.0	-Infinity	false
+19	123.456	Infinity	false
+20	123.456	-Infinity	false
+21	-123.456	Infinity	false
+22	-123.456	-Infinity	false
+23	NaN	Infinity	false
+24	NaN	-Infinity	false
 25	123.456	123.456	true
 
 -- !select_inf_cmp6 --
-1	inf	inf	false
-2	inf	-inf	true
-3	inf	nan	true
-4	inf	0.0	true
-5	inf	0.0	true
-6	inf	123.456	true
-7	inf	-123.456	true
-8	-inf	inf	true
-9	-inf	-inf	false
-10	-inf	nan	true
-11	-inf	0.0	true
-12	-inf	0.0	true
-13	-inf	123.456	true
-14	-inf	-123.456	true
-15	0.0	inf	true
-16	0.0	-inf	true
-17	0.0	inf	true
-18	0.0	-inf	true
-19	123.456	inf	true
-20	123.456	-inf	true
-21	-123.456	inf	true
-22	-123.456	-inf	true
-23	nan	inf	true
-24	nan	-inf	true
+1	Infinity	Infinity	false
+2	Infinity	-Infinity	true
+3	Infinity	NaN	true
+4	Infinity	0.0	true
+5	Infinity	0.0	true
+6	Infinity	123.456	true
+7	Infinity	-123.456	true
+8	-Infinity	Infinity	true
+9	-Infinity	-Infinity	false
+10	-Infinity	NaN	true
+11	-Infinity	0.0	true
+12	-Infinity	0.0	true
+13	-Infinity	123.456	true
+14	-Infinity	-123.456	true
+15	0.0	Infinity	true
+16	0.0	-Infinity	true
+17	0.0	Infinity	true
+18	0.0	-Infinity	true
+19	123.456	Infinity	true
+20	123.456	-Infinity	true
+21	-123.456	Infinity	true
+22	-123.456	-Infinity	true
+23	NaN	Infinity	true
+24	NaN	-Infinity	true
 25	123.456	123.456	false
 
 -- !select_inf_agg1 --
-inf	3	inf
+Infinity	3	Infinity
 
 -- !select_inf_agg2 --
--inf	3	-inf
+-Infinity	3	-Infinity
 
 -- !select_inf_agg3 --
-inf	2	inf
+Infinity	2	Infinity
 
 -- !select_inf_agg4 --
--nan	2	-nan
+NaN	2	NaN
 
 -- !select_inf_agg5 --
-nan	2	nan
+NaN	2	NaN
 
 -- !select_inf_agg6 --
-nan	2	nan
+NaN	2	NaN
 
 -- !select_inf_sqrt1 --
-1	inf	inf
-2	inf	inf
-3	inf	inf
-4	inf	inf
-5	inf	inf
-6	inf	inf
-7	inf	inf
-8	-inf	\N
-9	-inf	\N
-10	-inf	\N
-11	-inf	\N
-12	-inf	\N
-13	-inf	\N
-14	-inf	\N
-15	0.0	0.0
-16	0.0	0.0
-17	0.0	0.0
-18	0.0	0.0
-19	123.456	11.111075613177073
-20	123.456	11.111075613177073
+1	Infinity	Infinity
+2	Infinity	Infinity
+3	Infinity	Infinity
+4	Infinity	Infinity
+5	Infinity	Infinity
+6	Infinity	Infinity
+7	Infinity	Infinity
+8	-Infinity	\N
+9	-Infinity	\N
+10	-Infinity	\N
+11	-Infinity	\N
+12	-Infinity	\N
+13	-Infinity	\N
+14	-Infinity	\N
+15	0.0	0
+16	0.0	0
+17	0.0	0
+18	0.0	0
+19	123.456	11.11107561317707
+20	123.456	11.11107561317707
 21	-123.456	\N
 22	-123.456	\N
-23	nan	nan
-24	nan	nan
-25	123.456	11.111075613177073
+23	NaN	NaN
+24	NaN	NaN
+25	123.456	11.11107561317707
 
 -- !select_NaN_add_sub1 --
-1	nan	inf	nan
-2	nan	-inf	nan
-3	nan	0.0	nan
-4	nan	0.0	nan
-5	nan	123.456	nan
-6	nan	-123.456	nan
-7	inf	nan	nan
-8	-inf	nan	nan
-9	0.0	nan	nan
-10	0.0	nan	nan
-11	123.456	nan	nan
-12	-123.456	nan	nan
-13	nan	nan	nan
-14	123.456	123.456	246.91200256347656
+1	NaN	Infinity	NaN
+2	NaN	-Infinity	NaN
+3	NaN	0.0	NaN
+4	NaN	0.0	NaN
+5	NaN	123.456	NaN
+6	NaN	-123.456	NaN
+7	Infinity	NaN	NaN
+8	-Infinity	NaN	NaN
+9	0.0	NaN	NaN
+10	0.0	NaN	NaN
+11	123.456	NaN	NaN
+12	-123.456	NaN	NaN
+13	NaN	NaN	NaN
+14	123.456	123.456	246.9120025634766
 
 -- !select_NaN_add_sub2 --
-1	nan	inf	nan
-2	nan	-inf	nan
-3	nan	0.0	nan
-4	nan	0.0	nan
-5	nan	123.456	nan
-6	nan	-123.456	nan
-7	inf	nan	nan
-8	-inf	nan	nan
-9	0.0	nan	nan
-10	0.0	nan	nan
-11	123.456	nan	nan
-12	-123.456	nan	nan
-13	nan	nan	nan
-14	123.456	123.456	0.0
+1	NaN	Infinity	NaN
+2	NaN	-Infinity	NaN
+3	NaN	0.0	NaN
+4	NaN	0.0	NaN
+5	NaN	123.456	NaN
+6	NaN	-123.456	NaN
+7	Infinity	NaN	NaN
+8	-Infinity	NaN	NaN
+9	0.0	NaN	NaN
+10	0.0	NaN	NaN
+11	123.456	NaN	NaN
+12	-123.456	NaN	NaN
+13	NaN	NaN	NaN
+14	123.456	123.456	0
 
 -- !select_NaN_multi_div1 --
-1	nan	inf	nan
-2	nan	-inf	nan
-3	nan	0.0	nan
-4	nan	0.0	nan
-5	nan	123.456	nan
-6	nan	-123.456	nan
-7	inf	nan	nan
-8	-inf	nan	nan
-9	0.0	nan	nan
-10	0.0	nan	nan
-11	123.456	nan	nan
-12	-123.456	nan	nan
-13	nan	nan	nan
-14	123.456	123.456	15241.384252476564
+1	NaN	Infinity	NaN
+2	NaN	-Infinity	NaN
+3	NaN	0.0	NaN
+4	NaN	0.0	NaN
+5	NaN	123.456	NaN
+6	NaN	-123.456	NaN
+7	Infinity	NaN	NaN
+8	-Infinity	NaN	NaN
+9	0.0	NaN	NaN
+10	0.0	NaN	NaN
+11	123.456	NaN	NaN
+12	-123.456	NaN	NaN
+13	NaN	NaN	NaN
+14	123.456	123.456	15241.38425247656
 
 -- !select_NaN_multi_div2 --
-1	nan	inf	nan
-2	nan	-inf	nan
-3	nan	0.0	\N
-4	nan	0.0	\N
-5	nan	123.456	nan
-6	nan	-123.456	nan
-7	inf	nan	nan
-8	-inf	nan	nan
-9	0.0	nan	nan
-10	0.0	nan	nan
-11	123.456	nan	nan
-12	-123.456	nan	nan
-13	nan	nan	nan
-14	123.456	123.456	1.0
+1	NaN	Infinity	NaN
+2	NaN	-Infinity	NaN
+3	NaN	0.0	\N
+4	NaN	0.0	\N
+5	NaN	123.456	NaN
+6	NaN	-123.456	NaN
+7	Infinity	NaN	NaN
+8	-Infinity	NaN	NaN
+9	0.0	NaN	NaN
+10	0.0	NaN	NaN
+11	123.456	NaN	NaN
+12	-123.456	NaN	NaN
+13	NaN	NaN	NaN
+14	123.456	123.456	1
 
 -- !select_NaN_mod1 --
-1	nan	inf	nan
-2	nan	-inf	nan
-3	nan	0.0	\N
-4	nan	0.0	\N
-5	nan	123.456	nan
-6	nan	-123.456	nan
-7	inf	nan	nan
-8	-inf	nan	nan
-9	0.0	nan	nan
-10	0.0	nan	nan
-11	123.456	nan	nan
-12	-123.456	nan	nan
-13	nan	nan	nan
+1	NaN	Infinity	NaN
+2	NaN	-Infinity	NaN
+3	NaN	0.0	\N
+4	NaN	0.0	\N
+5	NaN	123.456	NaN
+6	NaN	-123.456	NaN
+7	Infinity	NaN	NaN
+8	-Infinity	NaN	NaN
+9	0.0	NaN	NaN
+10	0.0	NaN	NaN
+11	123.456	NaN	NaN
+12	-123.456	NaN	NaN
+13	NaN	NaN	NaN
 14	123.456	123.456	0.0
 
 -- !select_NaN_agg1 --
-nan	3	nan
+NaN	3	NaN
 
 -- !select_NaN_agg2 --
-nan	2	nan
+NaN	2	NaN
 
 -- !select_NaN_agg3 --
-nan	2	nan
+NaN	2	NaN
 
 -- !select_NaN_agg4 --
-nan	2	nan
+NaN	2	NaN
 
 -- !select_NaN_cmp1 --
-1	nan	inf	false
-2	nan	-inf	false
-3	nan	0.0	false
-4	nan	0.0	false
-5	nan	123.456	false
-6	nan	-123.456	false
-7	inf	nan	false
-8	-inf	nan	false
-9	0.0	nan	false
-10	0.0	nan	false
-11	123.456	nan	false
-12	-123.456	nan	false
-13	nan	nan	false
+1	NaN	Infinity	true
+2	NaN	-Infinity	true
+3	NaN	0.0	true
+4	NaN	0.0	true
+5	NaN	123.456	true
+6	NaN	-123.456	true
+7	Infinity	NaN	false
+8	-Infinity	NaN	false
+9	0.0	NaN	false
+10	0.0	NaN	false
+11	123.456	NaN	false
+12	-123.456	NaN	false
+13	NaN	NaN	false
 14	123.456	123.456	false
 
 -- !select_NaN_cmp2 --
-1	nan	inf	false
-2	nan	-inf	false
-3	nan	0.0	false
-4	nan	0.0	false
-5	nan	123.456	false
-6	nan	-123.456	false
-7	inf	nan	false
-8	-inf	nan	false
-9	0.0	nan	false
-10	0.0	nan	false
-11	123.456	nan	false
-12	-123.456	nan	false
-13	nan	nan	false
+1	NaN	Infinity	true
+2	NaN	-Infinity	true
+3	NaN	0.0	true
+4	NaN	0.0	true
+5	NaN	123.456	true
+6	NaN	-123.456	true
+7	Infinity	NaN	false
+8	-Infinity	NaN	false
+9	0.0	NaN	false
+10	0.0	NaN	false
+11	123.456	NaN	false
+12	-123.456	NaN	false
+13	NaN	NaN	true
 14	123.456	123.456	true
 
 -- !select_NaN_cmp3 --
-1	nan	inf	false
-2	nan	-inf	false
-3	nan	0.0	false
-4	nan	0.0	false
-5	nan	123.456	false
-6	nan	-123.456	false
-7	inf	nan	false
-8	-inf	nan	false
-9	0.0	nan	false
-10	0.0	nan	false
-11	123.456	nan	false
-12	-123.456	nan	false
-13	nan	nan	false
+1	NaN	Infinity	false
+2	NaN	-Infinity	false
+3	NaN	0.0	false
+4	NaN	0.0	false
+5	NaN	123.456	false
+6	NaN	-123.456	false
+7	Infinity	NaN	true
+8	-Infinity	NaN	true
+9	0.0	NaN	true
+10	0.0	NaN	true
+11	123.456	NaN	true
+12	-123.456	NaN	true
+13	NaN	NaN	false
 14	123.456	123.456	false
 
 -- !select_NaN_cmp4 --
-1	nan	inf	false
-2	nan	-inf	false
-3	nan	0.0	false
-4	nan	0.0	false
-5	nan	123.456	false
-6	nan	-123.456	false
-7	inf	nan	false
-8	-inf	nan	false
-9	0.0	nan	false
-10	0.0	nan	false
-11	123.456	nan	false
-12	-123.456	nan	false
-13	nan	nan	false
+1	NaN	Infinity	false
+2	NaN	-Infinity	false
+3	NaN	0.0	false
+4	NaN	0.0	false
+5	NaN	123.456	false
+6	NaN	-123.456	false
+7	Infinity	NaN	true
+8	-Infinity	NaN	true
+9	0.0	NaN	true
+10	0.0	NaN	true
+11	123.456	NaN	true
+12	-123.456	NaN	true
+13	NaN	NaN	true
 14	123.456	123.456	true
 
 -- !select_NaN_cmp5 --
-1	nan	inf	false
-2	nan	-inf	false
-3	nan	0.0	false
-4	nan	0.0	false
-5	nan	123.456	false
-6	nan	-123.456	false
-7	inf	nan	false
-8	-inf	nan	false
-9	0.0	nan	false
-10	0.0	nan	false
-11	123.456	nan	false
-12	-123.456	nan	false
-13	nan	nan	false
+1	NaN	Infinity	false
+2	NaN	-Infinity	false
+3	NaN	0.0	false
+4	NaN	0.0	false
+5	NaN	123.456	false
+6	NaN	-123.456	false
+7	Infinity	NaN	false
+8	-Infinity	NaN	false
+9	0.0	NaN	false
+10	0.0	NaN	false
+11	123.456	NaN	false
+12	-123.456	NaN	false
+13	NaN	NaN	true
 14	123.456	123.456	true
 
 -- !select_NaN_cmp6 --
-1	nan	inf	true
-2	nan	-inf	true
-3	nan	0.0	true
-4	nan	0.0	true
-5	nan	123.456	true
-6	nan	-123.456	true
-7	inf	nan	true
-8	-inf	nan	true
-9	0.0	nan	true
-10	0.0	nan	true
-11	123.456	nan	true
-12	-123.456	nan	true
-13	nan	nan	true
+1	NaN	Infinity	true
+2	NaN	-Infinity	true
+3	NaN	0.0	true
+4	NaN	0.0	true
+5	NaN	123.456	true
+6	NaN	-123.456	true
+7	Infinity	NaN	true
+8	-Infinity	NaN	true
+9	0.0	NaN	true
+10	0.0	NaN	true
+11	123.456	NaN	true
+12	-123.456	NaN	true
+13	NaN	NaN	false
 14	123.456	123.456	false
 
 -- !prepared_stmt_select_inf_nan --
@@ -577,4 +577,2334 @@ nan	2	nan
 12	-123.456	NaN
 13	NaN	NaN
 14	123.456	123.456
+
+-- !select_float_all --
+1.000000	\N	\N
+2.000000	\N	\N
+3.000000	\N	\N
+1.000000	\N	-1.4
+2.000000	\N	-1.4
+3.000000	\N	-1.4
+1.000000	\N	1.4
+2.000000	\N	1.4
+3.000000	\N	1.4
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_eq0 --
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+
+-- !select_float_eq1 --
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+
+-- !select_float_eq2 --
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+
+-- !select_float_eq3 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+
+-- !select_float_eq4 --
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_neq0 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_neq1 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_neq2 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_neq3 --
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_neq4 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+
+-- !select_float_less0 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+
+-- !select_float_less1 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+
+-- !select_float_less2 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+
+-- !select_float_less3 --
+
+-- !select_float_less4 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+
+-- !select_float_le0 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+
+-- !select_float_le1 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+
+-- !select_float_le2 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+
+-- !select_float_le3 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+
+-- !select_float_le4 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_gt0 --
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_gt1 --
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_gt2 --
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_gt3 --
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_gt4 --
+
+-- !select_float_ge0 --
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_ge1 --
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_ge2 --
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_ge3 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_ge4 --
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_is_null --
+1.000000	\N	\N
+2.000000	\N	\N
+3.000000	\N	\N
+1.000000	\N	-1.4
+2.000000	\N	-1.4
+3.000000	\N	-1.4
+1.000000	\N	1.4
+2.000000	\N	1.4
+3.000000	\N	1.4
+
+-- !select_float_is_notnull --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_in --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	0.0	0.0
+2.000000	0.0	-0.0
+3.000000	-0.0	0.0
+4.000000	-0.0	-0.0
+1.000000	0.0	1.0
+2.000000	-0.0	1.0
+1.000000	1.0	1.0
+2.000000	1.0	1.0
+3.000000	1.0	1.0
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_float_not_in --
+1.000000	-3.402823E38	-3.402823E38
+2.000000	-3.402823E38	-3.402823E38
+3.000000	-3.402823E38	-3.402823E38
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823E38	3.402823E38
+2.000000	3.402823E38	3.402823E38
+3.000000	3.402823E38	3.402823E38
+
+-- !select_float_group_by1 --
+\N	1.000000	3.000000	18.000000	9	2.000000
+-Infinity	1.000000	3.000000	18.000000	9	2.000000
+-3.402823E38	1.000000	3.000000	6.000000	3	2.000000
+0.0	1.000000	4.000000	13.000000	6	2.166666
+1.0	1.000000	3.000000	6.000000	3	2.000000
+1.1	1.000000	3.000000	6.000000	3	2.000000
+3.402823E38	1.000000	3.000000	6.000000	3	2.000000
+Infinity	1.000000	3.000000	18.000000	9	2.000000
+NaN	1.000000	3.000000	30.000000	15	2.000000
+
+-- !select_float_group_by2 --
+\N	\N	1.000000	3.000000	6.000000	3	2.000000
+\N	-1.4	1.000000	3.000000	6.000000	3	2.000000
+\N	1.4	1.000000	3.000000	6.000000	3	2.000000
+-Infinity	-Infinity	1.000000	3.000000	6.000000	3	2.000000
+-Infinity	-1.4	1.000000	3.000000	6.000000	3	2.000000
+-Infinity	1.4	1.000000	3.000000	6.000000	3	2.000000
+-3.402823E38	-3.402823E38	1.000000	3.000000	6.000000	3	2.000000
+0.0	0.0	1.000000	4.000000	10.000000	4	2.500000
+0.0	1.0	1.000000	2.000000	3.000000	2	1.500000
+1.0	1.0	1.000000	3.000000	6.000000	3	2.000000
+1.1	1.1	1.000000	3.000000	6.000000	3	2.000000
+3.402823E38	3.402823E38	1.000000	3.000000	6.000000	3	2.000000
+Infinity	-1.3	1.000000	3.000000	6.000000	3	2.000000
+Infinity	1.3	1.000000	3.000000	6.000000	3	2.000000
+Infinity	Infinity	1.000000	3.000000	6.000000	3	2.000000
+NaN	-Infinity	1.000000	3.000000	6.000000	3	2.000000
+NaN	-1.2	1.000000	3.000000	6.000000	3	2.000000
+NaN	1.2	1.000000	3.000000	6.000000	3	2.000000
+NaN	Infinity	1.000000	3.000000	6.000000	3	2.000000
+NaN	NaN	1.000000	3.000000	6.000000	3	2.000000
+
+-- !select_double_all --
+1.000000	\N	\N
+2.000000	\N	\N
+3.000000	\N	\N
+1.000000	\N	-1.4
+2.000000	\N	-1.4
+3.000000	\N	-1.4
+1.000000	\N	1.4
+2.000000	\N	1.4
+3.000000	\N	1.4
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_eq0 --
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+
+-- !select_double_eq1 --
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+
+-- !select_double_eq2 --
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+
+-- !select_double_eq3 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+
+-- !select_double_eq4 --
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_neq0 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_neq1 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_neq2 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_neq3 --
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_neq4 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+
+-- !select_double_less0 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+
+-- !select_double_less1 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+
+-- !select_double_less2 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+
+-- !select_double_less3 --
+
+-- !select_double_less4 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+
+-- !select_double_le0 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+
+-- !select_double_le1 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+
+-- !select_double_le2 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+
+-- !select_double_le3 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+
+-- !select_double_le4 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_gt0 --
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_gt1 --
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_gt2 --
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_gt3 --
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_gt4 --
+
+-- !select_double_ge0 --
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_ge1 --
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_ge2 --
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_ge3 --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_ge4 --
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_is_null --
+1.000000	\N	\N
+2.000000	\N	\N
+3.000000	\N	\N
+1.000000	\N	-1.4
+2.000000	\N	-1.4
+3.000000	\N	-1.4
+1.000000	\N	1.4
+2.000000	\N	1.4
+3.000000	\N	1.4
+
+-- !select_double_is_notnull --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_in --
+1.000000	-Infinity	-Infinity
+2.000000	-Infinity	-Infinity
+3.000000	-Infinity	-Infinity
+1.000000	-Infinity	-1.4
+2.000000	-Infinity	-1.4
+3.000000	-Infinity	-1.4
+1.000000	-Infinity	1.4
+2.000000	-Infinity	1.4
+3.000000	-Infinity	1.4
+1.000000	0	0
+2.000000	0	-0
+3.000000	-0	0
+4.000000	-0	-0
+1.000000	0	1
+2.000000	-0	1
+1.000000	1	1
+2.000000	1	1
+3.000000	1	1
+1.000000	Infinity	-1.3
+2.000000	Infinity	-1.3
+3.000000	Infinity	-1.3
+1.000000	Infinity	1.3
+2.000000	Infinity	1.3
+3.000000	Infinity	1.3
+1.000000	Infinity	Infinity
+2.000000	Infinity	Infinity
+3.000000	Infinity	Infinity
+1.000000	NaN	-Infinity
+2.000000	NaN	-Infinity
+3.000000	NaN	-Infinity
+1.000000	NaN	-1.2
+2.000000	NaN	-1.2
+3.000000	NaN	-1.2
+1.000000	NaN	1.2
+2.000000	NaN	1.2
+3.000000	NaN	1.2
+1.000000	NaN	Infinity
+2.000000	NaN	Infinity
+3.000000	NaN	Infinity
+1.000000	NaN	NaN
+2.000000	NaN	NaN
+3.000000	NaN	NaN
+
+-- !select_double_not_in --
+1.000000	-3.402823e+38	-3.402823e+38
+2.000000	-3.402823e+38	-3.402823e+38
+3.000000	-3.402823e+38	-3.402823e+38
+1.000000	1.1	1.1
+2.000000	1.1	1.1
+3.000000	1.1	1.1
+1.000000	3.402823e+38	3.402823e+38
+2.000000	3.402823e+38	3.402823e+38
+3.000000	3.402823e+38	3.402823e+38
+
+-- !select_double_group_by1 --
+\N	1.000000	3.000000	18.000000	9	2.000000
+-Infinity	1.000000	3.000000	18.000000	9	2.000000
+-3.402823e+38	1.000000	3.000000	6.000000	3	2.000000
+0	1.000000	4.000000	13.000000	6	2.166666
+1	1.000000	3.000000	6.000000	3	2.000000
+1.1	1.000000	3.000000	6.000000	3	2.000000
+3.402823e+38	1.000000	3.000000	6.000000	3	2.000000
+Infinity	1.000000	3.000000	18.000000	9	2.000000
+NaN	1.000000	3.000000	30.000000	15	2.000000
+
+-- !select_double_group_by2 --
+\N	\N	1.000000	3.000000	6.000000	3	2.000000
+\N	-1.4	1.000000	3.000000	6.000000	3	2.000000
+\N	1.4	1.000000	3.000000	6.000000	3	2.000000
+-Infinity	-Infinity	1.000000	3.000000	6.000000	3	2.000000
+-Infinity	-1.4	1.000000	3.000000	6.000000	3	2.000000
+-Infinity	1.4	1.000000	3.000000	6.000000	3	2.000000
+-3.402823e+38	-3.402823e+38	1.000000	3.000000	6.000000	3	2.000000
+0	0	1.000000	4.000000	10.000000	4	2.500000
+0	1	1.000000	2.000000	3.000000	2	1.500000
+1	1	1.000000	3.000000	6.000000	3	2.000000
+1.1	1.1	1.000000	3.000000	6.000000	3	2.000000
+3.402823e+38	3.402823e+38	1.000000	3.000000	6.000000	3	2.000000
+Infinity	-1.3	1.000000	3.000000	6.000000	3	2.000000
+Infinity	1.3	1.000000	3.000000	6.000000	3	2.000000
+Infinity	Infinity	1.000000	3.000000	6.000000	3	2.000000
+NaN	-Infinity	1.000000	3.000000	6.000000	3	2.000000
+NaN	-1.2	1.000000	3.000000	6.000000	3	2.000000
+NaN	1.2	1.000000	3.000000	6.000000	3	2.000000
+NaN	Infinity	1.000000	3.000000	6.000000	3	2.000000
+NaN	NaN	1.000000	3.000000	6.000000	3	2.000000
+
+-- !select_array_double_all --
+1.000000	[null, null]
+2.000000	[null, null]
+3.000000	[null, null]
+1.000000	[null, -1.4]
+2.000000	[null, -1.4]
+3.000000	[null, -1.4]
+1.000000	[null, 1.4]
+2.000000	[null, 1.4]
+3.000000	[null, 1.4]
+1.000000	[-Infinity, -Infinity]
+2.000000	[-Infinity, -Infinity]
+3.000000	[-Infinity, -Infinity]
+1.000000	[-Infinity, -1.4]
+2.000000	[-Infinity, -1.4]
+3.000000	[-Infinity, -1.4]
+1.000000	[-Infinity, 1.4]
+2.000000	[-Infinity, 1.4]
+3.000000	[-Infinity, 1.4]
+1.000000	[-3.402823e+38, -3.402823e+38]
+2.000000	[-3.402823e+38, -3.402823e+38]
+3.000000	[-3.402823e+38, -3.402823e+38]
+1.000000	[0, 0]
+2.000000	[0, -0]
+3.000000	[-0, 0]
+4.000000	[-0, -0]
+1.000000	[0, 1]
+2.000000	[-0, 1]
+1.000000	[1, 1]
+2.000000	[1, 1]
+3.000000	[1, 1]
+1.000000	[1.1, 1.1]
+2.000000	[1.1, 1.1]
+3.000000	[1.1, 1.1]
+1.000000	[3.402823e+38, 3.402823e+38]
+2.000000	[3.402823e+38, 3.402823e+38]
+3.000000	[3.402823e+38, 3.402823e+38]
+1.000000	[Infinity, -1.3]
+2.000000	[Infinity, -1.3]
+3.000000	[Infinity, -1.3]
+1.000000	[Infinity, 1.3]
+2.000000	[Infinity, 1.3]
+3.000000	[Infinity, 1.3]
+1.000000	[Infinity, Infinity]
+2.000000	[Infinity, Infinity]
+3.000000	[Infinity, Infinity]
+1.000000	[NaN, -Infinity]
+2.000000	[NaN, -Infinity]
+3.000000	[NaN, -Infinity]
+1.000000	[NaN, -1.2]
+2.000000	[NaN, -1.2]
+3.000000	[NaN, -1.2]
+1.000000	[NaN, 1.2]
+2.000000	[NaN, 1.2]
+3.000000	[NaN, 1.2]
+1.000000	[NaN, Infinity]
+2.000000	[NaN, Infinity]
+3.000000	[NaN, Infinity]
+1.000000	[NaN, NaN]
+2.000000	[NaN, NaN]
+3.000000	[NaN, NaN]
+
+-- !select_array_double_group_by1 --
+[null, null]	1.000000	3.000000	6.000000	3	2.000000
+[null, -1.4]	1.000000	3.000000	6.000000	3	2.000000
+[null, 1.4]	1.000000	3.000000	6.000000	3	2.000000
+[-Infinity, -Infinity]	1.000000	3.000000	6.000000	3	2.000000
+[-Infinity, -1.4]	1.000000	3.000000	6.000000	3	2.000000
+[-Infinity, 1.4]	1.000000	3.000000	6.000000	3	2.000000
+[-3.402823e+38, -3.402823e+38]	1.000000	3.000000	6.000000	3	2.000000
+[0, 0]	1.000000	4.000000	10.000000	4	2.500000
+[0, 1]	1.000000	2.000000	3.000000	2	1.500000
+[1, 1]	1.000000	3.000000	6.000000	3	2.000000
+[1.1, 1.1]	1.000000	3.000000	6.000000	3	2.000000
+[3.402823e+38, 3.402823e+38]	1.000000	3.000000	6.000000	3	2.000000
+[Infinity, -1.3]	1.000000	3.000000	6.000000	3	2.000000
+[Infinity, 1.3]	1.000000	3.000000	6.000000	3	2.000000
+[Infinity, Infinity]	1.000000	3.000000	6.000000	3	2.000000
+[NaN, -Infinity]	1.000000	3.000000	6.000000	3	2.000000
+[NaN, -1.2]	1.000000	3.000000	6.000000	3	2.000000
+[NaN, 1.2]	1.000000	3.000000	6.000000	3	2.000000
+[NaN, Infinity]	1.000000	3.000000	6.000000	3	2.000000
+[NaN, NaN]	1.000000	3.000000	6.000000	3	2.000000
+
+-- !select_map_double_all --
+1.000000	{null:null}
+2.000000	{null:null}
+3.000000	{null:null}
+1.000000	{null:-1.4}
+2.000000	{null:-1.4}
+3.000000	{null:-1.4}
+1.000000	{null:1.4}
+2.000000	{null:1.4}
+3.000000	{null:1.4}
+1.000000	{-Infinity:-Infinity}
+2.000000	{-Infinity:-Infinity}
+3.000000	{-Infinity:-Infinity}
+1.000000	{-Infinity:-1.4}
+2.000000	{-Infinity:-1.4}
+3.000000	{-Infinity:-1.4}
+1.000000	{-Infinity:1.4}
+2.000000	{-Infinity:1.4}
+3.000000	{-Infinity:1.4}
+1.000000	{-3.402823e+38:-3.402823e+38}
+2.000000	{-3.402823e+38:-3.402823e+38}
+3.000000	{-3.402823e+38:-3.402823e+38}
+1.000000	{0:0}
+2.000000	{0:-0}
+3.000000	{-0:0}
+4.000000	{-0:-0}
+1.000000	{0:1}
+2.000000	{-0:1}
+1.000000	{1:1}
+2.000000	{1:1}
+3.000000	{1:1}
+1.000000	{1.1:1.1}
+2.000000	{1.1:1.1}
+3.000000	{1.1:1.1}
+1.000000	{3.402823e+38:3.402823e+38}
+2.000000	{3.402823e+38:3.402823e+38}
+3.000000	{3.402823e+38:3.402823e+38}
+1.000000	{Infinity:-1.3}
+2.000000	{Infinity:-1.3}
+3.000000	{Infinity:-1.3}
+1.000000	{Infinity:1.3}
+2.000000	{Infinity:1.3}
+3.000000	{Infinity:1.3}
+1.000000	{Infinity:Infinity}
+2.000000	{Infinity:Infinity}
+3.000000	{Infinity:Infinity}
+1.000000	{NaN:-Infinity}
+2.000000	{NaN:-Infinity}
+3.000000	{NaN:-Infinity}
+1.000000	{NaN:-1.2}
+2.000000	{NaN:-1.2}
+3.000000	{NaN:-1.2}
+1.000000	{NaN:1.2}
+2.000000	{NaN:1.2}
+3.000000	{NaN:1.2}
+1.000000	{NaN:Infinity}
+2.000000	{NaN:Infinity}
+3.000000	{NaN:Infinity}
+1.000000	{NaN:NaN}
+2.000000	{NaN:NaN}
+3.000000	{NaN:NaN}
+
+-- !select_map_double_group_by1 --
+{null:null}	1.000000	3.000000	6.000000	3	2.000000
+{null:-1.4}	1.000000	3.000000	6.000000	3	2.000000
+{null:1.4}	1.000000	3.000000	6.000000	3	2.000000
+{-Infinity:-Infinity}	1.000000	3.000000	6.000000	3	2.000000
+{-Infinity:-1.4}	1.000000	3.000000	6.000000	3	2.000000
+{-Infinity:1.4}	1.000000	3.000000	6.000000	3	2.000000
+{-3.402823e+38:-3.402823e+38}	1.000000	3.000000	6.000000	3	2.000000
+{0:0}	1.000000	4.000000	10.000000	4	2.500000
+{0:1}	1.000000	2.000000	3.000000	2	1.500000
+{1:1}	1.000000	3.000000	6.000000	3	2.000000
+{1.1:1.1}	1.000000	3.000000	6.000000	3	2.000000
+{3.402823e+38:3.402823e+38}	1.000000	3.000000	6.000000	3	2.000000
+{Infinity:-1.3}	1.000000	3.000000	6.000000	3	2.000000
+{Infinity:1.3}	1.000000	3.000000	6.000000	3	2.000000
+{Infinity:Infinity}	1.000000	3.000000	6.000000	3	2.000000
+{NaN:-Infinity}	1.000000	3.000000	6.000000	3	2.000000
+{NaN:-1.2}	1.000000	3.000000	6.000000	3	2.000000
+{NaN:1.2}	1.000000	3.000000	6.000000	3	2.000000
+{NaN:Infinity}	1.000000	3.000000	6.000000	3	2.000000
+{NaN:NaN}	1.000000	3.000000	6.000000	3	2.000000
+
+-- !select_struct_double_all --
+1.000000	{"f1":null, "f2":null}
+2.000000	{"f1":null, "f2":null}
+3.000000	{"f1":null, "f2":null}
+1.000000	{"f1":null, "f2":-1.4}
+2.000000	{"f1":null, "f2":-1.4}
+3.000000	{"f1":null, "f2":-1.4}
+1.000000	{"f1":null, "f2":1.4}
+2.000000	{"f1":null, "f2":1.4}
+3.000000	{"f1":null, "f2":1.4}
+1.000000	{"f1":-Infinity, "f2":-Infinity}
+2.000000	{"f1":-Infinity, "f2":-Infinity}
+3.000000	{"f1":-Infinity, "f2":-Infinity}
+1.000000	{"f1":-Infinity, "f2":-1.4}
+2.000000	{"f1":-Infinity, "f2":-1.4}
+3.000000	{"f1":-Infinity, "f2":-1.4}
+1.000000	{"f1":-Infinity, "f2":1.4}
+2.000000	{"f1":-Infinity, "f2":1.4}
+3.000000	{"f1":-Infinity, "f2":1.4}
+1.000000	{"f1":-3.402823e+38, "f2":-3.402823e+38}
+2.000000	{"f1":-3.402823e+38, "f2":-3.402823e+38}
+3.000000	{"f1":-3.402823e+38, "f2":-3.402823e+38}
+1.000000	{"f1":0, "f2":0}
+2.000000	{"f1":0, "f2":-0}
+3.000000	{"f1":-0, "f2":0}
+4.000000	{"f1":-0, "f2":-0}
+1.000000	{"f1":0, "f2":1}
+2.000000	{"f1":-0, "f2":1}
+1.000000	{"f1":1, "f2":1}
+2.000000	{"f1":1, "f2":1}
+3.000000	{"f1":1, "f2":1}
+1.000000	{"f1":1.1, "f2":1.1}
+2.000000	{"f1":1.1, "f2":1.1}
+3.000000	{"f1":1.1, "f2":1.1}
+1.000000	{"f1":3.402823e+38, "f2":3.402823e+38}
+2.000000	{"f1":3.402823e+38, "f2":3.402823e+38}
+3.000000	{"f1":3.402823e+38, "f2":3.402823e+38}
+1.000000	{"f1":Infinity, "f2":-1.3}
+2.000000	{"f1":Infinity, "f2":-1.3}
+3.000000	{"f1":Infinity, "f2":-1.3}
+1.000000	{"f1":Infinity, "f2":1.3}
+2.000000	{"f1":Infinity, "f2":1.3}
+3.000000	{"f1":Infinity, "f2":1.3}
+1.000000	{"f1":Infinity, "f2":Infinity}
+2.000000	{"f1":Infinity, "f2":Infinity}
+3.000000	{"f1":Infinity, "f2":Infinity}
+1.000000	{"f1":NaN, "f2":-Infinity}
+2.000000	{"f1":NaN, "f2":-Infinity}
+3.000000	{"f1":NaN, "f2":-Infinity}
+1.000000	{"f1":NaN, "f2":-1.2}
+2.000000	{"f1":NaN, "f2":-1.2}
+3.000000	{"f1":NaN, "f2":-1.2}
+1.000000	{"f1":NaN, "f2":1.2}
+2.000000	{"f1":NaN, "f2":1.2}
+3.000000	{"f1":NaN, "f2":1.2}
+1.000000	{"f1":NaN, "f2":Infinity}
+2.000000	{"f1":NaN, "f2":Infinity}
+3.000000	{"f1":NaN, "f2":Infinity}
+1.000000	{"f1":NaN, "f2":NaN}
+2.000000	{"f1":NaN, "f2":NaN}
+3.000000	{"f1":NaN, "f2":NaN}
+
+-- !select_struct_double_group_by1 --
+{"f1":null, "f2":null}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":null, "f2":-1.4}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":null, "f2":1.4}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":-Infinity, "f2":-Infinity}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":-Infinity, "f2":-1.4}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":-Infinity, "f2":1.4}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":-3.402823e+38, "f2":-3.402823e+38}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":0, "f2":0}	1.000000	4.000000	10.000000	4	2.500000
+{"f1":0, "f2":1}	1.000000	2.000000	3.000000	2	1.500000
+{"f1":1, "f2":1}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":1.1, "f2":1.1}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":3.402823e+38, "f2":3.402823e+38}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":Infinity, "f2":-1.3}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":Infinity, "f2":1.3}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":Infinity, "f2":Infinity}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":NaN, "f2":-Infinity}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":NaN, "f2":-1.2}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":NaN, "f2":1.2}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":NaN, "f2":Infinity}	1.000000	3.000000	6.000000	3	2.000000
+{"f1":NaN, "f2":NaN}	1.000000	3.000000	6.000000	3	2.000000
 

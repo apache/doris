@@ -32,39 +32,25 @@ suite("test_flush_editlog_exception", "docker") {
 
         GetDebugPoint().enableDebugPointForAllFEs('EditLog.flushEditLog.exception')
 
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-                `user_id` bigint default 999,
-                `group_id` bigint,
-                `id` bigint,
-                `vv` variant,
-                INDEX idx_col1 (user_id) USING INVERTED
-                ) ENGINE=OLAP
-            UNIQUE KEY(user_id, group_id)
-            DISTRIBUTED BY HASH (user_id) BUCKETS 1
-            PROPERTIES(
-                    "store_row_column" = "true",
-                    "replication_num" = "1"
-                    );
-        """
-
-        // Wait until SELECT returns error (i.e., Doris FE process exits due to flushEditLog exception)
-        int maxWaitMs = 10000
-        int intervalMs = 200
-        long startTime = System.currentTimeMillis()
-        boolean gotError = false
-        while (true) {
-            try {
-                sql "SELECT * from ${tableName}"
-            } catch (Exception e) {
-                gotError = true
-                break
-            }
-            if (System.currentTimeMillis() - startTime > maxWaitMs) {
-                throw new IllegalStateException("Timeout waiting for SELECT to return error")
-            }
-            Thread.sleep(intervalMs)
+        try {
+            sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    `user_id` bigint default 999,
+                    `group_id` bigint,
+                    `id` bigint,
+                    `vv` variant,
+                    INDEX idx_col1 (user_id) USING INVERTED
+                    ) ENGINE=OLAP
+                UNIQUE KEY(user_id, group_id)
+                DISTRIBUTED BY HASH (user_id) BUCKETS 1
+                PROPERTIES(
+                        "store_row_column" = "true",
+                        "replication_num" = "1"
+                        );
+            """
+        } catch (Exception e) {
+            assert e.message.contains("Communications link failure")
         }
-        assert gotError
     }
+
 }

@@ -29,6 +29,8 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.backup.BackupJobInfo;
+import org.apache.doris.backup.BackupMeta;
 import org.apache.doris.backup.Snapshot;
 import org.apache.doris.binlog.BinlogLagInfo;
 import org.apache.doris.catalog.AutoIncrementGenerator;
@@ -62,7 +64,6 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.GZIPUtils;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -105,6 +106,10 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
+import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
+import org.apache.doris.proto.OlapFile.EncryptionKeyPB;
+import org.apache.doris.proto.OlapFile.EncryptionKeyPB.Builder;
+import org.apache.doris.proto.OlapFile.EncryptionKeyTypePB;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
@@ -157,6 +162,7 @@ import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TEncryptionKey;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
@@ -194,6 +200,8 @@ import org.apache.doris.thrift.TGetMetaTable;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetSnapshotRequest;
 import org.apache.doris.thrift.TGetSnapshotResult;
+import org.apache.doris.thrift.TGetTableTDEInfoRequest;
+import org.apache.doris.thrift.TGetTableTDEInfoResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
@@ -292,6 +300,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -658,6 +667,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                     }
                     for (TableIf table : tables) {
+                        if (table.isTemporary()) {
+                            continue;
+                        }
                         if (!Env.getCurrentEnv().getAccessManager()
                                 .checkTblPriv(currentUser, catalogName, dbName,
                                         table.getName(), PrivPredicate.SHOW)) {
@@ -897,6 +909,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db != null) {
             for (String tableName : tables) {
                 TableIf table = db.getTableNullableIfException(tableName);
+                if (table.isTemporary()) {
+                    // because we return all table names to be,
+                    // so when we skip temporary table, we should add a offset here
+                    tablesOffset.add(columns.size());
+                    continue;
+                }
                 if (table != null) {
                     table.readLock();
                     try {
@@ -1425,7 +1443,45 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) throws TException {
+    public TEncryptionKey encryptionKeyToThrift(EncryptionKey encryptionKey) {
+        Builder builder = EncryptionKeyPB.newBuilder();
+        builder.setId(encryptionKey.id);
+        builder.setVersion(encryptionKey.version);
+        builder.setParentId(encryptionKey.parentId);
+        builder.setParentVersion(encryptionKey.parentVersion);
+        switch (encryptionKey.algorithm) {
+            case AES256:
+                builder.setAlgorithm(EncryptionAlgorithmPB.AES_256_CTR);
+                break;
+            case SM4:
+                builder.setAlgorithm(EncryptionAlgorithmPB.SM4_128_CTR);
+                break;
+            default:
+                // do nothing
+        }
+        switch (encryptionKey.type) {
+            case DATA_KEY:
+                builder.setType(EncryptionKeyTypePB.DATA_KEY);
+                break;
+            case MASTER_KEY:
+                builder.setType(EncryptionKeyTypePB.MASTER_KEY);
+                break;
+            default:
+                // do nothing
+        }
+        builder.setCiphertextBase64(encryptionKey.ciphertext);
+        builder.setPlaintext(ByteString.copyFrom(encryptionKey.plaintext));
+        builder.setCrc32(encryptionKey.crc);
+        builder.setCtime(encryptionKey.ctime);
+        builder.setMtime(encryptionKey.mtime);
+        EncryptionKeyPB keyPB = builder.build();
+
+        TEncryptionKey tk = new TEncryptionKey();
+        tk.setKeyPb(keyPB.toByteArray());
+        return tk;
+    }
+
+    public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive getDataKeys request: {}, backend: {}", request, clientAddr);
@@ -1442,10 +1498,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         try {
-            List<TEncryptionKey> tKeys = new ArrayList<TEncryptionKey>();
+            List<TEncryptionKey> tKeys = new ArrayList<>();
             List<EncryptionKey> keys =  Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
             for (EncryptionKey key : keys) {
-                tKeys.add(key.toThrift());
+                tKeys.add(encryptionKeyToThrift(key));
             }
             result.setMasterKeys(tKeys);
         } catch (Exception e) {
@@ -2203,8 +2259,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("exec sql error", e);
             throw e;
         } catch (Throwable e) {
-            LOG.warn("exec sql error catch unknown result.", e);
-            throw new UserException("exec sql error catch unknown result." + e);
+            LOG.warn("exec sql: {} catch unknown result. ", originStmt, e);
+            throw new UserException("exec sql error catch unknown result. " + e.getMessage());
         }
         return httpStreamParams;
     }
@@ -2771,7 +2827,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             CloudWarmUpJob job = ((CloudEnv) Env.getCurrentEnv())
                     .getCacheHotspotMgr()
                     .getCloudWarmUpJob(request.getWarmUpJobId());
-            if (job == null) {
+            if (job == null || job.isDone()) {
                 LOG.info("warmup job {} is not running, notify caller BE {} to cancel job",
                         job.getJobId(), clientAddr);
                 // notify client to cancel this job
@@ -2780,6 +2836,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudClusterIdByName(job.getDstClusterName());
+            if (clusterId == null) {
+                LOG.warn("cluster {} is not found, cannot get primary backend for warmup job {}",
+                        job.getDstClusterName(), request.getWarmUpJobId());
+                result.setTabletReplicaInfos(tabletReplicaInfos);
+                result.setToken(Env.getCurrentEnv().getToken());
+                result.setStatus(new TStatus(TStatusCode.OK));
+                return result;
+            }
         }
         for (Long tabletId : tabletIds) {
             if (DebugPointUtil.isEnable("getTabletReplicaInfos.returnEmpty")) {
@@ -2790,7 +2854,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
             for (Replica replica : replicas) {
-                if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
+                // TODO(dx)
+                //if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
+                if (!replica.isNormal()) {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
@@ -3060,24 +3126,38 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_EXPIRED);
             result.getStatus().addToErrorMsgs(String.format("snapshot %s is expired", label));
         } else {
-            byte[] meta = snapshot.getMeta();
-            byte[] jobInfo = snapshot.getJobInfo();
+            long metaSize = snapshot.getMetaSize();
+            long jobInfoSize = snapshot.getJobInfoSize();
+            long snapshotSize = snapshot.getMetaSize() + snapshot.getJobInfoSize();
+            if (metaSize + jobInfoSize >= Integer.MAX_VALUE && !request.isEnableCompress()) {
+                String msg = String.format(
+                        "Snapshot %s is too large (%d bytes > 2GB). Please enable compression to continue.",
+                        label, snapshotSize);
+                LOG.warn("get snapshot failed: {}", msg);
+                result.getStatus().setStatusCode(TStatusCode.INTERNAL_ERROR);
+                result.getStatus().addToErrorMsgs(msg);
+                return result;
+            }
+
             long expiredAt = snapshot.getExpiredAt();
             long commitSeq = snapshot.getCommitSeq();
 
             LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, "
-                    + "expired at: {}, commit seq: {}", label, meta.length, jobInfo.length, expiredAt, commitSeq);
+                    + "expired at: {}, commit seq: {}", label, metaSize, jobInfoSize, expiredAt, commitSeq);
             if (request.isEnableCompress()) {
-                meta = GZIPUtils.compress(meta);
-                jobInfo = GZIPUtils.compress(jobInfo);
+                byte[] meta = snapshot.getCompressedMeta();
+                byte[] jobInfo = snapshot.getCompressedJobInfo();
+                result.setMeta(meta);
+                result.setJobInfo(jobInfo);
                 result.setCompressed(true);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("get snapshot info with compress, snapshot: {}, compressed meta "
                             + "size {}, compressed job info size {}", label, meta.length, jobInfo.length);
                 }
+            } else {
+                result.setMeta(snapshot.getMeta());
+                result.setJobInfo(snapshot.getJobInfo());
             }
-            result.setMeta(meta);
-            result.setJobInfo(jobInfo);
             result.setExpiredAt(expiredAt);
             result.setCommitSeq(commitSeq);
         }
@@ -3190,6 +3270,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
+        BackupMeta backupMeta;
+        BackupJobInfo backupJobInfo;
         byte[] meta = request.getMeta();
         byte[] jobInfo = request.getJobInfo();
         if (Config.enable_restore_snapshot_rpc_compression && request.isCompressed()) {
@@ -3198,15 +3280,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         meta.length, jobInfo.length);
             }
             try {
-                meta = GZIPUtils.decompress(meta);
-                jobInfo = GZIPUtils.decompress(jobInfo);
+                Pair<BackupMeta, BackupJobInfo> pair = Snapshot.readFromCompressedBytes(meta, jobInfo);
+                backupMeta = pair.first;
+                backupJobInfo = pair.second;
             } catch (Exception e) {
                 LOG.warn("decompress meta and job info failed", e);
                 throw new UserException("decompress meta and job info failed", e);
             }
-        } else if (GZIPUtils.isGZIPCompressed(jobInfo) || GZIPUtils.isGZIPCompressed(meta)) {
+        } else if (Snapshot.isCompressed(meta, jobInfo)) {
             throw new UserException("The request is compressed, but the config "
                     + "`enable_restore_snapshot_rpc_compressed` is not enabled.");
+        } else {
+            try {
+                Pair<BackupMeta, BackupJobInfo> pair = Snapshot.readFromBytes(meta, jobInfo);
+                backupMeta = pair.first;
+                backupJobInfo = pair.second;
+            } catch (Exception e) {
+                LOG.warn("deserialize meta and job info failed", e);
+                throw new UserException("deserialize meta and job info failed", e);
+            }
         }
 
         //instantiate RestoreCommand
@@ -3266,8 +3358,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
-        restoreCommand.setMeta(meta);
-        restoreCommand.setJobInfo(jobInfo);
+        restoreCommand.setMeta(backupMeta);
+        restoreCommand.setJobInfo(backupJobInfo);
         restoreCommand.setIsBeingSynced();
         LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
         try {
@@ -4456,6 +4548,48 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         result.setRoutineLoadJobs(jobInfos);
 
+        return result;
+    }
+
+    @Override
+    public TGetTableTDEInfoResult getTableTDEInfo(TGetTableTDEInfoRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive getTableTDEInfo request: {}, backend: {}", request, clientAddr);
+        }
+
+        if (!request.isSetDbId()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("Missing db id field");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+        if (!request.isSetTableId()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("Missing db id field");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+        Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(request.getDbId());
+        if (!db.isPresent()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs("Db=" + request.getDbId() + " not found");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+        Optional<Table> tbl = db.get().getTable(request.getTableId());
+        if (!tbl.isPresent()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs("Table=" + request.getTableId() + " not found");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+
+        TEncryptionAlgorithm tdeAlgorithm = ((OlapTable) tbl.get()).getTableProperty().getTDEAlgorithm();
+        TStatus status = new TStatus();
+        status.setStatusCode(TStatusCode.OK);
+        TGetTableTDEInfoResult result = new TGetTableTDEInfoResult();
+        result.setAlgorithm(tdeAlgorithm).setStatus(status);
         return result;
     }
 }
