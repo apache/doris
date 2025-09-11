@@ -271,8 +271,28 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
             // skip rowset[0-1]
             return false;
         }
-        return rs_meta->start_version() > path_max_version &&
-               rs_meta->visible_timestamp() < freshness_limit_tp;
+        bool ret = rs_meta->start_version() > path_max_version &&
+                   rs_meta->visible_timestamp() < freshness_limit_tp;
+        if (ret && config::read_cluster_cache_opt_verbose_log) {
+            std::time_t t1 = system_clock::to_time_t(rs_meta->visible_timestamp());
+            std::tm tm1 = *std::localtime(&t1);
+            std::ostringstream oss1;
+            oss1 << std::put_time(&tm1, "%Y-%m-%d %H:%M:%S");
+
+            std::time_t t2 = system_clock::to_time_t(freshness_limit_tp);
+            std::tm tm2 = *std::localtime(&t2);
+            std::ostringstream oss2;
+            oss2 << std::put_time(&tm2, "%Y-%m-%d %H:%M:%S");
+            LOG_INFO(
+                    "[verbose] CloudTablet::capture_rs_readers_with_freshness_tolerance, "
+                    "find a rowset which should be visible but not warmed up, tablet_id={}, "
+                    "path_max_version={}, rowset_id={}, version={}, visible_time={}, "
+                    "freshness_limit={}, version_graph={}, rowset_warmup_digest={}",
+                    tablet_id(), path_max_version, rs_meta->rowset_id().to_string(),
+                    rs_meta->version().to_string(), oss1.str(), oss2.str(),
+                    _timestamped_version_tracker.debug_string(), rowset_warmup_digest());
+        }
+        return ret;
     };
     // use std::views::concat after C++26
     bool should_fallback = std::ranges::any_of(_tablet_meta->all_rs_metas(),
