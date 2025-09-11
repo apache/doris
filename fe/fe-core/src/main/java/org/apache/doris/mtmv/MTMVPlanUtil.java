@@ -97,8 +97,8 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().skipStorageEngineMerge = false;
         ctx.getSessionVariable().showHiddenColumns = false;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
-        // Temporary disable constant propagation to lose hitting the mv
-        // Disable add default limit rule to avoid refresh data wrong
+        // Rules disabled during materialized view plan generation. These rules can cause significant plan changes,
+        // which may affect transparent query rewriting by mv
         List<RuleType> disableRules = Arrays.asList(
                 RuleType.COMPRESSED_MATERIALIZE_AGG,
                 RuleType.COMPRESSED_MATERIALIZE_SORT,
