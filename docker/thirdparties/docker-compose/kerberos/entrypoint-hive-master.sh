@@ -54,6 +54,8 @@ curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/hadoop-cos-3.1.0
 curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/cos_api-bundle-5.6.244.4.jar
 curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/hadoop-aws-3.2.1.jar
 curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/paimon-hive-connector-3.1-1.3-SNAPSHOT.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/gcs-connector-hadoop3-2.2.24-shaded.jar
+
 
 /usr/local/hadoop-run.sh &
 
