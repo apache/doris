@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_broker_load_with_merge", "load_p0") {
+suite("test_broker_load_with_merge", "load_p0,external") {
     // define a sql table
     def testTable = "tbl_test_broker_load_with_merge"
 

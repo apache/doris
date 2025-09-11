@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_load", "load_p0") {
+suite("test_array_load", "load_p0,external") {
     // define a sql table
     def testTable = "tbl_test_array_load"
     def testTable01 = "tbl_test_array_load01"
@@ -137,9 +137,10 @@ suite("test_array_load", "load_p0") {
                             DATA INFILE("${hdfsFilePath}")
                             INTO TABLE ${testTablex}
                             FORMAT as "${format}")
-                        with BROKER "${brokerName}" (
+                        with HDFS (
                         "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        "password"="${hdfsPasswd}",
+                        "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
@@ -157,9 +158,10 @@ suite("test_array_load", "load_p0") {
                             INTO TABLE ${testTablex}
                             COLUMNS TERMINATED BY "/"
                             FORMAT as "${format}")
-                        with BROKER "${brokerName}" (
+                        with HDFS (
                         "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        "password"="${hdfsPasswd}",
+                        "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
@@ -179,6 +181,7 @@ suite("test_array_load", "load_p0") {
                 qt_select "select * from ${testTablex} order by k1"
                 break
             } else {
+                logger.info("${result}")
                 sleep(1000) // wait 1 second every time
                 max_try_milli_secs -= 1000
                 if(max_try_milli_secs <= 0) {
@@ -317,7 +320,8 @@ suite("test_array_load", "load_p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
-
+        
+        logger.info("case 9")
         // case9: import array data by hdfs in orc format and enable vectorized
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
@@ -333,7 +337,9 @@ suite("test_array_load", "load_p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+        
         // test unified load
+        logger.info("case 10")
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
 

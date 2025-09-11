@@ -348,6 +348,10 @@ public:
 
     int scan_and_statistics_restore_jobs();
 
+    void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
+        accessor_map_.insert({std::string(id), std::move(accessor)});
+    }
+
 private:
     // returns 0 for success otherwise error
     int init_obj_store_accessors();
@@ -406,8 +410,11 @@ private:
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(std::string_view rowset_meta_key,
+    int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
                                      const RowsetMetaCloudPB& rowset_meta);
+
+    // Whether the instance has any snapshots, return 0 for success otherwise error.
+    int has_cluster_snapshots(bool* any);
 
 private:
     std::atomic_bool stopped_ {false};

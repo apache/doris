@@ -19,6 +19,7 @@ suite("distinct_split") {
     sql "set runtime_filter_mode = OFF"
     sql "set disable_join_reorder=true"
     sql "set global enable_auto_analyze=false;"
+    sql "set be_number_for_test=1;"
     sql "drop table if exists test_distinct_multi"
     sql "create table test_distinct_multi(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into test_distinct_multi values(1,2,3,'abc','2024-01-02'),(1,2,4,'abc','2024-01-03'),(2,2,4,'abcd','2024-01-02'),(1,2,3,'abcd','2024-01-04'),(1,2,4,'eee','2024-02-02'),(2,2,4,'abc','2024-01-02');"
