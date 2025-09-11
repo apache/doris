@@ -167,7 +167,7 @@ Status RowsetBuilder::check_tablet_version_count() {
     }
 
     if (!(injection || (!config::disable_auto_compaction &&
-        !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()))) {
+                        !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()))) {
         return Status::OK();
     }
 
@@ -181,10 +181,10 @@ Status RowsetBuilder::check_tablet_version_count() {
     if (injection || !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // Trigger compaction
         auto st = _engine.submit_compaction_task(tablet_sptr(),
-                                                CompactionType::CUMULATIVE_COMPACTION, true);
+                                                 CompactionType::CUMULATIVE_COMPACTION, true);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id()
-                        << " : " << st;
+                         << " : " << st;
         }
     }
 
