@@ -17,12 +17,19 @@
 
 package org.apache.doris.job.offset;
 
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
 /**
  * Interface for managing offsets and metadata of a data source.
  */
 public interface SourceOffsetProvider {
+
+    /**
+     * init
+     */
+    void init(String executeSql, StreamingJobProperties jobProperties);
+
     /**
      * Get source type, e.g. s3, kafka
      * @return
@@ -43,10 +50,10 @@ public interface SourceOffsetProvider {
 
     /**
      * Rewrite the TVF parameters in the SQL based on the current offset.
-     * @param sql
+     * @param nextOffset
      * @return rewritten InsertIntoTableCommand
      */
-    InsertIntoTableCommand rewriteTvfParams(String sql);
+    InsertIntoTableCommand rewriteTvfParams(Offset nextOffset);
 
     /**
      * Update the progress of the source.
@@ -64,5 +71,6 @@ public interface SourceOffsetProvider {
      * @return
      */
     boolean hasMoreDataToConsume();
+
 }
 

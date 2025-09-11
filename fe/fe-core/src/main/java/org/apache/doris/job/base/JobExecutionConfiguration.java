@@ -100,7 +100,7 @@ public class JobExecutionConfiguration {
         if (timerDefinition.getStartTimeMs() == null) {
             throw new IllegalArgumentException("startTimeMs cannot be null");
         }
-        if (isImmediate()) {
+        if (isImmediate() || JobExecuteType.STREAMING.equals(executeType)) {
             return;
         }
         if (timerDefinition.getStartTimeMs() < System.currentTimeMillis()) {

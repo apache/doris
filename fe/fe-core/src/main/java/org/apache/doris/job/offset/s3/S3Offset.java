@@ -21,13 +21,15 @@ import org.apache.doris.job.offset.Offset;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import lombok.Getter;
+import lombok.Setter;
 
 import java.util.List;
 
+@Getter
+@Setter
 public class S3Offset implements Offset {
     String startFile;
     String endFile;
-    @Getter
     List<String> fileLists;
 
     @Override

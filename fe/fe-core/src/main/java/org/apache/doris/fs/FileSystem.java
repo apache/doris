@@ -115,6 +115,20 @@ public interface FileSystem {
      */
     Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
 
+    /**
+     * List files in remotePath <br/>
+     * @param remotePath remote path
+     * @param result All eligible files under the path
+     * @param startFile start file name
+     * @param fileSizeLimit limit the total size of files to be listed.
+     * @param fileNumLimit limit the total number of files to be listed.
+     * @return
+     */
+    default String globListWithLimit(String remotePath, List<String> result,
+            String startFile, long fileSizeLimit, long fileNumLimit) {
+        throw new UnsupportedOperationException("Unsupported operation glob list with limit on current file system.");
+    }
+
     default Status listDirectories(String remotePath, Set<String> result) {
         throw new UnsupportedOperationException("Unsupported operation list directories on current file system.");
     }

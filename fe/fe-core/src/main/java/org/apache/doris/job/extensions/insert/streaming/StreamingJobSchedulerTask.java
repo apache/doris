@@ -95,6 +95,9 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     @Override
     public TRow getTvfInfo(String jobName) {
         StreamingInsertTask runningTask = streamingInsertJob.getRunningStreamTask();
+        if (runningTask == null) {
+            return null;
+        }
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(runningTask.getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(runningTask.getJobId())));
@@ -117,6 +120,6 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             trow.addToColumnValue(new TCell().setStringVal(runningTask.getUserIdentity().getQualifiedUser()));
         }
         trow.addToColumnValue(new TCell().setStringVal(runningTask.getOffset().toJson()));
-        return null;
+        return trow;
     }
 }

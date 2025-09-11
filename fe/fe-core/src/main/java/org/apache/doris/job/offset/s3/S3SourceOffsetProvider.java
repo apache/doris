@@ -17,17 +17,50 @@
 
 package org.apache.doris.job.offset.s3;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
+import lombok.extern.log4j.Log4j2;
+
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+@Log4j2
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
+    String executeSql;
     S3Offset currentOffset;
     String maxRemoteEndFile;
+    StreamingJobProperties jobProperties;
+    NereidsParser parser;
+    String filePath;
+    StorageProperties storageProperties;
+
+    @Override
+    public void init(String executeSql, StreamingJobProperties jobProperties) {
+        this.executeSql = executeSql;
+        this.jobProperties = jobProperties;
+        this.parser = new NereidsParser();
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(executeSql);
+        UnboundTVFRelation firstTVF = command.getFirstTVF();
+        Map<String, String> properties = firstTVF.getProperties().getMap();
+        try {
+            this.storageProperties = StorageProperties.createPrimary(properties);
+            String uri = storageProperties.validateAndGetUri(properties);
+            this.filePath = storageProperties.validateAndNormalizeUri(uri);
+        } catch (UserException e) {
+            throw new RuntimeException("Failed check storage props, " + e.getMessage(), e);
+        }
+    }
 
     @Override
     public String getSourceType() {
@@ -36,8 +69,19 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public S3Offset getNextOffset() {
-        //todo: listObjects from end file
-        return null;
+        S3Offset offset = new S3Offset();
+        List<String> rfiles = new ArrayList<>();
+        try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
+            maxRemoteEndFile = fileSystem.globListWithLimit(filePath, rfiles, currentOffset.endFile,
+                    jobProperties.getS3BatchFiles(), jobProperties.getS3BatchSize());
+            offset.setStartFile(currentOffset.endFile);
+            offset.setEndFile(rfiles.get(rfiles.size() - 1));
+            offset.setFileLists(rfiles);
+        } catch (Exception e) {
+            log.warn("list path exception, path={}", filePath, e);
+            throw new RuntimeException(e);
+        }
+        return offset;
     }
 
     @Override
@@ -46,15 +90,15 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public InsertIntoTableCommand rewriteTvfParams(String sql) {
-        S3Offset nextOffset = getNextOffset();
+    public InsertIntoTableCommand rewriteTvfParams(Offset nextOffset) {
+        S3Offset offset = (S3Offset) nextOffset;
         Map<String, String> props = new HashMap<>();
         //todo: need to change file list to glob string
-        props.put("uri", nextOffset.getFileLists().toString());
+        props.put("uri", offset.getFileLists().toString());
 
-        NereidsParser parser = new NereidsParser();
-        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
-        command.rewriteTvfProperties(getSourceType(), props);
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(executeSql);
+
+        command.rewriteFirstTvfProperties(getSourceType(), props);
         return command;
     }
 

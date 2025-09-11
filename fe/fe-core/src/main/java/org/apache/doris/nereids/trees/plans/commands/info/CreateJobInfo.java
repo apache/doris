@@ -129,6 +129,7 @@ public class CreateJobInfo {
         if (streamingJob) {
             executeType = JobExecuteType.STREAMING;
             properties = new StreamingJobProperties(jobProperties);
+            properties.validate();
         }
         jobExecutionConfiguration.setExecuteType(executeType);
 
@@ -273,15 +274,21 @@ public class CreateJobInfo {
         NereidsParser parser = new NereidsParser();
         LogicalPlan logicalPlan = parser.parseSingle(sql);
         if (logicalPlan instanceof InsertIntoTableCommand) {
-            return new StreamingInsertJob(labelNameOptional.get(),
-                    JobStatus.PENDING,
-                    currentDbName,
-                    comment,
-                    ConnectContext.get().getCurrentUserIdentity(),
-                    jobExecutionConfiguration,
-                    System.currentTimeMillis(),
-                    sql,
-                    (StreamingJobProperties) properties);
+            // InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) logicalPlan;
+            try {
+                // insertIntoTableCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
+                return new StreamingInsertJob(labelNameOptional.get(),
+                        JobStatus.PENDING,
+                        currentDbName,
+                        comment,
+                        ConnectContext.get().getCurrentUserIdentity(),
+                        jobExecutionConfiguration,
+                        System.currentTimeMillis(),
+                        sql,
+                        (StreamingJobProperties) properties);
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
+            }
         } else {
             throw new AnalysisException("Not support this sql : " + sql + " Command class is "
                     + logicalPlan.getClass().getName() + ".");

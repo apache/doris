@@ -54,6 +54,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request.Builder;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
@@ -628,6 +629,144 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         duration / 1000 / 1000);
             }
         }
+    }
+
+
+    /**
+     * List all files under the given path with glob pattern.
+     * For example, if the path is "s3://bucket/path/to/*.csv",
+     * it will list all files under "s3://bucket/path/to/" with ".csv" suffix.
+     * <p>
+     * Limit: Starting from startFile, until the total file size is greater than fileSizeLimit,
+     * or the number of files is greater than fileNumLimit.
+     *
+     * @return The largest file name after listObject this time
+     */
+    public String globListWithLimit(String remotePath, List<String> result, String startFile,
+            long fileSizeLimit, long fileNumLimit) {
+        long roundCnt = 0;
+        long elementCnt = 0;
+        long matchCnt = 0;
+        long matchFileSize = 0L;
+        long startTime = System.nanoTime();
+        try {
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            if (uri.useS3DirectoryBucket()) {
+                throw new RuntimeException("Not support glob with limit for directory bucket");
+            }
+
+            String bucket = uri.getBucket();
+            String globPath = uri.getKey(); // eg: path/to/*.csv
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("globList globPath:{}, remotePath:{}", globPath, remotePath);
+            }
+            java.nio.file.Path pathPattern = Paths.get(globPath);
+            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
+            HashSet<String> directorySet = new HashSet<>();
+
+            String listPrefix = S3Util.getLongestPrefix(globPath); // similar to Azure
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("globList listPrefix: '{}' (from globPath: '{}')", listPrefix, globPath);
+            }
+
+            Builder builder = ListObjectsV2Request.builder();
+            builder.bucket(bucket)
+                    .prefix(listPrefix);
+
+            if (startFile != null) {
+                builder.startAfter(startFile);
+            }
+
+            ListObjectsV2Request request = builder.build();
+
+            String currentMaxFile = "";
+            boolean isTruncated = false;
+            do {
+                roundCnt++;
+                ListObjectsV2Response response = listObjectsV2(request);
+                for (S3Object obj : response.contents()) {
+                    elementCnt++;
+                    java.nio.file.Path objPath = Paths.get(obj.key());
+
+                    boolean isPrefix = false;
+                    while (objPath != null && objPath.normalize().toString().startsWith(listPrefix)) {
+                        if (!matcher.matches(objPath)) {
+                            isPrefix = true;
+                            objPath = objPath.getParent();
+                            continue;
+                        }
+                        if (directorySet.contains(objPath.normalize().toString())) {
+                            break;
+                        }
+                        if (isPrefix) {
+                            directorySet.add(objPath.normalize().toString());
+                        }
+
+                        matchCnt++;
+                        matchFileSize += obj.size();
+                        String remoteFileName = "s3://" + bucket + "/" + objPath;
+                        result.add(remoteFileName);
+
+                        if (reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
+                            break;
+                        }
+
+                        objPath = objPath.getParent();
+                        isPrefix = true;
+                    }
+                }
+                //record current last object file name
+                S3Object lastS3Object = response.contents().get(response.contents().size() - 1);
+                java.nio.file.Path lastObjPath = Paths.get(lastS3Object.key());
+                currentMaxFile =  "s3://" + bucket + "/" + lastObjPath;
+
+                isTruncated = response.isTruncated();
+                if (isTruncated) {
+                    request = request.toBuilder()
+                            .continuationToken(response.nextContinuationToken())
+                            .build();
+                }
+            } while (isTruncated);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remotePath:{}, result:{}", remotePath, result);
+            }
+            return currentMaxFile;
+        } catch (Exception e) {
+            LOG.warn("Errors while getting file status", e);
+            throw new RuntimeException(e);
+        } finally {
+            long endTime = System.nanoTime();
+            long duration = endTime - startTime;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("process {} elements under prefix {} for {} round, match {} elements, take {} ms",
+                        elementCnt, remotePath, roundCnt, matchCnt,
+                        duration / 1000 / 1000);
+            }
+        }
+    }
+
+    private static boolean reachLimit(int matchFileCnt, long matchFileSize, long sizeLimit, long fileNum) {
+        if (matchFileCnt < 0 || sizeLimit < 0 || fileNum < 0) {
+            return false;
+        }
+        if (fileNum > 0 && matchFileCnt >= fileNum) {
+            LOG.info(
+                    "reach file num limit fileNum:{} objectFiles count:{}",
+                    fileNum,
+                    matchFileCnt);
+            return true;
+        }
+
+        if (sizeLimit > 0 && matchFileSize >= sizeLimit) {
+            LOG.info(
+                    "reach size limit sizeLimit:{}, objectFilesSize:{}",
+                    sizeLimit,
+                    matchFileSize);
+            return true;
+        }
+        return false;
     }
 
     @Override
