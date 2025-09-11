@@ -36,11 +36,17 @@ public interface SourceOffsetProvider {
     Offset getNextOffset();
 
     /**
-     * Rewrite the TVF parameters in the InsertIntoTableCommand based on the current offset.
-     * @param command
+     * Get current offset
      * @return
      */
-    InsertIntoTableCommand rewriteTvfParamsInCommand(InsertIntoTableCommand command);
+    Offset getCurrentOffset();
+
+    /**
+     * Rewrite the TVF parameters in the SQL based on the current offset.
+     * @param sql
+     * @return rewritten InsertIntoTableCommand
+     */
+    InsertIntoTableCommand rewriteTvfParams(String sql);
 
     /**
      * Update the progress of the source.
@@ -57,6 +63,6 @@ public interface SourceOffsetProvider {
      * Whether there is more data to consume
      * @return
      */
-    boolean hasMoreData();
+    boolean hasMoreDataToConsume();
 }
 

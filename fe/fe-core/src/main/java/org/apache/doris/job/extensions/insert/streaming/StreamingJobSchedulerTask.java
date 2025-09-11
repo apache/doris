@@ -18,17 +18,17 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.InternalErrorCode;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.PauseReason;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
 public class StreamingJobSchedulerTask extends AbstractTask {
-
     private static final long BACK_OFF_BASIC_TIME_SEC = 10L;
     private static final long MAX_BACK_OFF_TIME_SEC = 60 * 5;
-
     private StreamingInsertJob streamingInsertJob;
 
     public StreamingJobSchedulerTask(StreamingInsertJob streamingInsertJob) {
@@ -80,14 +80,43 @@ public class StreamingJobSchedulerTask extends AbstractTask {
 
     @Override
     protected void closeOrReleaseResources() {
+        if (streamingInsertJob.getRunningStreamTask() != null) {
+            streamingInsertJob.getRunningStreamTask().closeOrReleaseResources();
+        }
     }
 
     @Override
     protected void executeCancelLogic(boolean needWaitCancelComplete) throws Exception {
+        if (streamingInsertJob.getRunningStreamTask() != null) {
+            streamingInsertJob.getRunningStreamTask().cancel(needWaitCancelComplete);
+        }
     }
 
     @Override
     public TRow getTvfInfo(String jobName) {
+        StreamingInsertTask runningTask = streamingInsertJob.getRunningStreamTask();
+        TRow trow = new TRow();
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(runningTask.getTaskId())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(runningTask.getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(jobName));
+        trow.addToColumnValue(new TCell().setStringVal(runningTask.getLabelName()));
+        trow.addToColumnValue(new TCell().setStringVal(runningTask.getStatus().name()));
+        trow.addToColumnValue(new TCell().setStringVal(runningTask.getErrMsg()));
+        // create time
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(runningTask.getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? ""
+                : TimeUtils.longToTimeString(runningTask.getStartTimeMs())));
+        // load end time
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(runningTask.getFinishTimeMs())));
+        // tracking url
+        trow.addToColumnValue(new TCell().setStringVal("trackingUrl"));
+        trow.addToColumnValue(new TCell().setStringVal("statistic"));
+        if (runningTask.getUserIdentity() == null) {
+            trow.addToColumnValue(new TCell().setStringVal(""));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(runningTask.getUserIdentity().getQualifiedUser()));
+        }
+        trow.addToColumnValue(new TCell().setStringVal(runningTask.getOffset().toJson()));
         return null;
     }
 }

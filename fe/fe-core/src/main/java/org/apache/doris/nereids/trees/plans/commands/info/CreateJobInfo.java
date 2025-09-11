@@ -274,7 +274,7 @@ public class CreateJobInfo {
         LogicalPlan logicalPlan = parser.parseSingle(sql);
         if (logicalPlan instanceof InsertIntoTableCommand) {
             return new StreamingInsertJob(labelNameOptional.get(),
-                    JobStatus.RUNNING,
+                    JobStatus.PENDING,
                     currentDbName,
                     comment,
                     ConnectContext.get().getCurrentUserIdentity(),
@@ -313,5 +313,9 @@ public class CreateJobInfo {
             str = str.substring(1, str.length() - 1);
         }
         return TimeUtils.timeStringToLong(str.trim());
+    }
+
+    public boolean streamingJob() {
+        return streamingJob;
     }
 }

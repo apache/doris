@@ -19,35 +19,60 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
+    S3Offset currentOffset;
+    String maxRemoteEndFile;
 
     @Override
     public String getSourceType() {
+        return "s3";
+    }
+
+    @Override
+    public S3Offset getNextOffset() {
+        //todo: listObjects from end file
         return null;
     }
 
     @Override
-    public Offset getNextOffset() {
-        return null;
+    public Offset getCurrentOffset() {
+        return currentOffset;
     }
 
     @Override
-    public InsertIntoTableCommand rewriteTvfParamsInCommand(InsertIntoTableCommand command) {
-        return null;
+    public InsertIntoTableCommand rewriteTvfParams(String sql) {
+        S3Offset nextOffset = getNextOffset();
+        Map<String, String> props = new HashMap<>();
+        //todo: need to change file list to glob string
+        props.put("uri", nextOffset.getFileLists().toString());
+
+        NereidsParser parser = new NereidsParser();
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+        command.rewriteTvfProperties(getSourceType(), props);
+        return command;
     }
 
     @Override
     public void updateProgress(Offset offset) {
+        this.currentOffset = (S3Offset) offset;
     }
 
     @Override
     public void fetchRemoteMeta() {
+        // list object
     }
 
     @Override
-    public boolean hasMoreData() {
+    public boolean hasMoreDataToConsume() {
+        if (currentOffset.endFile.compareTo(maxRemoteEndFile) < 0) {
+            return true;
+        }
         return false;
     }
 }
