@@ -21,7 +21,6 @@ suite("mv_with_date_trunc") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
     drop table if exists lineitem
