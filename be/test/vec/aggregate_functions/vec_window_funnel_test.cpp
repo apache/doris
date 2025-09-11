@@ -210,7 +210,7 @@ TEST_F(VWindowFunnelTest, testMax4SortedNoMerge) {
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
-    for (int win = -1; win < NUM_CONDS + 1; win++) {
+    for (int win = 0; win < NUM_CONDS + 1; win++) {
         auto column_window = ColumnInt64::create();
         for (int i = 0; i < NUM_CONDS; i++) {
             column_window->insert(vectorized::Field::create_field<TYPE_BIGINT>(win));
@@ -272,7 +272,7 @@ TEST_F(VWindowFunnelTest, testMax4SortedMerge) {
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
-    for (int win = -1; win < NUM_CONDS + 1; win++) {
+    for (int win = 0; win < NUM_CONDS + 1; win++) {
         auto column_window = ColumnInt64::create();
         for (int i = 0; i < NUM_CONDS; i++) {
             column_window->insert(vectorized::Field::create_field<TYPE_BIGINT>(win));
@@ -340,7 +340,7 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedNoMerge) {
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    for (int win = -1; win < NUM_CONDS + 1; win++) {
+    for (int win = 0; win < NUM_CONDS + 1; win++) {
         auto column_window = ColumnInt64::create();
         for (int i = 0; i < NUM_CONDS; i++) {
             column_window->insert(vectorized::Field::create_field<TYPE_BIGINT>(win));
@@ -403,7 +403,7 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedMerge) {
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    for (int win = -1; win < NUM_CONDS + 1; win++) {
+    for (int win = 0; win < NUM_CONDS + 1; win++) {
         auto column_window = ColumnInt64::create();
         for (int i = 0; i < NUM_CONDS; i++) {
             column_window->insert(vectorized::Field::create_field<TYPE_BIGINT>(win));

@@ -22,7 +22,9 @@
 
 #include <string>
 
+#include "common/exception.h"
 #include "gtest/gtest_pred_impl.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
@@ -875,6 +877,427 @@ TEST(VDateTimeValueTest, datetime_diff_test) {
             EXPECT_EQ(datetime_diff<TimeUnit::SECOND>(dt1, dt2),
                       -5430); // -1h 30m 30.75s = -5430.75s, truncates to -5430
         }
+    }
+}
+
+TEST(VDateTimeValueTest, date_add_interval_positive_test) {
+    DateV2Value<DateTimeV2ValueType> dt;
+    dt.from_date_str("2022-01-15 10:30:45", 19);
+
+    // Test SECOND unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::SECOND, 30, false);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::SECOND>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 1);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 10);
+        EXPECT_EQ(result.minute(), 31);
+        EXPECT_EQ(result.second(), 15);
+    }
+
+    // Test MINUTE unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::MINUTE, 45, false);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::MINUTE>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 1);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 11);
+        EXPECT_EQ(result.minute(), 15);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test HOUR unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::HOUR, 5, false);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::HOUR>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 1);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 15);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test DAY unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::DAY, 10, false);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::DAY>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 1);
+        EXPECT_EQ(result.day(), 25);
+        EXPECT_EQ(result.hour(), 10);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test WEEK unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::WEEK, 2, false);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::WEEK>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 1);
+        EXPECT_EQ(result.day(), 29);
+        EXPECT_EQ(result.hour(), 10);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test MONTH unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::MONTH, 3, false);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::MONTH>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 4);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 10);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test QUARTER unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::QUARTER, 2, false);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::QUARTER>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 7);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 10);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test YEAR unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::YEAR, 2, false);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::YEAR>(interval));
+        EXPECT_EQ(result.year(), 2024);
+        EXPECT_EQ(result.month(), 1);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 10);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+}
+
+TEST(VDateTimeValueTest, date_add_interval_negative_test) {
+    DateV2Value<DateTimeV2ValueType> dt;
+    dt.from_date_str("2022-06-15 15:30:45", 19);
+
+    // Test SECOND unit (negative)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::SECOND, 50, true);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::SECOND>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 6);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 15);
+        EXPECT_EQ(result.minute(), 29);
+        EXPECT_EQ(result.second(), 55);
+    }
+
+    // Test MINUTE unit (negative)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::MINUTE, 45, true);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::MINUTE>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 6);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 14);
+        EXPECT_EQ(result.minute(), 45);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test HOUR unit (negative)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::HOUR, 20, true);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::HOUR>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 6);
+        EXPECT_EQ(result.day(), 14);
+        EXPECT_EQ(result.hour(), 19);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test DAY unit (negative)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::DAY, 10, true);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::DAY>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 6);
+        EXPECT_EQ(result.day(), 5);
+        EXPECT_EQ(result.hour(), 15);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test MONTH unit (negative)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::MONTH, 3, true);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::MONTH>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 3);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 15);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+
+    // Test YEAR unit (negative)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval(TimeUnit::YEAR, 1, true);
+        EXPECT_TRUE(result.date_add_interval<TimeUnit::YEAR>(interval));
+        EXPECT_EQ(result.year(), 2021);
+        EXPECT_EQ(result.month(), 6);
+        EXPECT_EQ(result.day(), 15);
+        EXPECT_EQ(result.hour(), 15);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+}
+
+TEST(VDateTimeValueTest, date_set_interval_positive_test) {
+    DateV2Value<DateTimeV2ValueType> dt;
+    dt.from_date_str("2022-06-12 15:30:45", 19);
+
+    // Test SECOND unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.second = 123;
+        interval.minute = 45;
+        interval.hour = 12;
+        interval.day = 5;
+        interval.is_neg = false;
+        EXPECT_TRUE(result.date_set_interval<TimeUnit::SECOND>(interval));
+        EXPECT_EQ(result.year(), 0);
+        EXPECT_EQ(result.month(), 1);
+        EXPECT_EQ(result.day(), 5);
+        EXPECT_EQ(result.hour(), 12);
+        EXPECT_EQ(result.minute(), 47);
+        EXPECT_EQ(result.second(), 3);
+    }
+
+    // Test MINUTE unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.minute = 90;
+        interval.hour = 5;
+        interval.day = 2;
+        interval.is_neg = false;
+        EXPECT_TRUE(result.date_set_interval<TimeUnit::MINUTE>(interval));
+        EXPECT_EQ(result.year(), 0);
+        EXPECT_EQ(result.month(), 0);
+        EXPECT_EQ(result.day(), 2);
+        EXPECT_EQ(result.hour(), 6);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 0);
+    }
+
+    // Test HOUR unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.hour = 30; // 1 day 6 hours
+        interval.day = 3;
+        interval.is_neg = false;
+        EXPECT_TRUE(result.date_set_interval<TimeUnit::HOUR>(interval));
+        EXPECT_EQ(result.year(), 2022);
+        EXPECT_EQ(result.month(), 6);
+        EXPECT_EQ(result.day(), 4);
+        EXPECT_EQ(result.hour(), 6);
+        EXPECT_EQ(result.minute(), 0);
+        EXPECT_EQ(result.second(), 0);
+    }
+
+    // Test DAY unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.day = 100; // day 100 of year 1
+        interval.is_neg = false;
+        EXPECT_TRUE(result.date_set_interval<TimeUnit::DAY>(interval));
+        EXPECT_EQ(result.year(), 0);
+        EXPECT_EQ(result.month(), 4);
+        EXPECT_EQ(result.day(), 10);
+        EXPECT_EQ(result.hour(), 15);
+        EXPECT_EQ(result.minute(), 0);
+        EXPECT_EQ(result.second(), 0);
+    }
+
+    // Test MONTH unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.year = 2;
+        interval.month = 15; // 2 years 15 months = 3 years 3 months
+        interval.is_neg = false;
+        EXPECT_TRUE(result.date_set_interval<TimeUnit::MONTH>(interval));
+        EXPECT_EQ(result.year(), 3);
+        EXPECT_EQ(result.month(), 4);
+        EXPECT_EQ(result.day(), 1);
+        EXPECT_EQ(result.hour(), 0);
+        EXPECT_EQ(result.minute(), 0);
+        EXPECT_EQ(result.second(), 0);
+    }
+
+    // Test QUARTER unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.year = 1;
+        interval.month = 9; // 1 year + 3 quarters (9 months) = 1 year 9 months
+        interval.is_neg = false;
+        EXPECT_TRUE(result.date_set_interval<TimeUnit::QUARTER>(interval));
+        EXPECT_EQ(result.year(), 1);
+        EXPECT_EQ(result.month(), 10);
+        EXPECT_EQ(result.day(), 1);
+        EXPECT_EQ(result.hour(), 0);
+        EXPECT_EQ(result.minute(), 0);
+        EXPECT_EQ(result.second(), 0);
+    }
+
+    // Test YEAR unit
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.year = 2025;
+        interval.is_neg = false;
+        EXPECT_TRUE(result.date_set_interval<TimeUnit::YEAR>(interval));
+        EXPECT_EQ(result.year(), 2025);
+        EXPECT_EQ(result.month(), 1);
+        EXPECT_EQ(result.day(), 1);
+        EXPECT_EQ(result.hour(), 15);
+        EXPECT_EQ(result.minute(), 30);
+        EXPECT_EQ(result.second(), 45);
+    }
+}
+
+TEST(VDateTimeValueTest, date_set_interval_negative_test) {
+    DateV2Value<DateTimeV2ValueType> dt;
+    dt.from_date_str("2022-06-15 15:30:45", 19);
+
+    // Test SECOND unit with negative interval (should throw)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.second = 30;
+        interval.is_neg = true;
+
+        EXPECT_THROW(result.date_set_interval<TimeUnit::SECOND>(interval), Exception);
+    }
+
+    // Test MINUTE unit with negative interval (should throw)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.minute = 30;
+        interval.is_neg = true;
+
+        EXPECT_THROW(result.date_set_interval<TimeUnit::MINUTE>(interval), Exception);
+    }
+
+    // Test HOUR unit with negative interval (should throw)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.hour = 5;
+        interval.is_neg = true;
+
+        EXPECT_THROW(result.date_set_interval<TimeUnit::HOUR>(interval), Exception);
+    }
+
+    // Test DAY unit with negative interval (should throw)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.day = 10;
+        interval.is_neg = true;
+
+        EXPECT_THROW(result.date_set_interval<TimeUnit::DAY>(interval), Exception);
+    }
+
+    // Test MONTH unit with negative interval (should throw)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.month = 3;
+        interval.is_neg = true;
+
+        EXPECT_THROW(result.date_set_interval<TimeUnit::MONTH>(interval), Exception);
+    }
+
+    // Test QUARTER unit with negative interval (should throw)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.month = 6;
+        interval.is_neg = true;
+
+        EXPECT_THROW(result.date_set_interval<TimeUnit::QUARTER>(interval), Exception);
+    }
+
+    // Test YEAR unit with negative interval (should throw)
+    {
+        DateV2Value<DateTimeV2ValueType> result = dt;
+        TimeInterval interval;
+        interval.year = 1;
+        interval.is_neg = true;
+
+        EXPECT_THROW(result.date_set_interval<TimeUnit::YEAR>(interval), Exception);
+    }
+}
+
+TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
+    // Test leap year handling
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        dt.from_date_str("2020-02-29 12:00:00", 19); // Leap year
+        TimeInterval interval(TimeUnit::YEAR, 1, false);
+        EXPECT_TRUE(dt.date_add_interval<TimeUnit::YEAR>(interval));
+        EXPECT_EQ(dt.year(), 2021);
+        EXPECT_EQ(dt.month(), 2);
+        EXPECT_EQ(dt.day(), 28);
+    }
+
+    // Test month overflow
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        dt.from_date_str("2022-01-31 12:00:00", 19);
+        TimeInterval interval(TimeUnit::MONTH, 1, false);
+        EXPECT_TRUE(dt.date_add_interval<TimeUnit::MONTH>(interval));
+        EXPECT_EQ(dt.year(), 2022);
+        EXPECT_EQ(dt.month(), 2);
+        EXPECT_EQ(dt.day(), 28);
+    }
+
+    // Test day overflow causing month change
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        dt.from_date_str("2022-01-25 20:00:00", 19);
+        TimeInterval interval(TimeUnit::HOUR, 100, false); // 100 hours = 4+ days
+        EXPECT_TRUE(dt.date_add_interval<TimeUnit::HOUR>(interval));
+        EXPECT_EQ(dt.year(), 2022);
+        EXPECT_EQ(dt.month(), 1);
+        EXPECT_EQ(dt.day(), 30);
+        EXPECT_EQ(dt.hour(), 0);
     }
 }
 
