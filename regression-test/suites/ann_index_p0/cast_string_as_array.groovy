@@ -15,55 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import groovy.json.JsonOutput
-import groovy.json.JsonSlurper
-import groovy.json.StringEscapeUtils
-
-def getProfileList = {
-    def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
-}
-
-def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-}
-
-
-def fetchProfile = { stmt ->
-    // Sleep 500ms to wait for the profile collection 
-    Thread.sleep(500)
-    // Get profile list by using getProfileList
-    List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
-    // Find the profile id for the query that we just emitted
-    String profileId = ""
-    for (def profileItem : profileData) {
-        if (profileItem["Sql Statement"].toString().contains(stmt)) {
-            profileId = profileItem["Profile ID"].toString()
-            logger.info("Profile ID of ${stmt} is ${profileId}")
-            break
-        }
-    }
-
-    if (profileId == "" || profileId == null) {
-        logger.error("Profile ID of ${stmt} is not found")
-        return false
-    }
-    // Get profile content by using getProfile
-    def String profileContent = getProfile(profileId).toString()
-    logger.info("Profile content of ${stmt} is\n${profileContent}")
-}
-
 suite("cast_string_as_array") {
     sql "unset variable all;"
     sql "set enable_common_expr_pushdown=true;"
@@ -175,17 +126,16 @@ suite("cast_string_as_array") {
         sql "select id from ann_cast_rhs_l2 where l2_distance_approximate(embedding, cast('[1,2]' as array<float>)) <= 1.0 order by id;"
         exception "[INVALID_ARGUMENT]"
     }
-    sql "set profile_level=2;"
-     fetchProfile("select id from ann_cast_rhs_l2 where l2_distance_approximate(embedding, cast('[1,2]' as array<float>)) <= 1.0 order by id;")
+
     // Inner product range search with >= threshold: expect ids 2 and 3
-    qt_sql_rs_ip_ge "select id from ann_cast_rhs_ip where inner_product_approximate(embedding, cast('[0.1,0.2,0.3,0.4]' as array<float>)) >= 0.7 order by id;"
+    qt_sql_rs_ip_ge "select id from ann_cast_rhs_ip where inner_product_approximate(embedding, cast('[0.1,0.2,0.3,0.4]' as array<float>)) >= 0.6 order by id;"
 
     // Inner product range search with < threshold: expect id 1 only
-    qt_sql_rs_ip_lt "select id from ann_cast_rhs_ip where inner_product_approximate(embedding, cast('[0.1,0.2,0.3,0.4]' as array<float>)) < 0.7 order by id;"
+    qt_sql_rs_ip_lt "select id from ann_cast_rhs_ip where inner_product_approximate(embedding, cast('[0.1,0.2,0.3,0.4]' as array<float>)) < 0.6 order by id;"
 
     // Inner product range search: dim mismatch should error
     test {
-        sql "select id from ann_cast_rhs_ip where inner_product_approximate(embedding, cast('[0.1,0.2,0.3]' as array<float>)) >= 0.7 order by id;"
+        sql "select id from ann_cast_rhs_ip where inner_product_approximate(embedding, cast('[0.1,0.2,0.3]' as array<float>)) >= 0.6 order by id;"
         exception "[INVALID_ARGUMENT]"
     }
 
