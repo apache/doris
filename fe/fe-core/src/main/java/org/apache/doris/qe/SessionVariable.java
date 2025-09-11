@@ -811,11 +811,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static double getSkewValueThreshold() {
         if (ConnectContext.get() != null) {
-            if (ConnectContext.get().getState().isInternal()) {
-                return 0.0;
-            } else {
-                return ConnectContext.get().getSessionVariable().skewValueThreshold;
-            }
+            return ConnectContext.get().getSessionVariable().skewValueThreshold;
         } else {
             return Double.parseDouble(VariableMgr.getDefaultValue(SKEW_VALUE_THRESHOLD));
         }
