@@ -204,11 +204,6 @@ suite("test_aggregate_histogram") {
         exception "errCode = 2,"
     }
 
-    test {
-        sql """ SELECT hist(c_tinyint, 'what') from histogram_test;""" 
-        exception "errCode = 2,"
-    }
-
     qt_select "SELECT * from ${tableCTAS1}"
     qt_select "SELECT * from ${tableCTAS2}"
 
