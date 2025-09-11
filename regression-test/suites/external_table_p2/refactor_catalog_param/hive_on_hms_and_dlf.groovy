@@ -166,6 +166,40 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
               'cos.endpoint' = '${cos_endpoint}'
     """
 
+    /***************OBS*******************/
+    String obs_ak = context.config.otherConfigs.get("hwYunAk")
+    String obs_sk = context.config.otherConfigs.get("hwYunSk")
+    String obs_endpoint =context.config.otherConfigs.get("hwYunEndpoint")
+    String obs_region = context.config.otherConfigs.get("hwYunRegion")
+    String obs_region_param = """
+              'obs.region' = '${obs_region}',
+    """
+
+    String obs_parent_path = context.config.otherConfigs.get("hwYunBucket")
+
+    String obs_storage_properties = """
+              'obs.access_key' = '${obs_ak}',
+              'obs.secret_key' = '${obs_sk}',
+              'obs.endpoint' = '${obs_endpoint}'
+    """
+    /***************GCS*******************/
+    String gcs_ak = context.config.otherConfigs.get("GCSAk")
+    String gcs_sk = context.config.otherConfigs.get("GCSSk")
+    String gcs_endpoint = "storage.googleapis.com"
+
+    String gcs_parent_path = "selectdb-qa-datalake-test";
+    String gcs_storage_old_properties = """
+              'gs.access_key' = '${gcs_ak}',
+              'gs.secret_key' = '${gcs_sk}',
+              'gs.endpoint' = '${gcs_endpoint}'
+    """
+    String gcs_storage_new_properties = """
+              'fs.gcs.support' = 'true',
+              'gs.access_key' = '${gcs_ak}',
+              'gs.secret_key' = '${gcs_sk}'
+            
+    """
+
     /****************HDFS*******************/
     //simple
     String hdfs_parent_path = "hdfs://${externalEnvIp}:8320/user/hive/warehouse"
@@ -226,8 +260,23 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     String hms_type_properties = """
         "type"="hms",
     """
+    //OBS
+    String db_location = "obs://${obs_parent_path}/hive/hms/" + System.currentTimeMillis()
+    testQueryAndInsert(hms_properties + obs_storage_properties, "hive_hms_obs_test", db_location)
+    testQueryAndInsert(hms_properties + obs_region_param + obs_storage_properties, "hive_hms_obs_test_region", db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + obs_storage_properties, "hive_hms_on_obs_kerberos_old", db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + obs_storage_properties, "hive_hms_on_obs_kerberos_new", db_location)
+    //GCS
+    if(context.config.otherConfigs.get("enableGCS")){
+        db_location = "gs://${gcs_parent_path}/hive/hms/" + System.currentTimeMillis()
+        testQueryAndInsert(hms_properties + gcs_storage_old_properties, "hive_hms_gcs_test", db_location)
+        testQueryAndInsert(hms_properties + gcs_storage_new_properties, "hive_hms_gcs_test_new", db_location)
+        testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + gcs_storage_old_properties, "hive_hms_on_gcs_kerberos_old", db_location)
+        testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + gcs_storage_new_properties, "hive_hms_on_gcs_kerberos_new", db_location)
+    }
+       
     //COS
-    String db_location = "cosn://${cos_parent_path}/hive/hms/" + System.currentTimeMillis()
+    db_location = "cosn://${cos_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + cos_storage_properties, "hive_hms_cos_test", db_location)
     testQueryAndInsert(hms_properties + cos_region_param + cos_storage_properties, "hive_hms_cos_test_region", db_location)
     testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + cos_storage_properties, "hive_hms_on_cos_kerberos_old", db_location)
