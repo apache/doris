@@ -135,6 +135,7 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
         if (mustUseCte) {
             return false;
         }
+        // TODO with source repeat aggregate need to be supported cte split in future
         if (mustUseMulti) {
             return true;
         }
