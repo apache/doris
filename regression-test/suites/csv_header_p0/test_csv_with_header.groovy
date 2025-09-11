@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.Hdfs
+
 suite("test_csv_with_header") {
      //define format
     def format_csv = "csv"
@@ -53,18 +55,18 @@ suite("test_csv_with_header") {
                 DATA INFILE("${hdfsFilePath}") 
                 INTO TABLE ${testTable1} COLUMNS TERMINATED BY "," 
                 FORMAT as "${format1}" )
-                with BROKER "${brokerName}" 
-                ("username"="${hdfsUser}", "password"="${hdfsPasswd}")
+                with HDFS 
+                ("username"="${hdfsUser}", "password"="${hdfsPasswd}", "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
         """
     }
 
     def check_import_result = {checklabel, testTable4, expected_rows->
-        max_try_secs = 100000
+        def max_try_secs = 100000
         while(max_try_secs--) {
             def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
                 sql "sync"
-                result_count = sql "select count(*) from ${testTable4}"
+                def result_count = sql "select count(*) from ${testTable4}"
                 assertEquals(result_count[0][0], expected_rows)
                 break
             } else {
@@ -118,25 +120,26 @@ suite("test_csv_with_header") {
 
     if (enableHdfs()) {
         //test import data from hdfs
-        hdfsUser = getHdfsUser()
-        brokerName =getBrokerName()
-        hdfsPasswd = getHdfsPasswd()
-        hdfsFs = getHdfsFs()
+        def hdfsUser = getHdfsUser()
+        def brokerName =getBrokerName()
+        def hdfsPasswd = getHdfsPasswd()
+        def hdfsFs = getHdfsFs()
         //[broker load] test normal
         label = UUID.randomUUID().toString().replaceAll("-", "")
-        remote_csv_file = uploadToHdfs format_csv_file
-        export_result = import_from_hdfs.call(testTable, label, remote_csv_file, format_csv, brokerName, hdfsUser, hdfsPasswd)
+        logger.info("${format_csv_file}")
+        def remote_csv_file = uploadToHdfs("csv_header_p0/"+format_csv_file)
+        def export_result = import_from_hdfs.call(testTable, label, remote_csv_file, format_csv, brokerName, hdfsUser, hdfsPasswd)
         check_import_result.call(label, testTable, expect_rows * 4)
 
         //[broker load] csv_with_names
         label = UUID.randomUUID().toString().replaceAll("-", "")
-        remote_csv_file = uploadToHdfs format_csv_with_names_file
+        remote_csv_file = uploadToHdfs("csv_header_p0/"+format_csv_with_names_file)
         export_result = import_from_hdfs.call(testTable, label, remote_csv_file, format_csv_with_names, brokerName, hdfsUser, hdfsPasswd)
         check_import_result.call(label, testTable, expect_rows * 5)
 
          //[broker load] csv_with_names_and_types
         label = UUID.randomUUID().toString().replaceAll("-", "")
-        remote_csv_file = uploadToHdfs format_csv_with_names_and_types_file
+        remote_csv_file = uploadToHdfs("csv_header_p0/"+format_csv_with_names_and_types_file)
         export_result = import_from_hdfs.call(testTable, label, remote_csv_file, format_csv_with_names_and_types, brokerName, hdfsUser, hdfsPasswd)
         check_import_result.call(label, testTable, expect_rows * 6)
 
@@ -144,14 +147,15 @@ suite("test_csv_with_header") {
             sql """ EXPORT TABLE ${exportTable} 
                 TO "${hdfsPath}" 
                 PROPERTIES ("label" = "${exportLable}", "column_separator"=",","format"="${exportFormat}") 
-                WITH BROKER "${exportBrokerName}" ("username"="${exportUserName}", "password"="${exportPasswd}")
+                WITH HDFS ("username"="${exportUserName}", "password"="${exportPasswd}", "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
             """
         }
 
         def check_export_result = {checklabel1->
-            max_try_secs = 100000
+            def max_try_secs = 100000
             while(max_try_secs--) {
                 def result = sql "show export where label='${checklabel1}'"
+                logger.info("${result}")
                 if(result[0][2] == "FINISHED") {
                     break
                 } else {
@@ -162,6 +166,15 @@ suite("test_csv_with_header") {
                     }
                 }
             }
+        }
+        
+        def download_from_hdfs= {String label_path ->
+            def dataDir = "user/root/groovy/"
+            String hdfsFs1 = context.config.otherConfigs.get("hdfsFs")
+            String hdfsUser1 = context.config.otherConfigs.get("hdfsUser")
+            Hdfs hdfs = new Hdfs(hdfsFs1, hdfsUser1, dataDir)
+            logger.info("${label_path}")
+            return hdfs.downLoad(label_path)
         }
 
         def check_download_result={resultlist, fileFormat, expectedTotalRows->
@@ -175,37 +188,39 @@ suite("test_csv_with_header") {
                 totalLines += getTotalLine(oneFile)
                 deleteFile(oneFile)
             }
+            logger.info("${resultlist}")
             assertEquals(expectedTotalRows,totalLines)
         }
 
         sql "sync"
-        resultCount = sql "select count(*) from ${testTable}"
-        currentTotalRows = resultCount[0][0]
+        def resultCount = sql "select count(*) from ${testTable}"
+        def currentTotalRows = resultCount[0][0]
 
         // export table to hdfs format=csv
-        hdfsDataDir = getHdfsDataDir()
+        def hdfsDataDir = getHdfsDataDir()
         label = UUID.randomUUID().toString().replaceAll("-", "")
         export_to_hdfs.call(testTable, label, hdfsDataDir + "/" + label, format_csv, brokerName, hdfsUser, hdfsPasswd)
         check_export_result(label)
-        result = downloadExportFromHdfs(label + "/export-data")
+        def result = download_from_hdfs(label)
+        logger.info("${result}")
         check_download_result(result, format_csv, currentTotalRows)
 
         // export table to hdfs format=csv_with_names
         label = UUID.randomUUID().toString().replaceAll("-", "")
         export_to_hdfs.call(testTable, label, hdfsDataDir + "/" + label, format_csv_with_names, brokerName, hdfsUser, hdfsPasswd)
         check_export_result(label)
-        def result = downloadExportFromHdfs(label + "/export-data")
+        result = download_from_hdfs(label)
         check_download_result(result, format_csv_with_names, currentTotalRows)
 
         // export table to hdfs format=csv_with_names_and_types
         label = UUID.randomUUID().toString().replaceAll("-", "")
         export_to_hdfs.call(testTable, label, hdfsDataDir + "/" + label, format_csv_with_names_and_types, brokerName, hdfsUser, hdfsPasswd)
         check_export_result(label)
-        result = downloadExportFromHdfs(label + "/export-data")
+        result = download_from_hdfs(label)
         check_download_result(result, format_csv_with_names_and_types, currentTotalRows)
         
         // select out file to hdfs 
-        select_out_file = {outTable, outHdfsPath, outFormat, outHdfsFs, outBroker, outHdfsUser, outPasswd->
+        def select_out_file = {outTable, outHdfsPath, outFormat, outHdfsFs, outBroker, outHdfsUser, outPasswd->
             sql "sync"
             sql """
                 SELECT * FROM ${outTable}
@@ -213,31 +228,30 @@ suite("test_csv_with_header") {
                 FORMAT AS "${outFormat}"
                 PROPERTIES
                 (
-                    "broker.name" = "${outBroker}",
+                    "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}",
                     "column_separator" = ",",
                     "line_delimiter" = "\n",
                     "max_file_size" = "5MB",
-                    "broker.username"="${hdfsUser}",
-                    "broker.password"="${outPasswd}"
+                    "hadoop.username" = "${outHdfsUser}"
                 )
             """
         }
         // select out file to hdfs format=csv
         label = UUID.randomUUID().toString().replaceAll("-", "")
         select_out_file(testTable, hdfsDataDir + "/" + label + "/csv", format_csv, hdfsFs, brokerName, hdfsUser, hdfsPasswd)
-        result = downloadExportFromHdfs(label + "/csv")
+        result = download_from_hdfs(label)
         check_download_result(result, format_csv, currentTotalRows)
 
         // select out file to hdfs format=csv_with_names
         label = UUID.randomUUID().toString().replaceAll("-", "")
         select_out_file(testTable, hdfsDataDir + "/" + label + "/csv", format_csv_with_names, hdfsFs, brokerName, hdfsUser, hdfsPasswd)
-        result = downloadExportFromHdfs(label + "/csv")
+        result = download_from_hdfs(label)
         check_download_result(result, format_csv_with_names, currentTotalRows)
 
         // select out file to hdfs format=csv_with_names_and_types
         label = UUID.randomUUID().toString().replaceAll("-", "")
         select_out_file(testTable, hdfsDataDir + "/" + label + "/csv", format_csv_with_names_and_types, hdfsFs, brokerName, hdfsUser, hdfsPasswd)
-        result = downloadExportFromHdfs(label + "/csv")
+        result = download_from_hdfs(label)
         check_download_result(result, format_csv_with_names_and_types, currentTotalRows)
     }    
 }
