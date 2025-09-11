@@ -146,6 +146,7 @@ void MetaServiceImpl::begin_snapshot(::google::protobuf::RpcController* controll
             .tag("encoded_snapshot_full_key", hex(encoded_snapshot_full_key))
             .tag("instance_id", instance_id);
 
+    txn->enable_get_versionstamp();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -153,18 +154,17 @@ void MetaServiceImpl::begin_snapshot(::google::protobuf::RpcController* controll
         LOG(WARNING) << msg;
     }
 
-    // get committed version
-    int64_t committed_version = 0;
-    err = txn->get_committed_version(&committed_version);
+    // get versionstamp
+    std::string version_stamp;
+    err = txn->get_versionstamp(&version_stamp);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to get committed version, err={}", err);
+        msg = fmt::format("failed to get versionstamp, err={}", err);
         LOG(WARNING) << msg;
     }
-    Versionstamp version_stamp(committed_version, 0);
 
-    response->set_image_url("/snapshot/" + version_stamp.to_string() + "/");
-    response->set_snapshot_id(version_stamp.to_string());
+    response->set_image_url("/snapshot/" + version_stamp + "/");
+    response->set_snapshot_id(version_stamp);
 }
 
 void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* controller,
